@@ -829,6 +829,16 @@ function makeParagraphs( $val ) {
 			return '<p></p>';
 		},
 		
+		// Block of code
+		'#^\n`{3,}([\s\S]*)(^(?!\s)`{3,}.*$)\n#mU' =>
+		function( $m ) {
+			return
+			\sprintf(
+				'\n<pre><code>%s</code></pre>\n',
+				entities( trim( $m[1] , '`' ) )
+			);
+		},
+		
 		// Remove <br> tags inside <pre> and <code>
 		'#<(pre|code)>(.*)<\/\1>#ism'	=>
 		function( $m ) {
@@ -883,14 +893,15 @@ function html( string $value, $prefix = '' ) : string {
 	// Preliminary cleaning
 	$html		= pacify( $value, true );
 	
-	// Apply Markdown formatting
-	$html		= markdown( $html, $prefix );
-	
 	// Format linebreaks and code
 	$html		= makeParagraphs( $html );
 	
 	// Clean up HTML
 	$html		= tidyup( $html );
+	
+	// Apply Markdown formatting
+	$html		= markdown( $html, $prefix );
+	
 	
 	// Skip errors
 	$err		= \libxml_use_internal_errors( true );
@@ -1501,7 +1512,7 @@ function filterDir( $path ) {
 		return '';
 	}
 	$path	= \substr(  $path, $pos + $lp );
-	return \trim( $path ?? '' );
+	return \rtrim( \trim( $path ?? '' ), '.md' );
 }
 
 function postData( $raw ) {
@@ -1519,7 +1530,7 @@ function loadPost(
 			\sprintf( '%02d', $month ) . $s . 
 			\sprintf( '%02d', $day ) . $s . 
 			\ltrim( $slug, $s );
-	$data	= postData( POSTS . $path );
+	$data	= postData( POSTS . $path . '.md' );
 	
 	if ( empty( $data ) ) {
 		return '';
@@ -1630,6 +1641,9 @@ function loadIndex() {
 		
 		if ( $file->isDir() ) {
 			$lastDir	= $path;
+			if ( empty( $posts[$lastDir] ) ) {
+				$posts[$lastDir] = [];
+			}
 		} else {
 			// Check if it's a post
 			if ( !isPost( $file ) ) {
@@ -1651,7 +1665,7 @@ function loadIndex() {
 			metadata( $title, $perm, $pub, $post, $path );
 			
 			// Format metadata
-			$posts[$lastDir] = formatMeta( $title, $pub, $path );
+			$posts[$lastDir][] = formatMeta( $title, $pub, $path );
 		}
 	}
 	
@@ -1869,7 +1883,11 @@ function reindex( $params ) {
 	
 	$out	= '<ul class="index">';
 	foreach( $posts as $k => $v ) {
-		$out .= \strtr( TPL_INDEX, $v );
+		if ( is_array( $v ) ) {
+			foreach( $v as $p ) {
+				$out .= \strtr( TPL_INDEX, $p );
+			}
+		}
 	}
 	$out	.= '</ul>';
 	
@@ -1907,7 +1925,7 @@ $routes		= [
 	/**
 	 *  Generate archive cache
 	 */
-	[ 'get', 'reindex',				'reindex' ],
+	[ 'get', 'archive',				'reindex' ],
 	
 	/**
 	 *  Single post
