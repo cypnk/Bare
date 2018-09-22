@@ -27,6 +27,9 @@ define( 'PAGE_TITLE',	'Rustic Cyberpunk' );
 // Site subtitle/tagline
 define( 'PAGE_SUB',	'Coffee. Code. Cabins.' );
 
+// Site link
+define( 'PAGE_LINK',	'/' );
+
 // Number of posts per page
 define( 'PAGE_LIMIT',	12 );
 
@@ -830,11 +833,11 @@ function makeParagraphs( $val ) {
 		},
 		
 		// Block of code
-		'#^\n`{3,}([\s\S]*)(^(?!\s)`{3,}.*$)\n#mU' =>
+		'#^\n`{3,}([\s\S]*)(^(?!\s)`{3,}.*$)\n#smU' =>
 		function( $m ) {
 			return
 			\sprintf(
-				'\n<pre><code>%s</code></pre>\n',
+				'<pre><code>%s</code></pre>',
 				entities( trim( $m[1] , '`' ) )
 			);
 		},
@@ -861,17 +864,7 @@ function makeParagraphs( $val ) {
 			\sprintf( '<pre><code>%s</code></pre>', 
 				entities( \trim( $m[1] ) ) 
 			);
-		},
-		
-		// Inline code (untrimmed)
-		'/`(.*)`/i'			=>
-		function( $m ) {
-			return 
-			\sprintf( 
-				'<code>%s</code>', 
-				entities( $m[1] ) 
-			);
-		},
+		}
 	];
 	
 	$out = \preg_replace_callback_array( $filters, $out );
@@ -1120,6 +1113,16 @@ function markdown(
 		'/\n([^\n(\<\/ul|ol|li|h|blockquote|code|pre)?]+)\n/'		=>
 		function( $m ) {
 			return '</p><p>';
+		}, 
+		
+		// Inline code (untrimmed)
+		'/`(.*)`/i'			=>
+		function( $m ) {
+			return 
+			\sprintf( 
+				'<code>%s</code>', 
+				entities( $m[1] ) 
+			);
 		}
 	];
 	
@@ -1836,6 +1839,7 @@ function feed( $params ) {
 	
 	$tpl	= [
 		'{page_title}'	=> PAGE_TITLE,
+		'{home}'	=> PAGE_LINK,
 		'{tagline}'	=> PAGE_SUB,
 		'{date_gen}'	=> dateRfc(),
 		'{body}'	=> \implode( '', $posts )
