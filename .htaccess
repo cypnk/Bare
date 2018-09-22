@@ -1,0 +1,18 @@
+Options +FollowSymLinks
+RewriteEngine on
+
+# All files not ending in these specific extensions
+RewriteCond %{REQUEST_URI} !\.(jpe?g|bmp|png|gif|css|js|mp4|mp3|ogg|html|txt)$ [NC]
+
+# All requests to /data folder
+RewriteCond %{REQUEST_URI} ^/data [NC]
+
+# All requests to readme files
+RewriteCond %{REQUEST_URI} ^/readme [NC]
+
+# All files and folders that don't exist
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+
+# Send to /index.php (including any query strings added at the end)
+RewriteRule ^.*$ /index.php [L,QSA]
