@@ -116,7 +116,7 @@ article,main {
     margin: 0 auto
 }
 
-header time {
+header time, ul.index time {
     font-size: .8em;
     text-transform: uppercase;
     letter-spacing: .04em;
@@ -205,6 +205,14 @@ nav ul li {
 .center {
     display: block;
     text-align: center
+}
+
+ul.index li {
+	margin-bottom: 1em;
+}
+
+ul.index li time {
+	display: block;
 }
 
 @media screen and ( max-width: 800px ) {
