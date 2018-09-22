@@ -243,6 +243,7 @@ JSON
  */
 define( 'MSG_NOTFOUND',		'Page not found' );
 define( 'MSG_NOROUTE',		'No route defined' );
+define( 'MSG_CODEDETECT',	'Server-side code detected' );
 
 
 /**
