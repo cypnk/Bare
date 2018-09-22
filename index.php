@@ -3,6 +3,7 @@
  *  Bare: A single file directory-to-blog
  */
 
+
 /**
  *  Relative path based on current file location
  */
@@ -372,11 +373,11 @@ function cachePath(
  *  @param string	$dir	Directory to make / set permissions
  */
 function writeDir( string $dir ) {
+	$o = \umask( 0 );
 	if ( !\is_dir( $dir ) ) {
-		//$o = \umask( 0 );
 		\mkdir( $dir, 0644, true );
-		//\usmask( $o );
 	}
+	\umask( $o );
 }
 
 /**
