@@ -1546,6 +1546,7 @@ function loadPost(
 			\sprintf( '%02d', $month ) . $s . 
 			\sprintf( '%02d', $day ) . $s . 
 			\ltrim( $slug, $s );
+	
 	$data	= postData( POSTS . $path . '.md' );
 	
 	if ( empty( $data ) ) {
@@ -1675,7 +1676,7 @@ function loadIndex() {
 			if ( empty( $post ) || false == $post ) {
 				continue;
 			}
-			$post		= \array_slice( $post, 0, 2 );
+			$post		= \array_slice( $post, 0, 1 );
 			
 			// Apply metadata
 			metadata( $title, $perm, $pub, $post, $path );
@@ -1731,7 +1732,7 @@ function formatPost(
 	$data	= formatMeta( $title, $pub, $perm );
 	
 	// Everything else is the body
-	$post	= \array_slice( $post, 2 );
+	$post	= \array_slice( $post, 1 );
 	$data['{body}'] = html( \implode( "\n", $post ) ); 
 	
 	return \strtr( $tpl, $data );
@@ -1750,7 +1751,7 @@ function filterRequest( array $params ) {
 			]
 		],
 		'year'	=> [
-			'filter'	=> \FILTER_VALIDATE_INT,
+			'filter'	=> \FILTER_SANITIZE_NUMBER_INT,
 			'options'	=> [
 				'min_range'	=> YEAR_START,
 				'max_range'	=> YEAR_END,
@@ -1759,7 +1760,7 @@ function filterRequest( array $params ) {
 			]
 		],
 		'month'	=> [
-			'filter'	=> \FILTER_VALIDATE_INT,
+			'filter'	=> \FILTER_SANITIZE_NUMBER_INT,
 			'options'	=> [
 				'min_range'	=> 1,
 				'max_range'	=> 12,
@@ -1768,7 +1769,7 @@ function filterRequest( array $params ) {
 			]
 		],
 		'day'	=> [
-			'filter'	=> \FILTER_VALIDATE_INT,
+			'filter'	=> \FILTER_SANITIZE_NUMBER_INT,
 			'options'	=> [
 				'min_range'	=> 1,
 				'max_range'	=> 31,
@@ -1866,11 +1867,13 @@ function feed( $params ) {
  */
 function post( $params ) {
 	$data	= filterRequest( $params );
+	$date	= enforceDates( $data );
+	
 	$post	= 
 	loadPost( 
-		$data['year'], 
-		$data['month'], 
-		$data['day'], 
+		( int ) $date[0], 
+		( int ) $date[1], 
+		( int ) $date[2], 
 		$data['slug'] 
 	);
 	
