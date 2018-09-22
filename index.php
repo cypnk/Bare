@@ -362,8 +362,8 @@ function cachePath(
 	
 	// Iterate through segments and create each directory
 	foreach ( $parts as $part ) {
+		writeDir( $segs . $part );
 		$segs .= $part . $s;
-		writeDir( $segs );
 	}
 	
 	return $segs . $key;
@@ -377,11 +377,9 @@ function cachePath(
  *  @param string	$dir	Directory to make / set permissions
  */
 function writeDir( string $dir ) {
-	$o = \umask( 0 );
 	if ( !\is_dir( $dir ) ) {
-		\mkdir( $dir, 0644, true );
+		\mkdir( $dir, 0755, true );
 	}
-	\umask( $o );
 }
 
 /**
