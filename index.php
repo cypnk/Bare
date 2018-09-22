@@ -1481,9 +1481,9 @@ function route( $routes ) {
  *  Application
  */
 function getPosts( string $root = '' ) {
-	static $it =	[];
-	if ( isset( $it[$root] ) ) {
-		return $it[$root];
+	static $st =	[];
+	if ( isset( $st[$root] ) ) {
+		return $st[$root];
 	}
 	
 	try {
@@ -1492,14 +1492,28 @@ function getPosts( string $root = '' ) {
 			POSTS . $root, 
 			\FilesystemIterator::FOLLOW_SYMLINKS
 		);
-		$it[$root]	= 
+		$it		= 
 		new \RecursiveIteratorIterator( 
 			$dir, 
 			\RecursiveIteratorIterator::SELF_FIRST,
 			\RecursiveIteratorIterator::CATCH_GET_CHILD 
 		);
 		
-		return $it[$root];
+		// Temp array for sorting
+		$tmp		= [];
+		foreach( $it as $f ) {
+			$tmp[]	= $f;
+		}
+		
+		// Sort by filename
+		\usort( $tmp, function( $a, $b ) {
+			return 
+			$a->getRealPath() <=> $b->getRealPath() > 0 ? 
+			false : true;
+		});
+		
+		$st[$root]	= $tmp;
+		return $tmp;
 		
 	} catch( \Exception $e ) {
 		return null;
