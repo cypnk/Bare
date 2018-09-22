@@ -1,4 +1,7 @@
 <?php declare( strict_types = 1 );
+/**
+ *  Bare: A single file directory-to-blog
+ */
 
 /**
  *  Relative path based on current file location
