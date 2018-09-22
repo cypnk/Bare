@@ -1,0 +1,236 @@
+* {
+    box-sizing: border-box;
+    outline: none;
+    margin: 0;
+    padding: 0
+}
+
+html,body,div,form,article,aside,details,figcaption,figure,footer,header,hgroup,main,nav,section,summary,blockquote,p {
+    display: block
+}
+
+audio,canvas,video {
+    display: inline-block
+}
+
+audio:not([controls]) {
+    display: none;
+    height: 0
+}
+
+html {
+    font-size: 100%
+}
+
+body {
+    font: 400 1em sans-serif;
+    line-height: 1.8em;
+    color: #505050;
+    background: #ececea
+}
+
+h1,h2,h3,h4,h5,h6,header p {
+    line-height: 1.6em;
+    margin: 0
+}
+
+h1,h2,h3,h4,h5,h6 {
+    font-family: Georgia,serif;
+    color: #3b3738
+}
+
+h1,h2,h3,h4 {
+    font-weight: 400
+}
+
+h1 {
+    font-size: 1.6em
+}
+
+article header h1 {
+    font-size: 2.2em;
+    line-height: 1.4em
+}
+
+h2 {
+    font-size: 1.8em
+}
+
+h3 {
+    font-size: 1.6em
+}
+
+h4 {
+    font-size: 1.4em
+}
+
+h5 {
+    font-size: 1.2em
+}
+
+h6 {
+    font-size: 1em
+}
+
+p {
+    margin-bottom: 1em
+}
+
+header p {
+    margin: 0
+}
+
+a {
+    text-decoration: underline;
+    color: #258
+}
+
+a:visited {
+    color: #255
+}
+
+h1 a,h2 a,h3 a,h4 a,h1 a:visited,h2 a:visited,h3 a:visited,h4 a:visited {
+    font-weight: 400;
+    color: #444
+}
+
+h1 a,h2 a,h3 a,h4 a,h5 a,h6 a,.mark a {
+    text-decoration: none;
+    text-transform: none;
+    color: #3b3738
+}
+
+code,kbd,pre,samp {
+    font-family: monospace,serif;
+    font-size: 1em
+}
+
+header {
+    margin: 2em auto 1em;
+    text-align: center;
+    line-height: 1.4em
+}
+
+article,main {
+    max-width: 640px;
+    margin: 0 auto
+}
+
+header time {
+    font-size: .8em;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    line-height: 1.4em
+}
+
+footer {
+    font-size: .8em;
+    border-top: 1px solid #999
+}
+
+.mark {
+    text-align: center;
+    display: block;
+    clear: both
+}
+
+.mark:before,.mark:after {
+    content: ' ';
+    width: 30%;
+    display: block;
+    vertical-align: middle;
+    padding: .8em 0 0;
+    border-bottom: 1px solid #999
+}
+
+header .mark:before,header .mark:after {
+    width: 33%
+}
+
+.mark:before,legend:before {
+    float: left
+}
+
+.mark:after,legend:after {
+    float: right
+}
+
+.post {
+    margin: 1em 0 5em
+}
+
+.post header {
+    border-bottom: 1px solid #999;
+    margin-bottom: 1em;
+    padding: 0 0 .7em
+}
+
+.post blockquote {
+    width: 90%;
+    max-width: 600px;
+    margin: 2em auto;
+    font-style: italic;
+    color: #666
+}
+
+a img {
+    border: 0
+}
+
+.post img {
+    display: block;
+    height: auto;
+    width: 100%;
+    margin-left: auto;
+    margin-right: auto
+}
+
+ul,ol {
+    margin: 1em
+}
+
+ul li,ol li {
+    padding: .2em 1em
+}
+
+nav ul, ul.index {
+    list-style: none;
+    margin: 1em 0
+}
+
+nav ul li {
+    display: inline-block
+}
+
+.center {
+    display: block;
+    text-align: center
+}
+
+@media screen and ( max-width: 800px ) {
+    .mark:before,.mark:after,header .mark:before,header .mark:after {
+        width:30%
+    }
+}
+
+@media screen and ( max-width: 640px ) {
+    .block {
+        margin:0 1em
+    }
+
+    .mark:before,.mark:after,header .mark:before,header .mark:after {
+        width: 20%
+    }
+}
+
+@media screen and ( max-width: 400px ) {
+    .mark:before,.mark:after,header .mark:before,header .mark:after {
+        display:none
+    }
+
+    .post header {
+        border: 0;
+        border-top: 1px solid #444;
+        padding-top: 1em
+    }
+}
