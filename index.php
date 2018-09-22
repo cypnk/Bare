@@ -1,10 +1,6 @@
 <?php declare( strict_types = 1 );
 
 /**
- *  Bare: A single file directory-to-blog
- */
-
-/**
  *  Relative path based on current file location
  */
 define( 'PATH',		\realpath( \dirname( __FILE__ ) ) . '/' );
@@ -34,7 +30,7 @@ define( 'PAGE_LIMIT',	12 );
 define( 'MAX_PAGE',	500 );
 
 // Starting date for post archive
-define( 'YEAR_START',	2010 );
+define( 'YEAR_START',	2015 );
 
 // Ending date for post archive
 define( 'YEAR_END',	2099 );
@@ -49,7 +45,7 @@ define( 'TPL_PAGE',		<<<HTML
 <meta name="viewport" content="width=device-width">
 <link rel="alternate" type="application/rss+xml" title="{page_title}" href="/feed">
 <title>{page_title}</title>
-<link rel="stylesheet" href="/style.min.css?=13">
+<link rel="stylesheet" href="/style.min.css">
 </head>
 <body>
 <main class="block">
@@ -326,42 +322,45 @@ function paginate( $page, $prefix, $posts ) {
 	return '<nav><ul>' . $out . '</ul></nav>';
 }
 
+
 /**
  *  Caching
  */
+
 /**
  *  Create cache save path based on current cache directory
  *  
  *  @param string	$key	Generated cache key
  *  @param bool		$create Create path structure if true
  *  @param string	$root	Default page root to begin
+ *  @param int		$size	Path chunk size
  *  @return string
  */
 function cachePath(
 	string		$key,
 	bool		$create,
-	string		$root		= \CACHE
+	string		$root		= \CACHE,
+	int		$size		= 8
 ) : string {
-	$s	= \DIRECTORY_SEPARATOR;
-	$segs	= \rtrim( $root, '/' ) . $s;
-	$parts	= \str_split( $key, 8 );
-		
+	$s	= '/';
+	$segs	= \rtrim( $root, $s ) . $s;
+	$parts	= \str_split( $key, $size );
+	
 	// Only getting creation path
 	if ( !$create ) {
 		return
-		$segs . '/' . \implode( '/', $parts ) . '/' . $key;
+		$segs . $s . \implode( $s, $parts ) . $s . $key;
 	}
 	
 	// Iterate through segments and create each directory
 	foreach ( $parts as $part ) {
 		$segs .= $part . $s;
-		var_dump( $segs );
 		writeDir( $segs );
 	}
 	
 	return $segs . $key;
 }
-	
+
 /**
  *  Create a directory if it doesn't exist
  *  Owner: read/write
@@ -371,9 +370,9 @@ function cachePath(
  */
 function writeDir( string $dir ) {
 	if ( !\is_dir( $dir ) ) {
-		$o = \umask( 0 );
+		//$o = \umask( 0 );
 		\mkdir( $dir, 0644, true );
-		usmask( $o );
+		//\usmask( $o );
 	}
 }
 
@@ -430,8 +429,15 @@ function saveCache( string $uri, string $content ) : bool {
 		return false;
 	}
 	
-	return 
-	\file_put_contents( $path, $content ) ? true : false;
+	$dir	= \realpath( \dirname( $path ) );
+	
+	// Check if subpath creation was successful
+	if ( false !== $dir && \is_dir( $dir ) ) {
+		return 
+		\file_put_contents( $path, $content ) ? true : false;
+	}
+	
+	return false;
 }
 
 
@@ -453,17 +459,21 @@ function dateNice( $stamp = null ) : string {
 	return \gmdate( DATE_NICE, \strtotime( $stamp ) );
 }
 
+/**
+ *  Build permalink with page slug with date
+ */
 function dateSlug( string $slug, string $stamp ) {
 	return 
-		\gmdate( '/Y/m/d/', \strtotime( $stamp ) ) . 
-		\ltrim( $slug, '/' );
+	\gmdate( '/Y/m/d/', \strtotime( $stamp ) ) . 
+	\ltrim( $slug, '/' );
 }
 
 /**
  *  Feed timestamp
  */
 function dateRfc( $stamp = null ) : string {
-	return \gmdate( \DATE_RFC2822, \strtotime( $stamp ?? 'now' ) );
+	return 
+	\gmdate( \DATE_RFC2822, \strtotime( $stamp ?? 'now' ) );
 }
 
 /**
@@ -524,21 +534,21 @@ function enforceDates( array $args ) : array {
 	$now	= time();
 	
 	// Requested year/month/day
-	$year		= ( int ) ( $args['year'] ?? date( 'Y', $now ) );
-	$month		= ( int ) ( $args['month'] ?? date( 'n', $now ) );
-	$day		= ( int ) ( $args['day'] ?? date( 'j', $now ) );
+	$year		= ( int ) ( $args['year'] ?? \date( 'Y', $now ) );
+	$month		= ( int ) ( $args['month'] ?? \date( 'n', $now ) );
+	$day		= ( int ) ( $args['day'] ?? \date( 'j', $now ) );
 	
 	// Current year/month/day
-	$m		= ( int ) date( 'n', $now );
-	$y		= ( int ) date( 'Y', $now );
-	$d		= ( int ) date( 'j', $now );
+	$y		= ( int ) \date( 'Y', $now );
+	$m		= ( int ) \date( 'n', $now );
+	$d		= ( int ) \date( 'j', $now );
 	
 	// Enforce date ranges
 	$year		= ( $year > $y || $year < YEAR_START ) ? 
 				$y : $year;
 	
 	// Current year? Enforce month to current month
-	if ( $y == $year ) { 
+	if ( $y == $year ) {
 		$month	= ( $month > $m || $month <= 0 ) ? 
 				$m : $month;
 	
@@ -561,6 +571,7 @@ function enforceDates( array $args ) : array {
 		}
 	}
 	
+	// Format date to string array
 	return [
 		( string ) $year, 
 		\sprintf( '%02d', $month ), 
@@ -580,6 +591,7 @@ function encode( array $data ) : string {
 		\JSON_PRETTY_PRINT 
 	);
 }
+
 /**
  *  Safely decode JSON to array
  */
@@ -614,8 +626,7 @@ function pacify(
 	// Remove control chars except linebreaks/tabs etc...
 	$html		= 
 	\preg_replace(
-		'/[\x00-\x08\x0B\x0C\x0E-\x1F\x80-\x9F]/u', 
-		'', $html
+		'/[\x00-\x08\x0B\x0C\x0E-\x1F\x80-\x9F]/u', '', $html
 	);
 	
 	// Non-characters
@@ -641,8 +652,6 @@ function pacify(
 	return \trim( $html );
 }
 
-
-	
 /**
  *  HTML safe character entities in UTF-8
  *  
@@ -651,8 +660,8 @@ function pacify(
  *  @return string
  */
 function entities( 
-		string		$v, 
-		bool		$quotes	= true 
+	string		$v, 
+	bool		$quotes	= true 
 ) : string {
 	if ( $quotes ) {
 		$v	=
@@ -687,6 +696,7 @@ function cleanUrl(
 	bool		$xss		= true, 
 	string		$prefix	= '' 
 ) : string {
+	// Nothing to clean
 	if ( empty( $txt ) ) {
 		return '';
 	}
@@ -790,12 +800,11 @@ function scrub(
  * @param string	$val	Filter variable
  */
 function makeParagraphs( $val ) {
-	
 	/**
 	 * Convert newlines to linebreaks first
 	 * This is why PHP both sucks and is awesome at the same time
 	 */
-	$out = nl2br( $val );
+	$out = \nl2br( $val );
 	
 	$filters	= 
 	[
@@ -829,16 +838,6 @@ function makeParagraphs( $val ) {
 		'#</([\w\d]+)>(\s*<br\s*/?>)#'	=> 
 		function( $m ) {
 			return '</' . $m[1] . '>';
-		},
-		
-		// Block of code
-		'/^\n`{3,}([\s\S]*)(^(?!\s)`{3,}.*$)\n/gmU' =>
-		function( $m ) {
-			return
-			\sprintf(
-				'\n<pre><code>%s</code></pre>\n',
-				entities( trim( $m[1] , '`' ) )
-			);
 		},
 		
 		// Format inside code tags
@@ -961,7 +960,7 @@ function tidyup( string $text ) : string {
 		'wrap'					=> 0
 	];
 	
-	return \trim( \tidy_repair_string( $text, $opt ) );	
+	return \trim( \tidy_repair_string( $text, $opt ) );
 }
 
 /**
@@ -1009,7 +1008,6 @@ function embeds( string $html ) : string {
 	);
 }
 
-
 /**
  *  Convert Markdown formatted text into HTML tags
  *  
@@ -1020,7 +1018,10 @@ function embeds( string $html ) : string {
  *  @param string	$prefix	URL prefix to prepend text
  *  @return string
  */
-function markdown( $html, $prefix = '' ) {
+function markdown(
+	string	$html,
+	string	$prefix = '' 
+) {
 	$filters	= 
 	[
 		// Links / Images with alt text
@@ -1047,7 +1048,7 @@ function markdown( $html, $prefix = '' ) {
 					return \sprintf( "<del>%s</del>", $t );
 					
 				case ( false !== \strpos( $m[1], ':' ) ):
-						return \sprintf( "<q>%s</q>", $t );
+					return \sprintf( "<q>%s</q>", $t );
 						
 				default:
 					return ( $i > 1 ) ?
@@ -1110,6 +1111,7 @@ function markdown( $html, $prefix = '' ) {
 	return
 	\trim( \preg_replace_callback_array( $filters, $html ) );
 }
+
 
 /**
  *  HTTP Response
@@ -1373,7 +1375,7 @@ function send(
  */
 function cleanRoute( array $markers, string $route ) {
 	$route	= \strtr( $route, $markers );
-	$regex	= str_replace( '.', '\.', $route );
+	$regex	= \str_replace( '.', '\.', $route );
 	return '@^/' . $route . '/?$@i';
 }
 
@@ -1395,7 +1397,7 @@ function filterParams( array $params ) {
  */
 function route( $routes ) {
 	$path	= $_SERVER['REQUEST_URI'];
-	$verb	= strtolower( $_SERVER['REQUEST_METHOD'] );
+	$verb	= \strtolower( $_SERVER['REQUEST_METHOD'] );
 	
 	// Check directory traversal or XSS
 	if ( 
@@ -1432,7 +1434,7 @@ function route( $routes ) {
 		$markers = decode( ROUTE_MARK );
 	}
 	
-	sort( $routes );
+	\sort( $routes );
 	
 	// Begin matching
 	foreach( $routes as $map ) {
@@ -1455,8 +1457,6 @@ function route( $routes ) {
 	
 	send( 404, MSG_NOTFOUND );
 }
-
-
 
 /**
  *  Application
@@ -1510,10 +1510,11 @@ function loadPost(
 	int	$day,
 	string	$slug
 ) {
-	$path	= $year . '/' .  
-			\sprintf( '%02d', $month ) . '/' . 
-			\sprintf( '%02d', $day ) . '/' . 
-			ltrim( $slug, '/' );
+	$s	= '/';
+	$path	= $year . $s .  
+			\sprintf( '%02d', $month ) . $s . 
+			\sprintf( '%02d', $day ) . $s . 
+			\ltrim( $slug, $s );
 	$data	= postData( POSTS . $path );
 	
 	if ( empty( $data ) ) {
@@ -1527,18 +1528,18 @@ function loadPost(
  *  Get published date from path
  */
 function getPub( $path ) : string {
-	return utc( substr( $path, 0, strrpos( $path, '/' ) ) );	
+	return utc( \substr( $path, 0, \strrpos( $path, '/' ) ) );	
 }
 
 function checkPub( $pub ) : bool {
-	if ( strtotime( $pub ) <= time() ) {
+	if ( \strtotime( $pub ) <= time() ) {
 		return true;
 	}
 	
 	return false;
 }
 
-function isPost( $file ) : false {
+function isPost( $file ) : bool {
 	// Skip directories
 	if ( $file->isDir() ) {
 		return false;
@@ -1550,6 +1551,7 @@ function isPost( $file ) : false {
 	}
 	return false;	
 }
+
 
 function loadPosts(
 	int	$page	= 1,
@@ -1568,16 +1570,15 @@ function loadPosts(
 	
 	foreach( $it as $file ) {
 		
-		// We're at the offset limit
-		if ( $i >= $end ) {
-			break;
-		}
-		
 		// Check if it's a post
 		if ( !isPost( $file ) ) {
 			continue;
 		}
 		
+		// We're at the offset limit
+		if ( $i >= $end ) {
+			break;
+		}
 		$raw		= $file->getRealPath();
 		$path		= filterDir( $raw );
 		if ( empty( $path ) ) {
@@ -1596,8 +1597,8 @@ function loadPosts(
 			$posts[$path]	= formatPost( $data, $path, $tpl );
 		}
 		
+		// Increment number of entries if published
 		if ( checkPub( $pub ) ) {
-			// Increment number of entries
 			$i++;
 		}
 	}
@@ -1617,15 +1618,15 @@ function loadIndex() {
 		if ( empty( $path ) ) {
 			continue;
 		}
+		
+		// Already added?
 		if ( \array_key_exists( $path, $posts ) ) {
 			continue;
 		}
 		
-		// Directory has been created
 		if ( $file->isDir() ) {
 			$lastDir	= $path;
 		} else {
-			
 			// Check if it's a post
 			if ( !isPost( $file ) ) {
 				continue;
@@ -1652,7 +1653,6 @@ function loadIndex() {
 	
 	return \array_filter( $posts );
 }
-
 
 /**
  *  Extract and filter metadata
@@ -1697,7 +1697,7 @@ function formatPost(
 	$data	= formatMeta( $title, $pub, $perm );
 	
 	// Everything else is the body
-	$post	= array_slice( $post, 2 );
+	$post	= \array_slice( $post, 2 );
 	$data['{body}'] = html( \implode( "\n", $post ) ); 
 	
 	return \strtr( $tpl, $data );
@@ -1763,27 +1763,28 @@ function archive( $params ) {
 	$data	= filterRequest( $params );
 	$page	= ( int ) ( $data['page'] ?? 1 );
 	$prefix	= '';
+	$s	= '/';
 	
 	// Full archive
 	if ( empty( $params['year'] ) ) {
 		$posts	= loadPosts( $page );
-		$prefix	= '/';
+		$prefix	= $s;
 	
 	// Starting from year?
 	} else {
 		// Filter dates
 		$date	= enforceDates( $params );
-		$stamp	= $date[0] . '/';
+		$stamp	= $date[0] . $s;
 		
 		// Including month?
 		if ( !empty( $params['month'] ) ) {
 			// Including day?
 			$stamp	.= 
 			empty( $params['day'] ) ?
-				$date[1] : $date[1] . '/' . $date[2];
+				$date[1] : $date[1] . $s . $date[2];
 		}
-		$stamp	= \trim( $stamp, '/' ) . '/';
-		$prefix	= '/' . $stamp;
+		$stamp	= \trim( $stamp, $s ) . $s;
+		$prefix	= $s . $stamp;
 		$posts	= loadPosts( $page, $stamp );
 	}
 	
@@ -1795,9 +1796,10 @@ function archive( $params ) {
 	
 	if ( empty( $posts ) ) {
 		$tpl['{body}']		= TPL_NOPOSTS;
-		$tpl['{paginate}']	= '';
+		$tpl['{paginate}']	= 
+		'<nav><ul><a href="/">Home</a></ul></nav>';
 	} else {
-		$tpl['{body}']		= implode( '', $posts );
+		$tpl['{body}']		= \implode( '', $posts );
 		$tpl['{paginate}']	= 
 		paginate( $page, $prefix, $posts );
 	}
@@ -1818,7 +1820,7 @@ function feed( $params ) {
 		'{page_title}'	=> PAGE_TITLE,
 		'{tagline}'	=> PAGE_SUB,
 		'{date_gen}'	=> dateRfc(),
-		'{body}'	=> implode( '', $posts )
+		'{body}'	=> \implode( '', $posts )
 	];
 	
 	send( 200, \strtr( TPL_FEED, $tpl  ), true, true );
@@ -1861,7 +1863,7 @@ function reindex( $params ) {
 		die( 'No posts created' );
 	}
 	
-	$out	= '<ul>';
+	$out	= '<ul class="index">';
 	foreach( $posts as $k => $v ) {
 		$out .= \strtr( TPL_INDEX, $v );
 	}
@@ -1875,7 +1877,7 @@ function reindex( $params ) {
 		'{footer}'	=> TPL_FOOTER
 	];
 	
-	send( 200, $data, true );
+	send( 200, \strtr( TPL_PAGE, $tpl ), true );
 }
 
 /**
@@ -1908,7 +1910,6 @@ $routes		= [
 	 */
 	[ 'get', ':year/:month/:day/:slug',		'post' ]
 ];
-
 
 // Run
 route( $routes );
