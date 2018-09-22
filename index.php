@@ -52,7 +52,7 @@ define( 'TPL_PAGE',		<<<HTML
 <meta name="viewport" content="width=device-width">
 <link rel="alternate" type="application/rss+xml" title="{page_title}" href="/feed">
 <title>{page_title}</title>
-<link rel="stylesheet" href="/style.min.css">
+<link rel="stylesheet" href="/style.css">
 </head>
 <body>
 <main class="block">
