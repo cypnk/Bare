@@ -3,9 +3,9 @@ A single file directory-to-blog
 
 Bare has no usernames, passwords, editors, file uploaders, or other  
 mechanisms that get in the way of writing your thoughts. Simply put your  
-posts in year/month/day/slug.md format, and Bare will publish it. You  
-also schedule posts to be published at a future date as bare will only  
-show posts from the current date and into the past.
+posts in *year/month/day/slug.md* format, and Bare will publish it. You  
+can also schedule posts to be published at a future date as bare will  
+only show posts from the current date and into the past.
 
 Bare will also create an archive of all posts and create a syndication  
 feed of the most recent ones.
