@@ -469,8 +469,8 @@ function dateNice( $stamp = null ) : string {
  *  Build permalink with page slug with date
  */
 function dateSlug( string $slug, string $stamp ) {
-	return 
-	\gmdate( '/Y/m/d/', \strtotime( $stamp ) ) . 
+	return PAGE_LINK . 
+	\gmdate( 'Y/m/d/', \strtotime( $stamp ) ) . 
 	\ltrim( $slug, '/' );
 }
 
@@ -1404,7 +1404,7 @@ function send(
 function cleanRoute( array $markers, string $route ) {
 	$route	= \strtr( $route, $markers );
 	$regex	= \str_replace( '.', '\.', $route );
-	return '@^/' . $route . '/?$@i';
+	return '@^/' . ltrim( $route, '/' ) . '/?$@i';
 }
 
 /**
@@ -1470,7 +1470,7 @@ function route( $routes ) {
 			continue;
 		}
 		
-		$rx	= cleanRoute( $markers, $map[1] );
+		$rx	= cleanRoute( $markers, PAGE_LINK . $map[1] );
 		if ( \preg_match( $rx, $path, $params ) ) {
 			if ( \is_callable( $map[2] ) ) {
 				$params			= 
