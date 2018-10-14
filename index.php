@@ -1843,7 +1843,7 @@ function archive( $params ) {
 	if ( empty( $posts ) ) {
 		$tpl['{body}']		= TPL_NOPOSTS;
 		$tpl['{paginate}']	= 
-		'<nav><ul><a href="/">Home</a></ul></nav>';
+		'<nav><ul><a href="' . PAGE_LINK . '">Home</a></ul></nav>';
 	} else {
 		$tpl['{body}']		= \implode( '', $posts );
 		$tpl['{paginate}']	= 
@@ -1897,7 +1897,7 @@ function post( $params ) {
 		'{tagline}'	=> PAGE_SUB,
 		'{body}'	=> $post,
 		'{paginate}'	=> 
-		'<nav><ul><a href="/">Home</a></ul></nav>',
+		'<nav><ul><a href="' . PAGE_LINK . '">Home</a></ul></nav>',
 		'{footer}'	=> TPL_FOOTER
 	];
 	send( 200, \strtr( TPL_PAGE, $tpl ), true );
