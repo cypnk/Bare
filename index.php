@@ -803,21 +803,29 @@ function scrub(
  * Convert an unformatted text block to paragraphs
  * 
  * @link http://stackoverflow.com/a/2959926
- * @param string	$val	Filter variable
+ * @param string	$val		Filter variable
+ * @param bool		$skipCode	Ignore code blocks
  */
-function makeParagraphs( $val ) {
+function makeParagraphs( $val, $skipCode = false ) {
 	/**
 	 * Convert newlines to linebreaks first
 	 * This is why PHP both sucks and is awesome at the same time
 	 */
-	$out = \nl2br( $val );
-	
+	//$out = \nl2br( $val );
+	// Alternate
+	$out = $val;
 	$filters	= 
 	[
+		// Turn consecutive line breaks to new paragraph
+		'#\s{2,}\n|\n{2}#'		=>
+		function( $m ) {
+			return '</p><p>';
+		},
+		
 		// Turn consecutive <br>s to paragraph breaks
 		'#(?:<br\s*/?>\s*?){2,}#'	=>
 		function( $m ) {
-			return '<p></p><p>';
+			return '</p><p>';
 		},
 		
 		// Remove <br> abnormalities
@@ -831,6 +839,18 @@ function makeParagraphs( $val ) {
 			return '<p></p>';
 		},
 		
+		// Breaks after tags
+		'#</([\w\d]+)>(\s*<br\s*/?>)#'	=> 
+		function( $m ) {
+			return '</' . $m[1] . '>';
+		},
+	];
+	
+	$out		= \preg_replace_callback_array( $filters, $out );
+	if ( $skipCode ) {
+		return $out;
+	}
+	$filters	= [
 		// Block of code
 		'#^\n`{3,}([\s\S]*)(^(?!\s)`{3,}.*$)\n#smU' =>
 		function( $m ) {
@@ -850,12 +870,6 @@ function makeParagraphs( $val ) {
 			'</' . $m[1] . '>';
 		},
 		
-		// Breaks after tags
-		'#</([\w\d]+)>(\s*<br\s*/?>)#'	=> 
-		function( $m ) {
-			return '</' . $m[1] . '>';
-		},
-		
 		// Format inside code tags
 		'/<code>(.*)<\/code>/ism'	=>
 		function ( $m ) {
@@ -863,13 +877,10 @@ function makeParagraphs( $val ) {
 			\sprintf( '<pre><code>%s</code></pre>', 
 				entities( \trim( $m[1] ) ) 
 			);
-		}
+		}	
 	];
 	
-	$out = \preg_replace_callback_array( $filters, $out );
-	
-	// Wrapped in a paragraph
-	return '<p>' . $out . '</p>';
+	return \preg_replace_callback_array( $filters, $out );
 }
 
 /**
@@ -932,10 +943,10 @@ function html( string $value, $prefix = '' ) : string {
 		}
 	}
 	
-	$clean		= '';
-	foreach ( $domBody->childNodes as $node ) {
-		$clean .= $dom->saveHTML( $node );
-	}
+	// Fix formatting
+	$dom->formatOutput	= true;
+	$clean			= $dom->saveHTML();
+	$clean			= makeParagraphs( $clean, true );
 	
 	\libxml_clear_errors();
 	\libxml_use_internal_errors( $err );
@@ -1506,7 +1517,7 @@ function getPosts( string $root = '' ) {
 		// Sort by filename
 		\usort( $tmp, function( $a, $b ) {
 			return 
-			$a->getRealPath() <=> $b->getRealPath() > 0 ? 
+			$a->getRealPath() <=> $b->getRealPath() > -1 ? 
 			false : true;
 		});
 		
