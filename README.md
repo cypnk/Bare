@@ -130,8 +130,8 @@ server "www.example.com" {
 	# Default directory
 	directory index "index.html"
   
-  # Change this to your web root, if it's different
-  root "/htdocs"
+	# Change this to your web root, if it's different
+	root "/htdocs"
   
 	# Prevent access to special files
 	location "/*.ht*"		{ block }
