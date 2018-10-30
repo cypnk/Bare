@@ -16,11 +16,155 @@ feed of the most recent ones.
 Bare understands a rudimentary subset of [Markdown](https://daringfireball.net/projects/markdown/) and will filter HTML  
 for you. 
 
+## Installation
 
-Formatting and installation follow the same conventions as the 
-[Pad](https://github.com/cypnk/Pad) project.
+Upload the following to your web root:
+* .htaccess - Required if using the Apache web server
+* index.php - Your homepage
+* /cache folder - Contains formatted content
+
 
 Bare supports caching of formatted posts. Simply enable write  
-permissions to the cache directory following the instructions in the Pad  
-project.
+permissions to the cache directory. On \*nix systems:
+```
+chmod -R 755 /cache
+```
+
+And then, follow the conventions in the example post:
+```
+/posts/2018/09/22/a-new-post.md
+```
+
+## Content formatting
+
+HTML is filtered of potentially harmful tags, however embedding videos  
+to YouTube, Vimeo or PeerTube is supported via shortcodes.
+```
+E.G. For Youtube: 
+
+[youtube https://www.youtube.com/watch?v=RJ0ULhVKwEI]
+or
+[youtube https://youtu.be/RJ0ULhVKwEI]
+or
+[youtube RJ0ULhVKwEI]
+
+For Vimeo:
+
+[vimeo https://vimeo.com/113315619]
+or
+[vimeo 113315619]
+
+
+For PeerTube (any instance):
+[peertube https://peertube.mastodon.host/videos/watch/56047136-00eb-4296-afc3-dd213fd6bab0]
+``` 
+
+To embed a previously uploaded image file, use markdown syntax:
+```
+![alt text](http://example.com/filename.jpg)
+``` 
+
+## Installing on other web servers
+
+### Nginx
+
+The Nginx web server supports URL rewriting and file filtering. The  
+following is a simple configuration for a site named example.com.  
+Note: The pound sign(#) denotes comments.
+
+The following is an example configuration tested to on Arch linux.
+```
+server {
+	server_name example.com;
+	
+	# Change this to your web root, if it's different
+	root /usr/share/nginx/example.com/html;
+	
+	# Prevent access to special files
+	location ~\.(ht|conf|db|sql|json|sh)\$ {
+		deny all;
+	}
+	
+	# Prevent access to cache folder
+	location /cache {
+		deny all;
+	}
+	
+	# Send all requests (that aren't static files) to index.php
+	location / {
+		try_files $uri $uri/ index.php?$args;
+	}
+	
+	# Handle php
+	location ~ \.php$ {
+		fastcgi_pass	unix:/run/php-fpm/php-fpm.sock;
+		fastcgi_index	index.php;
+		include		fastcgi.conf;
+        }
+}
+``` 
+
+### OpenBSD's httpd(8) web server
+
+The OpenBSD operating system comes with its own web server in the base  
+installation. Previously, this was the Apache web server and then Nginx.
+
+OpenBSD does not come with PHP and needs to be installed separately:
+```
+doas pkg_add php_fpm
+```  
+**Note:** Although it shares the same comment style, httpd(8) configuration  
+directives *do not* end in a semicolon(;) unlike Nginx settings.
+
+The following configuration can be used if Pad is installed as the  
+"example.com" website (tested on OpenBSD 6.4).
+```
+
+# A site called "example.com" 
+server "www.example.com" {
+	alias "example.com"
+  
+	# listening on external addresses
+	listen on egress port 80
+	
+	# Default directory
+  directory index "index.html"
+  
+  # Change this to your web root, if it's different
+  root "/htdocs"
+  
+	# Prevent access to special files
+	location "/*.ht*"		{ block }
+	location "/*.md*"		{ block }
+	
+	# Allow robots (follow the same convention if using favicons)
+	location "/robots.txt" {
+		# Change this to your web root, if it's different
+		root { "/htdocs/robots.txt" }
+	}
+	
+	# Prevent access to data folder
+	location "/cache/*"		{ block }
+	
+	# Let through files with extensions (I.E. .css, .js etc...)
+	location "/*.*" {
+		# Change this to your web root, if it's different
+		root { "/htdocs" }
+	}
+	
+	# Due to the way httpd(8) handles rewrites, you may create a 
+	# separate folder for uploads in the future
+	
+	# Let index.php handle all other requests
+	location "/*" {
+		# Change this to your web root, if it's different
+		root { "/htdocs/index.php" }
+		
+		# Enable FastCGI handling of PHP
+		fastcgi socket "/run/php-fpm.sock"
+	}
+}
+
+``` 
+
 
