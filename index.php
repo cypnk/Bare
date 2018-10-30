@@ -974,7 +974,7 @@ function tidyup( string $text ) : string {
 		'join-styles'				=> 1,
 		'output-xhtml'				=> 1,
 		'merge-spans'				=> 1,
-		'show-body-only'			=> 0,
+		'show-body-only'			=> 1,
 		'wrap'					=> 0
 	];
 	
@@ -1517,8 +1517,7 @@ function getPosts( string $root = '' ) {
 		// Sort by filename
 		\usort( $tmp, function( $a, $b ) {
 			return 
-			$a->getRealPath() <=> $b->getRealPath() > -1 ? 
-			false : true;
+			\stcmp( $a->getRealPath(), $b->getRealPath() );
 		});
 		
 		$st[$root]	= $tmp;
