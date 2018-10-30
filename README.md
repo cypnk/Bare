@@ -81,7 +81,7 @@ server {
 	root /usr/share/nginx/example.com/html;
 	
 	# Prevent access to special files
-	location ~\.(ht|conf|db|sql|json|sh)\$ {
+	location ~\.(ht|md|conf|db|sql|json|sh)\$ {
 		deny all;
 	}
 	
@@ -128,7 +128,7 @@ server "www.example.com" {
 	listen on egress port 80
 	
 	# Default directory
-  directory index "index.html"
+	directory index "index.html"
   
   # Change this to your web root, if it's different
   root "/htdocs"
@@ -136,6 +136,11 @@ server "www.example.com" {
 	# Prevent access to special files
 	location "/*.ht*"		{ block }
 	location "/*.md*"		{ block }
+	location "/*.conf*"		{ block }
+	location "/*.db*"		{ block }
+	location "/*.sql*"		{ block }
+	location "/*.json*"		{ block }
+	location "/*.sh*"		{ block }
 	
 	# Allow robots (follow the same convention if using favicons)
 	location "/robots.txt" {
