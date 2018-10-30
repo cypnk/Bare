@@ -1517,7 +1517,7 @@ function getPosts( string $root = '' ) {
 		// Sort by filename
 		\usort( $tmp, function( $a, $b ) {
 			return 
-			\stcmp( $a->getRealPath(), $b->getRealPath() );
+			\strcmp( $a->getRealPath(), $b->getRealPath() );
 		});
 		
 		$st[$root]	= $tmp;
