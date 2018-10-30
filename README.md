@@ -21,8 +21,11 @@ for you.
 Upload the following to your web root:
 * .htaccess - Required if using the Apache web server
 * index.php - Your homepage
-* /cache folder - Contains formatted content
+* /posts folder - Contains your posts (use your favorite editor)
+* /cache folder - Formatted cache
 
+Change the default settings in *index.php* E.G. SITE_NAME etc...  
+*index.php* Also has the default theme so there are no other files to edit.
 
 Bare supports caching of formatted posts. Simply enable write  
 permissions to the cache directory. On \*nix systems:
@@ -61,7 +64,7 @@ For PeerTube (any instance):
 
 To embed a previously uploaded image file, use markdown syntax:
 ```
-![alt text](http://example.com/filename.jpg)
+![alt text](https://example.com/filename.jpg)
 ``` 
 
 ## Installing on other web servers
@@ -72,7 +75,7 @@ The Nginx web server supports URL rewriting and file filtering. The
 following is a simple configuration for a site named example.com.  
 Note: The pound sign(#) denotes comments.
 
-The following is an example configuration tested to on Arch linux.
+The following is an example configuration tested on Arch linux.
 ```
 server {
 	server_name example.com;
