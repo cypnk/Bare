@@ -136,15 +136,11 @@ footer {
 
 .mark:before,.mark:after {
     content: ' ';
-    width: 30%;
+    width: 20%;
     display: block;
     vertical-align: middle;
     padding: .8em 0 0;
     border-bottom: 1px solid #999
-}
-
-header .mark:before,header .mark:after {
-    width: 33%
 }
 
 .mark:before,legend:before {
@@ -217,7 +213,7 @@ ul.index li time {
 
 @media screen and ( max-width: 800px ) {
     .mark:before,.mark:after,header .mark:before,header .mark:after {
-        width:30%
+        width:20%
     }
 }
 
