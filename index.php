@@ -1499,26 +1499,21 @@ function getPosts( string $root = '' ) {
 		$dir		= 
 		new \RecursiveDirectoryIterator( 
 			POSTS . $root, 
-			\FilesystemIterator::FOLLOW_SYMLINKS
+			\FilesystemIterator::FOLLOW_SYMLINKS | 
+			\FilesystemIterator::KEY_AS_FILENAME
 		);
 		$it		= 
 		new \RecursiveIteratorIterator( 
 			$dir, 
-			\RecursiveIteratorIterator::SELF_FIRST,
+			\RecursiveIteratorIterator::LEAVES_ONLY,
 			\RecursiveIteratorIterator::CATCH_GET_CHILD 
 		);
 		
-		// Temp array for sorting
-		$tmp		= [];
-		foreach( $it as $f ) {
-			$tmp[]	= $f;
-		}
+		$it->rewind();
 		
-		// Sort by filename
-		\usort( $tmp, function( $a, $b ) {
-			return 
-			\strcmp( $a->getRealPath(), $b->getRealPath() );
-		});
+		// Temp array for sorting
+		$tmp	= \iterator_to_array( $it, true );
+		rsort( $tmp, \SORT_NATURAL );
 		
 		$st[$root]	= $tmp;
 		return $tmp;
