@@ -119,7 +119,7 @@ doas pkg_add php_fpm
 **Note:** Although it shares the same comment style, httpd(8) configuration  
 directives *do not* end in a semicolon(;) unlike Nginx settings.
 
-The following configuration can be used if Pad is installed as the  
+The following configuration can be used if Bare is installed as the  
 "example.com" website (tested on OpenBSD 6.4).
 ```
 
@@ -144,12 +144,6 @@ server "www.example.com" {
 	location "/*.sql*"		{ block }
 	location "/*.json*"		{ block }
 	location "/*.sh*"		{ block }
-	
-	# Allow robots (follow the same convention if using favicons)
-	location "/robots.txt" {
-		# Change this to your web root, if it's different
-		root { "/htdocs/robots.txt" }
-	}
 	
 	# Prevent access to data folder
 	location "/cache/*"		{ block }
