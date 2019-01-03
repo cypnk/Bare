@@ -295,7 +295,7 @@ function loadFile( $name ) {
 	
 	if ( \file_exists( $name ) ) {
 		$data = \file_get_contents( $name );
-		if ( false !== \strpos( $data, '<?' ) ) {
+		if ( false !== \strpos( $data, '<?php' ) ) {
 			die( MSG_CODEDETECT );
 		}
 		$loaded[$name] = $data;
