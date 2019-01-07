@@ -113,7 +113,7 @@ define( 'TPL_FEED',		<<<XML
 	<link>{home}</link>
 	<pubDate>{date_gen}</pubDate>
 	{body}
-</feed>
+</rss>
 XML
 );
 
@@ -1375,6 +1375,7 @@ function send(
 			'Content-Type: application/rss+xml; charset=utf-8', 
 			true 
 		);
+		\header( 'Content-Disposition: inline', true );
 		preamble( '', true, false );
 	} else {
 		preamble();
