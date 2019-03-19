@@ -471,7 +471,7 @@ function dateNice( $stamp = null ) : string {
 function dateSlug( string $slug, string $stamp ) {
 	return PAGE_LINK . 
 	\gmdate( 'Y/m/d/', \strtotime( $stamp ) ) . 
-	\ltrim( $slug, '/' );
+	\ltrim( \basename( $slug, '.md' ), '/' );
 }
 
 /**
@@ -1534,7 +1534,7 @@ function filterDir( $path ) {
 		return '';
 	}
 	$path	= \substr(  $path, $pos + $lp );
-	return \rtrim( \trim( $path ?? '' ), '.md' );
+	return \trim( $path ?? '' );
 }
 
 function postData( $raw ) {
