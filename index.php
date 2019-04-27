@@ -919,8 +919,7 @@ function html( string $value, $prefix = '' ) : string {
 		\LIBXML_NOCDATA | \LIBXML_NONET
 	);
 	
-	$domBody	= 
-		$dom->getElementsByTagName( 'body' )->item( 0 );
+	$domBody	= $dom->getElementsByTagName( 'body' );
 	
 	$flush		= [];
 	// Iterate through every HTML element 
