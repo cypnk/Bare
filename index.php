@@ -1041,17 +1041,24 @@ function markdown(
 ) {
 	$filters	= 
 	[
-		// Links / Images with alt text
-		'/(\!)?\[([^\[]+)\]\(([^\)]+)\)/s'	=> 
+		// Links / Images with alt text and titles
+		'/(\!)?\[([^\[]+)\]\(([^"\)]+)(?:"(.*[^"])"+)?\)/s'	=> 
 		function( $m ) use ( $prefix ) {
 			$i = \trim( $m[1] );
 			$t = \trim( $m[2] );
 			$u = cleanUrl( \trim( $m[3] ), true, $prefix );
-				
-			return 
-			empty( $i ) ?
-				\sprintf( "<a href='%s'>%s</a>", $u, $t ) :
-				\sprintf( "<img src='%s' alt='%s' />", $u, $t );
+			
+			// If this is a plain link
+			if ( empty( $i ) ) {
+				return 
+				\sprintf( "<a href='%s'>%s</a>", $u, $t );
+			
+			// This is an image
+			} else {
+				$a = $m[4] ?? $t;
+				return
+				\sprintf( "<img src='%s' alt='%s' title='%s' />", $u, $t, $a );
+			}
 		},
 		
 		// Bold / Italic / Deleted / Quote text
