@@ -30,7 +30,7 @@ Change the default settings in *index.php* E.G. SITE_NAME etc...
 Bare supports caching of formatted posts. Simply enable write  
 permissions to the cache directory. On \*nix systems:
 ```
-chmod -R 755 /cache
+chmod -R 755 /your-web-root/cache
 ```
 
 And then, follow the conventions in the example post:
@@ -84,7 +84,7 @@ server {
 	root /usr/share/nginx/example.com/html;
 	
 	# Prevent access to special files
-	location ~\.(ht|md|conf|db|sql|json|sh)\$ {
+	location ~\.(hta|htp|md|conf|db|sql|json|sh)\$ {
 		deny all;
 	}
 	
@@ -137,7 +137,8 @@ server "www.example.com" {
 	root "/htdocs"
   
 	# Prevent access to special files
-	location "/*.ht*"		{ block }
+	location "/*.hta*"		{ block }
+	location "/*.htp*"              { block }
 	location "/*.md*"		{ block }
 	location "/*.conf*"		{ block }
 	location "/*.db*"		{ block }
