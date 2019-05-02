@@ -1050,7 +1050,7 @@ function markdown(
 				
 			return 
 			empty( $i ) ?
-				\sprintf( "<a href='%s'>%s</a>", $t, $u ) :
+				\sprintf( "<a href='%s'>%s</a>", $u, $t ) :
 				\sprintf( "<img src='%s' alt='%s' />", $u, $t );
 		},
 		
