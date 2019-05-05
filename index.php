@@ -1042,7 +1042,7 @@ function markdown(
 	$filters	= 
 	[
 		// Links / Images with alt text and titles
-		'/(\!)?\[([^\[]+)\]\(([^"\)]+)(?:"(.*[^"])"+)?\)/s'	=> 
+		'/(\!)?\[([^\[]+)\]\(([^"\1]+)(?:"(.*[^"])"+)?\)/s'	=> 
 		function( $m ) use ( $prefix ) {
 			$i = \trim( $m[1] );
 			$t = \trim( $m[2] );
