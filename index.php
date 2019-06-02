@@ -1042,7 +1042,7 @@ function markdown(
 	$filters	= 
 	[
 		// Links / Images with alt text and titles
-		'/(\!)?\[([^\[]+)\]\(([^\"\)]+)(?:\"(.*[^\"])\"+)?\)/s'	=> 
+		'/(\!)?\[([^\[]+)\]\(([^\"\)]+)(?:\"(([^\"]|\\\")+)\")?\)/s'	=> 
 		function( $m ) use ( $prefix ) {
 			$i = \trim( $m[1] );
 			$t = \trim( $m[2] );
@@ -1053,8 +1053,10 @@ function markdown(
 				return 
 				\sprintf( "<a href='%s'>%s</a>", $u, entities( $t ) );
 			}
+			
 			// This is an image
-			$a = entities( $m[4] ?? $t );
+			// Fix titles / alt text
+			$a = entities( \strtr( $m[4] ?? $t, [ '\"' => '"' ] ) );
 			return
 			\sprintf( "<img src='%s' alt='%s' title='%s' />", $u, entities( $t ), $a );
 		},
