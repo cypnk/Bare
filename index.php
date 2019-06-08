@@ -922,9 +922,12 @@ function html( string $value, $prefix = '' ) : string {
 	$domBody	= $dom->getElementsByTagName( 'body' );
 	
 	$flush		= [];
+	
 	// Iterate through every HTML element 
-	foreach ( $domBody->childNodes as $node ) {
-		scrub( $node, $white, $flush );
+	if ( !empty( $domBody->childNodes ) ) {
+		foreach ( $domBody->childNodes as $node ) {
+			scrub( $node, $white, $flush );
+		}
 	}
 	
 	// Remove any tags not found in the whitelist
