@@ -1551,6 +1551,7 @@ function postData( $raw ) {
 }
 
 function loadPost(
+	string	&$title,
 	int	$year,
 	int	$month,
 	int	$day,
@@ -1561,14 +1562,15 @@ function loadPost(
 			\sprintf( '%02d', $month ) . $s . 
 			\sprintf( '%02d', $day ) . $s . 
 			\ltrim( $slug, $s );
-	
+	$title	= '';
 	$data	= postData( POSTS . $path . '.md' );
 	
 	if ( empty( $data ) ) {
 		return '';
 	}
 	
-	return formatPost( $data, $path, TPL_POST );
+	$out	= formatPost( $title, $data, $path, TPL_POST );
+	return $out;
 }
 
 /**
@@ -1614,6 +1616,7 @@ function loadPosts(
 	$posts	= [];
 	$start	= ( $page - 1 ) * PAGE_LIMIT;
 	$end	= $start + PAGE_LIMIT;
+	$title	= '';
 	
 	foreach( $it as $file ) {
 		
@@ -1641,7 +1644,7 @@ function loadPosts(
 			}
 			
 			$tpl		= $feed ? TPL_ITEM : TPL_POST;
-			$posts[$path]	= formatPost( $data, $path, $tpl );
+			$posts[$path]	= formatPost( $title, $data, $path, $tpl );
 		}
 		
 		// Increment number of entries if published
@@ -1727,6 +1730,7 @@ function formatMeta( $title, $pub, $path ) {
 
 // 
 function formatPost(
+	string	&$title,
 	array	$post,
 	string	$path,
 	string	$tpl
@@ -1883,9 +1887,10 @@ function feed( $params ) {
 function post( $params ) {
 	$data	= filterRequest( $params );
 	$date	= enforceDates( $data );
-	
+	$title	= '';
 	$post	= 
 	loadPost( 
+		$title,
 		( int ) $date[0], 
 		( int ) $date[1], 
 		( int ) $date[2], 
@@ -1897,7 +1902,7 @@ function post( $params ) {
 	}
 	
 	$tpl	= [
-		'{page_title}'	=> PAGE_TITLE,
+		'{page_title}'	=> $title . ' - ' . PAGE_TITLE,
 		'{tagline}'	=> PAGE_SUB,
 		'{body}'	=> $post,
 		'{paginate}'	=> 
