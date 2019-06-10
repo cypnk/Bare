@@ -210,7 +210,7 @@ JSON
  */
 define(
 	'RX_URL', 
-	'~^(http|ftp)(s)?\:\/\/((([a-z|0-9|\-]{1,25})(\.)?){2,9})($|/.*$){4,255}$~i'
+	'~^(http|ftp)(s)?\:\/\/((([\pL\pN\-]{1,25})(\.)?){2,9})($|\/.*$){4,255}$~i'
 );
 define( 'RX_XSS2',		'/(<(s(?:cript|tyle)).*?)/ism' );
 define( 'RX_XSS3',		'/(document\.|window\.|eval\(|\(\))/ism' );
