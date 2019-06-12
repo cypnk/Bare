@@ -1724,7 +1724,7 @@ function formatMeta( $title, $pub, $path ) {
 		'{date_utc}'	=> $pub,
 		'{date_rfc}'	=> dateRfc( $pub ),
 		'{date_stamp}'	=> dateNice( $pub ),
-		'{permalink}'	=> $path
+		'{permalink}'	=> dateSlug( \basename( $path ), $pub )
 	];
 }
 
