@@ -16,6 +16,9 @@ feed of the most recent ones.
 Bare understands a rudimentary subset of [Markdown](https://daringfireball.net/projects/markdown/) and will filter HTML  
 for you. 
 
+Optionally, Bare will use the [Parsedown](https://github.com/erusev/parsedown) and the [ParsedownExtra](https://github.com/erusev/parsedown-extra) classes  
+to format Markdown, if these files are present.
+
 ## Installation
 
 Upload the following to your web root:
