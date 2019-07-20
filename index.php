@@ -1029,6 +1029,42 @@ function embeds( string $html ) : string {
 }
 
 /**
+ *  Get the parsedown class loaded
+ */
+function getParsedown() {
+	static $parse;
+	
+	if ( isset( $parse ) ) {
+		return $parse;
+	}
+	
+	// Parsedown.php is required at a minimum
+	if ( !\class_exists( 'Parsedown' ) ) {
+		if ( \file_exists( PATH . 'Parsedown.php' ) ) {
+			require( PATH . 'Parsedown.php' );
+		} else {
+			$parse	= null;
+			return null;
+		}
+	}
+	
+	// Optinally load ParsedownExtra.php
+	if ( \class_exists( 'ParsedownExtra' ) ) {
+		$parse = new ParsedownExtra();
+	} else {
+		if ( \file_exists( PATH . 'ParsedownExtra.php' ) ) {
+			require( PATH . 'ParsedownExtra.php' );
+			$parse		= new ParsedownExtra();
+		} else {
+			// Only Parsdown present
+			$parse = new Parsedown();
+		}
+	}
+	
+	return $parse;
+}
+
+/**
  *  Convert Markdown formatted text into HTML tags
  *  
  *  Inspired by : 
@@ -1042,6 +1078,12 @@ function markdown(
 	string	$html,
 	string	$prefix = '' 
 ) {
+	// Try to load Parsedown, if possible
+	$parse		= getParsedown();
+	if ( !empty( $parse ) ) {
+		return $parse->text( $html );
+	}
+	
 	$filters	= 
 	[
 		// Links / Images with alt text and titles
