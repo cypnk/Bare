@@ -1065,7 +1065,7 @@ function markdown(
 		},
 		
 		// Bold / Italic / Deleted / Quote text
-		'/(\*(\*)?|_(_)?|\~\~|\:\")(.*?)\1/'	=>
+		'/(\*(\*)?|\~\~|\:\")(.*?)\1/'	=>
 		function( $m ) {
 			$i = \strlen( $m[1] );
 			$t = \trim( $m[4] );
