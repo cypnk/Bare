@@ -1110,7 +1110,7 @@ function markdown(
 		'/(\*(\*)?|\~\~|\:\")(.*?)\1/'	=>
 		function( $m ) {
 			$i = \strlen( $m[1] );
-			$t = \trim( $m[4] );
+			$t = \trim( $m[3] );
 			
 			switch ( true ) {
 				case ( false !== \strpos( $m[1], '~' ) ):
@@ -1188,7 +1188,7 @@ function markdown(
 	];
 	
 	return
-	\trim( \preg_replace_callback_array( $filters, $html ) );
+	\preg_replace_callback_array( $filters, $html );
 }
 
 
@@ -1936,7 +1936,7 @@ function post( $params ) {
 		( int ) $date[0], 
 		( int ) $date[1], 
 		( int ) $date[2], 
-		$data['slug'] 
+		$data['slug'] ?? ''
 	);
 	
 	if ( empty( $post ) ) {
