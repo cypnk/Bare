@@ -98,7 +98,8 @@ server {
 	
 	# Send all requests (that aren't static files) to index.php
 	location / {
-		try_files $uri $uri/ index.php?$args;
+		try_files $uri $uri/ index.php$is_args$args;
+		index index.php;
 	}
 	
 	# Handle php
