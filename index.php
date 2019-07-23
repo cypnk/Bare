@@ -1362,6 +1362,9 @@ function send(
 		preamble();
 	}
 	
+	echo $content;
+	\flush();
+	
 	// Also save to cache?
 	if ( $cache ) {
 		$full	= fullURI();
@@ -1369,7 +1372,6 @@ function send(
 	}
 	
 	// End
-	echo $content;
 	shutdown();
 }
 
