@@ -354,7 +354,7 @@ function shutdown() {
 	}
 	
 	if ( \is_callable( $args[0] ) ) {
-		$regsistered[$arg[0]] = $args[1] ?? null;
+		$registered[$arg[0]] = $args[1] ?? null;
 	}
 }
 
