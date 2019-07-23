@@ -924,15 +924,14 @@ function html( string $value, $prefix = '' ) : string {
 	// Preliminary cleaning
 	$html		= pacify( $value, true );
 	
+	// Apply Markdown formatting
+	$html		= markdown( $html, $prefix );
+	
 	// Format linebreaks and code
 	$html		= makeParagraphs( $html );
 	
 	// Clean up HTML
 	$html		= tidyup( $html );
-	
-	// Apply Markdown formatting
-	$html		= markdown( $html, $prefix );
-	
 	
 	// Skip errors
 	$err		= \libxml_use_internal_errors( true );
