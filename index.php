@@ -1270,122 +1270,24 @@ function preamble(
 
 /**
  *  Create HTTP status code message
+ *  
+ *  @param int		$code		HTTP Status code
  */
-function httpCode(
-	string		$proto,
-	int		$code
-) {
-	switch ( $code ) {
-		
-		case 200:
-			$msg = 'OK';
-			break;
-			
-		case 202:
-			$msg = 'Accepted';
-			break;
-			
-		case 204:
-			$msg = 'No Content';
-			break;
-			
-		case 205:
-			$msg = 'Reset Content';
-			break;
-			
-		case 206:
-			$msg = 'Partial Content';
-			break;
-			
-		case 300:
-			$msg = 'Multiple Choices';
-			break;
-			
-		case 301:
-			$msg = 'Moved Permanently';
-			break;
-			
-		case 302:
-			$msg = 'Moved Temporarily';
-			break;
-			
-		case 303:
-			$msg = 'See Other';
-			break;
-			
-		case 304:
-			$msg = 'Not Modified';
-			break;
-			
-		case 400:
-			$msg = 'Bad Request';
-			break;
-			
-		case 401:
-			$msg = 'Unauthorized';
-			break;
-			
-		case 403:
-			$msg = 'Forbidden';
-			break;
-			
-		case 404:
-			$msg = 'Not Found';
-			break;
-				
-		case 405:
-			$msg = 'Method Not Allowed';
-			break;
-			
-		case 406:
-			$msg = 'Not Acceptable';
-			break;
-			
-		case 407:
-			$msg = 'Proxy Authentication Required';
-			break;
-			
-		case 409:
-			$msg = 'Conflict';
-			break;
-			
-		case 410:
-			$msg = 'Gone';
-			break;
-			
-		case 411:
-			$msg = 'Length Required';
-			break;
-			
-		case 412:
-			$msg = 'Precondition Failed';
-			break;
-			
-		case 413:
-			$msg = 'Request Entity Too Large';
-			break;
-			
-		case 414:
-			$msg = 'Request-URI Too Large';
-			break;
-			
-		case 415:
-			$msg = 'Unsupported Media Type';
-			break;
-			
-		case 429:
-			$msg = 'Too Many Requests';
-			break;
-			
-		case 501:
-			$msg = 'Not Implemented';
-			break;
-			
-		default:
-			die( 'Unknown status code "' . $code . '"' );
+function httpCode( int $code ) {
+	$allowed = [
+		200, 202, 204, 205, 206, 
+		300, 301, 302, 303, 304,
+		400, 401, 403, 404, 405, 
+		406, 407, 409, 410, 411, 412, 413, 414, 415,
+		500, 501
+	];
+	
+	if ( in_array( $code, $allowed ) ) {
+		\http_response_code( $code );
+		return;
 	}
 	
-	\header( $proto . ' ' . $code . ' ' . $msg, true );
+	die( 'Unknown status code "' . $code . '"' );
 }
 
 
@@ -1419,8 +1321,7 @@ function send(
 	bool		$cache		= false,
 	bool		$feed		= false
 ) {
-	$proto	= $_SERVER['SERVER_PROTOCOL'] ?? 'HTTP/1.1';
-	httpCode( $proto, $code );
+	httpCode( $code );
 	if ( $feed ) {
 		\header(
 			'Content-Type: application/rss+xml; charset=utf-8', 
