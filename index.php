@@ -330,6 +330,34 @@ function paginate( $page, $prefix, $posts ) {
 	return '<nav><ul>' . $out . '</ul></nav>';
 }
 
+/**
+ *  Collection of functions to execute after content sent
+ */
+function shutdown() {
+	static $registered	= [];
+	$args			= \func_get_args();
+	
+	// Shutdown called
+	if ( empty( $args ) ) {
+		foreach( $registered as $k => $v ) {
+			if ( \is_array( $v ) ) {
+				$k( ...$v );
+			} elseif ( $v !== null ) {
+				$k( $v );
+			} else {
+				$k();
+			}
+		}
+		
+		// End
+		die();
+	}
+	
+	if ( \is_callable( $args[0] ) ) {
+		$regsistered[$arg[0]] = $args[1] ?? null;
+	}
+}
+
 
 /**
  *  Caching
@@ -1333,15 +1361,15 @@ function send(
 		preamble();
 	}
 	
-	echo $content;
-	
 	// Also save to cache?
 	if ( $cache ) {
-		saveCache( fullURI(), $content );
+		$full	= fullURI();
+		shutdown( 'saveCache', [ $full, $content ] );
 	}
 	
 	// End
-	die();
+	echo $content;
+	shutdown();
 }
 
 /**
