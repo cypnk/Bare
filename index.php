@@ -70,7 +70,9 @@ HTML
 );
 
 define( 'TPL_FOOTER',		<<<HTML
-
+<footer>
+<p><a href="/archive">Archive</a> | <a href="/feed">Feed</a></p>
+</footer>
 HTML
 );
 
