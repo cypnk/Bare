@@ -123,7 +123,7 @@ doas pkg_add php_fpm
 directives *do not* end in a semicolon(;) unlike Nginx settings.
 
 The following configuration can be used if Bare is installed as the  
-"example.com" website (tested on OpenBSD 6.4).
+"example.com" website (tested on OpenBSD 6.5).
 ```
 
 # A site called "example.com" 
