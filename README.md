@@ -19,6 +19,12 @@ for you.
 Optionally, Bare will use the [Parsedown](https://github.com/erusev/parsedown) and the [ParsedownExtra](https://github.com/erusev/parsedown-extra) classes  
 to format Markdown, if these files are present.
 
+Bare's simple installation and minimal set of features make it ideal for  
+hosting blogs on [Hidden Services](https://en.wikipedia.org/wiki/Tor_(anonymity_network)#Onion_services) on the Tor anonimity network.
+
+The author's [personal blog](http://uxjczuo3ibpibbew.onion) is using Bare.  
+Use the [Tor Browser Bundle](https://www.torproject.org/) to visit.
+
 ## Installation
 
 Upload the following to your web root:
@@ -164,6 +170,8 @@ server "www.example.com" {
 	
 	# Let index.php handle all other requests
 	location "/*" {
+		directory index "index.php"
+		
 		# Change this to your web root, if it's different
 		root { "/htdocs/index.php" }
 		
