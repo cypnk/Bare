@@ -7,6 +7,9 @@ RewriteCond %{REQUEST_URI} !\.(jpe?g|bmp|png|gif|css|js|mp4|mp3|ogg|html|txt)$ [
 # All requests to /data folder
 RewriteCond %{REQUEST_URI} ^/data [NC]
 
+# All requests to /cache folder
+RewriteCond %{REQUEST_URI} ^/cache [NC]
+
 # All requests to readme files
 RewriteCond %{REQUEST_URI} ^/readme [NC]
 
