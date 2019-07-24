@@ -249,6 +249,96 @@ define( 'MSG_CODEDETECT',	'Server-side code detected' );
 
 
 /**
+ *  Database constants
+ */
+
+
+// General database location placeholder (future use)
+define( 'DATA',			'' );
+
+// Cache database (will be created if it doesn't exist)
+define( 'CACHE_DATA',		CACHE . 'cache.db' );
+
+// Database connection timeout
+define( 'DATA_TIMEOUT',		5 );
+
+
+
+
+/**********************************************************************
+ *                      Caution editing below
+ **********************************************************************/
+
+
+
+/**
+ *  Environment preparation
+ */
+\date_default_timezone_set( 'UTC' );
+
+
+/**
+ *  Cache database SQL
+ */
+
+define( 'CACHE_SQL',		<<<SQL
+-- Cache tables
+CREATE TABLE caches (
+	id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
+	cache_id TEXT NOT NULL, 
+	ttl INTEGER NOT NULL, 
+	content TEXT NOT NULL, 
+	expires DATETIME DEFAULT NULL,
+	created DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, 
+	updated DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);-- --
+
+CREATE UNIQUE INDEX idx_caches_on_cache_id ON caches ( cache_id ASC );-- --
+CREATE INDEX idx_caches_on_expires ON caches ( expires DESC );-- --
+CREATE INDEX idx_caches_on_created ON caches ( created ASC );-- --
+CREATE INDEX idx_caches_on_updated ON caches ( updated );-- --
+
+-- Cache triggers
+CREATE TRIGGER cache_after_insert AFTER INSERT ON caches FOR EACH ROW 
+BEGIN
+	-- Generate expiration
+	UPDATE caches SET 
+		expires = datetime( 
+			( strftime( '%s','now' ) + NEW.ttl ), 
+			'unixepoch' 
+		) WHERE rowid = NEW.rowid;
+	
+	-- Clear expired data
+	DELETE FROM caches WHERE 
+		strftime( '%s', expires ) < 
+		strftime( '%s', updated );
+END;-- --
+
+-- Change only update period when TTL is empty
+CREATE TRIGGER cache_after_update AFTER UPDATE ON caches FOR EACH ROW 
+WHEN NEW.updated < OLD.updated AND NEW.ttl = 0
+BEGIN
+	UPDATE caches SET updated = CURRENT_TIMESTAMP 
+		WHERE rowid = NEW.rowid;
+END;-- --
+
+-- Change expiration period when TTL exists
+CREATE TRIGGER cache_after_update_ttl AFTER UPDATE ON caches FOR EACH ROW 
+WHEN NEW.updated < OLD.updated AND NEW.ttl <> 0
+BEGIN
+	-- Change expiration
+	UPDATE caches SET updated = CURRENT_TIMESTAMP, 
+		expires = datetime( 
+			( strftime( '%s','now' ) + NEW.ttl ), 
+			'unixepoch' 
+		) WHERE rowid = NEW.rowid;
+END;
+SQL
+);
+
+
+
+/**
  *  Helpers
  */
 
@@ -361,78 +451,218 @@ function shutdown() {
 }
 
 
+
+
+/**
+ *  Database
+ */
+
+/**
+ *  Get the SQL definition from DSN
+ *  
+ *  @param string	$dsn	User defined database path
+ */
+function loadSQL( string $dsn ) {
+	// Get list of user-defined constants
+	$cts	= \get_defined_constants( true );
+	$my	= \array_flip( $cts['user'] );
+	
+	// Get the first component from the definition
+	// E.G. "CACHE" from "CACHE_DATA"
+	$def	= \explode( '_', $my[$dsn] )[0];
+	
+	// SQL Lines from defined component + "_SQL"
+	return \preg_split( "/[\r\n]+/", constant( $def . '_SQL' ) );
+}
+
+/**
+ *  Create database tables based on DSN
+ *  
+ *  @param object	$db	PDO Database object
+ *  @param string	$dsn	Database path associated with PDO object
+ */
+function installSQL( \PDO $db, string $dsn ) {
+	$parse	= [];
+	
+	$lines	= loadSQL( $dsn );
+	
+	// Filter SQL comments and lines starting PRAGMA
+	foreach( $lines as $l ) {
+		if ( \preg_match( '/^(\s+)?(--|PRAGMA)/is', $l ) ) {
+			continue;
+		}
+		// Skip empty
+		$l	= \trim( $l );
+		if ( empty( $l ) ) {
+			continue;
+		}
+		$parse[] = $l;
+	}
+	
+	// Separate into statement actions
+	$qr	= \explode( '-- --', \implode( "\n", $parse ) );
+	foreach( $qr as $q ) {
+		if ( empty( trim( $q ) ) ) {
+			continue;
+		}
+		$db->exec( $q );
+	}
+}
+
+/**
+ *  Get database connection
+ *  
+ *  @param bool		$close	Close connection (optional)
+ */
+function getDb( string $dsn, bool $close = false ) {
+	static $db	= [];
+	
+	if ( $close ) {
+		if ( isset( $db[$dsn] ) ) {
+			$db[$dsn] = null;
+			unset( $db[$dsn] );
+		}
+		return;
+	}
+	
+	if ( isset( $db[$dsn] ) ) {
+		return $db[$dsn];
+	}
+	
+	// First time? SQLite database will be created
+	$first_run	= false;
+	if ( !\file_exists( $dsn ) ) {
+		$first_run = true;
+	}
+	
+	$opts	= [
+		\PDO::ATTR_TIMEOUT		=> \DATA_TIMEOUT,
+		\PDO::ATTR_DEFAULT_FETCH_MODE	=> \PDO::FETCH_ASSOC,
+		\PDO::ATTR_PERSISTENT		=> false,
+		\PDO::ATTR_EMULATE_PREPARES	=> false,
+		\PDO::ATTR_ERRMODE		=> 
+			\PDO::ERRMODE_EXCEPTION
+	];
+	
+	$db[$dsn]	= 
+		new \PDO( 'sqlite:' . $dsn, null, null, $opts );
+		
+	// Prepare defaults if first run
+	if ( $first_run ) {
+		$db[$dsn]->exec( 'PRAGMA encoding = "UTF-8";' );
+		$db[$dsn]->exec( 'PRAGMA auto_vacuum = "2";' );
+		$db[$dsn]->exec( 'PRAGMA temp_store = "2";' );
+		
+		// Load and process SQL
+		installSQL( $db[$dsn], $dsn );
+	}
+	
+	$db[$dsn]->exec( 'PRAGMA journal_mode = WAL;' );
+	$db[$dsn]->exec( 'PRAGMA foreign_keys = ON;' );
+	
+	return $db[$dsn];
+}
+
+/**
+ *  Get parameter result from database
+ *  
+ *  @param string	$sql	Database SQL query
+ *  @param array	$params	Query parameters (required)
+ *  @param string	$dsn	Database string
+ *  @return array		Query results
+ */
+function getResults(
+	string		$sql, 
+	array		$params,
+	string		$dsn		= \DATA
+) : array {
+	$db	= getDb( $dsn );
+	$stm	= $db->prepare( $sql );
+	
+	if ( $stm->execute( $params ) ) {
+		return $stm->fetchAll();
+	}
+	return [];
+}
+
+/**
+ *  Create database update
+ *  
+ *  @param string	$sql	Database SQL update query
+ *  @param array	$params	Query parameters (required)
+ *  @param string	$dsn	Database string
+ *  @return bool		Update status
+ */
+function setUpdate(
+	string		$sql,
+	array		$params,
+	string		$dsn		= \DATA
+) : bool {
+	$db	= getDb( $dsn );
+	$stm	= $db->prepare( $sql );
+	
+	if ( $stm->execute( $params ) ) {
+		return true;
+	}
+	return false;
+}
+
+/**
+ *  Insert record into database and return last ID
+ *  
+ *  @param string	$sql	Database SQL insert
+ *  @param array	$params	Insert parameters (required)
+ *  @param string	$dsn	Database string
+ *  @return int			Last insert ID
+ */
+function setInsert(
+	string		$sql,
+	array		$params,
+	string		$dsn		= \DATA
+) : int {
+	$db	= getDb( $dsn );
+	$stm	= $db->prepare( $sql );
+	
+	if ( $stm->execute( $params ) ) {
+		( int ) $db->lastInsertId();
+	}
+	return 0;
+}
+
+/**
+ *  Get a single item by ID
+ */
+function getSingle(
+	int		$id,
+	string		$sql,
+	string		$dsn		= \DATA
+) : array {
+	$data	= getResults( $sql, [ ':id' => $id ], $dsn );
+	if ( empty( $data ) ) {
+		return $data[0];
+	}
+	return [];
+}
+
+/**
+ *  Close the session and any open connections
+ */
+function cleanup() {
+	if ( \session_status() === \PHP_SESSION_ACTIVE ) {
+		\session_write_close();
+	}
+	
+	getDb( CACHE_DATA, true );
+}
+
+
+
+
+
+
 /**
  *  Caching
  */
-
-/**
- *  Create cache save path based on current cache directory
- *  
- *  @param string	$key	Generated cache key
- *  @param bool		$create Create path structure if true
- *  @param string	$root	Default page root to begin
- *  @param int		$size	Path chunk size
- *  @return string
- */
-function cachePath(
-	string		$key,
-	bool		$create,
-	string		$root		= \CACHE,
-	int		$size		= 8
-) : string {
-	$s	= '/';
-	$segs	= \rtrim( $root, $s ) . $s;
-	$parts	= \str_split( $key, $size );
-	
-	// Only getting creation path
-	if ( !$create ) {
-		return
-		$segs . $s . \implode( $s, $parts ) . $s . $key;
-	}
-	
-	// Iterate through segments and create each directory
-	foreach ( $parts as $part ) {
-		writeDir( $segs . $part );
-		$segs .= $part . $s;
-	}
-	
-	return $segs . $key;
-}
-
-/**
- *  Create a directory if it doesn't exist
- *  Owner: read/write
- *  Everyone else: read
- *  
- *  @param string	$dir	Directory to make / set permissions
- */
-function writeDir( string $dir ) {
-	if ( !\is_dir( $dir ) ) {
-		\mkdir( $dir, 0755, true );
-	}
-}
-
-/**
- *  Check if cache content exists and hasn't expired yet
- *  
- *  @param string	$path		Cache data file
- *  @return bool
- */
-function cacheHit( string $path = '' ) : bool {
-	if ( empty( $path ) ) {
-		return false;
-	}
-	
-	if ( \file_exists( $path ) ) {
-		$t = \filemtime( $path );
-		if ( false === $t ) {
-			return false;
-		}
-		return ( time() - $t ) < CACHE_TTL;
-	}
-	
-	return false;
-}
 
 /**
  *  Get cached data (if any) by URI key
@@ -441,10 +671,30 @@ function cacheHit( string $path = '' ) : bool {
  */
 function getCache( string $uri ) : string {
 	$key	= \hash( 'sha256', $uri );
-	$path	= cachePath( $key, false );
+	$find	= 
+	getResults( 
+		"SELECT cache_id, content, expires 
+		FROM caches WHERE cache_id = :id LIMIT 1;", 
+		[ ':id' => $key ], 
+		CACHE_DATA 
+	);
 	
-	if ( cacheHit( $path ) ) {
-		return \loadFile( $path );
+	if ( empty( $find ) ) {
+		return '';
+	}
+	
+	// Find expiration
+	$row	= $find[0];
+	$exp	= \strtotime( $row['expires'] );
+	
+	// Formatting went wrong?
+	if ( false === $exp ) {
+		return '';
+	}
+	
+	// Send if TTL 
+	if ( $exp >= time() ) {
+		return $row['content'];
 	}
 	
 	return '';
@@ -456,24 +706,21 @@ function getCache( string $uri ) : string {
  *  @param string	$uri		URI to set cache to
  *  @param string	$content	Cache data
  */
-function saveCache( string $uri, string $content ) : bool {
+function saveCache( string $uri, string $content ) {
 	$key	= \hash( 'sha256', $uri );
-	$path	= cachePath( $key, true );
+	$sql	= 
+	"INSERT OR REPLACE INTO caches ( cache_id, ttl, content )
+		VALUES ( :id, :ttl, :content );";
 	
-	// Something went wrong?
-	if ( empty( $path ) ) {
-		return false;
-	}
-	
-	$dir	= \realpath( \dirname( $path ) );
-	
-	// Check if subpath creation was successful
-	if ( false !== $dir && \is_dir( $dir ) ) {
-		return 
-		\file_put_contents( $path, $content ) ? true : false;
-	}
-	
-	return false;
+	setInsert(
+		$sql, 
+		[
+			':id'		=> $key, 
+			':ttl'		=> CACHE_TTL, 
+			':content'	=> $content 
+		], 
+		CACHE_DATA 
+	);
 }
 
 
@@ -698,7 +945,8 @@ function pacify(
  */
 function entities( 
 	string		$v, 
-	bool		$quotes	= true 
+	bool		$quotes	= true,
+	bool		$spaces	= true
 ) : string {
 	if ( $quotes ) {
 		$v	=
@@ -1378,6 +1626,7 @@ function send(
 	}
 	
 	// End
+	shutdown( 'cleanup' );
 	shutdown();
 }
 
