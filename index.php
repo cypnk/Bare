@@ -693,6 +693,7 @@ function pacify(
  *  
  *  @param string	$v	Raw text to turn to HTML entities
  *  @param bool		$quotes	Convert quotes (defaults to true)
+ *  @param bool		$spaces	Convert spaces to "&nbsp;*" (defaults to true)
  *  @return string
  */
 function entities( 
@@ -713,9 +714,14 @@ function entities(
 			'UTF-8'
 		);
 	}
-	
-	$v = \str_replace( ' ', '&nbsp;', $v );
-	return \str_replace( '	', '&nbsp;&nbsp;&nbsp;&nbsp;', $v );
+	if ( $spaces ) {
+		return 
+		\strtr( $v, [ 
+			' ' => '&nbsp;',
+			'	' => '&nbsp;&nbsp;&nbsp;&nbsp;'
+		] );
+	}
+	return $v;
 }
 
 /**
@@ -1130,7 +1136,7 @@ function markdown(
 			
 			// This is an image
 			// Fix titles / alt text
-			$a = entities( \strtr( $m[4] ?? $t, [ '\"' => '"' ] ) );
+			$a = entities( \strtr( $m[4] ?? $t, [ '\"' => '"' ] ), false, false );
 			return
 			\sprintf( "<img src='%s' alt='%s' title='%s' />", $u, entities( $t ), $a );
 		},
