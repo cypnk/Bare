@@ -169,9 +169,14 @@ define( 'TAG_WHITE',	<<<JSON
 	
 	"a"		: [ "style", "class", "rel", 
 				"title", "href" ],
-	"img"		: [ "style", "class", "src", "height", 
-				"width", "alt", "longdesc", 
-				"title", "hspace", "vspace" ],
+	"img"		: [ "style", "class", "src", "height", "width", 
+				"alt", "longdesc", "title", "hspace", 
+				"vspace", "srcset", "sizes"
+				"data-srcset", "data-src", 
+				"data-sizes" ],
+	"figure"	: [ "style", "class" ],
+	"figcaption"	: [ "style", "class" ],
+	"picture"	: [ "style", "class" ],
 	"table"		: [ "style", "class", "cellspacing", 
 					"border-collapse", 
 					"cellpadding" ],
@@ -440,6 +445,8 @@ function shutdown() {
 				$k();
 			}
 		}
+		// Always call cleanup right before ending
+		cleanup();
 		
 		// End
 		die();
@@ -472,7 +479,8 @@ function loadSQL( string $dsn ) {
 	$def	= \explode( '_', $my[$dsn] )[0];
 	
 	// SQL Lines from defined component + "_SQL"
-	return \preg_split( "/[\r\n]+/", constant( $def . '_SQL' ) );
+	$lines	= \preg_split( "/[\r\n]+/", constant( $def . '_SQL' ) );
+	return \array_filter( \array_map( 'trim', $lines ) );
 }
 
 /**
@@ -491,16 +499,11 @@ function installSQL( \PDO $db, string $dsn ) {
 		if ( \preg_match( '/^(\s+)?(--|PRAGMA)/is', $l ) ) {
 			continue;
 		}
-		// Skip empty
-		$l	= \trim( $l );
-		if ( empty( $l ) ) {
-			continue;
-		}
 		$parse[] = $l;
 	}
 	
 	// Separate into statement actions
-	$qr	= \explode( '-- --', \implode( "\n", $parse ) );
+	$qr	= \explode( '-- --', \implode( " \n", $parse ) );
 	foreach( $qr as $q ) {
 		if ( empty( trim( $q ) ) ) {
 			continue;
@@ -1043,12 +1046,13 @@ function cleanAttributes(
 				case 'longdesc':
 				case 'url':
 				case 'src':
+				case 'data-src':
 				case 'href':
 					$v = cleanUrl( $v );
 					break;
 					
 				default:
-					$v = entities( $v );
+					$v = entities( $v, false, false );
 			}
 			
 			$node->setAttribute( $n, $v );
@@ -1626,7 +1630,6 @@ function send(
 	}
 	
 	// End
-	shutdown( 'cleanup' );
 	shutdown();
 }
 
