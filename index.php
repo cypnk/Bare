@@ -344,6 +344,34 @@ SQL
 
 
 /**
+ *  Sessions database
+ */
+define( 'SESSION_SQL',		<<<SQL
+-- Visitor/User sessions
+CREATE TABLE sessions(
+	id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+	session_id TEXT DEFAULT NULL COLLATE NOCASE,
+	session_data TEXT DEFAULT NULL COLLATE NOCASE,
+	created TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);-- --
+CREATE UNIQUE INDEX idx_session_id ON sessions( session_id );-- --
+CREATE INDEX idx_session_created ON sessions( created DESC );-- --
+CREATE INDEX idx_session_updated ON sessions( updated DESC );-- --
+
+CREATE TRIGGER session_update AFTER UPDATE ON sessions
+BEGIN
+	UPDATE sessions SET updated = CURRENT_TIMESTAMP 
+		WHERE id = NEW.id;
+END;
+SQL
+);
+
+
+
+
+
+/**
  *  Helpers
  */
 
@@ -419,7 +447,8 @@ function paginate( $page, $prefix, $posts ) {
 	if ( $c >= PAGE_LIMIT ) {
 		$out	.=
 		\strtr( TPL_LINK, [ 
-			'{url}'		=> $prefix . 'page'. ( $page + 1 ),
+			'{url}'		=> 
+				$prefix . 'page'. ( $page + 1 ),
 			'{text}'	=> TPL_NEXT
 		] ); 
 	}
@@ -446,7 +475,7 @@ function shutdown() {
 			}
 		}
 		// Always call cleanup right before ending
-		cleanup();
+		cleanup( true );
 		
 		// End
 		die();
@@ -1264,6 +1293,8 @@ function tidyup( string $text ) : string {
 		'output-xhtml'				=> 1,
 		'merge-spans'				=> 1,
 		'show-body-only'			=> 1,
+		'new-blocklevel-tags'			=> 
+			'figure, figcaption, picture',
 		'wrap'					=> 0
 	];
 	
