@@ -189,6 +189,8 @@ figcaption {
 	font-size: 90%;
 	border-bottom: 1px solid #ddd;
 	margin-bottom: 1em;
+	line-height: 1.3em;
+	padding: .5em;
 }
 
 ul,ol {
