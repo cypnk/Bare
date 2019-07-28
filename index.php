@@ -251,6 +251,8 @@ JSON
 define( 'MSG_NOTFOUND',		'Page not found' );
 define( 'MSG_NOROUTE',		'No route defined' );
 define( 'MSG_CODEDETECT',	'Server-side code detected' );
+define( 'MSG_DENIED',		"Access denied" );
+define( 'MSG_INVALID',		"Invalid request" );
 
 
 /**
@@ -474,8 +476,6 @@ function shutdown() {
 				$k();
 			}
 		}
-		// Always call cleanup right before ending
-		cleanup( true );
 		
 		// End
 		die();
@@ -1658,6 +1658,7 @@ function send(
 	if ( $cache ) {
 		$full	= fullURI();
 		shutdown( 'saveCache', [ $full, $content ] );
+		shutdown( 'cleanup' );
 	}
 	
 	// End
@@ -1694,35 +1695,64 @@ function filterParams( array $params ) {
 }
 
 /**
+ *  Request filter and cache check. This should be first called
+ *  
+ *  @param string	$verb		Request method
+ *  @param string	$path		Current request URI
+ */
+function request( string &$verb, string &$path ) {
+	// Request path (simpler filter before proper XSS)
+	if ( \strpos( $path, '..' ) || \strpos( $path, '<' ) ) {
+		shutdown( 'cleanup' );
+		send( 400, \MSG_INVALID );
+	}
+	
+	// Possible XSS, directory traversal, or file upload detected
+	if ( 
+		\preg_match( RX_XSS3, $path ) || 
+		\preg_match( RX_XSS4, $path ) || 
+		!empty( $_FILES )
+	) {
+		shutdown( 'cleanup' );
+		send( 403, \MSG_DENIED );
+	}
+	
+	// Request path hard limit
+	if ( \mb_strlen( $path, '8bit' ) > 255 ) {
+		shutdown( 'cleanup' );
+		send( 414 );
+	}
+	
+	// Process request method for valid types
+	$verb		= \strtolower( $verb );
+	
+	// Check request method
+	switch( $verb ) {
+		// Will need processing, continue
+		case 'get':
+			return;
+		
+		// Send no content
+		case 'head':
+			shutdown( 'cleanup' );
+			send( 200 );
+		
+		// Nothing else implemented
+		default:
+			shutdown( 'cleanup' );
+			send( 405 );
+	}
+}
+
+/**
  *  Execute route
  */
 function route( $routes ) {
 	$path	= $_SERVER['REQUEST_URI'];
 	$verb	= \strtolower( $_SERVER['REQUEST_METHOD'] );
 	
-	// Check directory traversal or XSS
-	if ( 
-		\preg_match( RX_XSS2, $path ) || 
-		\preg_match( RX_XSS4, $path ) 
-	) {
-		send( 404, MSG_NOTFOUND );
-	}
-	
-	switch( $verb ) {
-		// Only get and head are parsed
-		case 'get':
-		case 'head':
-			break;
-		
-		// Method not implemented
-		default:
-			send( 405 );
-	}
-	
-	// No content sent for HEAD method
-	if ( $verb == 'head' ) {
-		send( 200 );
-	}
+	// Filter request
+	request( $verb, $path );
 	
 	// Check if content is already cached for this URI
 	$cache	= getCache( fullURI() );
