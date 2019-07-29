@@ -23,6 +23,8 @@ define( 'CACHE_TTL',	3200 );
 
 // Uploaded file location (usually the same as POSTS)
 define( 'FILE_PATH',	POSTS );
+// Use this instead if you keep uploaded files outside the web root
+// define( 'FILE_PATH',	\realpath( \dirname( __FILE__, 2 ) ) . '/uploads/' );
 
 // Friendly date format
 define( 'DATE_NICE',	'l, F j, Y' );
@@ -2069,6 +2071,7 @@ function sendFilePrep( $path, $code = 200 ) {
 	
 	// Setup content security
 	preamble( '', false, false );
+	\header( "Content-Type: {$mime}", true );
 	\header( "Content-Security-Policy: default-src 'self'", true );	
 }
 
@@ -2080,18 +2083,24 @@ function sendFilePrep( $path, $code = 200 ) {
 function sendFileFinish( $path ) {
 	// Prepare content length header
 	$fsize	= \filesize( $path );
-	if ( false === $fsize ) {
-		\header( "Content-Length: 0", true );
-	} else {
+	if ( false !== $fsize ) {
 		\header( "Content-Length: {$fsize}", true );
+		
+		// Similar to Nginx ETag algo: 
+		// Lowercase hex of last modified and filesize
+		$fmod	= \filemtime( $path );
+		if ( false !== $fmod ) {
+			$etag	= \sprintf( '%x-%x', $fmod, $fsize );
+			\header( "ETag: {$etag}", true );
+		}
 	}
+	
+	// Append cleanup and readfile to shutdown
+	shutdown( 'cleanup' );
+	shutdown( 'readfile', $path );
 	
 	// Send any headers
 	\flush();
-	\readfile( $path );
-	
-	// Append cleanup
-	shutdown( 'cleanup' );
 }
 
 /**
@@ -2124,6 +2133,7 @@ function sendFile(
 		"Content-Disposition: {$dsp}; filename=\"{$fname}\"", 
 		true
 	);
+	
 	if ( $cache ) {
 		\header( 'Cache-Control:public, max-age=31536000', true );
 	} else {
@@ -2227,7 +2237,7 @@ function request( string &$verb, string &$path ) {
  *  
  *  @param string	$path		Requested URI
  */
-function isSafeExt( $path ) {
+function isSafeExt( string $path ) {
 	static $safe;
 	static $checked	= [];
 	
@@ -2243,7 +2253,7 @@ function isSafeExt( $path ) {
 	
 	$params		= \pathinfo( $path );
 	$checked[$path] = 
-	\in_array( $params['extension'] ?? '', $safe );
+	\in_array( \strtolower( $params['extension'] ?? '' ), $safe );
 	
 	return $checked[$path];
 }
@@ -2298,11 +2308,12 @@ function route( $routes ) {
 	}
 	
 	// Try to send file, if it's a file
-	if ( \strcasecmp( 'get', $verb ) && isSafeExt( $path ) ) {
-		$path = \ltrim( '/', $path );
+	if ( 0 === \strcasecmp( 'get', $verb ) && isSafeExt( $path ) ) {
+		// Trim leading slash
+		$path = \preg_replace( '/^\//', '', $path );
 		if ( sendFile( FILE_PATH . $path, false, true ) ) {
 			shutdown();
-		} 
+		}
 	}
 	
 	send( 404, MSG_NOTFOUND );
