@@ -2082,7 +2082,7 @@ function sendFileFinish( $path ) {
 	$fsize	= \filesize( $path );
 	if ( false === $fsize ) {
 		\header( "Content-Length: 0", true );
-	} elseif( false == $lang ) {
+	} else {
 		\header( "Content-Length: {$fsize}", true );
 	}
 	
