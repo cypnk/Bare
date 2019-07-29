@@ -8,6 +8,9 @@
  *  Relative path based on current file location
  */
 define( 'PATH',		\realpath( \dirname( __FILE__ ) ) . '/' );
+// Use this instead if you keep scripts outside the web root
+// define( 'PATH',	\realpath( \dirname( __FILE__, 2 ) ) . '/htdocs/' );
+
 
 // Post directory
 define( 'POSTS',	PATH . 'posts/' );
@@ -17,6 +20,9 @@ define( 'CACHE',	PATH . 'cache/' );
 
 // Cached index timeout
 define( 'CACHE_TTL',	3200 );
+
+// Uploaded file location (usually the same as POSTS)
+define( 'FILE_PATH',	POSTS );
 
 // Friendly date format
 define( 'DATE_NICE',	'l, F j, Y' );
@@ -41,6 +47,10 @@ define( 'YEAR_START',	2015 );
 
 // Ending date for post archive
 define( 'YEAR_END',	2099 );
+
+// Extensions generally safe to send as-is
+define( 'SAFE_EXT',	
+	'css, js, ico, txt, html, jpg, jpeg, gif, bmp, png' );
 
 // General page template
 define( 'TPL_PAGE',		<<<HTML
@@ -1024,11 +1034,7 @@ function lastVisit() : int {
 	
 	// Check for generallly safe extensions requested 
 	// in rapid succession
-	$safe	= 
-	[ 'css', 'js', 'ico', 'txt', 'html', 'jpg', 'jpeg', 'gif', 
-		'bmp', 'png' ];
-	$params	= \pathinfo( $_SERVER['REQUEST_URI'] );
-	$nice	= \in_array( $params['extension'] ?? '', $safe );
+	$nice	= isSafeExt( $_SERVER['REQUEST_URI'] );
 		
 	// Timestamp segments
 	$t	= ( int ) $last[0] ?? time();
@@ -2000,16 +2006,18 @@ function setCacheExp() {
  *  @param int		$code		HTTP Status code
  *  @param string	$content	Page data to send to client
  *  @param bool		$cache		Cache page data if true
- *  @param bool		$file		Sending a file type
  */
 function send(
 	int		$code		= 200,
 	string		$content	= '',
 	bool		$cache		= false,
-	bool		$feed		= false,
-	bool		$file		= false
+	bool		$feed		= false
 ) {
+	// Scrub output buffer
+	\ob_clean();
+	
 	httpCode( $code );
+	
 	if ( $feed ) {
 		\header(
 			'Content-Type: application/rss+xml; charset=utf-8', 
@@ -2021,26 +2029,107 @@ function send(
 		preamble();
 	}
 	
-	echo $content;
-	
 	// Also save to cache?
 	if ( $cache ) {
-		if ( $file ) {
-			\header( 
-				'Cache-Control:public, max-age=31536000', 
-				true 
-			);
-		} else {
-			setCacheExp();
-			$full	= fullURI();
-			shutdown( 'saveCache', [ $full, $content ] );
-		}
+		setCacheExp();
+		$full	= fullURI();
+		shutdown( 'saveCache', [ $full, $content ] );
 		shutdown( 'cleanup' );
 	}
+	
+	echo $content;
 	
 	// End
 	shutdown();
 }
+
+/**
+ *  Prepare to send a file instead of an HTTP response
+ *  
+ *  @param string	$path		File path to send
+ *  @param int		$code		HTTP Status code
+ */
+function sendFilePrep( $path, $code = 200 ) {
+	$mime	= \mime_content_type( $path );
+	if ( false === $mime ) {
+		$mime = 'application/octet-stream';
+	}
+	
+	// Scrub output buffer
+	\ob_clean();
+	
+	httpCode( $code );
+	
+	// Setup content security
+	preamble( '', false, false );
+	\header( "Content-Security-Policy: default-src 'self'", true );	
+}
+
+/**
+ *  Finish file sending functionality
+ *  
+ *  @param string	$path		File path to send
+ */
+function sendFileFinish( $path ) {
+	// Prepare content length header
+	$fsize	= \filesize( $path );
+	if ( false === $fsize ) {
+		\header( "Content-Length: 0", true );
+	} elseif( false == $lang ) {
+		\header( "Content-Length: {$fsize}", true );
+	}
+	
+	// Send any headers
+	\flush();
+	\readfile( $path );
+	
+	// Append cleanup
+	shutdown( 'cleanup' );
+}
+
+/**
+ *  Send a physical file if it exists
+ *  
+ *  @param string	$path	Physical path relative to script
+ *  @param bool		$down	Prompt download if true
+ */
+function sendFile(
+	string		$path,
+	bool		$down		= false, 
+	bool		$cache		= true
+) : bool {
+	// No file found
+	if ( !\file_exists( $path ) ) {
+		return false;
+	}
+	
+	// Client save path
+	$fname	= \basename( $path );
+	
+	// Show inline or prompt download
+	$dsp	= $down ? 'attachment' : 'inline';
+	
+	// Prepare to send file
+	sendFilePrep( $path, 200 );
+	
+	// Setup file parameters
+	\header( 
+		"Content-Disposition: {$dsp}; filename=\"{$fname}\"", 
+		true
+	);
+	if ( $cache ) {
+		\header( 'Cache-Control:public, max-age=31536000', true );
+	} else {
+		\header( 'Cache-Control: must-revalidate', true );
+		\header( 'Expires: 0', true );
+		\header( 'Pragma: no-cache', true );
+	}
+	
+	// Finish sending file
+	sendFileFinish( $path );
+	return true;
+}
+
 
 /**
  *  Routing and redirection
@@ -2126,6 +2215,31 @@ function request( string &$verb, string &$path ) {
 			send( 405 );
 	}
 }
+/**
+ *  Check if the requested path has a whitelisted extension
+ *  
+ *  @param string	$path		Requested URI
+ */
+function isSafeExt( $path ) {
+	static $safe;
+	static $checked	= [];
+	
+	if ( isset( $checked[$path] ) ) {
+		return $checked[$path];
+	}
+	
+	if ( !isset( $safe ) ) {
+		$safe	= 
+		\array_map( 'trim', \explode( ',', SAFE_EXT ) );
+		$safe	= \array_map( 'strtolower', $safe );
+	}
+	
+	$params		= \pathinfo( $path );
+	$checked[$path] = 
+	\in_array( $params['extension'] ?? '', $safe );
+	
+	return $checked[$path];
+}
 
 /**
  *  Execute route
@@ -2138,9 +2252,16 @@ function route( $routes ) {
 	request( $verb, $path );
 	
 	// Check if content is already cached for this URI
-	$cache	= getCache( fullURI() );
+	$uri	= fullURI();
+	$cache	= getCache( $uri );
+	
 	if ( !empty( $cache ) ) {
-		send( 200, $cache );
+		// Is this a feed?
+		if ( 0 === \strcasecmp( \basename( $path ), 'feed' ) ) {
+			send( 200, $cache, true, true );
+		} else {
+			send( 200, $cache, true );
+		}
 	}
 	
 	static $markers;
@@ -2167,6 +2288,14 @@ function route( $routes ) {
 			}
 			break;
 		}
+	}
+	
+	// Try to send file, if it's a file
+	if ( \strcasecmp( 'get', $verb ) && isSafeExt( $path ) ) {
+		$path = \ltrim( '/', $path );
+		if ( sendFile( FILE_PATH . $path, false, true ) ) {
+			shutdown();
+		} 
 	}
 	
 	send( 404, MSG_NOTFOUND );
