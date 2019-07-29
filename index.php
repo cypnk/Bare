@@ -1907,8 +1907,6 @@ function preamble(
 	bool	$send_csp	= true,
 	bool	$send_type	= true
 ) {
-	\header_remove( 'X-Powered-By' );
-	
 	if ( $send_type ) {
 		\header( 
 			'Content-Type: text/html; charset=utf-8', 
@@ -2001,6 +1999,19 @@ function setCacheExp() {
 }
 
 /**
+ *  Remove previously set headers, output
+ */
+function scrubOutput() {
+	// Scrub output buffer
+	\ob_clean();
+	\header_remove( 'Pragma' );
+	
+	// This is best done in php.ini : expose_php = Off
+	\header( 'X-Powered-By: nil', true );
+	\header_remove( 'X-Powered-By' );
+}
+
+/**
  *  Print headers, content, and end execution
  *  
  *  @param int		$code		HTTP Status code
@@ -2013,9 +2024,7 @@ function send(
 	bool		$cache		= false,
 	bool		$feed		= false
 ) {
-	// Scrub output buffer
-	\ob_clean();
-	
+	scrubOutput();
 	httpCode( $code );
 	
 	if ( $feed ) {
@@ -2055,9 +2064,7 @@ function sendFilePrep( $path, $code = 200 ) {
 		$mime = 'application/octet-stream';
 	}
 	
-	// Scrub output buffer
-	\ob_clean();
-	
+	scrubOutput();
 	httpCode( $code );
 	
 	// Setup content security
