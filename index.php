@@ -266,9 +266,45 @@ define( 'DATA',			'' );
 // Cache database (will be created if it doesn't exist)
 define( 'CACHE_DATA',		CACHE . 'cache.db' );
 
+// Session database (will be created if it doesn't exist)
+define( 'SESSION_DATA',		CACHE . 'session.db' );
+
 // Database connection timeout
 define( 'DATA_TIMEOUT',		5 );
 
+
+
+/**
+ *  Session settings
+ */
+
+// Staleness check
+define( 'SESSION_EXP',		300 );
+
+// ID random bytes
+define( 'SESSION_BYTES',	12 );
+
+// Session name
+define( 'SESSION_TITLE',	'Bare' );
+
+// Session throttling levels
+define( 'SESSION_STATE_FRESH',	0 );
+define( 'SESSION_STATE_LIGHT',	1 );
+define( 'SESSION_STATE_MEDIUM',	2 );
+define( 'SESSION_STATE_HEAVY',	3 );
+define( 'SESSION_STATE_CORRUPT',99 );
+
+/**
+ *  Session throttling limits
+ */
+// Number of rapid requests before throttling begins
+define( 'SESSION_LIMIT_COUNT', 5 );
+
+// Seconds between requests before "medium" throttling
+define( 'SESSION_LIMIT_MEDIUM', 3 );
+
+// Seconds between requests before "heavy" throttling
+define( 'SESSION_LIMIT_HEAVY', 1 );
 
 
 
@@ -685,6 +721,7 @@ function cleanup() {
 	}
 	
 	getDb( CACHE_DATA, true );
+	getDb( SESSION_DATA, true );
 }
 
 
@@ -753,6 +790,327 @@ function saveCache( string $uri, string $content ) {
 		], 
 		CACHE_DATA 
 	);
+}
+
+
+
+/**
+ *  Session functions
+ */
+
+/**
+ *  Set session handler functions
+ */
+function setSessionHandler() {
+	\session_set_save_handler(
+		'sessionOpen', 
+		'sessionClose', 
+		'sessionRead', 
+		'sessionWrite', 
+		'sessionDestroy', 
+		'sessionGC', 
+		'sessionCreateID'
+	);	
+}
+
+/**
+ *  Does nothing
+ */
+function sessionOpen( $path, $name ) { return true; }
+function sessionClose() { return true; }
+
+/**
+ *  Create session ID in the database and return it
+ *  
+ *  @return string
+ */
+function sessionCreateID() {
+	$id	= \bin2hex( \random_bytes( SESSION_BYTES ) );
+	$sql	= 
+	"INSERT OR IGNORE INTO sessions ( session_id )
+		VALUES ( :id );";
+		
+	$db	= getDb( SESSION_DATA );
+	$stm	= $db->prepare( $sql );
+	
+	if ( $stm->execute( [ ':id' => $id ] ) ) {
+		return $id;
+	}
+	
+	// Something went wrong with the database
+	die();
+}
+
+/**
+ *  Delete session
+ *  
+ *  @return bool
+ */
+function sessionDestroy( $id ) {
+	$sql	= 
+	"DELETE FROM sessions WHERE session_id = :id;";
+		
+	$db	= getDb( SESSION_DATA );
+	$stm	= $db->prepare( $sql );
+	
+	if ( $stm->execute( [ ':id' => $id ] ) ) {
+		return true;
+	}
+	return false;
+}
+	
+/**
+ *  Session garbage collection
+ *  
+ *  @return bool
+ */
+function sessionGC( $max ) {
+	$sql	= 
+	"DELETE FROM sessions WHERE 
+		strftime( '%s', 'now' ) - 
+		strftime( '%s', updated ) > :gc;";
+	
+	$db	= getDb( SESSION_DATA );
+	$stm	= $db->prepare( $sql );
+	
+	if ( $stm->execute( [ ':gc' => $max ] ) ) {
+		return true;
+	}
+	return false;
+}
+	
+/**
+ *  Read session data by ID
+ *  
+ *  @return string
+ */
+function sessionRead( $id ) {
+	$sql	= 
+	"SELECT session_data FROM sessions 
+		WHERE session_id = :id LIMIT 1;";
+	$db	= getDb( SESSION_DATA );
+	$stm	= $db->prepare( $sql );
+	
+	if ( $stm->execute( [ ':id' => $id ] ) ) {
+		$data = $stm->fetchColumn();
+		return empty( $data ) ? '' : $data;
+	}
+	
+	return '';
+}
+
+/**
+ *  Store session data
+ *  
+ *  @return bool
+ */
+function sessionWrite( $id, $data ) {
+	$sql	= 
+	"INSERT OR REPLACE INTO sessions 
+		( session_id, session_data )
+		VALUES( :id, :data );";
+	
+	$db	= getDb( SESSION_DATA );
+	$stm	= $db->prepare( $sql );
+	
+	if ( $stm->execute( [ 
+		':id'		=> $id, 
+		':data'		=> $data
+	] ) ) {
+		return true;
+	}
+	return false;
+}
+
+
+/**
+ *  Session functionality
+ */
+
+	
+/**
+ *  Session owner and staleness marker
+ *  
+ *  @link https://paragonie.com/blog/2015/04/fast-track-safe-and-secure-php-sessions
+ */
+function sessionCanary( string $visit = '' ) {
+	$_SESSION['canary'] = 
+	[
+		'exp'		=> time() + \SESSION_EXP,
+		'visit'		=> 
+		empty( $visit ) ? 
+			\bin2hex( \random_bytes( \SESSION_BYTES ) ) : 
+			$visit
+	];
+}
+	
+/**
+ *  Check session staleness
+ */
+function sessionCheck( bool $reset = false ) {
+	session( $reset );
+	
+	if ( empty( $_SESSION['canary'] ) ) {
+		sessionCanary();
+		return;
+	}
+	
+	if ( time() > ( int ) $_SESSION['canary']['exp'] ) {
+		$visit = $_SESSION['canary']['visit'];
+		\session_regenerate_id( true );
+		sessionCanary( $visit );
+	}
+}
+
+/**
+ *  End current session activity
+ */
+function cleanSession() {
+	if ( \session_status() === \PHP_SESSION_ACTIVE ) {
+		\session_unset();
+		\session_destroy();
+		\session_write_close();
+	}
+}
+
+/**
+ *  Initiate a session if it doesn't already exist
+ *  Optionally reset and destroy session data
+ *  
+ *  @param bool		$reset		Reset session ID if true
+ */
+function session( $reset = false ) {
+	if ( \session_status() === \PHP_SESSION_ACTIVE && !$reset ) {
+		return;
+	}
+	
+	if ( \session_status() !== \PHP_SESSION_ACTIVE ) {
+		//\session_cache_limiter( 'public' );
+		\session_name( \SESSION_TITLE );
+		\session_start();
+	}
+	
+	if ( $reset ) {
+		\session_regenerate_id( true );
+		foreach ( \array_keys( $_SESSION ) as $k ) {
+			unset( $_SESSION[$k] );
+		}
+	}
+}
+
+/**
+ *  Last visit session data and timeouts
+ *  
+ *  @return int
+ */
+function lastVisit() : int {
+	$now	= time();
+
+	// Default return state
+	$check 	= SESSION_STATE_FRESH;
+	
+	// First visit?
+	$last	= $_SESSION['last'] ?? [];
+	if ( empty( $last ) ) {
+		$_SESSION['last'] = [ $now, 0 ];
+		return $check;
+	}
+	
+	// Session corrupted? Reset and send Not Modified
+	if ( !\is_array( $last ) || \count( $last ) !== 2 ) {
+		$_SESSION['last'] = [ $now, 0 ];
+		return SESSION_STATE_CORRUPT;
+	}
+	
+	// Check for generallly safe extensions requested 
+	// in rapid succession
+	$safe	= 
+	[ 'css', 'js', 'ico', 'txt', 'html', 'jpg', 'jpeg', 'gif', 
+		'bmp', 'png' ];
+	$params	= \pathinfo( $_SERVER['REQUEST_URI'] );
+	$nice	= \in_array( $params['extension'] ?? '', $safe );
+		
+	// Timestamp segments
+	$t	= ( int ) $last[0] ?? time();
+	$q	= ( int ) $last[1] ?? 0;
+	
+	// Rapid query limit exceeded?
+	if ( $q >= SESSION_LIMIT_COUNT ) {
+		// Delay has timed out? Reset
+		if ( ( $t + SESSION_EXP ) > $now ) {
+			$_SESSION['last'] = [ $now, 0 ];
+		
+		// Generally safe extension?
+		} elseif ( $nice ) {
+			// Return as-is
+			return $check;
+			
+		// Still within limit
+		// Set time, but keep query limit
+		} else {
+			$_SESSION['last'] = [ $now, $q ];
+			$check = SESSION_STATE_LIGHT;
+		}
+	} else {
+		// Generally safe extension?
+		if ( $nice ) {
+			return $check;
+		
+		// Last request less than heavy throttle limit?
+		// Probably abuse
+		} elseif ( \abs( $now - $t ) < SESSION_LIMIT_HEAVY ) {
+			$_SESSION['last'] = [ $now, $q++ ];
+			$check = SESSION_STATE_HEAVY;
+			
+		// Less than medium throttle limit?
+		// Probably just impatient
+		} elseif ( \abs( $now - $t ) < SESSION_LIMIT_MEDIUM ) {
+			$_SESSION['last'] = [ $now, $q ];
+			$check = SESSION_STATE_MEDIUM;
+		
+		// No limits exceeded. Reset
+		} else {
+			$_SESSION['last'] = [ $now, 0 ];
+		}
+	}
+	
+	return $check;
+}
+
+/**
+ *  Limit requests per session
+ */
+function sessionThrottle() {
+	// Check session
+	sessionCheck();
+	
+	// Sender should not be served for the duration of this session
+	if ( isset( $_SESSION['kill'] ) ) {
+		shutdown( 'cleanup' );
+		send( 403, \MSG_DENIED );
+	}
+	
+	$check		= lastVisit();
+	
+	// Increase sleep delay
+	switch( $check ) {
+		// Send Too Many Requests
+		case SESSION_STATE_HEAVY:
+			shutdown( 'cleanup' );
+			shutdown( 'sleep', 20 );
+			send( 429 );
+			
+		// Send Not Modified for the rest
+		case SESSION_STATE_MEDIUM:
+			shutdown( 'cleanup' );
+			shutdown( 'sleep', 10 );
+			send( 304 );
+			
+		case SESSION_STATE_LIGHT:
+			shutdown( 'cleanup' );
+			shutdown( 'sleep', 5 );
+			send( 304 );
+	}
 }
 
 
@@ -1627,17 +1985,29 @@ function fullURI() {
 }
 
 /**
+ *  Set expires header
+ */
+function setCacheExp() {
+	\header( 'Cache-Control: max-age=' . CACHE_TTL, true );
+	\header( 'Expires: ' . 
+		\gmdate( 'D, d M Y H:i:s', time() + CACHE_TTL ) . 
+		' GMT', true );
+}
+
+/**
  *  Print headers, content, and end execution
  *  
  *  @param int		$code		HTTP Status code
  *  @param string	$content	Page data to send to client
  *  @param bool		$cache		Cache page data if true
+ *  @param bool		$file		Sending a file type
  */
 function send(
 	int		$code		= 200,
 	string		$content	= '',
 	bool		$cache		= false,
-	bool		$feed		= false
+	bool		$feed		= false,
+	bool		$file		= false
 ) {
 	httpCode( $code );
 	if ( $feed ) {
@@ -1652,12 +2022,19 @@ function send(
 	}
 	
 	echo $content;
-	\flush();
 	
 	// Also save to cache?
 	if ( $cache ) {
-		$full	= fullURI();
-		shutdown( 'saveCache', [ $full, $content ] );
+		if ( $file ) {
+			\header( 
+				'Cache-Control:public, max-age=31536000', 
+				true 
+			);
+		} else {
+			setCacheExp();
+			$full	= fullURI();
+			shutdown( 'saveCache', [ $full, $content ] );
+		}
 		shutdown( 'cleanup' );
 	}
 	
@@ -1701,6 +2078,12 @@ function filterParams( array $params ) {
  *  @param string	$path		Current request URI
  */
 function request( string &$verb, string &$path ) {
+	// Set session save handler
+	setSessionHandler();
+	
+	// Check throttling
+	sessionThrottle();
+	
 	// Request path (simpler filter before proper XSS)
 	if ( \strpos( $path, '..' ) || \strpos( $path, '<' ) ) {
 		shutdown( 'cleanup' );
