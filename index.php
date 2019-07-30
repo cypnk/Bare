@@ -2055,6 +2055,41 @@ function send(
 }
 
 /**
+ *  Generate ETag from file path
+ */
+function genEtag( $path ) {
+	static $tags		= [];
+	
+	if ( isset( $tags[$path] ) ) {
+		return $tags[$path];
+	}
+	
+	$tags[$path]		= [];
+	
+	// Find file size header
+	$tags[$path]['fsize']	= \filesize( $path );
+	if ( false !== $tags[$path]['fsize'] ) {
+		// Similar to Nginx ETag algo: 
+		// Lowercase hex of last modified date and filesize
+		$tags[$path]['fmod']	= \filemtime( $path );
+		if ( false !== $tags[$path]['fmod'] ) {
+			$tags[$path]['etag']	= 
+			\sprintf( '%x-%x', 
+				$tags[$path]['fmod'], 
+				$tags[$path]['fsize']
+			);
+		} else {
+			$tags[$path]['etag'] = '';
+		}
+	} else {
+		$tags[$path]['fmod'] = 0;
+		$tags[$path]['etag'] = '';
+	}
+	
+	return $tags[$path];
+}
+
+/**
  *  Prepare to send a file instead of an HTTP response
  *  
  *  @param string	$path		File path to send
@@ -2076,28 +2111,42 @@ function sendFilePrep( $path, $code = 200 ) {
 }
 
 /**
+ *  Check If-None-Match header against given ETag
+ *  
+ *  @return true if header not set or if ETag doesn't match
+ */
+function ifModified( $etag ) : bool {
+	$mod = $_SERVER['HTTP_IF_NONE_MATCH'] ?? '';
+	
+	if ( empty( $mod ) ) {
+		return true;
+	}
+	
+	return ( 0 !== \strcmp( $etag, $mod ) );
+}
+
+/**
  *  Finish file sending functionality
  *  
  *  @param string	$path		File path to send
  */
 function sendFileFinish( $path ) {
-	// Prepare content length header
-	$fsize	= \filesize( $path );
-	if ( false !== $fsize ) {
+	// Prepare content length and etag headers
+	$tags	= genEtag( $path );
+	$fsize	= $tags['fsize'];
+	$etag	= $tags['etag'];
+	if ( false !== $tags['fsize'] ) {
 		\header( "Content-Length: {$fsize}", true );
-		
-		// Similar to Nginx ETag algo: 
-		// Lowercase hex of last modified and filesize
-		$fmod	= \filemtime( $path );
-		if ( false !== $fmod ) {
-			$etag	= \sprintf( '%x-%x', $fmod, $fsize );
+		if ( !empty( $etag ) ) {
 			\header( "ETag: {$etag}", true );
 		}
 	}
 	
 	// Append cleanup and readfile to shutdown
 	shutdown( 'cleanup' );
-	shutdown( 'readfile', $path );
+	if ( ifModified( $etag ) ) {
+		shutdown( 'readfile', $path );
+	}
 	
 	// Send any headers
 	\flush();
@@ -2310,9 +2359,16 @@ function route( $routes ) {
 	// Try to send file, if it's a file
 	if ( 0 === \strcasecmp( 'get', $verb ) && isSafeExt( $path ) ) {
 		// Trim leading slash
-		$path = \preg_replace( '/^\//', '', $path );
-		if ( sendFile( FILE_PATH . $path, false, true ) ) {
-			shutdown();
+		$path = FILE_PATH . \preg_replace( '/^\//', '', $path );
+		if ( sendFile( $path, false, true ) ) {
+			$tags	= genEtag( $path );
+			// First time or modified? Send shutdown
+			if ( ifModified( $tags['etag'] ) ) {
+				shutdown();
+			}
+			
+			// Send not modified
+			send( 304 );
 		}
 	}
 	
