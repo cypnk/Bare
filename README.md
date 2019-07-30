@@ -104,9 +104,13 @@ server {
 	
 	# Send all requests (that aren't static files) to index.php
 	location / {
-		try_files $uri $uri/ index.php$is_args$args;
+		try_files $uri @barehandler;
 		index index.php;
 	}
+	
+	location @barehandler {
+                rewrite ^(.*)$ /index.php;
+        }
 	
 	# Handle php
 	location ~ \.php$ {
@@ -159,9 +163,15 @@ server "www.example.com" {
 	# Prevent access to data folder
 	location "/cache/*"		{ block }
 	
-	# Let through files with extensions (I.E. .css, .js etc...)
-	location "/*.*" {
+	# Let through files with display extensions (I.E. .css, .js etc...)
+	location "/*.css" {
 		# Change this to your web root, if it's different
+		root { "/htdocs" }
+	}
+	location "/*.js" {
+		root { "/htdocs" }
+	}
+	location "/*.ico" {
 		root { "/htdocs" }
 	}
 	
@@ -181,5 +191,4 @@ server "www.example.com" {
 }
 
 ``` 
-
 
