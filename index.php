@@ -2099,7 +2099,25 @@ function sendFilePrep( $path, $code = 200 ) {
 	$mime	= \mime_content_type( $path );
 	if ( false === $mime ) {
 		$mime = 'application/octet-stream';
+	} else {
+		// Override text types with special extensions
+		// Required on some OSes like OpenBSD
+		if ( 0 === \strcasecmp( $mime, 'text/plain' ) ) {
+			$ext	= 
+			\pathinfo( $path, \PATHINFO_EXTENSION ) ?? '';
+			
+			switch( \strtolower( $ext ) ) {
+				case 'css':
+					$mime	= 'text/css';
+					break;
+					
+				case 'js':
+					$mime	= 'text/javascript';
+					break;
+			}
+		}
 	}
+	
 	
 	scrubOutput();
 	httpCode( $code );
