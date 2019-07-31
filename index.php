@@ -1416,20 +1416,16 @@ function entities(
  *  
  *  @param string	$txt	Raw URL attribute value
  *  @param bool		$xss	Filter XSS possibilities
- *  @param string	$prefix	URL prefix to prepend
  *  @return string
  */
 function cleanUrl( 
 	string		$txt, 
-	bool		$xss		= true, 
-	string		$prefix	= '' 
+	bool		$xss		= true
 ) : string {
 	// Nothing to clean
 	if ( empty( $txt ) ) {
 		return '';
 	}
-	
-	$txt = $prefix . $txt;
 	
 	// Default filter
 	if ( \filter_var( $txt, \FILTER_VALIDATE_URL ) ) {
@@ -1490,7 +1486,7 @@ function cleanAttributes(
 					// Use prefix for relative paths
 					$v = 
 					( \preg_match( '/^\//', $v ) ) ?
-						cleanUrl( $v, true, $prefix ) : 
+						cleanUrl( $prefix . $v ) : 
 						cleanUrl( $v );
 					break;
 					
@@ -1625,6 +1621,8 @@ function html( string $value, $prefix = '' ) : string {
 	if ( !isset( $white ) ) {
 		$white = decode( TAG_WHITE );
 	}
+	
+	$prefix		= ltrim( $prefix, '/' );
 	
 	// Preliminary cleaning
 	$html		= pacify( $value, true );
@@ -1828,7 +1826,12 @@ function markdown(
 		function( $m ) use ( $prefix ) {
 			$i = \trim( $m[1] );
 			$t = \trim( $m[2] );
-			$u = cleanUrl( \trim( $m[3] ), true, $prefix );
+			$u = \trim( $m[3] );
+			
+			// Use prefix for relative paths
+			$u = ( \preg_match( '/^\//', $u ) ) ?
+				cleanUrl( $prefix . $v ) : 
+				cleanUrl( $v );
 			
 			// If this is a plain link
 			if ( empty( $i ) ) {
