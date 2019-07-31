@@ -1486,7 +1486,7 @@ function cleanAttributes(
 					// Use prefix for relative paths
 					$v = 
 					( \preg_match( '/^\//', $v ) ) ?
-						cleanUrl( \rtrim( $prefix, '/' ) . $v ) : 
+						cleanUrl( $prefix . $v ) : 
 						cleanUrl( $v );
 					break;
 					
@@ -1622,7 +1622,8 @@ function html( string $value, $prefix = '' ) : string {
 		$white = decode( TAG_WHITE );
 	}
 	
-	$prefix		= ltrim( $prefix, '/' );
+	// Remove preceding/trailing slashes
+	$prefix		= trim( $prefix, '/' );
 	
 	// Preliminary cleaning
 	$html		= pacify( $value, true );
@@ -1830,7 +1831,7 @@ function markdown(
 			
 			// Use prefix for relative paths
 			$u = ( \preg_match( '/^\//', $u ) ) ?
-				cleanUrl( \rtrim( $prefix, '/' ) . $u ) : 
+				cleanUrl( $prefix . $u ) : 
 				cleanUrl( $u );
 			
 			// If this is a plain link
