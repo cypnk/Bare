@@ -62,14 +62,14 @@ define( 'TPL_PAGE',		<<<HTML
 <meta charset="utf-8">
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <meta name="viewport" content="width=device-width">
-<link rel="alternate" type="application/rss+xml" title="{page_title}" href="/feed">
+<link rel="alternate" type="application/xml" title="{page_title}" href="{home}feed">
 <title>{page_title}</title>
-<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="{home}style.css">
 </head>
 <body>
 <main class="block">
 <header>
-	<h1><a href="/">{page_title}</a></h1>
+	<h1><a href="{home}">{page_title}</a></h1>
 	<p>{tagline}</p>
 </header>
 {body}
@@ -83,13 +83,13 @@ HTML
 
 define( 'TPL_FOOTER',		<<<HTML
 <footer>
-<p><a href="/archive">Archive</a> | <a href="/feed">Feed</a></p>
+<p><a href="{home}archive">Archive</a> | <a href="{home}feed">Feed</a></p>
 </footer>
 HTML
 );
 
 define( 'TPL_NOPOSTS',		<<<HTML
-	<p>No more posts. Return <a href="/">home</a>.</p>
+	<p>No more posts. Return <a href="{home}">home</a>.</p>
 HTML
 );
 
@@ -110,6 +110,11 @@ define( 'TPL_LINK',		<<<HTML
 HTML
 );
 
+define( 'TPL_NAV',		<<<HTML
+	<nav><ul>{text}</ul></nav>
+HTML
+);
+
 define( 'TPL_INDEX',		<<<HTML
 	<li><time datetime="{date_utc}">{date_stamp}</time>
 		<a href="{permalink}">{title}</a></li>
@@ -118,6 +123,7 @@ HTML
 
 define( 'TPL_PREVIOUS',		'Previous' );
 define( 'TPL_NEXT',		'Next' );
+define( 'TPL_HOME',		'Home' );
 
 // Feed index template
 define( 'TPL_FEED',		<<<XML
@@ -480,7 +486,41 @@ function loadFile( $name ) {
 	return null;
 }
 
-function paginate( $page, $prefix, $posts ) {
+/**
+ *  Hompage link helper
+ */
+function homeLink() : string {
+	static $home;
+	if ( isset( $home ) ) {
+		return $home;
+	}
+	
+	$home = website() . PAGE_LINK;
+	return $home;
+}
+
+/**
+ *  Create home navigation link
+ */
+function navHome() : string {
+	static $home;
+	if ( isset( $home ) ) {
+		return $home;
+	}
+	
+	$home = 
+	\strtr( TPL_LINK, [ 
+		'{url}' => homeLink(), 
+		'{text}'=> TPL_HOME
+	] );
+	
+	return $home;
+}
+
+/**
+ *  Create next/previous pagination links
+ */
+function paginate( $page, $prefix, $posts ) : string {
 	$c	= count( $posts );
 	$out	= '';
 	if ( $page > 1 ) {
@@ -503,7 +543,7 @@ function paginate( $page, $prefix, $posts ) {
 		] ); 
 	}
 	
-	return '<nav><ul>' . $out . '</ul></nav>';
+	return \strtr( TPL_NAV, [ '{text}' => $out ] );
 }
 
 /**
@@ -1389,6 +1429,8 @@ function cleanUrl(
 		return '';
 	}
 	
+	$txt = $prefix . $txt;
+	
 	// Default filter
 	if ( \filter_var( $txt, \FILTER_VALIDATE_URL ) ) {
 		// XSS filter
@@ -1410,7 +1452,7 @@ function cleanUrl(
 		return  $txt;
 	}
 	
-	return entities( $prefix . $txt );
+	return entities( $txt, false, false );
 }
 	
 /**
@@ -1418,10 +1460,12 @@ function cleanUrl(
  *  
  *  @param DOMNode	$node	Object DOM Node
  *  @param array	$white	Whitelist of allowed tags and params
+ *  @param string	$prefix	URL prefix to prepend text
  */
 function cleanAttributes(
 	\DOMNode	&$node,
-	array		$white
+	array		$white,
+	string		$prefix	= ''
 ) {
 	if ( !$node->hasAttributes() ) {
 		return null;
@@ -1443,7 +1487,11 @@ function cleanAttributes(
 				case 'src':
 				case 'data-src':
 				case 'href':
-					$v = cleanUrl( $v );
+					// Use prefix for relative paths
+					$v = 
+					( \preg_match( '/^\//', $v ) ) ?
+						cleanUrl( $v, true, $prefix ) : 
+						cleanUrl( $v );
 					break;
 					
 				default:
@@ -1459,20 +1507,22 @@ function cleanAttributes(
  *  Scrub each node against white list
  *  @param DOMNode	$node	Document element node to filter
  *  @param array	$white	Whitelist of allowed tags and params
+ *  @param string	$prefix	URL prefix to prepend text
  *  @param array	$flush	Elements to remove from document
  */
 function scrub(
 	\DOMNode	$node,
 	array		$white,
+	string		$prefix,
 	array		&$flush		= []
 ) {
 	if ( isset( $white[$node->nodeName] ) ) {
 		// Clean attributes first
-		cleanAttributes( $node, $white );
+		cleanAttributes( $node, $white, $prefix );
 		if ( $node->childNodes ) {
 			// Continue to other tags
 			foreach ( $node->childNodes as $child ) {
-				scrub( $child, $white, $flush );
+				scrub( $child, $white, $prefix, $flush );
 			}
 		}
 		
@@ -1608,7 +1658,7 @@ function html( string $value, $prefix = '' ) : string {
 	// Iterate through every HTML element 
 	if ( !empty( $domBody->childNodes ) ) {
 		foreach ( $domBody->childNodes as $node ) {
-			scrub( $node, $white, $flush );
+			scrub( $node, $white, $prefix, $flush );
 		}
 	}
 	
@@ -1982,8 +2032,14 @@ function httpCode( int $code ) {
  *  @return string
  */
 function website() {
+	static $url;
+	if ( isset( $url ) ) {
+		return $url;
+	}
+	
 	$url	= isSecure() ? 'https://' : 'http://';
-	return $url . $_SERVER['SERVER_NAME'];
+	$url	.= $_SERVER['SERVER_NAME'];
+	return $url;
 }
 
 /**
@@ -2034,7 +2090,7 @@ function send(
 	
 	if ( $feed ) {
 		\header(
-			'Content-Type: application/rss+xml; charset=utf-8', 
+			'Content-Type: application/xml; charset=utf-8', 
 			true 
 		);
 		\header( 'Content-Disposition: inline', true );
@@ -2640,7 +2696,8 @@ function formatMeta( $title, $pub, $path ) {
 		'{date_utc}'	=> $pub,
 		'{date_rfc}'	=> dateRfc( $pub ),
 		'{date_stamp}'	=> dateNice( $pub ),
-		'{permalink}'	=> dateSlug( \basename( $path ), $pub )
+		'{permalink}'	=> 
+		website() . dateSlug( \basename( $path ), $pub )
 	];
 }
 
@@ -2668,7 +2725,7 @@ function formatPost(
 	
 	// Everything else is the body
 	$post	= \array_slice( $post, 1 );
-	$data['{body}'] = html( \implode( "\n", $post ) ); 
+	$data['{body}'] = html( \implode( "\n", $post ), homeLink() ); 
 	
 	return \strtr( $tpl, $data );
 }
@@ -2738,7 +2795,7 @@ function archive( $params ) {
 	// Full archive
 	if ( empty( $params['year'] ) ) {
 		$posts	= loadPosts( $page );
-		$prefix	= $s;
+		$prefix	= \rtrim( homeLink(), '/' ) . $s;
 	
 	// Starting from year?
 	} else {
@@ -2754,20 +2811,32 @@ function archive( $params ) {
 				$date[1] : $date[1] . $s . $date[2];
 		}
 		$stamp	= \trim( $stamp, $s ) . $s;
-		$prefix	= $s . $stamp;
+		$prefix	= \rtrim( homeLink(), '/' ) . $s . $stamp;
 		$posts	= loadPosts( $page, $stamp );
 	}
 	
 	$tpl	= [
 		'{page_title}'	=> PAGE_TITLE,
 		'{tagline}'	=> PAGE_SUB,
-		'{footer}'	=> TPL_FOOTER
+		'{home}'	=> homeLink(),
+		
+		// Footer with home link set
+		'{footer}'	=> 
+		\strtr( 
+			TPL_FOOTER, 
+			[ '{home}'	=> homeLink() ] 
+		)
 	];
 	
 	if ( empty( $posts ) ) {
-		$tpl['{body}']		= TPL_NOPOSTS;
+		// No posts message with home link set
+		$tpl['{body}']		= 
+		\strtr( 
+			TPL_NOPOSTS, 
+			[ '{home}'	=> homeLink() ] 
+		);
 		$tpl['{paginate}']	= 
-		'<nav><ul><a href="' . PAGE_LINK . '">Home</a></ul></nav>';
+		\strtr( TPL_NAV, [ '{text}' => navHome() ] );
 	} else {
 		$tpl['{body}']		= \implode( '', $posts );
 		$tpl['{paginate}']	= 
@@ -2788,7 +2857,7 @@ function feed( $params ) {
 	
 	$tpl	= [
 		'{page_title}'	=> PAGE_TITLE,
-		'{home}'	=> PAGE_LINK,
+		'{home}'	=> homeLink(),
 		'{tagline}'	=> PAGE_SUB,
 		'{date_gen}'	=> dateRfc(),
 		'{body}'	=> \implode( '', $posts )
@@ -2822,8 +2891,15 @@ function post( $params ) {
 		'{tagline}'	=> PAGE_SUB,
 		'{body}'	=> $post,
 		'{paginate}'	=> 
-		'<nav><ul><a href="' . PAGE_LINK . '">Home</a></ul></nav>',
-		'{footer}'	=> TPL_FOOTER
+		\strtr( TPL_NAV, [ '{text}' => navHome() ] ),
+		'{home}'	=> homeLink(),
+		
+		// Footer with home link set
+		'{footer}'	=> 
+		\strtr( 
+			TPL_FOOTER, 
+			[ '{home}'	=> homeLink() ] 
+		)
 	];
 	send( 200, \strtr( TPL_PAGE, $tpl ), true );
 }
@@ -2852,7 +2928,14 @@ function reindex( $params ) {
 		'{tagline}'	=> PAGE_SUB,
 		'{body}'	=> $out,
 		'{paginate}'	=> '',
-		'{footer}'	=> TPL_FOOTER
+		'{home}'	=> homeLink(),
+		
+		// Footer with home link set
+		'{footer}'	=> 
+		\strtr( 
+			TPL_FOOTER, 
+			[ '{home}'	=> homeLink() ] 
+		)
 	];
 	
 	send( 200, \strtr( TPL_PAGE, $tpl ), true );
