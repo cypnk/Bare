@@ -1632,6 +1632,9 @@ function html( string $value, $prefix = '' ) : string {
 	$clean			= $dom->saveHTML();
 	$clean			= makeParagraphs( $clean, true );
 	
+	// Final clean
+	$clean			= tidyup( $clean );
+	
 	\libxml_clear_errors();
 	\libxml_use_internal_errors( $err );
 	
@@ -2173,13 +2176,15 @@ function sendFileFinish( $path ) {
 /**
  *  Send a physical file if it exists
  *  
- *  @param string	$path	Physical path relative to script
- *  @param bool		$down	Prompt download if true
+ *  @param string	$path		Physical path relative to script
+ *  @param bool		$down		Prompt download if true
+ *  @param int		$code		HTTP Status code
  */
 function sendFile(
 	string		$path,
 	bool		$down		= false, 
-	bool		$cache		= true
+	bool		$cache		= true,
+	int		$code		= 200
 ) : bool {
 	// No file found
 	if ( !\file_exists( $path ) ) {
@@ -2193,7 +2198,7 @@ function sendFile(
 	$dsp	= $down ? 'attachment' : 'inline';
 	
 	// Prepare to send file
-	sendFilePrep( $path, 200 );
+	sendFilePrep( $path, $code );
 	
 	// Setup file parameters
 	\header( 
@@ -2257,8 +2262,11 @@ function request( string &$verb, string &$path ) {
 	// Check throttling
 	sessionThrottle();
 	
-	// Request path (simpler filter before proper XSS)
-	if ( \strpos( $path, '..' ) || \strpos( $path, '<' ) ) {
+	// Request path (simpler filter before proper XSS scan)
+	if ( 
+		false !== \strpos( $path, '..' ) || 
+		false !== \strpos( $path, '<' )	
+	) {
 		shutdown( 'cleanup' );
 		send( 400, \MSG_INVALID );
 	}
@@ -2318,9 +2326,10 @@ function isSafeExt( string $path ) {
 		$safe	= \array_map( 'strtolower', $safe );
 	}
 	
-	$params		= \pathinfo( $path );
-	$checked[$path] = 
-	\in_array( \strtolower( $params['extension'] ?? '' ), $safe );
+	$ext		= 
+	\pathinfo( $path, \PATHINFO_EXTENSION ) ?? '';
+	
+	$checked[$path] = \in_array( \strtolower( $ext ), $safe );
 	
 	return $checked[$path];
 }
@@ -2377,19 +2386,29 @@ function route( $routes ) {
 	// Try to send file, if it's a file
 	if ( 0 === \strcasecmp( 'get', $verb ) && isSafeExt( $path ) ) {
 		// Trim leading slash
-		$path = FILE_PATH . \preg_replace( '/^\//', '', $path );
-		if ( sendFile( $path, false, true ) ) {
-			$tags	= genEtag( $path );
-			// First time or modified? Send shutdown
-			if ( ifModified( $tags['etag'] ) ) {
-				shutdown();
-			}
-			
-			// Send not modified
-			send( 304 );
+		$path	= FILE_PATH . \preg_replace( '/^\//', '', $path );
+		if ( !\file_exists( $path ) ) {
+			send( 404, MSG_NOTFOUND );
+		}
+		
+		$tags	= genEtag( $path );
+		
+		// Couldn't generate ETag?
+		// Either filesize() or filemtime() failed
+		if ( empty( $tags['etag'] ) ) {
+			send( 404, MSG_NOTFOUND );
+		}
+		
+		// Create return code based on returned ETag
+		$code	= ifModified( $tags['etag'] )? 200 : 304;
+		
+		// Send shutdown on success
+		if ( sendFile( $path, false, true, $code ) ) {
+			shutdown();
 		}
 	}
 	
+	// Something went wrong
 	send( 404, MSG_NOTFOUND );
 }
 
@@ -2491,7 +2510,7 @@ function isPost( $file ) : bool {
 		return false;
 	}
 	if ( $ext = $file->getExtension() ) {
-		if ( strtolower( $ext ) == 'md' ) {
+		if ( 0 == \strcasecmp( $ext, 'md' ) ) {
 			return true;
 		}
 	}
