@@ -1486,7 +1486,7 @@ function cleanAttributes(
 					// Use prefix for relative paths
 					$v = 
 					( \preg_match( '/^\//', $v ) ) ?
-						cleanUrl( $prefix . $v ) : 
+						cleanUrl( \rtrim( $prefix, '/' ) . $v ) : 
 						cleanUrl( $v );
 					break;
 					
@@ -1830,8 +1830,8 @@ function markdown(
 			
 			// Use prefix for relative paths
 			$u = ( \preg_match( '/^\//', $u ) ) ?
-				cleanUrl( $prefix . $v ) : 
-				cleanUrl( $v );
+				cleanUrl( \rtrim( $prefix, '/' ) . $u ) : 
+				cleanUrl( $u );
 			
 			// If this is a plain link
 			if ( empty( $i ) ) {
