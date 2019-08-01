@@ -509,9 +509,9 @@ function navHome() : string {
 	}
 	
 	$home = 
-	\strtr( TPL_LINK, [ 
+	\strtr( TPL_LINK ?? '', [ 
 		'{url}' => homeLink(), 
-		'{text}'=> TPL_HOME
+		'{text}'=> TPL_HOME ?? ''
 	] );
 	
 	return $home;
@@ -528,22 +528,22 @@ function paginate( $page, $prefix, $posts ) : string {
 		$p	= ( $pm1 > 1 )? 
 				( $prefix . 'page' . $pm1 ) : $prefix;
 		$out	.= 
-		\strtr( TPL_LINK, [ 
+		\strtr( TPL_LINK ?? '', [ 
 			'{url}'		=> $p,
-			'{text}'	=> TPL_PREVIOUS
+			'{text}'	=> TPL_PREVIOUS ?? ''
 		] ); 
 	}
 	
 	if ( $c >= PAGE_LIMIT ) {
 		$out	.=
-		\strtr( TPL_LINK, [ 
+		\strtr( TPL_LINK ?? '', [ 
 			'{url}'		=> 
 				$prefix . 'page'. ( $page + 1 ),
-			'{text}'	=> TPL_NEXT
+			'{text}'	=> TPL_NEXT ?? ''
 		] ); 
 	}
 	
-	return \strtr( TPL_NAV, [ '{text}' => $out ] );
+	return \strtr( TPL_NAV ?? '', [ '{text}' => $out ] );
 }
 
 /**
@@ -2111,6 +2111,8 @@ function send(
 		shutdown( 'cleanup' );
 	}
 	
+	// Schedule flush
+	shutdown( 'flush' );
 	echo $content;
 	
 	// End
@@ -2499,7 +2501,7 @@ function getPosts( string $root = '' ) {
 		
 		// Temp array for sorting
 		$tmp	= \iterator_to_array( $it, true );
-		rsort( $tmp, \SORT_NATURAL );
+		\rsort( $tmp, \SORT_NATURAL );
 		
 		$st[$root]	= $tmp;
 		return $tmp;
@@ -2545,7 +2547,7 @@ function loadPost(
 		return '';
 	}
 	
-	$out	= formatPost( $title, $data, $path, TPL_POST );
+	$out	= formatPost( $title, $data, $path, TPL_POST ?? '' );
 	return $out;
 }
 
@@ -2576,7 +2578,6 @@ function isPost( $file ) : bool {
 	}
 	return false;	
 }
-
 
 function loadPosts(
 	int	$page	= 1,
@@ -2619,8 +2620,11 @@ function loadPosts(
 				continue;
 			}
 			
-			$tpl		= $feed ? TPL_ITEM : TPL_POST;
-			$posts[$path]	= formatPost( $title, $data, $path, $tpl );
+			$tpl		= 
+				$feed ? 
+				( TPL_ITEM  ?? '' ) : ( TPL_POST ?? '' );
+			$posts[$path]	= 
+			formatPost( $title, $data, $path, $tpl );
 		}
 		
 		// Increment number of entries if published
@@ -2827,7 +2831,7 @@ function archive( $params ) {
 		// Footer with home link set
 		'{footer}'	=> 
 		\strtr( 
-			TPL_FOOTER, 
+			TPL_FOOTER ?? '', 
 			[ '{home}'	=> homeLink() ] 
 		)
 	];
@@ -2836,18 +2840,18 @@ function archive( $params ) {
 		// No posts message with home link set
 		$tpl['{body}']		= 
 		\strtr( 
-			TPL_NOPOSTS, 
+			TPL_NOPOSTS ?? '', 
 			[ '{home}'	=> homeLink() ] 
 		);
 		$tpl['{paginate}']	= 
-		\strtr( TPL_NAV, [ '{text}' => navHome() ] );
+		\strtr( TPL_NAV ?? '', [ '{text}' => navHome() ] );
 	} else {
 		$tpl['{body}']		= \implode( '', $posts );
 		$tpl['{paginate}']	= 
 		paginate( $page, $prefix, $posts );
 	}
 	
-	send( 200, \strtr( TPL_PAGE, $tpl ), true );
+	send( 200, \strtr( TPL_PAGE ?? '', $tpl ), true );
 }
 
 /**
@@ -2867,7 +2871,7 @@ function feed( $params ) {
 		'{body}'	=> \implode( '', $posts )
 	];
 	
-	send( 200, \strtr( TPL_FEED, $tpl  ), true, true );
+	send( 200, \strtr( TPL_FEED ?? '', $tpl  ), true, true );
 }
 
 /**
@@ -2895,17 +2899,17 @@ function post( $params ) {
 		'{tagline}'	=> PAGE_SUB,
 		'{body}'	=> $post,
 		'{paginate}'	=> 
-		\strtr( TPL_NAV, [ '{text}' => navHome() ] ),
+		\strtr( TPL_NAV ?? '', [ '{text}' => navHome() ] ),
 		'{home}'	=> homeLink(),
 		
 		// Footer with home link set
 		'{footer}'	=> 
 		\strtr( 
-			TPL_FOOTER, 
+			TPL_FOOTER ?? '', 
 			[ '{home}'	=> homeLink() ] 
 		)
 	];
-	send( 200, \strtr( TPL_PAGE, $tpl ), true );
+	send( 200, \strtr( TPL_PAGE ?? '', $tpl ), true );
 }
 
 /**
@@ -2921,7 +2925,8 @@ function reindex( $params ) {
 	foreach( $posts as $k => $v ) {
 		if ( is_array( $v ) ) {
 			foreach( $v as $p ) {
-				$out .= \strtr( TPL_INDEX, $p );
+				$out .= 
+				\strtr( TPL_INDEX ?? '', $p );
 			}
 		}
 	}
@@ -2937,12 +2942,12 @@ function reindex( $params ) {
 		// Footer with home link set
 		'{footer}'	=> 
 		\strtr( 
-			TPL_FOOTER, 
+			TPL_FOOTER ?? '', 
 			[ '{home}'	=> homeLink() ] 
 		)
 	];
 	
-	send( 200, \strtr( TPL_PAGE, $tpl ), true );
+	send( 200, \strtr( TPL_PAGE ?? '', $tpl ), true );
 }
 
 /**
