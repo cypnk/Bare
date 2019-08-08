@@ -102,6 +102,9 @@ server {
 		deny all;
 	}
 	
+        # Remember to put static files (I.E. .css, .js etc...)
+        # in the same directory you set in FILE_PATH
+	
 	# Send all requests (that aren't static files) to index.php
 	location / {
 		try_files $uri @barehandler;
@@ -163,20 +166,8 @@ server "www.example.com" {
 	# Prevent access to data folder
 	location "/cache/*"		{ block }
 	
-	# Let through files with display extensions (I.E. .css, .js etc...)
-	location "/*.css" {
-		# Change this to your web root, if it's different
-		root { "/htdocs" }
-	}
-	location "/*.js" {
-		root { "/htdocs" }
-	}
-	location "/*.ico" {
-		root { "/htdocs" }
-	}
-	
-	# Due to the way httpd(8) handles rewrites, you may create a 
-	# separate folder for uploads in the future
+	# Remember to put static files (I.E. .css, .js etc...)
+	# In the same directory you set in FILE_PATH
 	
 	# Let index.php handle all other requests
 	location "/*" {
