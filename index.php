@@ -2225,14 +2225,15 @@ function sendFileFinish( $path ) {
 		}
 	}
 	
-	// Append cleanup and readfile to shutdown
-	shutdown( 'cleanup' );
-	if ( ifModified( $etag ) ) {
-		shutdown( 'readfile', $path );
-	}
+	// Cleanup and flush before readfile
+	cleanup();
 	
-	// Send any headers
-	\flush();
+	// Send any headers and end buffering
+	\ob_end_flush();
+	
+	if ( ifModified( $etag ) ) {
+		readfile( $path );
+	}
 }
 
 /**
