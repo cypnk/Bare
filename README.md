@@ -22,7 +22,7 @@ to format Markdown, if these files are present.
 Bare's simple installation and minimal set of features make it ideal for  
 hosting blogs on [Hidden Services](https://en.wikipedia.org/wiki/Tor_(anonymity_network)#Onion_services) on the Tor anonimity network.
 
-The author's [personal blog](http://uxjczuo3ibpibbew.onion) is using Bare.  
+The author's [personal blog](http://http://kpz62k4pnyh5g5t2efecabkywt2aiwcnqylthqyywilqgxeiipen5xid.onion) is using Bare.  
 Use the [Tor Browser Bundle](https://www.torproject.org/) to visit.
 
 ## Installation
