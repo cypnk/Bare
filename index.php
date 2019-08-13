@@ -918,9 +918,9 @@ function sessionDestroy( $id ) {
  */
 function sessionGC( $max ) {
 	$sql	= 
-	"DELETE FROM sessions WHERE 
+	"DELETE FROM sessions WHERE (
 		strftime( '%s', 'now' ) - 
-		strftime( '%s', updated ) > :gc;";
+		strftime( '%s', updated ) ) > :gc;";
 	
 	$db	= getDb( SESSION_DATA );
 	$stm	= $db->prepare( $sql );
@@ -2012,18 +2012,54 @@ function preamble(
  *  
  *  @param int		$code		HTTP Status code
  */
+/**
+ *  Create HTTP status code message
+ */
 function httpCode( int $code ) {
-	$allowed = [
-		200, 202, 204, 205, 206, 
+	$green	= [
+		200, 201, 202, 204, 205, 206, 
 		300, 301, 302, 303, 304,
-		400, 401, 403, 404, 405, 
-		406, 407, 409, 410, 411, 412, 413, 414, 415,
+		400, 401, 403, 404, 405, 406, 407, 409, 410, 411, 412, 
+		413, 414, 415,
 		500, 501
 	];
 	
-	if ( in_array( $code, $allowed ) ) {
+	if ( \in_array( $code, $green ) ) {
 		\http_response_code( $code );
+		
+		// Some codes need additional headers
+		switch( $code ) {
+			case 405:
+				\header( 'Allow: GET, HEAD, OPTIONS', true );
+				break;
+		}
+		
 		return;
+	}
+	
+	$prot	= isset( $_SERVER['SERVER_PROTOCOL'] ) ? 
+			$_SERVER['SERVER_PROTOCOL'] : 'HTTP/1.1';
+	
+	// Special cases
+	switch( $code ) {
+		case 425:
+			\header( "$prot $code " . 'Too Early' );
+			return;
+			
+		case 429:
+			\header( "$prot $code " . 
+				'Too Many Requests' );
+			return;
+			
+		case 431:
+			\header( "$prot $code " . 
+				'Request Header Fields Too Large' );
+			return;
+			
+		case 503:
+			\header( "$prot $code " . 
+				'Service Unavailable' );
+			return;
 	}
 	
 	die( 'Unknown status code "' . $code . '"' );
