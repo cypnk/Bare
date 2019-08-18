@@ -1536,13 +1536,23 @@ function scrub(
  * @param bool		$skipCode	Ignore code blocks
  */
 function makeParagraphs( $val, $skipCode = false ) {
-	/**
-	 * Convert newlines to linebreaks first
-	 * This is why PHP both sucks and is awesome at the same time
-	 */
-	//$out = \nl2br( $val );
-	// Alternate
 	$out = $val;
+	
+	// Escape block level code first
+	if ( !$skipCode ) {
+		// Format inside code tags
+		$out = \preg_replace_callback( '/<code>(.*)<\/code>/ism',
+		function ( $m ) {
+			if ( empty( $m[1] ) ) {
+				return '';
+			}
+			return 
+			\sprintf( '<pre><code>%s</code></pre>', 
+				entities( \trim( $m[1] ), false, false ) 
+			);
+		}, $out );	
+	}
+	
 	$filters	= 
 	[
 		// Turn consecutive line breaks to new paragraph
@@ -1586,7 +1596,7 @@ function makeParagraphs( $val, $skipCode = false ) {
 			return
 			\sprintf(
 				'<pre><code>%s</code></pre>',
-				entities( trim( $m[1] , '`' ) )
+				entities( trim( $m[1], '`' ), false, false )
 			);
 		},
 		
@@ -1597,16 +1607,7 @@ function makeParagraphs( $val, $skipCode = false ) {
 			'<' . $m[1] . '>' . 
 			\preg_replace( '#<br\s*/?>#', "", $m[2] ) . 
 			'</' . $m[1] . '>';
-		},
-		
-		// Format inside code tags
-		'/<code>(.*)<\/code>/ism'	=>
-		function ( $m ) {
-			return 
-			\sprintf( '<pre><code>%s</code></pre>', 
-				entities( \trim( $m[1] ) ) 
-			);
-		}	
+		}
 	];
 	
 	return \preg_replace_callback_array( $filters, $out );
@@ -1923,7 +1924,7 @@ function markdown(
 			return 
 			\sprintf( 
 				'<code>%s</code>', 
-				entities( $m[1] ) 
+				entities( $m[1], false, false ) 
 			);
 		}
 	];
