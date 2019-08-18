@@ -105,6 +105,12 @@ code,kbd,pre,samp {
     font-size: 1em
 }
 
+code {
+	display: block;
+	margin: 2em 0;
+	overflow-x: scroll;
+}
+
 header {
     margin: 2em auto 1em;
     text-align: center;
