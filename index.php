@@ -2451,9 +2451,9 @@ function route( $routes ) {
 	if ( !empty( $cache ) ) {
 		// Is this a feed?
 		if ( 0 === \strcasecmp( \basename( $path ), 'feed' ) ) {
-			send( 200, $cache, true, true );
+			send( 200, $cache, false, true );
 		} else {
-			send( 200, $cache, true );
+			send( 200, $cache, false );
 		}
 	}
 	
