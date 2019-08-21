@@ -60,20 +60,30 @@ define( 'TPL_PAGE',		<<<HTML
 <html>
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-<meta name="viewport" content="width=device-width">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="alternate" type="application/xml" title="{page_title}" href="{home}feed">
 <title>{post_title}</title>
 <link rel="stylesheet" href="{home}style.css">
 </head>
 <body>
-<main class="block">
+
 <header>
+<div class="content">
 	<h1><a href="{home}">{page_title}</a></h1>
 	<p>{tagline}</p>
+	<nav class="main">
+	<ul>
+		<li><a href="/archive">Archive</a></li>
+		<li><a href="/feed">Feed</a></li>
+	</ul>
+	</nav>
+</div>
 </header>
+<main>
 {body}
+<div class="content">
 {paginate}
+</div>
 {footer}
 </main>
 </body>
@@ -83,24 +93,35 @@ HTML
 
 define( 'TPL_FOOTER',		<<<HTML
 <footer>
-<p><a href="{home}archive">Archive</a> | <a href="{home}feed">Feed</a></p>
+<div class="content">
+	<nav>
+	<ul>
+		<li><a href="{home}archive">Archive</a></li>
+		<li><a href="{home}feed">Feed</a></li>
+	</ul>
+	</nav>
+</div>
 </footer>
 HTML
 );
 
 define( 'TPL_NOPOSTS',		<<<HTML
+<div class="content">
 	<p>No more posts. Return <a href="{home}">home</a>.</p>
+</div>
 HTML
 );
 
 // General post template
 define( 'TPL_POST',		<<<HTML
-<article class="post">
+<article>
 	<header>
-		<time class="mark" datetime="{date_utc}">{date_stamp}</time>
+	<div class="content">
 		<h2><a href="{permalink}">{title}</a></h2>
+		<time datetime="{date_utc}">{date_stamp}</time>
+	</div>
 	</header>
-	{body}
+	<div class="content">{body}</div>
 </article>
 HTML
 );
@@ -112,6 +133,13 @@ HTML
 
 define( 'TPL_NAV',		<<<HTML
 	<nav><ul>{text}</ul></nav>
+HTML
+);
+
+define( 'TPL_INDEX_WRAP',	<<<HTML
+<div class="content">
+<ul class="index">{items}</ul>
+</div>
 HTML
 );
 
@@ -2961,7 +2989,7 @@ function reindex( $params ) {
 		die( 'No posts created' );
 	}
 	
-	$out	= '<ul class="index">';
+	$out	= '';
 	foreach( $posts as $k => $v ) {
 		if ( is_array( $v ) ) {
 			foreach( $v as $p ) {
@@ -2970,7 +2998,7 @@ function reindex( $params ) {
 			}
 		}
 	}
-	$out	.= '</ul>';
+	$out	= \strtr( TPL_INDEX_WRAP, [ '{items}' => $out ] );
 	
 	$tpl	= [
 		'{page_title}'	=> PAGE_TITLE,
