@@ -107,9 +107,14 @@ article header a, header h1 a {
 .cover { background-size: cover !important; }
 .contain { background-size: contain !important; }
 
-.full {
+.full, .media {
 	width: 100%;
 	display: block;
+}
+
+.media {
+	text-align: center;
+	margin: 1rem auto;
 }
 
 hr { 
@@ -222,5 +227,4 @@ blockquote {
 	width: 80%;
 	color: #546e7a;
 }
-
 
