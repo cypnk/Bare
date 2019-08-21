@@ -248,12 +248,11 @@ JSON
 // Default content security policy
 define( 'DEFAULT_JCSP',		<<<JSON
 {
-	"default-src"		: "'none'",
 	"img-src"		: "*",
 	"style-src"		: "'self'",
 	"script-src"		: "'self'",
 	"form-action"		: "'self'",
-	"frame-ancestors"	: "'self' www.youtube.com player.vimeo.com"
+	"frame-ancestors"	: "'self' https:\/\/www.youtube.com https:\/\/player.vimeo.com"
 }
 JSON
 );
@@ -2004,9 +2003,6 @@ function preamble(
 	
 	\header( 'X-XSS-Protection: 1; mode=block', true );
 	\header( 'X-Content-Type-Options: nosniff', true );
-	
-	// Frames should be handled via the CSP
-	\header( 'X-Frame-Options: deny', true );
 	
 	// Check if TLS is requested 
 	if ( isSecure() ) {
