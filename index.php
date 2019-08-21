@@ -63,7 +63,7 @@ define( 'TPL_PAGE',		<<<HTML
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <meta name="viewport" content="width=device-width">
 <link rel="alternate" type="application/xml" title="{page_title}" href="{home}feed">
-<title>{page_title}</title>
+<title>{post_title}</title>
 <link rel="stylesheet" href="{home}style.css">
 </head>
 <body>
@@ -2863,6 +2863,7 @@ function archive( $params ) {
 	
 	$tpl	= [
 		'{page_title}'	=> PAGE_TITLE,
+		'{post_title}'	=> PAGE_TITLE,
 		'{tagline}'	=> PAGE_SUB,
 		'{home}'	=> homeLink(),
 		
@@ -2933,7 +2934,8 @@ function post( $params ) {
 	}
 	
 	$tpl	= [
-		'{page_title}'	=> $title . ' - ' . PAGE_TITLE,
+		'{page_title}'	=> PAGE_TITLE,
+		'{post_title}'	=> $title . ' - ' . PAGE_TITLE,
 		'{tagline}'	=> PAGE_SUB,
 		'{body}'	=> $post,
 		'{paginate}'	=> 
@@ -2972,6 +2974,7 @@ function reindex( $params ) {
 	
 	$tpl	= [
 		'{page_title}'	=> PAGE_TITLE,
+		'{post_title}'	=> PAGE_TITLE,
 		'{tagline}'	=> PAGE_SUB,
 		'{body}'	=> $out,
 		'{paginate}'	=> '',
