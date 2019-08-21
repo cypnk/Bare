@@ -1,219 +1,168 @@
+/**
+ *  Bare default theme https://github.com/cypnk/Bare
+ */
 * {
-    box-sizing: border-box;
-    outline: none;
-    margin: 0;
-    padding: 0
-}
-
-html,body,div,form,article,aside,details,figcaption,figure,footer,header,hgroup,main,nav,section,summary,blockquote,p {
-    display: block
-}
-
-audio,canvas,video {
-    display: inline-block
-}
-
-audio:not([controls]) {
-    display: none;
-    height: 0
+	margin: 0;
+	padding: 0;
+	border: 0;
+	box-sizing: border-box;
 }
 
 html {
-    font-size: 100%
+	font-size: 100%;
+}
+
+article, aside, footer, header, nav, section, blockquote {
+	display: block;
 }
 
 body {
-    font: 400 1em sans-serif;
-    line-height: 1.8em;
-    color: #505050;
-    background: #ececea
+	font: 400 1rem sans-serif;
+	line-height: 1.8rem;
+	color: #37474f;
+	background: #f7f7fa;
 }
 
-h1,h2,h3,h4,h5,h6,header p {
-    line-height: 1.6em;
-    margin: 0
+h1, h2, h3, h4, h5, h6 {
+	margin: 2rem 0 .5rem 0;
+	font-family: Georgia, serif;
+	line-height: 1.4;
 }
 
-h1,h2,h3,h4,h5,h6 {
-    font-family: Georgia,serif;
-    color: #3b3738
+header h1 {
+	margin-bottom: 0;
+	font-size: 2rem;
 }
 
-h1,h2,h3,h4 {
-    font-weight: 400
+h1, h2, h3 { font-weight: 400; }
+h1 { font-size: 2.55rem; }
+h2 { font-size: 2.25rem; }
+header h2, h3 { font-size: 1.5rem; }
+h4 { font-size: 1.25rem; }
+h5 { font-size: 1rem; }
+h6 { font-size: .875rem; }
+
+header h2 {
+	color: #555;
+	margin-bottom: 0;
 }
 
-h1 {
-    font-size: 1.6em
+p { margin: 1rem 0; }
+
+header p { margin: 0 }
+header p + p { margin-top: 1rem; }
+article p + p { margin-top: 2rem; }
+
+header p.links { text-align: center; }
+
+header {
+	text-align: center;
+	color: #2c3e50;
 }
 
-article header h1 {
-    font-size: 2.2em;
-    line-height: 1.4em
+main article:first-child, article + article, footer {
+	margin-top: 2rem;
+	border-top: 1px solid #ddd;
 }
 
-h2 {
-    font-size: 1.8em
-}
-
-h3 {
-    font-size: 1.6em
-}
-
-h4 {
-    font-size: 1.4em
-}
-
-h5 {
-    font-size: 1.2em
-}
-
-h6 {
-    font-size: 1em
-}
-
-p {
-    margin-bottom: 1em
-}
-
-header p {
-    margin: 0
+article + article {
+	border-width: 2px 0 0 0;
+	border-style: dashed;
 }
 
 a {
-    text-decoration: underline;
-    color: #258
+	text-decoration: underline;
+	text-decoration-skip: ink;
+	color: #2c3e50;
 }
 
-a:visited {
-    color: #255
+time {
+	text-transform: uppercase;
+	font-size: .9rem;
+	letter-spacing: .07rem;
+	color: #607d8b;
 }
 
-h1 a,h2 a,h3 a,h4 a,h1 a:visited,h2 a:visited,h3 a:visited,h4 a:visited {
-    font-weight: 400;
-    color: #444
+footer {
+	font-size: .875rem;
+	text-align: center;
+	padding: 1rem 0;
 }
 
-h1 a,h2 a,h3 a,h4 a,h5 a,h6 a,.mark a {
-    text-decoration: none;
-    text-transform: none;
-    color: #3b3738
+header a, header a:visited {
+	text-decoration-skip: none;
+	color: #2c3e50;
 }
 
-code,kbd,pre,samp {
+article header a, header h1 a {
+	text-decoration: none;
+}
+
+.content {
+	padding:0 1rem;
+	margin: 0 auto;
+	max-width: 45rem;
+}
+
+.cover { background-size: cover !important; }
+.contain { background-size: contain !important; }
+
+.full {
+	width: 100%;
+	display: block;
+}
+
+hr { 
+	box-sizing: content-box;
+	height: 0;
+	overflow: visible;
+}
+
+code, kbd, pre, samp {
     font-family: monospace,serif;
     font-size: 1em
 }
 
 code {
+	background: #f5f5f5;
+}
+
+pre {
 	display: block;
-	margin: 2em 0;
-	overflow-x: scroll;
+	margin: 1rem 0;
+	overflow: scroll;
 }
 
-header {
-    margin: 2em auto 1em;
-    text-align: center;
-    line-height: 1.4em
+pre code {
+	margin: 0;
+	display: block;
+	padding: 1rem;
 }
 
-article,main {
-    max-width: 640px;
-    margin: 0 auto
+img, a img { 
+	max-width: 100%; border: none; 
 }
 
-header time, ul.index time {
-    font-size: .8em;
-    text-transform: uppercase;
-    letter-spacing: .04em;
-    line-height: 1.4em
-}
-
-footer {
-    font-size: .8em;
-    border-top: 1px solid #999
-}
-
-.mark {
-    text-align: center;
-    display: block;
-    clear: both
-}
-
-.mark:before,.mark:after {
-    content: ' ';
-    width: 20%;
-    display: block;
-    vertical-align: middle;
-    padding: .8em 0 0;
-    border-bottom: 1px solid #999
-}
-
-.mark:before,legend:before {
-    float: left
-}
-
-.mark:after,legend:after {
-    float: right
-}
-
-.post {
-    margin: 1em 0 5em
-}
-
-.post header {
-    border-bottom: 1px solid #999;
-    margin-bottom: 1em;
-    padding: 0 0 .7em
-}
-
-.post blockquote {
-    width: 90%;
-    max-width: 600px;
-    margin: 2em auto;
-    font-style: italic;
-    color: #666
-}
-
-a img {
-    border: 0
-}
-
-.post img, .post figure {
+article img, article figure {
     display: block;
     height: auto;
     width: 100%;
+    padding: .5rem;
+    border: 1px solid #dcdcdc;
     margin: 1em auto;
 }
 
-.post figure img {
-	margin-bottom: 0;
+article figure img {
+	border: 0;
+	padding: 0;
+	margin: 0;
 }
 
 figcaption {
 	font-style: italic;
 	font-size: 90%;
-	border-bottom: 1px solid #ddd;
-	margin-bottom: 1em;
+	margin: 1rem 0;
 	line-height: 1.3em;
-	padding: .5em;
-}
-
-ul,ol {
-    margin: 1em
-}
-
-ul li,ol li {
-    padding: .2em 1em
-}
-
-nav ul, ul.index {
-    list-style: none;
-    margin: 1em 0
-}
-
-nav ul li {
-    display: inline-block
 }
 
 .center {
@@ -221,38 +170,57 @@ nav ul li {
     text-align: center
 }
 
-ul.index li {
-	margin-bottom: 1em;
+ul, ol {
+	margin: 1em 0 1em 2em;
+	line-height: 1.5em;
+}
+
+ul li, ol li {
+	padding: .2rem .5rem;
+}
+
+nav.main {
+	text-align: center;
+}
+
+nav ul {
+	margin: 0;
+	list-style: none;
+}
+
+ul.index {
+	margin: 1rem 0;
+	list-style: none;
+	margin-bottom: 1rem;
+}
+
+ul.index li + li {
+	margin-top: 1rem;
 }
 
 ul.index li time {
 	display: block;
 }
 
-@media screen and ( max-width: 800px ) {
-    .mark:before,.mark:after,header .mark:before,header .mark:after {
-        width:20%
-    }
+nav.main ul {
+	display: inline-block;
+	margin: 0 auto;
 }
 
-@media screen and ( max-width: 640px ) {
-    .block {
-        margin:0 1em
-    }
-
-    .mark:before,.mark:after,header .mark:before,header .mark:after {
-        width: 20%
-    }
+nav ul li {
+	display: inline-block;
+	padding: 0;
+	margin: 0;
 }
 
-@media screen and ( max-width: 400px ) {
-    .mark:before,.mark:after,header .mark:before,header .mark:after {
-        display:none
-    }
-
-    .post header {
-        border: 0;
-        border-top: 1px solid #444;
-        padding-top: 1em
-    }
+nav ul li a {
+	padding: .3rem .4rem;
 }
+
+blockquote {
+	margin: 0 auto;
+	width: 80%;
+	color: #546e7a;
+}
+
+
