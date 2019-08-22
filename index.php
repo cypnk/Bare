@@ -2587,7 +2587,10 @@ function filterDir( $path ) {
 }
 
 function postData( $raw ) {
-	return \file( $raw, \FILE_IGNORE_NEW_LINES );
+	if ( \file_exists( $raw ) ) {
+		return \file( $raw, \FILE_IGNORE_NEW_LINES );
+	}
+	return [];
 }
 
 function loadPost(
