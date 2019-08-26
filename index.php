@@ -2138,9 +2138,9 @@ function fullURI() {
  *  Set expires header
  */
 function setCacheExp( int $ttl = \CACHE_TTL ) {
-	\header( 'Cache-Control: max-age=' . CACHE_TTL, true );
+	\header( 'Cache-Control: max-age=' . $ttl, true );
 	\header( 'Expires: ' . 
-		\gmdate( 'D, d M Y H:i:s', time() + CACHE_TTL ) . 
+		\gmdate( 'D, d M Y H:i:s', time() + $ttl ) . 
 		' GMT', true );
 }
 
