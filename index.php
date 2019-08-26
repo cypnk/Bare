@@ -725,11 +725,12 @@ function getResults(
 ) : array {
 	$db	= getDb( $dsn );
 	$stm	= $db->prepare( $sql );
-	
+	$res	= [];
 	if ( $stm->execute( $params ) ) {
-		return $stm->fetchAll();
+		$res = $stm->fetchAll();
 	}
-	return [];
+	$stm	= null;
+	return $res;
 }
 
 /**
@@ -747,11 +748,13 @@ function setUpdate(
 ) : bool {
 	$db	= getDb( $dsn );
 	$stm	= $db->prepare( $sql );
+	$res	= false;
 	
 	if ( $stm->execute( $params ) ) {
-		return true;
+		$res = true;
 	}
-	return false;
+	$stm	= null;
+	return $res;
 }
 
 /**
@@ -769,11 +772,12 @@ function setInsert(
 ) : int {
 	$db	= getDb( $dsn );
 	$stm	= $db->prepare( $sql );
-	
+	$res	= 0;
 	if ( $stm->execute( $params ) ) {
-		( int ) $db->lastInsertId();
+		$res	= ( int ) $db->lastInsertId();
 	}
-	return 0;
+	$stm	= null;
+	return $res;
 }
 
 /**
@@ -2036,9 +2040,6 @@ function preamble(
  *  Create HTTP status code message
  *  
  *  @param int		$code		HTTP Status code
- */
-/**
- *  Create HTTP status code message
  */
 function httpCode( int $code ) {
 	$green	= [
