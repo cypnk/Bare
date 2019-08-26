@@ -2037,6 +2037,25 @@ function preamble(
 }
 
 /**
+ *  Send list of supported HTTP request methods
+ */
+function getAllowedMethods( bool $arr = false ) {
+	if ( $arr ) {
+		return 
+		[ 'get', 'head', 'options' ];
+	}
+	
+	return 'GET, HEAD, OPTIONS';
+}
+
+/**
+ *  Send list of allowed methods in "Allow:" header
+ */
+function sendAllowHeader() {
+	\header( 'Allow: ' . getAllowedMethods(), true );
+}
+
+/**
  *  Create HTTP status code message
  *  
  *  @param int		$code		HTTP Status code
@@ -2118,7 +2137,7 @@ function fullURI() {
 /**
  *  Set expires header
  */
-function setCacheExp() {
+function setCacheExp( int $ttl = \CACHE_TTL ) {
 	\header( 'Cache-Control: max-age=' . CACHE_TTL, true );
 	\header( 'Expires: ' . 
 		\gmdate( 'D, d M Y H:i:s', time() + CACHE_TTL ) . 
@@ -2375,12 +2394,50 @@ function filterParams( array $params ) {
 }
 
 /**
+ *  Handle HEAD HTTP request method
+ */
+function handleHead( string $path, array $routes ) {
+	// Find any 'get' handlers for this route
+	$match	= routeMatch( $path, 'get', $routes );
+	if ( empty( $match ) ) {
+		// No route? Try a file, but don't send it
+		if ( fileRequest( 'get', $path, false ) ) {
+			httpCode( 200 );
+		} else {
+			httpCode( 404 );
+		}
+	} else {
+		httpCode( 200 );
+	}
+	
+	// Done
+	shutdown( 'cleanup' );
+	shutdown();
+}
+
+/**
+ *  Handle OPTIONS HTTP request method
+ */
+function handleOptions() {
+	// Send No Content
+	httpCode( 204 );
+	
+	// Send allowed headers and cache respose
+	sendAllowHeader();
+	setCacheExp( 604800 );
+	
+	// Done
+	shutdown( 'cleanup' );
+	shutdown();
+}
+
+/**
  *  Request filter and cache check. This should be first called
  *  
  *  @param string	$verb		Request method
  *  @param string	$path		Current request URI
  */
-function request( string &$verb, string &$path ) {
+function request( string &$verb, string $path, array $routes ) {
 	// Set session save handler
 	setSessionHandler();
 	
@@ -2419,12 +2476,17 @@ function request( string &$verb, string &$path ) {
 	switch( $verb ) {
 		// Will need processing, continue
 		case 'get':
-			return;
+			break;
 		
 		// Send no content
 		case 'head':
-			shutdown( 'cleanup' );
-			send( 200 );
+			handleHead( $path, $routes );
+			break;
+		
+		// Send allowed methods
+		case 'options':
+			handleOptions();
+			break;
 		
 		// Nothing else implemented
 		default:
@@ -2460,6 +2522,105 @@ function isSafeExt( string $path ) {
 }
 
 /**
+ *  Send route to registered event
+ */
+function sendRoute( $event, $path, $verb, $params ) {
+	if ( !\is_callable( $event ) ) {
+		// Route isn't a function
+		send( 404, MSG_NOTFOUND );
+	}
+	$params			= filterParams( $params );
+	
+	// Append the method and route
+	$params['path']		= $path;
+	$params['method']	= $verb;
+	
+	$event( $params );
+}
+
+/**
+ *  Find and return route handler for given path and any URL parameters
+ *  
+ *  @param string	$path		Request URI from user
+ *  @param string	$verb		Request method
+ *  @param array	$routes		Mapped route handlers
+ */
+function routeMatch( 
+	string		$path, 
+	string		$verb, 
+	array		$routes
+) : array {
+	static $markers;
+	if ( !isset( $markers ) ) {
+		$markers = decode( \ROUTE_MARK );
+	}
+	
+	foreach( $routes as $map ) {
+		// Not the method? keep going
+		if ( 0 !== \strcmp( $map[0], $verb ) ) {
+			continue;
+		}
+		
+		// Exact match? No need to go further
+		if ( 0 === \strcasecmp( $map[1], $path ) ) {
+			return [ $map[2], [] ];
+		}
+		
+		// Prepare for matching
+		$rx = cleanRoute( $markers, \PAGE_LINK . $map[1] );
+		
+		// Page match? Send handler and URL params
+		if ( \preg_match( $rx, $path, $params ) ) {
+			return [ $map[2], $params ];
+		}
+	}
+	
+	return [];
+}
+
+
+/**
+ *  Check path for file request
+ *  
+ *  @param string	$verb	Request method should be ged
+ *  @param string	$path	Relative path from client
+ *  @param bool		$dosend	Send the file if found
+ */
+function fileRequest(
+	string		$verb, 
+	string		$path, 
+	bool		$dosend = true 
+) : bool {
+	if ( 0 !== \strcasecmp( 'get', $verb ) || !isSafeExt( $path ) ) {
+		return false;
+	}
+	
+	// Trim leading slash and append static file path
+	$path	= FILE_PATH . \preg_replace( '/^\//', '', $path );
+	if ( !\file_exists( $path ) ) {
+		return false;
+	}
+	
+	if ( $dosend ) {
+		$tags	= genEtag( $path );
+		
+		// Couldn't generate ETag?
+		// Either filesize() or filemtime() failed
+		if ( empty( $tags['etag'] ) ) {
+			return false;
+		}
+		
+		// Create return code based on returned ETag
+		$code	= ifModified( $tags['etag'] )? 200 : 304;
+		
+		// Send on success
+		return sendFile( $path, false, true, $code );
+	}
+	
+	return true;
+}
+
+/**
  *  Execute route
  */
 function route( $routes ) {
@@ -2467,12 +2628,13 @@ function route( $routes ) {
 	$verb	= \strtolower( $_SERVER['REQUEST_METHOD'] );
 	
 	// Filter request
-	request( $verb, $path );
+	request( $verb, $path, $routes );
 	
 	// Check if content is already cached for this URI
 	$uri	= fullURI();
 	$cache	= getCache( $uri );
 	
+	// Check if cache isn't empty
 	if ( !empty( $cache ) ) {
 		// Is this a feed?
 		if ( 0 === \strcasecmp( \basename( $path ), 'feed' ) ) {
@@ -2482,56 +2644,19 @@ function route( $routes ) {
 		}
 	}
 	
-	static $markers;
-	if ( !isset( $markers ) ) {
-		$markers = decode( ROUTE_MARK );
-	}
-	
-	\sort( $routes );
-	
-	// Begin matching
-	foreach( $routes as $map ) {
-		if ( $map[0] != $verb ) {
-			continue;
-		}
-		
-		$rx	= cleanRoute( $markers, PAGE_LINK . $map[1] );
-		if ( \preg_match( $rx, $path, $params ) ) {
-			if ( \is_callable( $map[2] ) ) {
-				$params			= 
-				filterParams( $params );
-				
-				$params['method']	= $verb;
-				\call_user_func( $map[2], $params );
-			}
-			break;
-		}
-	}
-	
 	// Try to send file, if it's a file
-	if ( 0 === \strcasecmp( 'get', $verb ) && isSafeExt( $path ) ) {
-		// Trim leading slash
-		$path	= FILE_PATH . \preg_replace( '/^\//', '', $path );
-		if ( !\file_exists( $path ) ) {
-			send( 404, MSG_NOTFOUND );
-		}
-		
-		$tags	= genEtag( $path );
-		
-		// Couldn't generate ETag?
-		// Either filesize() or filemtime() failed
-		if ( empty( $tags['etag'] ) ) {
-			send( 404, MSG_NOTFOUND );
-		}
-		
-		// Create return code based on returned ETag
-		$code	= ifModified( $tags['etag'] )? 200 : 304;
-		
-		// Send shutdown on success
-		if ( sendFile( $path, false, true, $code ) ) {
-			shutdown();
-		}
+	if ( fileRequest( $verb, $path ) ) {
+		shutdown( 'cleanup' );
+		shutdown();
 	}
+	
+	$found	= routeMatch( $path, $verb, $routes );
+	if ( empty( $found ) ) {
+		// No matching route?
+		send( 404, MSG_NOTFOUND );
+	}
+	
+	sendRoute( $found[0], $path, $verb, $found[1] );
 	
 	// Something went wrong
 	send( 404, MSG_NOTFOUND );
