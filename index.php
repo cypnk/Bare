@@ -2236,6 +2236,37 @@ function genEtag( $path ) {
 }
 
 /**
+ *  Adjust text mime-type based on path extension
+ *  
+ *  @param mixed	$mime		Discovered mime-type
+ *  @param string	$path		File name or path name
+ *  @param mixed	$ext		Given extension (optional)
+ *  @return string Adjusted mime type
+ */
+function adjustMime( $mime, $path, $ext = null ) : string {
+	if ( false === $mime ) {
+		return 'application/octet-stream';
+	}
+	
+	// Override text types with special extensions
+	// Required on some OSes like OpenBSD
+	if ( 0 === \strcasecmp( $mime, 'text/plain' ) ) {
+		$e	= 
+		$ext ?? \pathinfo( $path, \PATHINFO_EXTENSION ) ?? '';
+		
+		switch( \strtolower( $e ) ) {
+			case 'css':
+				return 'text/css';
+				
+			case 'js':
+				return 'text/javascript';
+		}
+	}
+	
+	return \strtolower( $mime );
+}
+
+/**
  *  Prepare to send a file instead of an HTTP response
  *  
  *  @param string	$path		File path to send
@@ -2243,27 +2274,7 @@ function genEtag( $path ) {
  */
 function sendFilePrep( $path, $code = 200 ) {
 	$mime	= \mime_content_type( $path );
-	if ( false === $mime ) {
-		$mime = 'application/octet-stream';
-	} else {
-		// Override text types with special extensions
-		// Required on some OSes like OpenBSD
-		if ( 0 === \strcasecmp( $mime, 'text/plain' ) ) {
-			$ext	= 
-			\pathinfo( $path, \PATHINFO_EXTENSION ) ?? '';
-			
-			switch( \strtolower( $ext ) ) {
-				case 'css':
-					$mime	= 'text/css';
-					break;
-					
-				case 'js':
-					$mime	= 'text/javascript';
-					break;
-			}
-		}
-	}
-	
+	$mime	= adjustMime( $mime, $path );
 	
 	scrubOutput();
 	httpCode( $code );
@@ -2318,6 +2329,32 @@ function sendFileFinish( $path ) {
 }
 
 /**
+ *  Send file-specific headers
+ *  
+ *  @param string	$dsp		Content disposition
+ *  @param string	$fname		Download file name
+ *  @param bool		$cache		Set file cache
+ */
+function sendFileHeaders( string $dsp, string $fname, bool $cache ) {
+	// Setup file parameters
+	\header( 
+		"Content-Disposition: {$dsp}; filename=\"{$fname}\"", 
+		true
+	);
+	
+	// If cached, set long expiration
+	if ( $cache ) {
+		\header( 'Cache-Control:public, max-age=31536000', true );
+		return;
+	}
+	
+	// Uncached
+	\header( 'Cache-Control: must-revalidate', true );
+	\header( 'Expires: 0', true );
+	\header( 'Pragma: no-cache', true );
+}
+
+/**
  *  Send a physical file if it exists
  *  
  *  @param string	$path		Physical path relative to script
@@ -2343,20 +2380,7 @@ function sendFile(
 	
 	// Prepare to send file
 	sendFilePrep( $path, $code );
-	
-	// Setup file parameters
-	\header( 
-		"Content-Disposition: {$dsp}; filename=\"{$fname}\"", 
-		true
-	);
-	
-	if ( $cache ) {
-		\header( 'Cache-Control:public, max-age=31536000', true );
-	} else {
-		\header( 'Cache-Control: must-revalidate', true );
-		\header( 'Expires: 0', true );
-		\header( 'Pragma: no-cache', true );
-	}
+	sendFileHeaders( $dsp, $fname, $cache );
 	
 	// Finish sending file
 	sendFileFinish( $path );
@@ -2436,6 +2460,7 @@ function handleOptions() {
  *  
  *  @param string	$verb		Request method
  *  @param string	$path		Current request URI
+ *  @param array	$routes		List of route presets
  */
 function request( string &$verb, string $path, array $routes ) {
 	// Set session save handler
