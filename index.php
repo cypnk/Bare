@@ -41,6 +41,9 @@ define( 'PAGE_LINK',	'/' );
 // Number of posts per page
 define( 'PAGE_LIMIT',	12 );
 
+// Make this true if testing locally or running on Tor
+define( 'SKIP_LOCAL', 	true );
+
 // Maximum page index
 define( 'MAX_PAGE',	500 );
 
@@ -277,9 +280,9 @@ define( 'ROUTE_MARK',	<<<JSON
 	":ids"	: "(?<ids>[1-9][0-9,]*)",
 	":num"	: "(?<num>[0-9]{1,3})",
 	":page"	: "(?<page>[1-9][0-9]*)",
-	":user"	: "(?<user>[\\\\pL\\\\pN\\\\s-]{2,30})",
-	":label": "(?<label>[\\\\pL\\\\pN\\\\s_-]{1,30})",
-	":tag"	: "(?<tag>[\\\\pL\\\\pN\\\\s_\\\\,-]{1,30})",
+	":user"	: "(?<user>[\\\\pL\\\\pN\\\\s\\\\-]{2,30})",
+	":label": "(?<label>[\\\\pL\\\\pN\\\\s_\\\\-]{1,30})",
+	":tag"	: "(?<tag>[\\\\pL\\\\pN\\\\s_\\\\,\\\\-]{1,30})",
 	":year"	: "(?<year>[2][0-9]{3})",
 	":month": "(?<month>[0-3][0-9]{1})",
 	":day"	: "(?<day>[0-9][0-9]{1})",
@@ -1359,6 +1362,184 @@ function decode( string $data ) : array {
 	}
 	
 	return $data;
+}
+
+/**
+ *  Get IP address (best guess)
+ */
+function getIP() : string {
+	static $ip;
+	
+	if ( isset( $ip ) ) {
+		return $ip;
+	}
+		
+	$ip	= $_SERVER['REMOTE_ADDR'];
+	$va	=
+	( SKIP_LOCAL ) ?
+	\filter_var( $ip, \FILTER_VALIDATE_IP ) : 
+	\filter_var(
+		$ip, 
+		\FILTER_VALIDATE_IP, 
+		\FILTER_FLAG_NO_PRIV_RANGE | 
+		\FILTER_FLAG_NO_RES_RANGE
+	);
+	
+	$ip = ( false === $va ) ? '' : $ip;
+	
+	return $ip;
+}
+
+/**
+ *  Process HTTP_* variables
+ */
+function httpHeaders() {
+	static $val;
+	if ( isset( $val ) ) {
+		return $val;
+	}
+	
+	$val = [];
+	foreach ( $_SERVER as $k => $v ) {
+		if ( 0 === strncasecmp( $k, 'HTTP_', 5 ) ) {
+			$a = explode( '_' ,$k );
+			array_shift( $a );
+			array_walk( $a, function( &$r ) {
+				$r = ucfirst( strtolower( $r ) );
+			} );
+			$val[ implode( '-', $a ) ] = $v;
+		}
+	}
+	return $val;
+}
+
+/**
+ *  Create current visitor's browser signature by sent headers
+ */
+function signature() {
+	static $sig;
+	if ( isset( $sig ) ) {
+		return $sig;
+	}
+	$headers	= httpHeaders();
+	$skip		= [
+		'Access-Control-Request-Headers',
+		'Access-Control-Request-Method',
+		'If-Unmodified-Since',
+		'If-Modified-Since',
+		'Accept-Datetime',
+		'Accept-Encoding',
+		'Content-Length',
+		'Authorization',
+		'Cache-Control',
+		'If-None-Match',
+		'Content-Type',
+		'Content-Md5',
+		'Connection',
+		'Forwarded',
+		'If-Match',
+		'Referer',
+		'Cookie',
+		'Expect',
+		'Accept',
+		'Pragma',
+		'Date',
+		'A-Im',
+		'TE'
+	];
+	
+	$search		= 
+	\array_diff_key( 
+		$headers, \array_reverse( $skip ) 
+	);
+	
+	$sig		= '';
+	foreach ( $search as $k => $v ) {
+		$sig .= $v[0];
+	}
+	
+	return $sig;
+}
+
+/**
+ *  Flatten a multi-dimensional array into a path map
+ *  
+ *  @link https://stackoverflow.com/a/2703121
+ *  
+ *  @param array	$items		Raw item map (parsed JSON)
+ *  @param string	$delim		Phrase separator in E.G. {lang:}
+ *  @return array
+ */ 
+function flatten(
+	array		$items, 
+	string		$delim	= ':'
+) : array {
+	$it	= new \RecursiveIteratorIterator( 
+			new \RecursiveArrayIterator( $items )
+		);
+	
+	$out	= [];
+	foreach ( $it as $leaf ) {
+		$path = '';
+		foreach ( \range( 0, $it->getDepth() ) as $depth ) {
+			$path .= 
+			\sprintf( 
+				"$delim%s", 
+				$it->getSubIterator( $depth )->key() 
+			);
+		}
+		$out[$path] = $leaf;
+	}
+	
+	return $out;
+}
+
+/**
+ *  Hooks and extensions
+ *  Append a hook handler in [ 'event', 'handler' ] format
+ *  Call the hook event in [ 'event', args... ] format
+ *  
+ *  @param array	$params		[ 'event', 'handler' ]
+ */
+function hook( array $params ) {
+	static $handlers	= [];
+	static $output		= [];
+	
+	// Nothing to add?
+	if ( empty( $params ) ) { return; }
+	
+	// First parameter is the event name
+	$name			= 
+	\strtolower( \array_shift( $params ) );
+	
+	// Prepare event to receive handlers
+	if ( !isset( $handlers[$name] ) ) {
+		$handlers[$name]	= [];
+	}
+	
+	// Adding a handler to the given event?
+	// Need an event name and a handler
+	if ( 
+		\is_string( $params[0] )	&& 
+		\is_callable( $params[0] )
+	) {
+		$handlers[$name][]	= $params[0];
+		
+	// Handler being called with parameters, if any
+	} else {
+		// Asking for hook-named output?
+		if ( \is_string( $params[0] ) && empty( $params[0] ) ) {
+			return $output[$name] ?? '';
+		}
+		
+		// Execute handlers in order and store in output
+		foreach( $handlers[$name] as $handler ) {
+			$output[$name] = 
+			$handler( 
+				$name, $output[$name] ?? [], ...$params 
+			) ?? '';
+		}
+	}
 }
 
 /**
@@ -2519,6 +2700,7 @@ function request( string &$verb, string $path, array $routes ) {
 			send( 405 );
 	}
 }
+
 /**
  *  Check if the requested path has a whitelisted extension
  *  
