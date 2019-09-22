@@ -76,6 +76,17 @@ To embed a previously uploaded image file, use markdown syntax:
 ![alt text](https://example.com/filename.jpg)
 ``` 
 
+## Custom errors (optional)
+
+A separate */errors* folder can be used to create custom error pages  
+for each HTTP status code. The location of the */errors* folder is  
+configurable via the ERROR_ROOT setting.
+
+E.G. Create an */errors/404.html* file and put your custom Not Found  
+content. The following status codes are supported for custom errors:  
+`400, 401, 403, 404, 405, 429, 500, 501, 503`
+
+
 ## Installing on other web servers
 
 ### Nginx
@@ -182,4 +193,3 @@ server "www.example.com" {
 }
 
 ``` 
-
