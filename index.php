@@ -26,6 +26,14 @@ define( 'FILE_PATH',	POSTS );
 // Use this instead if you keep uploaded files outside the web root
 // define( 'FILE_PATH',	\realpath( \dirname( __FILE__, 2 ) ) . '/uploads/' );
 
+// Configuration filename (optional, overrides some constants here)
+define( 'CONFIG',		'config.json' );
+
+// Custom error file folder (optional)
+define( 'ERROR_ROOT',		\realpath( \dirname( __FILE__ ) ) . '/errors/' );
+// Use this if error files are outside web root
+// define( 'ERROR_ROOT',		\realpath( \dirname( __FILE__, 2 ) ) . '/errors/' );
+
 // Friendly date format
 define( 'DATE_NICE',	'l, F j, Y' );
 
@@ -42,7 +50,7 @@ define( 'PAGE_LINK',	'/' );
 define( 'PAGE_LIMIT',	12 );
 
 // Make this true if testing locally or running on Tor
-define( 'SKIP_LOCAL', 	true );
+define( 'SKIP_LOCAL', 	'true' );
 
 // Maximum page index
 define( 'MAX_PAGE',	500 );
@@ -105,6 +113,34 @@ define( 'TPL_FOOTER',		<<<HTML
 	</nav>
 </div>
 </footer>
+HTML
+);
+
+
+define( 'TPL_ERROR_PAGE',	<<<HTML
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Error {code} - {page_title}</title>
+<link rel="stylesheet" href="{home}style.css">
+</head>
+<body>
+<header>
+<div class="content">
+	<h1><a href="{home}">{page_title}</a></h1>
+	<p>{tagline}</p>
+</div>
+</header>
+<main>
+<div class="content">
+{body}
+<p><a href="{home}">Return home</a></p>
+</div>
+</main>
+</body>
+</html>
 HTML
 );
 
@@ -496,7 +532,7 @@ function missing( $func ) {
 /**
  *  Load file contents and check for any server-side code		
  */
-function loadFile( $name ) {
+function loadFile( string $name ) : string {
 	static $loaded	= [];
 	
 	// Check if already loaded
@@ -504,16 +540,146 @@ function loadFile( $name ) {
 		return $loaded[$name];
 	}
 	
-	if ( \file_exists( $name ) ) {
-		$data = \file_get_contents( $name );
-		if ( false !== \strpos( $data, '<?php' ) ) {
-			die( MSG_CODEDETECT );
-		}
-		$loaded[$name] = $data;
-		return $data;
+	// Relative path to storage
+	$fname	= \CACHE . $name;
+	if ( !\file_exists( $fname ) ) {
+		return '';
 	}
 	
-	return null;
+	$ext		= 
+	\pathinfo( $fname, \PATHINFO_EXTENSION ) ?? '';
+	
+	switch( \strtolower( $ext ) ) {
+		case 'json':
+		case 'config':
+			// Clean comments and junk while loading
+			$data	= \php_strip_whitespace( $fname );
+			break;
+			
+		default:
+			$data = \file_get_contents( $fname );
+	}
+	
+	// Nothing loaded?
+	if ( false === $data ) {
+		return '';
+	}
+	
+	if ( false !== \strpos( $data, '<?php' ) ) {
+		shutdown( 'cleanup' );
+		send( 500, \MSG_CODEDETECT );
+	}
+	
+	$loaded[$name] = $data;
+	return $data;
+}
+
+/**
+ *  Load file into array, optionally return the first n lines
+ *  
+ *  @param string	$name	File name to load from storage 
+ *  @param int		$lines	Return only the first lines if not zero
+ *  @param bool		$filter	Filters lines that start with ; or #
+ */
+function loadArray( 
+	string		$name,
+	int		$lines	= 0,
+	bool		$filter	= true
+) {
+	static $loaded	= [];
+	
+	if ( isset( $loaded[$name] ) ) {
+		if ( $lines > 0 ) {
+			return \array_slice( $loaded[$name], 0, $lines );
+		} 
+		return $loaded[$name];
+	}
+	
+	$data	= \file( 
+			\CACHE . $name, 
+			\FILE_IGNORE_NEW_LINES | \FILE_SKIP_EMPTY_LINES 
+		);
+	
+	if ( false === $data ) {
+		return [];
+	}
+	
+	// Filtered?
+	if ( $filter ) {
+		$data	= \array_filter( \array_map( 'trim', $data ) );
+		$data	= 
+		\array_filter( $data, function( $val ) {
+			// Skip if the first line starts with colon or pound
+			return (
+				0 !== \strpos( $val, ';' ) && 
+				0 !== \strpos( $val, '#' )
+			);
+		} );
+	}
+	
+	$loaded[$name] = $data;
+	
+	// Specific number of lines?
+	if ( $lines > 0 ) {
+		return \array_slice( $loaded[$name], 0, $lines );
+	}
+	return $loaded[$name];
+}
+
+/**
+ *  Load JSON formatted configuration file
+ *  
+ *  @param string	$file		File name
+ *  @return array
+ */
+function loadConfig( string $file ) : array {
+	static $params;
+	if ( isset( $params ) ) {
+		return $params;
+	}
+	
+	$data	= loadFile( $file );
+	$params	= json_decode( \utf8_encode( $data ), true );
+	if ( empty( $params ) ) {
+		return [];
+	}
+	
+	return $params;
+}
+
+/**
+ *  Get configuration setting or default value
+ *  
+ *  @param string	$name		Configuration setting name
+ *  @param mixed	$default	If not set, fallback value
+ *  @param string	$type		String, integer, or boolean
+ *  @return mixed
+ */
+function config( string $name, $default, string $type = 'string'  ) {
+	static	$data;
+	$name	= \strtolower( $name );
+	if ( isset( $data[$name] ) ) {
+		return $data[$name];
+	}
+	
+	$config = loadConfig( \CONFIG );
+	switch( $type ) {
+		case 'int':
+		case 'integer':
+			$data[$name] = ( int )
+				( $config[$name] ?? $default );
+			break;
+			
+		case 'bool':
+		case 'boolean':
+			$data[$name] = ( bool )
+				( $config[$name] ?? $default );
+			break;
+			
+		default:
+			$data[$name] = $config[$name] ?? $default;
+	}
+	return $data[$name];
 }
 
 /**
@@ -525,7 +691,7 @@ function homeLink() : string {
 		return $home;
 	}
 	
-	$home = website() . PAGE_LINK;
+	$home = website() . getRoot();
 	return $home;
 }
 
@@ -1169,7 +1335,7 @@ function sessionThrottle() {
 	// Sender should not be served for the duration of this session
 	if ( isset( $_SESSION['kill'] ) ) {
 		shutdown( 'cleanup' );
-		send( 403, \MSG_DENIED );
+		sendError( 403, \MSG_DENIED );
 	}
 	
 	$check		= lastVisit();
@@ -1218,7 +1384,7 @@ function dateNice( $stamp = null ) : string {
  *  Build permalink with page slug with date
  */
 function dateSlug( string $slug, string $stamp ) {
-	return PAGE_LINK . 
+	return getRoot() . 
 	\gmdate( 'Y/m/d/', \strtotime( $stamp ) ) . 
 	\ltrim( \basename( $slug, '.md' ), '/' );
 }
@@ -1232,13 +1398,69 @@ function dateRfc( $stamp = null ) : string {
 }
 
 /**
+ *  Convert all spaces to single character
+ */
+function unifySpaces( string $text, string $rpl = ' ' ) {
+	return \preg_replace( '/[[:space:]]+/', ' ', pacify( $text ) );
+}
+
+/**
  *  Clean entry title
  *  
  *  @param string	$title	Raw title entered by the user
+ *  @param int		$max	Maximum string length
  *  @return string
  */
-function title( string $text ) : string {
-	return smartTrim( pacify( $text ) );
+function title( string $text, int $max = 255 ) : string {
+	// Unify spaces, tabs, returns etc...
+	$text	= unifySpaces( $text );
+	
+	return 
+	smartTrim( \preg_replace( '/\s+/', ' ', $text ), $max );
+}
+
+/**
+ *  Normalize unicode characters
+ *  
+ *  This depends on the Intl extension (usually comes with PHP), 
+ *  but needs to be enabled in php.ini
+ *  @link https://www.php.net/manual/en/intl.installation.php
+ *  
+ *  @param string	$text		
+ */
+function normal( string $text ) {
+	if ( \class_exists( "Normalizer" ) ) {
+		\Normalizer::normalize( 
+			$text, \Normalizer::FORM_C 
+		);
+	}
+	
+	return $text;
+}
+
+/**
+ *  Label name ( ASCII only )
+ *  
+ *  @param string	$text	Raw label entered into field
+ *  @return string
+ */
+function labelName( string $text ) : string {
+	$text	= unifySpaces( $text, '_' );
+	
+	return 
+	smartTrim( \preg_replace( 
+		'/^[a-z0-9_\-\.]/i', '', normal( $text ) 
+	), 50 );
+}
+
+/**
+ *  Convert to unicode lowercase
+ *  
+ *  @param string	$text	Raw mixed/uppercase text
+ *  @return string
+ */
+function lowercase( string $text ) : string {
+	return \mb_convert_case( $text, \MB_CASE_LOWER, 'UTF-8' );
 }
 
 /**
@@ -1280,6 +1502,28 @@ function smartTrim(
 	}
 	
 	return $out;
+}
+
+/**
+ *  Convert a string into a page slug
+ *  
+ *  @param string	$title	Fallback title to generate slug
+ *  @param string	$text	Text to transform into a slug
+ *  @return string
+ */
+function slugify( 
+	string		$title, 
+	string		$text		= ''
+) : string {
+	if ( empty( $text ) ) {
+		$text = $title;
+	}
+	$text = lowercase( unifySpaces( $text ) );
+	$text = \preg_replace( '~[^\\pL\d]+~u', ' ', $text );
+	$text = \preg_replace( '/\s+/', '-', \trim( $text ) );
+	$text = \preg_replace( '/\-+/', '-', \trim( $text, '-' ) );
+	
+	return \strtolower( smartTrim( $text ) );
 }
 
 /**
@@ -2151,6 +2395,37 @@ function markdown(
  */
 
 /**
+ *  Site root
+ *  
+ *  @param bool		$err		Error root if given
+ *  @return string
+ */
+function getRoot( bool $err = false ) : string {
+	static $root;
+	static $errors;
+	
+	if ( $err ) { 
+		if ( isset( $errors ) ) {
+			return $errors;
+		}
+	} else {
+		if ( isset( $root ) ) {
+			return $root;
+		}
+	}
+	
+	if ( $err ) {
+		$link		= config( 'error_root', \ERROR_ROOT );
+		$errors		= \rtrim( $link, '/' ) . '/';
+		return $errors;
+	}
+	
+	$link		= config( 'page_link', \PAGE_LINK );
+	$root		= \rtrim( $link, '/' ) . '/';
+	return $root;
+}
+
+/**
  *  Guess if current request is secure
  */
 function isSecure() : bool {
@@ -2256,7 +2531,7 @@ function httpCode( int $code ) {
 		// Some codes need additional headers
 		switch( $code ) {
 			case 405:
-				\header( 'Allow: GET, HEAD, OPTIONS', true );
+				sendAllowHeader();
 				break;
 		}
 		
@@ -2379,6 +2654,48 @@ function send(
 	
 	// End
 	shutdown();
+}
+
+/**
+ *  Send error message wrapped in default page template
+ */
+function sendError( int $code, $body ) {
+	$path = '';
+	
+	// Try to send a static error file if it exists first
+	switch( $code ) {
+		case 400:
+		case 401:
+		case 403:
+		case 404:
+		case 405:
+		case 429:
+			$path = getRoot( true ) . $code . '.html';
+			break;
+			
+		case 500:
+		case 501:
+		case 503:
+			$path = getRoot( true ) . '50x.html';
+			break;
+	}
+	
+	if ( !empty( $path ) ) {
+		if ( \file_exists( $path ) ) {
+			sendFilePrep( $path, $code );
+			sendFileFinish( $path, true );
+			shutdown();
+		}
+	}
+	
+	$page_t	= \strtr( \TPL_ERROR_PAGE ?? '', [ 
+			'{page_title}'	=> PAGE_TITLE,
+			'{tagline}'	=> PAGE_SUB,
+			'{home}'	=> homeLink(),
+			'{code}'	=> $code,
+			'{body}'	=> $body 
+		] );
+	send( $code, $page_t );
 }
 
 /**
@@ -2574,6 +2891,47 @@ function sendFile(
  */
 
 /**
+ *  Redirect with status code
+ *  
+ *  @param int		$code		HTTP Status code
+ *  @param string	$path		Full URL to from current domain
+ */
+function redirect(
+	int		$code		= 200,
+	string		$path		= ''
+) {
+	\ob_end_clean();
+	
+	$url	= \parse_url( $path );
+	$host	= $url['host'] ?? '';
+	
+	// Arbitrary redirect attempt?
+	if ( $host != $_SERVER['SERVER_NAME'] ) {
+		die( 'Invalid URL' );
+	}
+	
+	// Get get current path
+	$path	= getRoot() . $url['path'] ?? '';
+	
+	// Directory traversal
+	$path	= \preg_replace( '/\.{2,}', '.', $path );
+	
+	// Check for headers
+	if ( false === \headers_sent() ) {
+		\header( 'Location: ' . $path, true, $code );
+		die();
+	}
+	
+	// Fallback HTML refresh
+	$html = 
+	"<html><head>" . 
+	"<meta http-equiv=\"refresh\" content=\"0;url=\" . $path . \">".
+	"</head><body><a href=\" . $path . \">continue</a></body></html>";
+	
+	die( $html );
+}
+
+/**
  *  Paths are sent in bare. Make them suitable for matching.
  *  
  *  @param string $route URL path in plain format
@@ -2656,7 +3014,7 @@ function request( string &$verb, string $path, array $routes ) {
 		false !== \strpos( $path, '<' )	
 	) {
 		shutdown( 'cleanup' );
-		send( 400, \MSG_INVALID );
+		sendError( 400, \MSG_INVALID );
 	}
 	
 	// Possible XSS, directory traversal, or file upload detected
@@ -2666,7 +3024,7 @@ function request( string &$verb, string $path, array $routes ) {
 		!empty( $_FILES )
 	) {
 		shutdown( 'cleanup' );
-		send( 403, \MSG_DENIED );
+		sendError( 403, \MSG_DENIED );
 	}
 	
 	// Request path hard limit
@@ -2698,6 +3056,12 @@ function request( string &$verb, string $path, array $routes ) {
 		default:
 			shutdown( 'cleanup' );
 			send( 405 );
+	}
+	
+	// Try to send file, if it's a file
+	if ( fileRequest( $verb, $path ) ) {
+		shutdown( 'cleanup' );
+		shutdown();
 	}
 }
 
@@ -2734,7 +3098,7 @@ function isSafeExt( string $path ) {
 function sendRoute( $event, $path, $verb, $params ) {
 	if ( !\is_callable( $event ) ) {
 		// Route isn't a function
-		send( 404, MSG_NOTFOUND );
+		sendError( 404, \MSG_NOTFOUND );
 	}
 	$params			= filterParams( $params );
 	
@@ -2762,6 +3126,7 @@ function routeMatch(
 		$markers = decode( \ROUTE_MARK );
 	}
 	
+	$root	= getRoot();
 	foreach( $routes as $map ) {
 		// Not the method? keep going
 		if ( 0 !== \strcmp( $map[0], $verb ) ) {
@@ -2774,7 +3139,7 @@ function routeMatch(
 		}
 		
 		// Prepare for matching
-		$rx = cleanRoute( $markers, \PAGE_LINK . $map[1] );
+		$rx = cleanRoute( $markers, $root . $map[1] );
 		
 		// Page match? Send handler and URL params
 		if ( \preg_match( $rx, $path, $params ) ) {
@@ -2798,12 +3163,12 @@ function fileRequest(
 	string		$path, 
 	bool		$dosend = true 
 ) : bool {
-	if ( 0 !== \strcasecmp( 'get', $verb ) || !isSafeExt( $path ) ) {
+	if ( 0 != \strcmp( 'get', $verb ) || !isSafeExt( $path ) ) {
 		return false;
 	}
 	
 	// Trim leading slash and append static file path
-	$path	= FILE_PATH . \preg_replace( '/^\//', '', $path );
+	$path	= \FILE_PATH . \preg_replace( '/^\//', '', $path );
 	if ( !\file_exists( $path ) ) {
 		return false;
 	}
@@ -2851,22 +3216,16 @@ function route( $routes ) {
 		}
 	}
 	
-	// Try to send file, if it's a file
-	if ( fileRequest( $verb, $path ) ) {
-		shutdown( 'cleanup' );
-		shutdown();
-	}
-	
 	$found	= routeMatch( $path, $verb, $routes );
 	if ( empty( $found ) ) {
 		// No matching route?
-		send( 404, MSG_NOTFOUND );
+		sendError( 404, \MSG_NOTFOUND );
 	}
 	
 	sendRoute( $found[0], $path, $verb, $found[1] );
 	
 	// Something went wrong
-	send( 404, MSG_NOTFOUND );
+	sendError( 404, \MSG_NOTFOUND );
 }
 
 /**
@@ -3120,7 +3479,7 @@ function formatPost(
 	}
 	$pub		= getPub( $path );
 	if ( !checkPub( $pub ) ) {
-		send( 404, MSG_NOTFOUND );
+		sendError( 404, \MSG_NOTFOUND );
 	}
 			
 	// Apply metadata
@@ -3259,7 +3618,7 @@ function archive( $params ) {
 function feed( $params ) {
 	$posts	= loadPosts( 1, '', true );
 	if ( empty( $posts ) ) {
-		send( 404, MSG_NOTFOUND );
+		sendError( 404, \MSG_NOTFOUND );
 	}
 	
 	$tpl	= [
@@ -3290,7 +3649,7 @@ function post( $params ) {
 	);
 	
 	if ( empty( $post ) ) {
-		send( 404, MSG_NOTFOUND );
+		sendError( 404, \MSG_NOTFOUND );
 	}
 	
 	$tpl	= [
