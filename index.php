@@ -61,9 +61,17 @@ define( 'YEAR_START',	2015 );
 // Ending date for post archive
 define( 'YEAR_END',	2099 );
 
+// Allow POST method 
+// (should be 'false' unless if you have a special need E.G. a plugin)
+define( 'ALLOW_POST',	'false' );
+
+// Maximum number of tags to recognize in each post
+define( 'TAG_LIMIT',	5 );
+
 // Extensions generally safe to send as-is
 define( 'SAFE_EXT',	
 	'css, js, ico, txt, html, jpg, jpeg, gif, bmp, png' );
+
 
 // General page template
 define( 'TPL_PAGE',		<<<HTML
@@ -160,8 +168,16 @@ define( 'TPL_POST',		<<<HTML
 		<time datetime="{date_utc}">{date_stamp}</time>
 	</div>
 	</header>
-	<div class="content">{body}</div>
+	<div class="content">
+		{body}
+		{tags}
+	</div>
 </article>
+HTML
+);
+
+define( 'TPL_TAGWRAP', <<<HTML
+<nav class="tags">Tags: <ul class="tags">{tags}</ul></nav>
 HTML
 );
 
@@ -184,7 +200,8 @@ HTML
 
 define( 'TPL_INDEX',		<<<HTML
 	<li><time datetime="{date_utc}">{date_stamp}</time>
-		<a href="{permalink}">{title}</a></li>
+		<a href="{permalink}">{title}</a>
+		<nav>{tags}</nav></li>
 HTML
 );
 
@@ -459,7 +476,23 @@ BEGIN
 			( strftime( '%s','now' ) + NEW.ttl ), 
 			'unixepoch' 
 		) WHERE rowid = NEW.rowid;
-END;
+END;-- --
+
+-- Tag tables
+CREATE TABLE tags (
+	id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
+	slug TEXT NOT NULL, 
+	term TEXT NOT NULL
+);-- --
+CREATE UNIQUE INDEX idx_tag_slug ON tags( slug ASC );
+
+CREATE TABLE post_tags(
+	id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
+	post_path TEXT NOT NULL,
+	tag_path TEXT NOT NULL,
+	post_view TEXT NOT NULL
+);-- --
+CREATE UNIQUE INDEX idx_post_tags ON post_tags( post_path, tag_path );
 SQL
 );
 
@@ -2497,11 +2530,13 @@ function preamble(
  */
 function getAllowedMethods( bool $arr = false ) {
 	if ( $arr ) {
-		return 
+		return ALLOW_POST ?  
+		[ 'get', 'post', 'head', 'options' ] : 
 		[ 'get', 'head', 'options' ];
 	}
 	
-	return 'GET, HEAD, OPTIONS';
+	return ALLOW_POST ? 
+	'GET, POST, HEAD, OPTIONS' : 'GET, HEAD, OPTIONS';
 }
 
 /**
@@ -2645,8 +2680,9 @@ function send(
 		setCacheExp();
 		$full	= fullURI();
 		shutdown( 'saveCache', [ $full, $content ] );
-		shutdown( 'cleanup' );
 	}
+	// Schedule cleanup
+	shutdown( 'cleanup' );
 	
 	// Schedule flush
 	shutdown( 'flush' );
@@ -3052,6 +3088,14 @@ function request( string &$verb, string $path, array $routes ) {
 			handleOptions();
 			break;
 		
+		// Special case post
+		case 'post':
+			if ( !\ALLOW_POST ) {
+				shutdown( 'cleanup' );
+				send( 405 );
+			}
+			break;
+		
 		// Nothing else implemented
 		default:
 			shutdown( 'cleanup' );
@@ -3110,6 +3154,17 @@ function sendRoute( $event, $path, $verb, $params ) {
 }
 
 /**
+ *  Parse marker placeholders in JSON
+ */
+function getMarkers() : array {
+	static $markers;
+	if ( !isset( $markers ) ) {
+		$markers = decode( \ROUTE_MARK );
+	}
+	return $markers;
+}
+
+/**
  *  Find and return route handler for given path and any URL parameters
  *  
  *  @param string	$path		Request URI from user
@@ -3121,12 +3176,8 @@ function routeMatch(
 	string		$verb, 
 	array		$routes
 ) : array {
-	static $markers;
-	if ( !isset( $markers ) ) {
-		$markers = decode( \ROUTE_MARK );
-	}
-	
-	$root	= getRoot();
+	$markers	= getMarkers();
+	$root		= getRoot();
 	foreach( $routes as $map ) {
 		// Not the method? keep going
 		if ( 0 !== \strcmp( $map[0], $verb ) ) {
@@ -3304,7 +3355,9 @@ function loadPost(
 		return '';
 	}
 	
-	$out	= formatPost( $title, $data, $path, TPL_POST ?? '' );
+	$tags	= [];		
+	$out	= 
+	formatPost( $title, $tags, $data, $path, TPL_POST ?? '' );
 	return $out;
 }
 
@@ -3315,6 +3368,9 @@ function getPub( $path ) : string {
 	return utc( \substr( $path, 0, \strrpos( $path, '/' ) ) );	
 }
 
+/**
+ *  Check if publication time is before current time
+ */
 function checkPub( $pub ) : bool {
 	if ( \strtotime( $pub ) <= time() ) {
 		return true;
@@ -3323,6 +3379,97 @@ function checkPub( $pub ) : bool {
 	return false;
 }
 
+/**
+ *  Get the last line from the post and try to parse post category tags
+ *  
+ *  @param array	$post	Content as an array of lines
+ *  @return array
+ */
+function extractTags( array &$post ) : array {
+	static $tagp;
+	
+	if ( !isset( $tagp ) ) {
+		$tagp	= 
+		getMarkers()[':tag'] ?? '(?<tag>[\pL\pN\s_\,\-]{1,30})';
+	}
+	
+	$c	= count( $post );
+	// Need at least three lines
+	if ( $c < 3 ) {
+		return [];
+	}
+	
+	// Last line
+	$line	= 
+	\preg_replace( '/\s+/', ' ', \trim( $post[$c - 1] ) );
+	\preg_match( 
+		'/^tags\s?\:' . $tagp . '/is', $line, $m 
+	);
+	
+	if ( empty( $m['tag'] ) ) {
+		return [];
+	}
+	
+	// Clean tags
+	$tags	= 
+	\array_filter( \array_map( 
+		'trim', \explode( ',', $m['tag'] ?? '' ) 
+	) );
+	
+	// No tags left after cleaning?
+	if ( empty( $tags ) ) {
+		return [];
+	}
+	
+	// Remove last line if tags were found
+	\array_pop( $post );
+	
+	// Ensure tags don't exceed limit
+	if ( count( $tags ) > \TAG_LIMIT ) {
+		$tags = \array_slice( $tags, 0, \TAG_LIMIT );
+	}
+	
+	$ptags	= [];
+	foreach( $tags as $t ) {
+		$ptags[] = [ 
+			'slug' => slugify( $t ),
+			'term' => $t
+		];
+	}
+	
+	return $ptags;
+	
+}
+
+/**
+ *  Insert formatted tags into cache
+ */
+function insertTags( $stm, array $tags ) {
+	foreach( $tags as $pair ) {
+		$stm->execute( [ 
+			':slug' => $pair['slug'], 
+			':term' => $pair['term'] 
+		] );
+	}
+}
+
+/**
+ *  Associate post with given tags
+ */
+function applyTags( $stm, string $perm, array $tags, string $view ) {
+	foreach( $tags as $pair ) {
+		$stm->execute( [
+			':post'	=> $perm,
+			':tag'	=> $pair['slug'],
+			':view' => $view
+		] );
+	}
+}
+
+
+/**
+ *  Check if this is a post file (ends in ".md")
+ */
 function isPost( $file ) : bool {
 	// Skip directories
 	if ( $file->isDir() ) {
@@ -3378,10 +3525,12 @@ function loadPosts(
 			}
 			
 			$tpl		= 
-				$feed ? 
-				( TPL_ITEM  ?? '' ) : ( TPL_POST ?? '' );
+			$feed ? 
+			( TPL_ITEM  ?? '' ) : ( TPL_POST ?? '' );
+			
+			$tags		= [];
 			$posts[$path]	= 
-			formatPost( $title, $data, $path, $tpl );
+			formatPost( $title, $tags, $data, $path, $tpl );
 		}
 		
 		// Increment number of entries if published
@@ -3392,6 +3541,9 @@ function loadPosts(
 	return $posts;
 }
 
+/**
+ *  Load all published posts
+ */
 function loadIndex() {
 	$it	= getPosts();
 	if ( empty( $it ) ) {
@@ -3399,6 +3551,25 @@ function loadIndex() {
 	}
 	$lastDir	= '';
 	$posts		= [];
+	
+	// Prepare cache insertion for tags
+	$db		= getDb( CACHE_DATA );
+	
+	// Tag insertion statement
+	$istm		= 
+	$db->prepare( 
+	"INSERT OR IGNORE INTO tags( slug, term ) 
+		VALUES ( :slug, :term );" 
+	);
+	
+	// Post tag association statement
+	$pstm		= 
+	$db->prepare( 
+	"INSERT OR IGNORE INTO post_tags( 
+		post_path, tag_path, post_view
+		) VALUES ( :post, :tag, :view );"
+	);
+	
 	foreach( $it as $file ) {
 		$raw	= $file->getRealPath();
 		$path	= filterDir( $raw );
@@ -3431,13 +3602,23 @@ function loadIndex() {
 			if ( empty( $post ) || false == $post ) {
 				continue;
 			}
-			$post		= \array_slice( $post, 0, 1 );
+			
+			$tags = [];
 			
 			// Apply metadata
 			metadata( $title, $perm, $pub, $post, $path );
 			
+			// Load formatted and process tags
+			$out = 
+			formatPost( $title, $tags, $post, $path, TPL_POST ?? '' );
+			
 			// Format metadata
-			$posts[$lastDir][] = formatMeta( $title, $pub, $path );
+			$posts[$lastDir][] = 
+			formatMeta( $title, $pub, $path, $tags );
+			
+			// Create tags and cache page info
+			insertTags( $istm, $tags );
+			applyTags( $pstm, $perm, $tags, $out );
 		}
 	}
 	
@@ -3455,24 +3636,54 @@ function metadata( &$title, &$perm, $pub, $post, $path ) {
 	$perm	= dateSlug( \basename( $path ), $pub );
 }
 
-function formatMeta( $title, $pub, $path ) {
+/**
+ *  Apply tag template
+ */
+function formatTags( array $tags ) : string {
+	// No tags in this post?
+	if ( empty( $tags ) ) {
+		return '';
+	}
+	$out	= '';
+	$r	= getRoot();
+	foreach( $tags as $t ) {
+		$out .= 
+		\strtr( 
+			\TPL_LINK, 
+			[
+				'{url}' => $r . 'tags/' . $t['slug'],
+				'{text}' => $t['term']
+			] 
+		);
+	}
+	return \strtr( \TPL_TAGWRAP, [ '{tags}' => $out ] );
+}
+
+/**
+ *  Apply post data to template placeholders
+ */
+function formatMeta( $title, $pub, $path, $tags = [] ) : array {
 	return [
 		'{title}'	=> $title,
 		'{date_utc}'	=> $pub,
 		'{date_rfc}'	=> dateRfc( $pub ),
 		'{date_stamp}'	=> dateNice( $pub ),
+		'{tags}'	=> formatTags( $tags ),
 		'{permalink}'	=> 
 		website() . dateSlug( \basename( $path ), $pub )
 	];
 }
 
-// 
+/**
+ *  Apply post template, if post exists and published or return 404
+ */
 function formatPost(
 	string	&$title,
+	array	&$tags,
 	array	$post,
 	string	$path,
 	string	$tpl
-) {
+) {	
 	// Check for post validity
 	if ( count( $post ) < 3 ) {
 		return '';
@@ -3481,12 +3692,15 @@ function formatPost(
 	if ( !checkPub( $pub ) ) {
 		sendError( 404, \MSG_NOTFOUND );
 	}
-			
+	
+	// Process tags
+	$tags	= extractTags( $post );
+	
 	// Apply metadata
 	metadata( $title, $perm, $pub, $post, $path );
 	// Format metadata
 	
-	$data	= formatMeta( $title, $pub, $perm );
+	$data	= formatMeta( $title, $pub, $perm, $tags );
 	
 	// Everything else is the body
 	$post	= \array_slice( $post, 1 );
@@ -3534,6 +3748,10 @@ function filterRequest( array $params ) {
 				( int ) \date( 'j', $now )
 			]
 		],
+		'tag'	=> [
+			'filter'	=> \FILTER_CALLBACK,
+			'options'	=> 'pacify'
+		],
 		'slug'	=> [
 			'filter'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
 			'options'	=> [ 'default' => '' ]
@@ -3541,6 +3759,45 @@ function filterRequest( array $params ) {
 	];
 	
 	return \filter_var_array( $params, $filter );
+}
+
+
+/**
+ *  Format index views for archives and tags
+ */
+function formatIndex( $prefix, $page, $posts ) {
+	$tpl	= [
+		'{page_title}'	=> PAGE_TITLE,
+		'{post_title}'	=> PAGE_TITLE,
+		'{tagline}'	=> PAGE_SUB,
+		'{home}'	=> homeLink(),
+		
+		// Footer with home link set
+		'{footer}'	=> 
+		\strtr( 
+			TPL_FOOTER ?? '', 
+			[ '{home}'	=> homeLink() ] 
+		)
+	];
+	
+	if ( empty( $posts ) ) {
+		// No posts message with home link set
+		$tpl['{body}']		= 
+		\strtr( 
+			TPL_NOPOSTS ?? '', 
+			[ '{home}'	=> homeLink() ] 
+		);
+		$tpl['{paginate}']	= 
+		\strtr( TPL_NAV ?? '', [ '{text}' => navHome() ] );
+	} else {
+		$tpl['{body}']		= \implode( '', $posts );
+		$tpl['{paginate}']	= 
+		paginate( $page, $prefix, $posts );
+	}
+	
+	// Send results (don't cache if no posts found)
+	$cache	= empty( $posts ) ? false : true;
+	send( 200, \strtr( TPL_PAGE ?? '', $tpl ), $cache );
 }
 
 
@@ -3580,36 +3837,60 @@ function archive( $params ) {
 		$posts	= loadPosts( $page, $stamp );
 	}
 	
-	$tpl	= [
-		'{page_title}'	=> PAGE_TITLE,
-		'{post_title}'	=> PAGE_TITLE,
-		'{tagline}'	=> PAGE_SUB,
-		'{home}'	=> homeLink(),
-		
-		// Footer with home link set
-		'{footer}'	=> 
-		\strtr( 
-			TPL_FOOTER ?? '', 
-			[ '{home}'	=> homeLink() ] 
-		)
-	];
-	
-	if ( empty( $posts ) ) {
-		// No posts message with home link set
-		$tpl['{body}']		= 
-		\strtr( 
-			TPL_NOPOSTS ?? '', 
-			[ '{home}'	=> homeLink() ] 
-		);
-		$tpl['{paginate}']	= 
-		\strtr( TPL_NAV ?? '', [ '{text}' => navHome() ] );
-	} else {
-		$tpl['{body}']		= \implode( '', $posts );
-		$tpl['{paginate}']	= 
-		paginate( $page, $prefix, $posts );
+	// Display
+	formatIndex( $prefix, $page, $posts );
+}
+
+/**
+ *  Browsing tags
+ */
+function tagview( $params ) {
+	$data	= filterRequest( $params );
+	// Tag empty?
+	if ( empty( $data['tag'] ) ) {
+		sendError( 404, \MSG_NOTFOUND );
 	}
 	
-	send( 200, \strtr( TPL_PAGE ?? '', $tpl ), true );
+	$page	= ( int ) ( $data['page'] ?? 1 );
+	$prefix	= '';
+	$s	= '/';
+	
+	// Pagination prep
+	$start	= ( $page - 1 ) * PAGE_LIMIT;
+	
+	// Get cached tags
+	$db	= getDb( \CACHE_DATA );
+	$stm	= $db->prepare( 
+		"SELECT post_view FROM post_tags 
+			WHERE tag_path = :tag 
+			LIMIT :limit OFFSET :offset;"
+	);
+	
+	$res	= [];
+	$search = [
+		':tag'		=> $data['tag'], 
+		':limit'	=> \PAGE_LIMIT, 
+		':offset'	=> $start
+	];
+	
+	if ( $stm->execute( $search ) ) {
+		$res = $stm->fetchAll();
+	// Something went wrong
+	} else {
+		sendError( 404, \MSG_NOTFOUND );
+	}
+	
+	// Nothing found for this tag
+	if ( empty( $res ) ) {
+		formatIndex( homeLink() . 'tags/', $page, [] );
+	}
+	
+	// Extract view column and send to formatting
+	$posts	= [];
+	foreach( $res as $r ) {
+		$posts[] = $r['post_view'];
+	}
+	formatIndex( homeLink() . 'tags/', $page, $posts );
 }
 
 /**
@@ -3672,7 +3953,7 @@ function post( $params ) {
 }
 
 /**
- *  Rebuild index cache
+ *  Rebuild index and cache output
  */
 function reindex( $params ) {
 	$posts	= loadIndex();
@@ -3729,6 +4010,9 @@ $routes		= [
 	[ 'get', ':year/:month',			'archive' ],
 	[ 'get', ':year/:month/page:page',		'archive' ],
 	[ 'get', ':year/:month/:day',			'archive' ],
+	
+	[ 'get', 'tags/:tag',				'tagview' ],
+	[ 'get', 'tags/:tag/page:page',			'tagview' ],
 	
 	/**
 	 *  Generate archive cache
