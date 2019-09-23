@@ -5,7 +5,9 @@ Bare has no usernames, passwords, editors, file uploaders, or other
 mechanisms that get in the way of writing your thoughts. Simply put your  
 posts in *year/month/day/slug.md* format, and Bare will publish it. 
 
-The first line in each post is the title. The URL slug is the filename.
+The first line in each post is the title. The URL slug is the filename.  
+Posts can be tagged by adding the last line in the following format:  
+`tags: cabin, diy`
 
 You can also schedule posts to be published at a future date as bare will  
 only show posts from the current date and into the past.
