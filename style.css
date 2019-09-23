@@ -184,6 +184,16 @@ ul li, ol li {
 	padding: .2rem .5rem;
 }
 
+nav ul li {
+	display: inline-block;
+	padding: 0;
+	margin: 0;
+}
+
+nav ul li a {
+	padding: .3rem .4rem;
+}
+
 nav.main {
 	text-align: center;
 }
@@ -210,7 +220,6 @@ nav.tags ul li + li {
 	margin-left: 1rem;
 }
 
-
 ul.index {
 	margin: 1rem 0;
 	list-style: none;
@@ -230,23 +239,9 @@ nav.main ul {
 	margin: 0 auto;
 }
 
-nav ul li {
-	display: inline-block;
-	padding: 0;
-	margin: 0;
-}
-
-ul.index li nav {
-	text-align: left;
-}
-
 ul.index li nav ul {
 	margin-top: 0;
 	padding: 0;
-}
-
-nav ul li a {
-	padding: .3rem .4rem;
 }
 
 blockquote {
