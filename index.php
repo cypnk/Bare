@@ -201,7 +201,7 @@ HTML
 define( 'TPL_INDEX',		<<<HTML
 	<li><time datetime="{date_utc}">{date_stamp}</time>
 		<a href="{permalink}">{title}</a>
-		<nav>{tags}</nav></li>
+		{tags}</li>
 HTML
 );
 
