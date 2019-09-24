@@ -351,9 +351,12 @@ JSON
  */
 define( 'MSG_NOTFOUND',		'Page not found' );
 define( 'MSG_NOROUTE',		'No route defined' );
+define( 'MSG_BADMETHOD',	'Method not allowed' );
+define( 'MSG_NOMETHOD',		'Method not implemented' );
+define( 'MSG_GENERIC',		'An error has occured' );
+define( 'MSG_DENIED',		'Access denied' );
+define( 'MSG_INVALID',		'Invalid request' );
 define( 'MSG_CODEDETECT',	'Server-side code detected' );
-define( 'MSG_DENIED',		"Access denied" );
-define( 'MSG_INVALID',		"Invalid request" );
 
 
 /**
@@ -1075,6 +1078,9 @@ function saveCache( string $uri, string $content ) {
 		], 
 		CACHE_DATA 
 	);
+	
+	// Schedule cleanup
+	shutdown( 'cleanup' );
 }
 
 
@@ -1367,7 +1373,6 @@ function sessionThrottle() {
 	
 	// Sender should not be served for the duration of this session
 	if ( isset( $_SESSION['kill'] ) ) {
-		shutdown( 'cleanup' );
 		sendError( 403, \MSG_DENIED );
 	}
 	
@@ -1702,6 +1707,7 @@ function signature() {
 	$skip		= [
 		'Access-Control-Request-Headers',
 		'Access-Control-Request-Method',
+		'Upgrade-Insecure-Requests',
 		'If-Unmodified-Since',
 		'If-Modified-Since',
 		'Accept-Datetime',
@@ -2681,11 +2687,10 @@ function send(
 		$full	= fullURI();
 		shutdown( 'saveCache', [ $full, $content ] );
 	}
-	// Schedule cleanup
-	shutdown( 'cleanup' );
 	
 	// Schedule flush
-	shutdown( 'flush' );
+	shutdown( 'ob_end_flush' );
+	\ob_start( 'ob_gzhandler' );
 	echo $content;
 	
 	// End
@@ -2716,6 +2721,7 @@ function sendError( int $code, $body ) {
 			break;
 	}
 	
+	shutdown( 'cleanup' );
 	if ( !empty( $path ) ) {
 		if ( \file_exists( $path ) ) {
 			sendFilePrep( $path, $code );
@@ -2731,6 +2737,7 @@ function sendError( int $code, $body ) {
 			'{code}'	=> $code,
 			'{body}'	=> $body 
 		] );
+	
 	send( $code, $page_t );
 }
 
@@ -2998,6 +3005,7 @@ function filterParams( array $params ) {
 function handleHead( string $path, array $routes ) {
 	// Find any 'get' handlers for this route
 	$match	= routeMatch( $path, 'get', $routes );
+	
 	if ( empty( $match ) ) {
 		// No route? Try a file, but don't send it
 		if ( fileRequest( 'get', $path, false ) ) {
@@ -3033,23 +3041,43 @@ function handleOptions() {
 /**
  *  Request filter and cache check. This should be first called
  *  
- *  @param string	$verb		Request method
- *  @param string	$path		Current request URI
+ *  @param string	$event		Event name should be 'begin'
+ *  @param array	$hook		Hook event data
  *  @param array	$routes		List of route presets
  */
-function request( string &$verb, string $path, array $routes ) {
+function request( string $event, array $hook, array $routes ) : array {
+	// Request should be the first function called 
+	// so there shouldn't be any previous return data
+	if ( !empty( $hook ) ) {
+		die( 'Out of order request call. Check hooks.' );
+	}
+	
+	if ( empty( $routes ) ) {
+		die( \MSG_NOROUTE );
+	}
+	
 	// Set session save handler
 	setSessionHandler();
 	
 	// Check throttling
 	sessionThrottle();
 	
+	// Sanity checks
+	$path	= $_SERVER['REQUEST_URI'];
+	$verb	= \strtolower( $_SERVER['REQUEST_METHOD'] );
+	$safe	= getAllowedMethods( true );
+	
+	// Unrecognized method?
+	if ( !\in_array( $verb, $safe ) ) {
+		// Send method not allowed
+		sendError( 405, \MSG_BADMETHOD );
+	}
+	
 	// Request path (simpler filter before proper XSS scan)
 	if ( 
 		false !== \strpos( $path, '..' ) || 
 		false !== \strpos( $path, '<' )	
 	) {
-		shutdown( 'cleanup' );
 		sendError( 400, \MSG_INVALID );
 	}
 	
@@ -3059,7 +3087,6 @@ function request( string &$verb, string $path, array $routes ) {
 		\preg_match( RX_XSS4, $path ) || 
 		!empty( $_FILES )
 	) {
-		shutdown( 'cleanup' );
 		sendError( 403, \MSG_DENIED );
 	}
 	
@@ -3107,6 +3134,41 @@ function request( string &$verb, string $path, array $routes ) {
 		shutdown( 'cleanup' );
 		shutdown();
 	}
+	
+	$mfound	= false;
+	
+	// Filter routes for methods without any handlers
+	foreach( $routes as $r ) {
+		// Method has a handler
+		if ( 0 === \strcmp( $r[0], $verb ) ) {
+			$mfound = true;
+		}
+	}
+	
+	// No nethod implemented for this route
+	if ( !$mfound ) {
+		sendError( 501, \MSG_NOMETHOD );
+	}
+	
+	// Check if content is already cached for this URI
+	$uri	= fullURI();
+	$cache	= getCache( $uri );
+	
+	// If URI is already saved, send contents and exit
+	if ( !empty( $cache ) ) {
+		shutdown( 'cleanup' );
+		// Is this a feed?
+		if ( 0 === \strcasecmp( \basename( $path ), 'feed' ) ) {
+			send( 200, $cache, false, true );
+		} else {
+			send( 200, $cache, false );
+		}
+	}
+	
+	// Not a file and not cached, continue...
+	
+	// Return with extras in hook
+	return [ 'path' => $path, 'verb' => $verb ];
 }
 
 /**
@@ -3140,18 +3202,44 @@ function isSafeExt( string $path ) {
  *  Send route to registered event
  */
 function sendRoute( $event, $path, $verb, $params ) {
-	if ( !\is_callable( $event ) ) {
-		// Route isn't a function
-		sendError( 404, \MSG_NOTFOUND );
-	}
 	$params			= filterParams( $params );
 	
 	// Append the method and route
 	$params['path']		= $path;
 	$params['method']	= $verb;
 	
-	$event( $params );
+	hook( [ $event, $params ] );
 }
+
+/**
+ *  Find the path from given hook event handler name
+ *  
+ *  @param string	$event		Hook event name
+ *  @param string	$fallback	Backup path if event isn't found
+ *  @param array	$routes		Sent routes to handler (optional)
+ */
+function getRoutePath( 
+	string		$event,
+	string		$fallback, 
+	array		$routes		= [] 
+) {
+	static $loaded	= [];
+	
+	if ( !empty( $routes ) ) {
+		$loaded	= $routes;
+		return;
+	}
+	
+	$prefix	= website() . config( 'page_link', \PAGE_LINK );
+	foreach ( $loaded as $map ) {
+		if ( 0 == \strcasecmp( $map[2], $event ) ) {
+			return $prefix . $map[1];
+		}
+	}
+	
+	return $prefix . $fallback;
+}
+
 
 /**
  *  Parse marker placeholders in JSON
@@ -3244,39 +3332,30 @@ function fileRequest(
 }
 
 /**
- *  Execute route
+ *  Main route handler
+ *  
+ *  @param string	$event		Hook event name
+ *  @param array	$hook		Preceding hook handler data
+ *  @param array	$routes		Passed URL routes and handlers
  */
-function route( $routes ) {
-	$path	= $_SERVER['REQUEST_URI'];
-	$verb	= \strtolower( $_SERVER['REQUEST_METHOD'] );
+function route( string $event, array $hook, array $routes ) {
+	static $markers;
 	
-	// Filter request
-	request( $verb, $path, $routes );
+	$path	= $hook['path'];
+	$verb	= $hook['verb'];
 	
-	// Check if content is already cached for this URI
-	$uri	= fullURI();
-	$cache	= getCache( $uri );
+	// Load paths to getRoutePath
+	getRoutePath( '', '', $routes );
 	
-	// Check if cache isn't empty
-	if ( !empty( $cache ) ) {
-		// Is this a feed?
-		if ( 0 === \strcasecmp( \basename( $path ), 'feed' ) ) {
-			send( 200, $cache, false, true );
-		} else {
-			send( 200, $cache, false );
-		}
+	$match	= routeMatch( $path, $verb, $routes );
+	
+	// No handler for this route?
+	if ( empty( $match ) ) {
+		// Nothing else sent
+		sendError( 404, MSG_NOTFOUND );
 	}
 	
-	$found	= routeMatch( $path, $verb, $routes );
-	if ( empty( $found ) ) {
-		// No matching route?
-		sendError( 404, \MSG_NOTFOUND );
-	}
-	
-	sendRoute( $found[0], $path, $verb, $found[1] );
-	
-	// Something went wrong
-	sendError( 404, \MSG_NOTFOUND );
+	sendRoute( $match[0], $path, $verb, $match[1] );
 }
 
 /**
@@ -3797,6 +3876,7 @@ function formatIndex( $prefix, $page, $posts ) {
 	
 	// Send results (don't cache if no posts found)
 	$cache	= empty( $posts ) ? false : true;
+	shutdown( 'cleanup' );
 	send( 200, \strtr( TPL_PAGE ?? '', $tpl ), $cache );
 }
 
@@ -3808,7 +3888,7 @@ function formatIndex( $prefix, $page, $posts ) {
 /**
  *  Archived posts by date
  */
-function archive( $params ) {
+function showArchive( string $event, array $hook, array $params ) {
 	$data	= filterRequest( $params );
 	$page	= ( int ) ( $data['page'] ?? 1 );
 	$prefix	= '';
@@ -3844,7 +3924,7 @@ function archive( $params ) {
 /**
  *  Browsing tags
  */
-function tagview( $params ) {
+function showTag( string $event, array $hook, array $params ) {
 	$data	= filterRequest( $params );
 	// Tag empty?
 	if ( empty( $data['tag'] ) ) {
@@ -3896,7 +3976,7 @@ function tagview( $params ) {
 /**
  *  Syndication feed
  */
-function feed( $params ) {
+function showFeed( string $event, array $hook, array $params ) {
 	$posts	= loadPosts( 1, '', true );
 	if ( empty( $posts ) ) {
 		sendError( 404, \MSG_NOTFOUND );
@@ -3910,13 +3990,14 @@ function feed( $params ) {
 		'{body}'	=> \implode( '', $posts )
 	];
 	
+	shutdown( 'cleanup' );
 	send( 200, \strtr( TPL_FEED ?? '', $tpl  ), true, true );
 }
 
 /**
  *  View single post
  */
-function post( $params ) {
+function showPost( string $event, array $hook, array $params ) {
 	$data	= filterRequest( $params );
 	$date	= enforceDates( $data );
 	$title	= '';
@@ -3949,13 +4030,15 @@ function post( $params ) {
 			[ '{home}'	=> homeLink() ] 
 		)
 	];
+	
+	shutdown( 'cleanup' );
 	send( 200, \strtr( TPL_PAGE ?? '', $tpl ), true );
 }
 
 /**
  *  Rebuild index and cache output
  */
-function reindex( $params ) {
+function runIndex( string $event, array $hook, array $params ) {
 	$posts	= loadIndex();
 	if ( empty( $posts ) ) {
 		die( 'No posts created' );
@@ -3988,18 +4071,45 @@ function reindex( $params ) {
 		)
 	];
 	
+	shutdown( 'cleanup' );
 	send( 200, \strtr( TPL_PAGE ?? '', $tpl ), true );
 }
 
+
+
 /**
- *  Page routes
+ *  Begin event registry
  */
-$routes		= [
+
+// Home and archive event handlers
+hook( [ 'home',		'showArchive' ] );
+hook( [ 'homepaginate',	'showArchive' ] );
+hook( [ 'archive',	'showArchive' ] );
+
+// Browsing tag events
+hook( [ 'tagview',	'showTag' ] );
+hook( [ 'tagpaginate',	'showTag' ] );
+
+// Post view event
+hook( [ 'postview',	'showPost' ] );
+
+// Syndication feed and archive index events
+hook( [ 'feed',		'showFeed' ] );
+hook( [ 'reindex',	'runIndex' ] );
+
+// Register request and route handlers
+hook( [ 'begin', 'request' ] );
+hook( [ 'begin', 'route' ] );
+
+/**
+ *  Run page routes ( 'begin' event should run first )
+ */
+hook( [ 'begin', [
 	/**
 	 *  Homepage
 	 */
-	[ 'get', '',					'archive' ],
-	[ 'get', 'page:page',				'archive' ],
+	[ 'get', '',					'home' ],
+	[ 'get', 'page:page',				'homepaginate' ],
 	[ 'get', 'feed',				'feed' ],
 	
 	/**
@@ -4012,7 +4122,7 @@ $routes		= [
 	[ 'get', ':year/:month/:day',			'archive' ],
 	
 	[ 'get', 'tags/:tag',				'tagview' ],
-	[ 'get', 'tags/:tag/page:page',			'tagview' ],
+	[ 'get', 'tags/:tag/page:page',			'tagpaginate' ],
 	
 	/**
 	 *  Generate archive cache
@@ -4022,9 +4132,7 @@ $routes		= [
 	/**
 	 *  Single post
 	 */
-	[ 'get', ':year/:month/:day/:slug',		'post' ]
-];
+	[ 'get', ':year/:month/:day/:slug',		'postview' ]
+] ] );
 
-// Run
-route( $routes );
 
