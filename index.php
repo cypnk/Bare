@@ -186,6 +186,11 @@ define( 'TPL_LINK',		<<<HTML
 HTML
 );
 
+define( 'TPL_TAGLINK',		<<<HTML
+	<li><a href="{url}">{text}</a></li>
+HTML
+);
+
 define( 'TPL_NAV',		<<<HTML
 	<nav><ul>{text}</ul></nav>
 HTML
@@ -432,9 +437,9 @@ define( 'CACHE_SQL',		<<<SQL
 -- Cache tables
 CREATE TABLE caches (
 	id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
-	cache_id TEXT NOT NULL, 
+	cache_id TEXT NOT NULL COLLATE NOCASE, 
 	ttl INTEGER NOT NULL, 
-	content TEXT NOT NULL, 
+	content TEXT NOT NULL COLLATE NOCASE, 
 	expires DATETIME DEFAULT NULL,
 	created DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, 
 	updated DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -484,18 +489,35 @@ END;-- --
 -- Tag tables
 CREATE TABLE tags (
 	id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
-	slug TEXT NOT NULL, 
-	term TEXT NOT NULL
+	slug TEXT NOT NULL COLLATE NOCASE, 
+	term TEXT NOT NULL COLLATE NOCASE,
+	post_count INTEGER NOT NULL DEFAULT 0
 );-- --
 CREATE UNIQUE INDEX idx_tag_slug ON tags( slug ASC );
 
 CREATE TABLE post_tags(
 	id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
-	post_path TEXT NOT NULL,
-	tag_path TEXT NOT NULL,
-	post_view TEXT NOT NULL
+	post_path TEXT NOT NULL COLLATE NOCASE,
+	tag_slug TEXT NOT NULL COLLATE NOCASE,
+	post_view TEXT NOT NULL COLLATE NOCASE
 );-- --
-CREATE UNIQUE INDEX idx_post_tags ON post_tags( post_path, tag_path );
+CREATE INDEX idx_post_tags_path ON post_tags( post_path );-- --
+CREATE INDEX idx_post_tags_slug ON post_tags( tag_slug );-- --
+CREATE UNIQUE INDEX idx_post_tags ON post_tags( post_path, tag_slug );-- --
+
+-- Tag triggers
+CREATE TRIGGER tag_after_insert AFTER INSERT ON post_tags FOR EACH ROW 
+BEGIN
+	UPDATE tags SET post_count = ( post_count + 1 )
+		WHERE slug = NEW.tag_slug;
+END;-- --
+
+CREATE TRIGGER tag_before_delete BEFORE DELETE ON post_tags FOR EACH ROW 
+BEGIN
+	UPDATE tags SET post_count = ( post_count - 1 )
+		WHERE slug = OLD.tag_slug;
+END;
+
 SQL
 );
 
@@ -1066,7 +1088,7 @@ function getCache( string $uri ) : string {
 function saveCache( string $uri, string $content ) {
 	$key	= \hash( 'sha256', $uri );
 	$sql	= 
-	"INSERT OR REPLACE INTO caches ( cache_id, ttl, content )
+	"REPLACE INTO caches ( cache_id, ttl, content )
 		VALUES ( :id, :ttl, :content );";
 	
 	setInsert(
@@ -3516,8 +3538,7 @@ function extractTags( array &$post ) : array {
 		];
 	}
 	
-	return $ptags;
-	
+	return $ptags;	
 }
 
 /**
@@ -3644,9 +3665,8 @@ function loadIndex() {
 	// Post tag association statement
 	$pstm		= 
 	$db->prepare( 
-	"INSERT OR IGNORE INTO post_tags( 
-		post_path, tag_path, post_view
-		) VALUES ( :post, :tag, :view );"
+	"REPLACE INTO post_tags( post_path, tag_slug, post_view ) 
+		VALUES ( :post, :tag, :view );"
 	);
 	
 	foreach( $it as $file ) {
@@ -3728,7 +3748,7 @@ function formatTags( array $tags ) : string {
 	foreach( $tags as $t ) {
 		$out .= 
 		\strtr( 
-			\TPL_LINK, 
+			\TPL_TAGLINK, 
 			[
 				'{url}' => $r . 'tags/' . $t['slug'],
 				'{text}' => $t['term']
@@ -3942,7 +3962,7 @@ function showTag( string $event, array $hook, array $params ) {
 	$db	= getDb( \CACHE_DATA );
 	$stm	= $db->prepare( 
 		"SELECT post_view FROM post_tags 
-			WHERE tag_path = :tag 
+			WHERE tag_slug = :tag 
 			LIMIT :limit OFFSET :offset;"
 	);
 	
