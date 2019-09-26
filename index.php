@@ -3993,7 +3993,7 @@ function showTag( string $event, array $hook, array $params ) {
 	foreach( $res as $r ) {
 		$posts[] = $r['post_view'];
 	}
-	formatIndex( homeLink() . 'tags/', $page, $posts );
+	formatIndex( homeLink() . 'tags/' . $tag . '/', $page, $posts );
 }
 
 /**
