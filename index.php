@@ -3951,6 +3951,7 @@ function showTag( string $event, array $hook, array $params ) {
 		sendError( 404, \MSG_NOTFOUND );
 	}
 	
+	$tag	= slugify( $data['tag'] );
 	$page	= ( int ) ( $data['page'] ?? 1 );
 	$prefix	= '';
 	$s	= '/';
@@ -3968,7 +3969,7 @@ function showTag( string $event, array $hook, array $params ) {
 	
 	$res	= [];
 	$search = [
-		':tag'		=> $data['tag'], 
+		':tag'		=> $tag, 
 		':limit'	=> \PAGE_LIMIT, 
 		':offset'	=> $start
 	];
@@ -3982,7 +3983,9 @@ function showTag( string $event, array $hook, array $params ) {
 	
 	// Nothing found for this tag
 	if ( empty( $res ) ) {
-		formatIndex( homeLink() . 'tags/', $page, [] );
+		formatIndex( 
+			homeLink() . 'tags/' . $tag . '/', $page, [] 
+		);
 	}
 	
 	// Extract view column and send to formatting
