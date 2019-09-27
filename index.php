@@ -929,6 +929,9 @@ function getDb( string $dsn, bool $close = false ) {
 		
 		// Load and process SQL
 		installSQL( $db[$dsn], $dsn );
+		
+		// Run db created hook
+		hook( [ 'dbcreated', [ 'dbname' => $dsn ] ] );
 	}
 	
 	$db[$dsn]->exec( 'PRAGMA journal_mode = WAL;' );
@@ -1834,7 +1837,7 @@ function hook( array $params ) {
 	} else {
 		// Asking for hook-named output?
 		if ( \is_string( $params[0] ) && empty( $params[0] ) ) {
-			return $output[$name] ?? '';
+			return $output[$name] ?? [];
 		}
 		
 		// Execute handlers in order and store in output
@@ -1842,7 +1845,7 @@ function hook( array $params ) {
 			$output[$name] = 
 			$handler( 
 				$name, $output[$name] ?? [], ...$params 
-			) ?? '';
+			) ?? [];
 		}
 	}
 }
@@ -3036,6 +3039,7 @@ function handleHead( string $path, array $routes ) {
 			httpCode( 404 );
 		}
 	} else {
+		// Route exists
 		httpCode( 200 );
 	}
 	
@@ -3058,6 +3062,90 @@ function handleOptions() {
 	// Done
 	shutdown( 'cleanup' );
 	shutdown();
+}
+
+/**
+ *  Check if content is already cached for this URI
+ *  
+ *  @param string	$path	Current request path
+ */
+function handleCache( string $path ) {
+	$cache	= getCache( fullURI() );
+	
+	if ( empty( $cache ) ) {
+		return;
+	}
+	
+	// If URI is already saved, send contents and exit
+	shutdown( 'cleanup' );
+	
+	// Is this a feed?
+	if ( 0 === \strcasecmp( \basename( $path ), 'feed' ) ) {
+		send( 200, $cache, false, true );
+	}
+	
+	send( 200, $cache, false );
+}
+
+/**
+ *  Check if method is listed in routes
+ */
+function checkMethodRoutes( string $verb, array $routes ) {
+	$mfound	= false;
+	
+	// Filter routes for methods without any handlers
+	foreach( $routes as $r ) {
+		// Method has a handler
+		if ( 0 === \strcmp( $r[0], $verb ) ) {
+			$mfound = true;
+		}
+	}
+	
+	// No method implemented for this route
+	if ( !$mfound ) {
+		sendError( 501, \MSG_NOMETHOD );
+	}
+}
+
+/**
+ *  Find methods and paths that can be handled before routing
+ */
+function methodPreParse( string $verb, string $path, array $routes ) {
+	
+	// Check request method
+	switch( $verb ) {
+		// Will need processing, continue
+		case 'get':
+			// Try to send file, if it's a file
+			if ( fileRequest( $verb, $path ) ) {
+				shutdown( 'cleanup' );
+				shutdown();
+			
+			// Try to send cache if it's available
+			} else {
+				handleCache( $path );
+			}
+			break;
+		
+		// Send no content
+		case 'head':
+			handleHead( $path, $routes );
+			break;
+		
+		// Send allowed methods
+		case 'options':
+			handleOptions();
+			break;
+		
+		// Special case post
+		case 'post':
+			break;
+		
+		// Nothing else implemented
+		default:
+			shutdown( 'cleanup' );
+			send( 405 );
+	}
 }
 
 /**
@@ -3095,6 +3183,12 @@ function request( string $event, array $hook, array $routes ) : array {
 		sendError( 405, \MSG_BADMETHOD );
 	}
 	
+	// Request path hard limit
+	if ( \mb_strlen( $path, '8bit' ) > 255 ) {
+		shutdown( 'cleanup' );
+		send( 414 );
+	}
+	
 	// Request path (simpler filter before proper XSS scan)
 	if ( 
 		false !== \strpos( $path, '..' ) || 
@@ -3112,82 +3206,12 @@ function request( string $event, array $hook, array $routes ) : array {
 		sendError( 403, \MSG_DENIED );
 	}
 	
-	// Request path hard limit
-	if ( \mb_strlen( $path, '8bit' ) > 255 ) {
-		shutdown( 'cleanup' );
-		send( 414 );
-	}
-	
 	// Process request method for valid types
 	$verb		= \strtolower( $verb );
 	
-	// Check request method
-	switch( $verb ) {
-		// Will need processing, continue
-		case 'get':
-			break;
-		
-		// Send no content
-		case 'head':
-			handleHead( $path, $routes );
-			break;
-		
-		// Send allowed methods
-		case 'options':
-			handleOptions();
-			break;
-		
-		// Special case post
-		case 'post':
-			if ( !\ALLOW_POST ) {
-				shutdown( 'cleanup' );
-				send( 405 );
-			}
-			break;
-		
-		// Nothing else implemented
-		default:
-			shutdown( 'cleanup' );
-			send( 405 );
-	}
-	
-	// Try to send file, if it's a file
-	if ( fileRequest( $verb, $path ) ) {
-		shutdown( 'cleanup' );
-		shutdown();
-	}
-	
-	$mfound	= false;
-	
-	// Filter routes for methods without any handlers
-	foreach( $routes as $r ) {
-		// Method has a handler
-		if ( 0 === \strcmp( $r[0], $verb ) ) {
-			$mfound = true;
-		}
-	}
-	
-	// No nethod implemented for this route
-	if ( !$mfound ) {
-		sendError( 501, \MSG_NOMETHOD );
-	}
-	
-	// Check if content is already cached for this URI
-	$uri	= fullURI();
-	$cache	= getCache( $uri );
-	
-	// If URI is already saved, send contents and exit
-	if ( !empty( $cache ) ) {
-		shutdown( 'cleanup' );
-		// Is this a feed?
-		if ( 0 === \strcasecmp( \basename( $path ), 'feed' ) ) {
-			send( 200, $cache, false, true );
-		} else {
-			send( 200, $cache, false );
-		}
-	}
-	
-	// Not a file and not cached, continue...
+	// Handle special methods before routing
+	methodPreParse( $verb, $path, $routes );
+	checkMethodRoutes( $verb, $routes );
 	
 	// Return with extras in hook
 	return [ 'path' => $path, 'verb' => $verb ];
@@ -3901,6 +3925,41 @@ function formatIndex( $prefix, $page, $posts ) {
 }
 
 
+
+/**
+ *  Special handlers
+ */
+
+/**
+ *  Register or get internal state
+ */
+function internalState( string $name, $value = null ) {
+	static $state = [];
+	if ( empty( $value ) ) {
+		return $state[$name] ?? false;
+	}
+	
+	$state[$name] = $value;
+}
+
+/**
+ *  Reload indexes on cache db creation
+ */
+function reloadIndex( string $event, array $hook, array $params ) {
+	if ( !isset( $params['dbname'] ) ) {
+		return;
+	}
+	
+	// New cache database was created
+	if ( 0 == \strcmp( $params['dbname'], \CACHE_DATA ) ) {
+		internalState( 'prepareIndex', true );
+	}
+	
+	return [];
+}
+
+
+
 /**
  *  Route actions
  */
@@ -3909,6 +3968,11 @@ function formatIndex( $prefix, $page, $posts ) {
  *  Archived posts by date
  */
 function showArchive( string $event, array $hook, array $params ) {
+	// If full index needs to be reloaded
+	if ( internalState( 'prepareIndex' ) ) {
+		loadIndex();
+	}
+	
 	$data	= filterRequest( $params );
 	$page	= ( int ) ( $data['page'] ?? 1 );
 	$prefix	= '';
@@ -3945,6 +4009,10 @@ function showArchive( string $event, array $hook, array $params ) {
  *  Browsing tags
  */
 function showTag( string $event, array $hook, array $params ) {
+	if ( internalState( 'prepareIndex' ) ) {
+		loadIndex();
+	}
+	
 	$data	= filterRequest( $params );
 	// Tag empty?
 	if ( empty( $data['tag'] ) ) {
@@ -4000,6 +4068,10 @@ function showTag( string $event, array $hook, array $params ) {
  *  Syndication feed
  */
 function showFeed( string $event, array $hook, array $params ) {
+	if ( internalState( 'prepareIndex' ) ) {
+		loadIndex();
+	}
+	
 	$posts	= loadPosts( 1, '', true );
 	if ( empty( $posts ) ) {
 		sendError( 404, \MSG_NOTFOUND );
@@ -4021,6 +4093,10 @@ function showFeed( string $event, array $hook, array $params ) {
  *  View single post
  */
 function showPost( string $event, array $hook, array $params ) {
+	if ( internalState( 'prepareIndex' ) ) {
+		loadIndex();
+	}
+	
 	$data	= filterRequest( $params );
 	$date	= enforceDates( $data );
 	$title	= '';
@@ -4057,6 +4133,7 @@ function showPost( string $event, array $hook, array $params ) {
 	shutdown( 'cleanup' );
 	send( 200, \strtr( TPL_PAGE ?? '', $tpl ), true );
 }
+
 
 /**
  *  Rebuild index and cache output
@@ -4120,9 +4197,12 @@ hook( [ 'postview',	'showPost' ] );
 hook( [ 'feed',		'showFeed' ] );
 hook( [ 'reindex',	'runIndex' ] );
 
+// Special events
+hook( [ 'dbcreated',	'reloadIndex' ] );
+
 // Register request and route handlers
-hook( [ 'begin', 'request' ] );
-hook( [ 'begin', 'route' ] );
+hook( [ 'begin',	'request' ] );
+hook( [ 'begin',	'route' ] );
 
 /**
  *  Run page routes ( 'begin' event should run first )
