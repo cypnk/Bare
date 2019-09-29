@@ -486,6 +486,19 @@ BEGIN
 		) WHERE rowid = NEW.rowid;
 END;-- --
 
+-- -- Post content
+CREATE TABLE posts(
+	id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
+	post_path TEXT NOT NULL COLLATE NOCASE,
+	post_view TEXT NOT NULL COLLATE NOCASE,
+	post_bare TEXT NOT NULL COLLATE NOCASE, 
+	updated DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	published DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);-- --
+CREATE INDEX idx_post_updated ON posts( updated DESC );-- --
+CREATE INDEX idx_post_published ON posts( published DESC );-- --
+CREATE UNIQUE INDEX idx_post_path ON posts( post_path );-- --
+
 -- Tag tables
 CREATE TABLE tags (
 	id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
@@ -493,17 +506,17 @@ CREATE TABLE tags (
 	term TEXT NOT NULL COLLATE NOCASE,
 	post_count INTEGER NOT NULL DEFAULT 0
 );-- --
-CREATE UNIQUE INDEX idx_tag_slug ON tags( slug ASC );
+CREATE UNIQUE INDEX idx_tag_slug ON tags( slug ASC );-- --
 
 CREATE TABLE post_tags(
 	id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
-	post_path TEXT NOT NULL COLLATE NOCASE,
-	tag_slug TEXT NOT NULL COLLATE NOCASE,
-	post_view TEXT NOT NULL COLLATE NOCASE
+	post_id INTEGER NOT NULL REFERENCES posts( id ) 
+		ON DELETE CASCADE,
+	tag_slug TEXT NOT NULL COLLATE NOCASE
 );-- --
-CREATE INDEX idx_post_tags_path ON post_tags( post_path );-- --
+CREATE INDEX idx_post_tags_id ON post_tags( post_id );-- --
 CREATE INDEX idx_post_tags_slug ON post_tags( tag_slug );-- --
-CREATE UNIQUE INDEX idx_post_tags ON post_tags( post_path, tag_slug );-- --
+CREATE UNIQUE INDEX idx_post_tags ON post_tags( post_id, tag_slug );-- --
 
 -- Tag triggers
 CREATE TRIGGER tag_after_insert AFTER INSERT ON post_tags FOR EACH ROW 
@@ -516,7 +529,39 @@ CREATE TRIGGER tag_before_delete BEFORE DELETE ON post_tags FOR EACH ROW
 BEGIN
 	UPDATE tags SET post_count = ( post_count - 1 )
 		WHERE slug = OLD.tag_slug;
-END;
+END;-- --
+
+-- Searching
+CREATE VIRTUAL TABLE post_search 
+	USING fts4( body, tokenize=unicode61 );-- --
+
+CREATE TRIGGER post_insert AFTER INSERT ON posts FOR EACH ROW 
+BEGIN
+	INSERT INTO post_search( docid, body ) 
+		VALUES ( NEW.id, NEW.post_bare );
+END;-- --
+
+CREATE TRIGGER post_update AFTER UPDATE ON posts FOR EACH ROW 
+BEGIN
+	UPDATE post_search SET body = NEW.post_bare 
+		WHERE docid = NEW.id;
+END;-- --
+
+CREATE TRIGGER post_delete BEFORE DELETE ON posts FOR EACH ROW 
+BEGIN
+	DELETE FROM post_search WHERE docid = OLD.id;
+END;-- --
+
+-- Search view
+CREATE VIEW search_view AS SELECT
+	posts.id AS id,
+	post_search.docid AS search_id,
+	posts.post_path AS post_path, 
+	posts.published AS published, 
+	posts.view AS post_view
+	
+	FROM posts 
+	LEFT JOIN post_search ON posts.id = post_search.docid;
 
 SQL
 );
@@ -1222,7 +1267,7 @@ function sessionRead( $id ) {
  */
 function sessionWrite( $id, $data ) {
 	$sql	= 
-	"INSERT OR REPLACE INTO sessions 
+	"REPLACE INTO sessions 
 		( session_id, session_data )
 		VALUES( :id, :data );";
 	
@@ -1430,17 +1475,31 @@ function sessionThrottle() {
  */
 
 /**
+ *  Convert timestamp to int if it's not in integer format
+ */
+function tstring( $stamp ) {
+	if ( empty( $stamp ) ) {
+		return null;
+	}
+	
+	if ( \is_numeric( $stamp ) ) {
+		return ( int ) $stamp;
+	}
+	return \strtotime( $stamp );
+}
+
+/**
  *  UTC timestamp
  */
 function utc( $stamp = null ) : string {
-	return \gmdate( 'Y-m-d H:i:s', \strtotime( $stamp ) );
+	return \gmdate( 'Y-m-d H:i:s', tstring( $stamp ) );
 }
 
 /**
  *  Friendly datetime stamp
  */
 function dateNice( $stamp = null ) : string {
-	return \gmdate( DATE_NICE, \strtotime( $stamp ) );
+	return \gmdate( DATE_NICE, tstring( $stamp ) );
 }
 
 /**
@@ -3474,10 +3533,23 @@ function loadPost(
 			\sprintf( '%02d', $day ) . $s . 
 			\ltrim( $slug, $s );
 	$title	= '';
-	$data	= postData( POSTS . $path . '.md' );
+	$ppath	= POSTS . $path . '.md';
+	$data	= postData( $ppath );
 	
 	if ( empty( $data ) ) {
 		return '';
+	}
+	
+	// If index has not been run before this function was called...
+	if ( !internalState( 'indexRun' ) ) {
+		// If post was modified since it's pub date...
+		if ( postModified( $path, $ppath ) ) {
+			shutdown( 'loadIndex' );
+		
+		// Or isn't cached
+		} elseif ( !postCached( $path ) ) {
+			shutdown( 'loadIndex' );
+		}
 	}
 	
 	$tags	= [];		
@@ -3502,6 +3574,32 @@ function checkPub( $pub ) : bool {
 	}
 	
 	return false;
+}
+
+/**
+ *  Check if post was modified after its publish time
+ */
+function postModified( $path, $mtime ) {
+	$pub = getPub( $path );
+	if ( \strtotime( $pub ) <= $mtime ) {
+		return true;
+	}
+	return false;
+}
+
+/**
+ *  Check if post exists in cache
+ */
+function postCached( $path ) {
+	$res = 
+	getResults( 
+		"SELECT id FROM posts WHERE post_path = :path
+			LIMIT 1;", 
+		[ ':path' => $path ],
+		\CACHE_DATA
+	);
+	
+	return empty( $res ) ? false : true; 
 }
 
 /**
@@ -3580,12 +3678,24 @@ function insertTags( $stm, array $tags ) {
 /**
  *  Associate post with given tags
  */
-function applyTags( $stm, string $perm, array $tags, string $view ) {
+function applyTags( $sstm, $tstm, string $perm, array $tags ) {
+	$id = 0;
+	
+	if ( $sstm->execute( [ ':perm' => $perm ] ) ) {
+		$res	= $sstm->fetchAll();
+		$id	= ( int ) ( $res[0]['id'] ?? 0 );
+	} else { 
+		return; 
+	}
+	
+	if ( empty( $id ) ) {
+		return;
+	}
+	
 	foreach( $tags as $pair ) {
-		$stm->execute( [
-			':post'	=> $perm,
-			':tag'	=> $pair['slug'],
-			':view' => $view
+		$tstm->execute( [
+			':id'	=> $id,
+			':tag'	=> $pair['slug']
 		] );
 	}
 }
@@ -3666,6 +3776,31 @@ function loadPosts(
 }
 
 /**
+ *  Insert post data into cache database using given statement 
+ *  
+ *  @param string	$path		Post permalink
+ *  @param string	$out		Formatted post data
+ *  @param string	$pub		Post publication date
+ *  @param int		$mtime		File modified time
+ */
+function insertPost(
+			$pstm, 
+	string		$path, 
+	string		$out, 
+	string		$pub, 
+	int		$mtime 
+) {
+	$params = [
+		':path'		=> $path, 
+		':pview'	=> $out, 
+		':bare'		=> \strip_tags( $out ), 
+		':updated'	=> utc( $mtime ), 
+		':pub'		=> $pub
+	];
+	$pstm->execute( $params );
+}
+
+/**
  *  Load all published posts
  */
 function loadIndex() {
@@ -3686,11 +3821,26 @@ function loadIndex() {
 		VALUES ( :slug, :term );" 
 	);
 	
-	// Post tag association statement
+	// Post insertion statement
 	$pstm		= 
 	$db->prepare( 
-	"REPLACE INTO post_tags( post_path, tag_slug, post_view ) 
-		VALUES ( :post, :tag, :view );"
+		"REPLACE INTO posts( 
+			post_path, post_view, post_bare, updated, published 
+		) 
+		VALUES ( :path, :pview, :bare, :updated, :pub );" 
+	);
+	
+	// Select post statement
+	$sstm		=
+	$db->prepare(
+		"SELECT id FROM posts WHERE post_path = :perm LIMIT 1;"
+	);
+	
+	// Post tag association statement
+	$tstm		= 
+	$db->prepare( 
+		"REPLACE INTO post_tags( post_id, tag_slug ) 
+		VALUES ( :id, :tag );"
 	);
 	
 	foreach( $it as $file ) {
@@ -3726,13 +3876,16 @@ function loadIndex() {
 				continue;
 			}
 			
-			$tags = [];
+			// Updated date
+			$mtime		= \filemtime( $raw );
+			
+			$tags		= [];
 			
 			// Apply metadata
 			metadata( $title, $perm, $pub, $post, $path );
 			
 			// Load formatted and process tags
-			$out = 
+			$out		= 
 			formatPost( $title, $tags, $post, $path, TPL_POST ?? '' );
 			
 			// Format metadata
@@ -3740,11 +3893,13 @@ function loadIndex() {
 			formatMeta( $title, $pub, $path, $tags );
 			
 			// Create tags and cache page info
+			insertPost( $pstm, $perm, $out, $pub, $mtime );
 			insertTags( $istm, $tags );
-			applyTags( $pstm, $perm, $tags, $out );
+			applyTags( $sstm, $tstm, $perm, $tags );
 		}
 	}
 	
+	internalState( 'indexRun', true );	
 	return \array_filter( $posts );
 }
 
@@ -3954,8 +4109,6 @@ function reloadIndex( string $event, array $hook, array $params ) {
 	if ( 0 == \strcmp( $params['dbname'], \CACHE_DATA ) ) {
 		internalState( 'prepareIndex', true );
 	}
-	
-	return [];
 }
 
 
@@ -3970,7 +4123,7 @@ function reloadIndex( string $event, array $hook, array $params ) {
 function showArchive( string $event, array $hook, array $params ) {
 	// If full index needs to be reloaded
 	if ( internalState( 'prepareIndex' ) ) {
-		loadIndex();
+		shutdown( 'loadIndex' );
 	}
 	
 	$data	= filterRequest( $params );
@@ -4030,8 +4183,9 @@ function showTag( string $event, array $hook, array $params ) {
 	// Get cached tags
 	$db	= getDb( \CACHE_DATA );
 	$stm	= $db->prepare( 
-		"SELECT post_view FROM post_tags 
-			WHERE tag_slug = :tag 
+		"SELECT post_view FROM posts
+			JOIN post_tags ON posts.id = post_tags.post_id 
+			WHERE post_tags.tag_slug = :tag 
 			LIMIT :limit OFFSET :offset;"
 	);
 	
