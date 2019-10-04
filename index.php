@@ -2455,7 +2455,7 @@ function markdown(
 		},
 		
 		// Headings
-		'/([#]{1,6}+)\s?(.+)/'			=>
+		'/\n([#]{1,6}+)\s?(.+)/'			=>
 		function( $m ) {
 			$h = \strlen( trim( $m[1] ) );
 			$t = \trim( $m[2] );
