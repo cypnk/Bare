@@ -72,6 +72,12 @@ define( 'TAG_LIMIT',	5 );
 define( 'SAFE_EXT',	
 	'css, js, ico, txt, html, jpg, jpeg, gif, bmp, png' );
 
+// Form nonce size
+define( 'TOKEN_BYTES', 		8 );
+
+// Form token nonce hash
+define( 'NONCE_HASH',		'tiger160,4' );
+
 
 // General page template
 define( 'TPL_PAGE',		<<<HTML
@@ -96,6 +102,7 @@ define( 'TPL_PAGE',		<<<HTML
 		<li><a href="/feed">Feed</a></li>
 	</ul>
 	</nav>
+	{search_form}
 </div>
 </header>
 <main>
@@ -124,7 +131,17 @@ define( 'TPL_FOOTER',		<<<HTML
 HTML
 );
 
+// Search form
+define( 'TPL_SEARCHFORM',	<<<HTML
+<form action="/" method="get">
+<input type="hidden" name="nonce" value="{nonce}">
+<input type="hidden" name="token" value="{token}">
+<input type="search" name="find"> <input type="submit" value="Search">
+</form>
+HTML
+);
 
+// Generic error page
 define( 'TPL_ERROR_PAGE',	<<<HTML
 <!DOCTYPE html>
 <html>
@@ -340,12 +357,15 @@ define( 'ROUTE_MARK',	<<<JSON
 	":page"	: "(?<page>[1-9][0-9]*)",
 	":user"	: "(?<user>[\\\\pL\\\\pN\\\\s\\\\-]{2,30})",
 	":label": "(?<label>[\\\\pL\\\\pN\\\\s_\\\\-]{1,30})",
+	":nonce": "(?<nonce>[a-z0-9]{10,30})",
+	":token": "(?<token>[a-z0-9\\\\+\\\\=\\\\-\\\\%]{10,255})",
 	":tag"	: "(?<tag>[\\\\pL\\\\pN\\\\s_\\\\,\\\\-]{1,30})",
 	":year"	: "(?<year>[2][0-9]{3})",
 	":month": "(?<month>[0-3][0-9]{1})",
 	":day"	: "(?<day>[0-9][0-9]{1})",
 	":slug"	: "(?<slug>[\\\\pL\\\\-\\\\d]{1,100})",
 	":file"	: "(?<file>[\\\\pL_\\\\-\\\\d\\\\.\\\\s]{1,120})",
+	":find"	: "(?<find>[\\\\pL\\\\pN\\\\s\\\\-_,\\\\.\\\\:]{2,255})",
 	":redir": "(?<redir>[a-z_\\\\:\\\\/\\\\-\\\\d\\\\.\\\\s]{1,120})"
 }
 JSON
@@ -362,6 +382,7 @@ define( 'MSG_GENERIC',		'An error has occured' );
 define( 'MSG_DENIED',		'Access denied' );
 define( 'MSG_INVALID',		'Invalid request' );
 define( 'MSG_CODEDETECT',	'Server-side code detected' );
+define( 'MSG_EXPIRED',		'This form has expired' );
 
 
 /**
@@ -416,6 +437,21 @@ define( 'SESSION_LIMIT_MEDIUM', 3 );
 define( 'SESSION_LIMIT_HEAVY', 1 );
 
 
+/**
+ *  Form settings
+ */
+
+// Form submission delay in seconds
+define( 'FORM_DELAY',		30 );
+
+// Form submission expiration (2 hours)
+define( 'FORM_EXPIRE',		7200 );
+
+// Form check statuses (internal use)
+define( 'FORM_STATUS_VALID',	0 );
+define( 'FORM_STATUS_INVALID',	1 );
+define( 'FORM_STATUS_EXPIRED',	2 );
+define( 'FORM_STATUS_FLOOD',	3 );
 
 /**********************************************************************
  *                      Caution editing below
@@ -552,20 +588,38 @@ BEGIN
 	DELETE FROM post_search WHERE docid = OLD.id;
 END;-- --
 
--- Search view
-CREATE VIEW search_view AS SELECT
-	posts.id AS id,
-	post_search.docid AS search_id,
-	posts.post_path AS post_path, 
-	posts.published AS published, 
-	posts.view AS post_view
+
+-- Post info for sibling posts
+CREATE VIEW post_preview AS SELECT DISTINCT 
+	p.post_path AS post_path, 
+	p.published AS published, 
+	( SELECT post_path FROM posts prev
+		WHERE prev.published IS NOT NULL AND
+			strftime( '%s', prev.published ) < 
+			strftime( '%s', p.published ) 
+			ORDER BY prev.published DESC LIMIT 1 
+	) AS prev_path, 
 	
-	FROM posts 
-	LEFT JOIN post_search ON posts.id = post_search.docid;
+	-- Next published sibling
+	( SELECT post_path FROM posts nxt 
+		WHERE nxt.published IS NOT NULL AND 
+			strftime( '%s', nxt.published ) > 
+			strftime( '%s', p.published ) 
+			ORDER BY nxt.published ASC LIMIT 1 
+	) AS next_path,
+	
+	-- Page taxonomy
+	group_concat(
+		'term='		|| tags.term	|| '&' || 
+		'slug='		|| tags.slug
+	) AS tags
+	
+	FROM posts p 
+	LEFT JOIN post_tags pt ON p.id = pt.post_id
+	JOIN tags ON pt.tag_slug = tags.slug;
 
 SQL
 );
-
 
 
 /**
@@ -3522,16 +3576,8 @@ function postData( $raw ) {
 
 function loadPost(
 	string	&$title,
-	int	$year,
-	int	$month,
-	int	$day,
-	string	$slug
+	string	$path
 ) {
-	$s	= '/';
-	$path	= $year . $s .  
-			\sprintf( '%02d', $month ) . $s . 
-			\sprintf( '%02d', $day ) . $s . 
-			\ltrim( $slug, $s );
 	$title	= '';
 	$ppath	= POSTS . $path . '.md';
 	$data	= postData( $ppath );
@@ -4033,7 +4079,13 @@ function filterRequest( array $params ) {
 		'slug'	=> [
 			'filter'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
 			'options'	=> [ 'default' => '' ]
-		]
+		],
+		'find'	=> [
+			'filter'	=> \FILTER_CALLBACK,
+			'options'	=> 'pacify'
+		],
+		'token'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
+		'nonce'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS
 	];
 	
 	return \filter_var_array( $params, $filter );
@@ -4049,6 +4101,9 @@ function formatIndex( $prefix, $page, $posts ) {
 		'{post_title}'	=> PAGE_TITLE,
 		'{tagline}'	=> PAGE_SUB,
 		'{home}'	=> homeLink(),
+		
+		// Search form
+		'{search_form}'	=> searchForm(),
 		
 		// Footer with home link set
 		'{footer}'	=> 
@@ -4080,6 +4135,150 @@ function formatIndex( $prefix, $page, $posts ) {
 }
 
 
+
+/**
+ *  User input and form processing
+ */
+
+/**
+ *  Create a unique nonce and token pair for form validation
+ *  
+ *  @param string	$name	Form label for this pair
+ *  @return array
+ */
+function genNoncePair( string $name ) : array {
+	$nonce	= \bin2hex( \random_bytes( \TOKEN_BYTES ) );
+	$time	= time();
+	$data	= $name . getIP() . $time;
+	$token	= "$time:" . \hash( \NONCE_HASH, $data . $nonce );
+	return [ 
+		'token' => \base64_encode( $token ), 
+		'nonce' => $nonce 
+	];
+}
+
+/**
+ *  Verify form submission by checking sent token and nonce pair
+ *  
+ *  @param string	$name	Form label to validate
+ *  @params string	$token	Sent token
+ *  @params string	$nonce	Sent nonce
+ *  @param bool		$chk	Check for form expiration if true
+ *  @return int
+ */
+function verifyNoncePair(
+	string		$name, 
+	string		$token, 
+	string		$nonce,
+	bool		$chk
+) : int {
+	
+	$ln	= \strlen( $nonce );
+	$lt	= \strlen( $token );
+	
+	// Sanity check
+	if ( 
+		$ln > 100 || 
+		$ln <= 10 || 
+		$lt > 350 || 
+		$lt <= 10
+	) {
+		return \FORM_STATUS_INVALID;
+	}
+	
+	// Open token
+	$token	= \base64_decode( $token, true );
+	if ( false === $token ) {
+		return \FORM_STATUS_INVALID;
+	}
+	
+	// Token parameters are intact?
+	if ( false === \strpos( $token, ':' ) ) {
+		return \FORM_STATUS_INVALID;
+	}
+	
+	$parts	= \explode( ':', $token );
+	$parts	= \array_filter( $parts );
+	if ( \count( $parts ) !== 2 ) {
+		return \FORM_STATUS_INVALID;
+	}
+	
+	if ( $chk ) {
+		// Check for flooding
+		$time	= time() - ( int ) $parts[0];
+		$fdelay	= config( 'form_delay', \FORM_DELAY, 'int' );
+		if ( $time < $fdelay ) {
+			return \FORM_STATUS_FLOOD;
+		}
+		
+		// Check for form expiration
+		$fexp	= config( 'form_expire', \FORM_EXPIRE, 'int' );
+		if ( $time > $fexp ) {
+			return \FORM_STATUS_EXPIRED;
+		}
+	}
+	
+	$data	= $name . getIP() . $parts[0];
+	$check	= \hash( \NONCE_HASH, $data . $nonce );
+	
+	return \hash_equals( $parts[1], $check ) ? 
+		\FORM_STATUS_VALID : \FORM_STATUS_INVALID;
+}
+
+/**
+ *  Validate sent token/nonce pairs in sent form data
+ *  
+ *  @param string	$name	Form label to validate
+ *  @param bool		$get	Validate get request if true
+ *  @param bool		$chk	Check for form expiration if true
+ *  @return int
+ */
+function validateForm(
+	string	$name, 
+	bool	$get	= true,
+	bool	$chk	= true 
+) : int {
+	$filter = [
+		'token'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
+		'nonce'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS
+	];
+	
+	$data	= $get ? 
+	\filter_input_array( \INPUT_GET, $filter ) : 
+	\filter_input_array( \INPUT_POST, $filter );
+	
+	if ( empty( $data['token'] ) || empty( $data['nonce'] ) ) {
+		return \FORM_STATUS_INVALID;
+	}
+	
+	return 
+	verifyNoncePair( $name, $data['token'], $data['nonce'], $chk );
+}
+
+
+/**
+ *  Render search form template
+ */
+function searchForm() : string {
+	// Search form hidden fields
+	$pair	= genNoncePair( 'searchform' );
+	
+	return 
+	\strtr( \TPL_SEARCHFORM, [
+		'{nonce}'	=> $pair['nonce'],
+		'{token}'	=> $pair['token']
+	] );
+}
+
+/**
+ *  Render search pagination path
+ */
+function searchPagePath( array $data ) {
+	return homeLink() . 
+		'?nonce=' . $data['nonce'] . 
+		'&token=' . $data['token'] . 
+		'&find=' . $data['find'] . '/';
+}
 
 /**
  *  Special handlers
@@ -4178,30 +4377,23 @@ function showTag( string $event, array $hook, array $params ) {
 	$s	= '/';
 	
 	// Pagination prep
-	$start	= ( $page - 1 ) * PAGE_LIMIT;
+	$start	= ( $page - 1 ) * \PAGE_LIMIT;
 	
 	// Get cached tags
-	$db	= getDb( \CACHE_DATA );
-	$stm	= $db->prepare( 
+	$res	= 
+	getResults( 
 		"SELECT post_view FROM posts
 			JOIN post_tags ON posts.id = post_tags.post_id 
 			WHERE post_tags.tag_slug = :tag 
-			LIMIT :limit OFFSET :offset;"
+			LIMIT :limit OFFSET :offset;", 
+			
+		[
+			':tag'		=> $tag, 
+			':limit'	=> \PAGE_LIMIT, 
+			':offset'	=> $start
+		],
+		\CACHE_DATA
 	);
-	
-	$res	= [];
-	$search = [
-		':tag'		=> $tag, 
-		':limit'	=> \PAGE_LIMIT, 
-		':offset'	=> $start
-	];
-	
-	if ( $stm->execute( $search ) ) {
-		$res = $stm->fetchAll();
-	// Something went wrong
-	} else {
-		sendError( 404, \MSG_NOTFOUND );
-	}
 	
 	// Nothing found for this tag
 	if ( empty( $res ) ) {
@@ -4217,6 +4409,66 @@ function showTag( string $event, array $hook, array $params ) {
 	}
 	formatIndex( homeLink() . 'tags/' . $tag . '/', $page, $posts );
 }
+
+/**
+ *  Show search results ( This page isn't cached )
+ */
+function showSearch( string $event, array $hook, array $params ) {
+	if ( internalState( 'prepareIndex' ) ) {
+		loadIndex();
+	}
+	
+	$data	= filterRequest( $params );
+	if ( empty( $data ) ) {
+		sendError( 404, \MSG_NOTFOUND );
+	}
+	
+	$status = validateForm( 'searchform', true, false );
+	switch( $status ) {
+		case FORM_STATUS_INVALID:
+		case FORM_STATUS_EXPIRED:
+			sendError( 403, \MSG_EXPIRED );
+		
+		case FORM_STATUS_FLOOD:
+			sendError( 429 );
+	}
+	
+	
+	$prefix = searchPagePath( $data );
+	$page	= ( int ) ( $data['page'] ?? 1 );
+	
+	// Pagination prep
+	$start	= ( $page - 1 ) * \PAGE_LIMIT;
+	
+	$res	= 
+	getResults( 
+		"SELECT posts.post_view AS post_view
+		
+		FROM post_search 
+		LEFT JOIN posts ON post_search.docid = posts.id 
+		WHERE post_search MATCH :find 
+		LIMIT :limit OFFSET :offset", 
+		
+		[ 
+			':find'		=> $data['find'],
+			':limit'	=> \PAGE_LIMIT,
+			':offset'	=> $start
+		], 
+		\CACHE_DATA 
+	);
+	
+	// Nothing found for this search
+	if ( empty( $res ) ) {
+		formatIndex( $prefix, $page, [] );
+	}
+	
+	$posts	= [];
+	foreach( $res as $post ) {
+		$posts[] = $post['post_view'];
+	}
+	formatIndex( $prefix, $page, $posts );
+}
+
 
 /**
  *  Syndication feed
@@ -4254,18 +4506,25 @@ function showPost( string $event, array $hook, array $params ) {
 	$data	= filterRequest( $params );
 	$date	= enforceDates( $data );
 	$title	= '';
-	$post	= 
-	loadPost( 
-		$title,
-		( int ) $date[0], 
-		( int ) $date[1], 
-		( int ) $date[2], 
-		$data['slug'] ?? ''
-	);
+	$s	= '/';
+	$path	= 
+	$date[0] . $s .  $date[1] . $s . $date[2] . $s . 
+		\ltrim( $data['slug'] ?? '', $s );
+	
+	$post	= loadPost( $title, $path );
 	
 	if ( empty( $post ) ) {
 		sendError( 404, \MSG_NOTFOUND );
 	}
+	
+	/* TODO: Use sibling preview (next, previous posts)
+	$res	= 
+	getResults( 
+		"SELECT * FROM post_preview WHERE post_path = :path", 
+		[ ':path' => $s . $path ], 
+		\CACHE_DATA 
+	);
+	*/
 	
 	$tpl	= [
 		'{page_title}'	=> PAGE_TITLE,
@@ -4275,6 +4534,9 @@ function showPost( string $event, array $hook, array $params ) {
 		'{paginate}'	=> 
 		\strtr( TPL_NAV ?? '', [ '{text}' => navHome() ] ),
 		'{home}'	=> homeLink(),
+		
+		// Search form
+		'{search_form}'	=> searchForm(),
 		
 		// Footer with home link set
 		'{footer}'	=> 
@@ -4317,6 +4579,8 @@ function runIndex( string $event, array $hook, array $params ) {
 		'{paginate}'	=> '',
 		'{home}'	=> homeLink(),
 		
+		'{search_form}'	=> searchForm(),
+		
 		// Footer with home link set
 		'{footer}'	=> 
 		\strtr( 
@@ -4346,6 +4610,10 @@ hook( [ 'tagpaginate',	'showTag' ] );
 
 // Post view event
 hook( [ 'postview',	'showPost' ] );
+
+// Searching
+hook( [ 'search',	'showSearch' ] );
+hook( [ 'searchpaginate','showSearch' ] );
 
 // Syndication feed and archive index events
 hook( [ 'feed',		'showFeed' ] );
@@ -4389,7 +4657,14 @@ hook( [ 'begin', [
 	/**
 	 *  Single post
 	 */
-	[ 'get', ':year/:month/:day/:slug',		'postview' ]
+	[ 'get', ':year/:month/:day/:slug',		'postview' ],
+	
+	/**
+	 *  Searching
+	 */
+	[ 'get', '\\?nonce=:nonce&token=:token&find=:find','search' ],
+	[ 'get', '\\?nonce=:nonce&token=:token&find=:find/page:page',	
+						'searchpaginate' ]
 ] ] );
 
 
