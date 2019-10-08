@@ -21,6 +21,10 @@ body {
 	line-height: 1.8rem;
 	color: #37474f;
 	background: #f7f7fa;
+	text-rendering: optimizeLegibility;
+	text-rendering: geometricPrecision;
+	font-smooth: always;
+	font-smoothing: antialiased;
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -249,4 +253,28 @@ blockquote {
 	width: 80%;
 	color: #546e7a;
 }
+
+form {
+	margin: .5rem 0;
+}
+
+input {
+	padding: .2rem 1rem;
+	font: inherit;
+	color: inherit;
+	line-height: inherit;
+}
+
+input[type="submit"] {
+	cursor: pointer;
+	background: #dcdcdc;
+	border: 1px solid #dcdcdc;
+}
+
+input[type="search"] {
+	appearance: textfield;
+	background: #fff;
+	border: 1px solid #dcdcdc;
+}
+
 
