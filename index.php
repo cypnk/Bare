@@ -4095,7 +4095,7 @@ function filterRequest( array $params ) {
 /**
  *  Format index views for archives and tags
  */
-function formatIndex( $prefix, $page, $posts ) {
+function formatIndex( $prefix, $page, $posts, $cache = true ) {
 	$tpl	= [
 		'{page_title}'	=> PAGE_TITLE,
 		'{post_title}'	=> PAGE_TITLE,
@@ -4129,7 +4129,7 @@ function formatIndex( $prefix, $page, $posts ) {
 	}
 	
 	// Send results (don't cache if no posts found)
-	$cache	= empty( $posts ) ? false : true;
+	$cache	= empty( $posts ) ? false : $cache;
 	shutdown( 'cleanup' );
 	send( 200, \strtr( TPL_PAGE ?? '', $tpl ), $cache );
 }
