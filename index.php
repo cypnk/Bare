@@ -365,7 +365,7 @@ define( 'ROUTE_MARK',	<<<JSON
 	":day"	: "(?<day>[0-9][0-9]{1})",
 	":slug"	: "(?<slug>[\\\\pL\\\\-\\\\d]{1,100})",
 	":file"	: "(?<file>[\\\\pL_\\\\-\\\\d\\\\.\\\\s]{1,120})",
-	":find"	: "(?<find>[\\\\pL\\\\pN\\\\s\\\\-_,\\\\.\\\\:]{2,255})",
+	":find"	: "(?<find>[\\\\pL\\\\pN\\\\s\\\\-_,\\\\.\\\\:\\\\+]{2,255})",
 	":redir": "(?<redir>[a-z_\\\\:\\\\/\\\\-\\\\d\\\\.\\\\s]{1,120})"
 }
 JSON
@@ -3858,7 +3858,7 @@ function loadIndex() {
 	$posts		= [];
 	
 	// Prepare cache insertion for tags
-	$db		= getDb( CACHE_DATA );
+	$db		= getDb( \CACHE_DATA );
 	
 	// Tag insertion statement
 	$istm		= 
@@ -4310,6 +4310,62 @@ function reloadIndex( string $event, array $hook, array $params ) {
 	}
 }
 
+/**
+ *  Process search pattern for full text searching
+ *  
+ *  @param string	$find	Sent search parameters
+ */
+function searchData( string $find ) : string {
+	$find		= \trim( $find );
+	if ( empty( $find ) ) {
+		return '';
+	}
+	
+	// Remove tags and duplicate internal spaces
+	$find		= \strip_tags( $find );
+	$find		= 
+	\trim( \preg_replace( '/[[:space:]]+/', ' ', $find ) );
+	
+	if ( empty( $find ) ) {
+		return '';
+	}
+	
+	// Split into words, including quoted terms
+	\preg_match_all( '/"(?:\\\\.|[^\\\\"])*"|\S+/', $find, $m );
+	if ( empty( $m ) ) {
+		return '';
+	}
+	
+	$fdata		= \array_unique( $m[0] );
+	if ( count( $fdata ) > 10 ) {
+		$fdata = \array_splice( $fdata, 10 );
+	}
+	
+	// Insert ' OR ' for multiple terms
+	$find		= \implode( ' OR ', $fdata );
+	
+	// Remove conflicting/duplicate params
+	$find		= 
+	\preg_replace( '/\b(AND|OR|NEAR|NOT)(?:\s\1)+/iu', 'OR', $find );
+	
+	$find		= \preg_replace( '/\bOR NEAR/iu', 'NEAR', $find );
+	$find		= \preg_replace( '/\bNEAR OR/iu', 'NEAR', $find );
+	$find		= \preg_replace( '/\bOR AND/iu', 'AND', $find );
+	$find		= \preg_replace( '/\bAND OR/iu', 'AND', $find );
+	$find		= \preg_replace( '/\bOR NOT/iu', 'NOT', $find );
+	$find		= \preg_replace( '/\bNOT OR/iu', 'NOT', $find );
+	
+	$find		= 
+	\preg_replace( '/\b(AND|OR|NEAR|NOT)(?:\s\1)+/iu', 'OR', $find );
+	
+	// Return with keywords removed from beginning and end
+	return 
+	\preg_replace( 
+		'/^(AND|OR|NEAR|NOT)(.*)(AND|OR|NEAR|NOT)$/ius', 
+		'$2', \trim( $find )
+	);
+}
+
 
 
 /**
@@ -4418,12 +4474,7 @@ function showSearch( string $event, array $hook, array $params ) {
 		loadIndex();
 	}
 	
-	$data	= filterRequest( $params );
-	if ( empty( $data ) ) {
-		sendError( 404, \MSG_NOTFOUND );
-	}
-	
-	$status = validateForm( 'searchform', true, false );
+	$status		= validateForm( 'searchform', true, false );
 	switch( $status ) {
 		case FORM_STATUS_INVALID:
 		case FORM_STATUS_EXPIRED:
@@ -4433,6 +4484,11 @@ function showSearch( string $event, array $hook, array $params ) {
 			sendError( 429 );
 	}
 	
+	$data	= filterRequest( $params );
+	$find	= searchData( $data['find'] ?? '' );
+	if ( empty( $find ) ) {
+		sendError( 404, \MSG_NOTFOUND );
+	}
 	
 	$prefix = searchPagePath( $data );
 	$page	= ( int ) ( $data['page'] ?? 1 );
@@ -4450,7 +4506,7 @@ function showSearch( string $event, array $hook, array $params ) {
 		LIMIT :limit OFFSET :offset", 
 		
 		[ 
-			':find'		=> $data['find'],
+			':find'		=> $find,
 			':limit'	=> \PAGE_LIMIT,
 			':offset'	=> $start
 		], 
@@ -4666,5 +4722,6 @@ hook( [ 'begin', [
 	[ 'get', '\\?nonce=:nonce&token=:token&find=:find/page:page',	
 						'searchpaginate' ]
 ] ] );
+
 
 
