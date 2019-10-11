@@ -3266,17 +3266,13 @@ function methodPreParse( string $verb, string $path, array $routes ) {
  *  
  *  @param string	$event		Event name should be 'begin'
  *  @param array	$hook		Hook event data
- *  @param array	$routes		List of route presets
+ *  @param array	$params		Hook params
  */
-function request( string $event, array $hook, array $routes ) : array {
+function request( string $event, array $hook, array $params ) : array {
 	// Request should be the first function called 
 	// so there shouldn't be any previous return data
 	if ( !empty( $hook ) ) {
 		die( 'Out of order request call. Check hooks.' );
-	}
-	
-	if ( empty( $routes ) ) {
-		die( \MSG_NOROUTE );
 	}
 	
 	// Set session save handler
@@ -3319,15 +3315,21 @@ function request( string $event, array $hook, array $routes ) : array {
 		sendError( 403, \MSG_DENIED );
 	}
 	
-	// Process request method for valid types
-	$verb		= \strtolower( $verb );
+	// Get routes from route init
+	hook( [ 'initroutes', [] ] );
+	$routes = hook( [ 'initroutes', '' ] );
+	
+	if ( empty( $routes ) ) {
+		die( \MSG_NOROUTE );
+	}
 	
 	// Handle special methods before routing
 	methodPreParse( $verb, $path, $routes );
 	checkMethodRoutes( $verb, $routes );
 	
-	// Return with extras in hook
-	return [ 'path' => $path, 'verb' => $verb ];
+	// Return with routes and extras in hook
+	return 
+	[ 'path' => $path, 'verb' => $verb, 'routes' => $routes ];
 }
 
 /**
@@ -3495,13 +3497,16 @@ function fileRequest(
  *  
  *  @param string	$event		Hook event name
  *  @param array	$hook		Preceding hook handler data
- *  @param array	$routes		Passed URL routes and handlers
+ *  @param array	$params		Hook parameters
  */
-function route( string $event, array $hook, array $routes ) {
+function route( string $event, array $hook, array $params ) {
 	static $markers;
 	
 	$path	= $hook['path'];
 	$verb	= $hook['verb'];
+	
+	// Passed URL routes and handlers
+	$routes	= $hook['routes'];
 	
 	// Load paths to getRoutePath
 	getRoutePath( '', '', $routes );
@@ -4340,6 +4345,7 @@ function searchData( string $find ) : string {
 	if ( count( $fdata ) > 10 ) {
 		$fdata = \array_splice( $fdata, 10 );
 	}
+	\array_unshift( $fdata, "\"$find\"" );
 	
 	// Insert ' OR ' for multiple terms
 	$find		= \implode( ' OR ', $fdata );
@@ -4498,12 +4504,14 @@ function showSearch( string $event, array $hook, array $params ) {
 	
 	$res	= 
 	getResults( 
-		"SELECT posts.post_view AS post_view
+		"SELECT posts.post_view AS post_view, 
+		matchinfo(post_search) AS rel 
 		
 		FROM post_search 
 		LEFT JOIN posts ON post_search.docid = posts.id 
-		WHERE post_search MATCH :find 
-		LIMIT :limit OFFSET :offset", 
+		WHERE post_search MATCH :find
+		ORDER BY rel DESC 
+		LIMIT :limit OFFSET :offset ", 
 		
 		[ 
 			':find'		=> $find,
@@ -4649,43 +4657,12 @@ function runIndex( string $event, array $hook, array $params ) {
 	send( 200, \strtr( TPL_PAGE ?? '', $tpl ), true );
 }
 
-
-
 /**
- *  Begin event registry
+ *  Blog route adding event
  */
-
-// Home and archive event handlers
-hook( [ 'home',		'showArchive' ] );
-hook( [ 'homepaginate',	'showArchive' ] );
-hook( [ 'archive',	'showArchive' ] );
-
-// Browsing tag events
-hook( [ 'tagview',	'showTag' ] );
-hook( [ 'tagpaginate',	'showTag' ] );
-
-// Post view event
-hook( [ 'postview',	'showPost' ] );
-
-// Searching
-hook( [ 'search',	'showSearch' ] );
-hook( [ 'searchpaginate','showSearch' ] );
-
-// Syndication feed and archive index events
-hook( [ 'feed',		'showFeed' ] );
-hook( [ 'reindex',	'runIndex' ] );
-
-// Special events
-hook( [ 'dbcreated',	'reloadIndex' ] );
-
-// Register request and route handlers
-hook( [ 'begin',	'request' ] );
-hook( [ 'begin',	'route' ] );
-
-/**
- *  Run page routes ( 'begin' event should run first )
- */
-hook( [ 'begin', [
+function addBlogRoutes( string $event, array $hook, array $params ) {
+	return 
+	[
 	/**
 	 *  Homepage
 	 */
@@ -4721,7 +4698,55 @@ hook( [ 'begin', [
 	[ 'get', '\\?nonce=:nonce&token=:token&find=:find','search' ],
 	[ 'get', '\\?nonce=:nonce&token=:token&find=:find/page:page',	
 						'searchpaginate' ]
-] ] );
+	];
+}
+
+/**
+ *  Begin event registry
+ */
+
+// Home and archive event handlers
+hook( [ 'home',		'showArchive' ] );
+hook( [ 'homepaginate',	'showArchive' ] );
+hook( [ 'archive',	'showArchive' ] );
+
+// Browsing tag events
+hook( [ 'tagview',	'showTag' ] );
+hook( [ 'tagpaginate',	'showTag' ] );
+
+// Post view event
+hook( [ 'postview',	'showPost' ] );
+
+// Searching
+hook( [ 'search',	'showSearch' ] );
+hook( [ 'searchpaginate','showSearch' ] );
+
+// Syndication feed and archive index events
+hook( [ 'feed',		'showFeed' ] );
+hook( [ 'reindex',	'runIndex' ] );
+
+// Special events
+hook( [ 'dbcreated',	'reloadIndex' ] );
+
+// Register request and route handlers
+hook( [ 'begin',	'request' ] );
+hook( [ 'begin',	'route' ] );
 
 
+// Register blog routes during 'addroutes' event ( called in request() )
+hook( [ 'initroutes',	'addBlogRoutes' ] );
 
+
+/***
+ *  Add any plugin files here
+ */
+
+
+/**
+ *  End plugin files
+ */
+
+/**
+ *  Run page routes ( 'begin' event should run first )
+ */
+hook( [ 'begin', [] ] );
