@@ -133,10 +133,11 @@ HTML
 
 // Search form
 define( 'TPL_SEARCHFORM',	<<<HTML
-<form action="/" method="get">
+<form action="{home}" method="get">
 <input type="hidden" name="nonce" value="{nonce}">
 <input type="hidden" name="token" value="{token}">
-<input type="search" name="find"> <input type="submit" value="Search">
+<input type="search" name="find" required> 
+	<input type="submit" value="Search">
 </form>
 HTML
 );
@@ -1025,13 +1026,15 @@ function getDb( string $dsn, bool $close = false ) {
 		
 		// Load and process SQL
 		installSQL( $db[$dsn], $dsn );
-		
-		// Run db created hook
-		hook( [ 'dbcreated', [ 'dbname' => $dsn ] ] );
 	}
 	
 	$db[$dsn]->exec( 'PRAGMA journal_mode = WAL;' );
 	$db[$dsn]->exec( 'PRAGMA foreign_keys = ON;' );
+	
+	if ( $first_run ) {
+		// Run db created hook
+		hook( [ 'dbcreated', [ 'dbname' => $dsn ] ] );
+	}
 	
 	return $db[$dsn];
 }
@@ -3884,7 +3887,7 @@ function loadIndex() {
 	// Post insertion statement
 	$pstm		= 
 	$db->prepare( 
-		"REPLACE INTO posts( 
+		"INSERT OR IGNORE INTO posts( 
 			post_path, post_view, post_bare, updated, published 
 		) 
 		VALUES ( :path, :pview, :bare, :updated, :pub );" 
@@ -4357,7 +4360,8 @@ function searchForm() : string {
 	return 
 	\strtr( \TPL_SEARCHFORM, [
 		'{nonce}'	=> $pair['nonce'],
-		'{token}'	=> $pair['token']
+		'{token}'	=> $pair['token'],
+		'{home}'	=> homeLink()
 	] );
 }
 
@@ -4766,9 +4770,11 @@ hook( [ 'routemarker',	'routeMarkers' ] );
 hook( [ 'initroutes',	'addBlogRoutes' ] );
 
 
+
 /***
  *  Add any plugin files here
  */
+
 
 
 /**
@@ -4779,3 +4785,7 @@ hook( [ 'initroutes',	'addBlogRoutes' ] );
  *  Run page routes ( 'begin' event should run first )
  */
 hook( [ 'begin', [] ] );
+
+
+
+
