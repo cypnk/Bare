@@ -352,10 +352,7 @@ define( 'ROUTE_MARK',	<<<JSON
 {
 	"*"	: "(?<all>.+)",
 	":id"	: "(?<id>[1-9][0-9]*)",
-	":ids"	: "(?<ids>[1-9][0-9,]*)",
-	":num"	: "(?<num>[0-9]{1,3})",
 	":page"	: "(?<page>[1-9][0-9]*)",
-	":user"	: "(?<user>[\\\\pL\\\\pN\\\\s\\\\-]{2,30})",
 	":label": "(?<label>[\\\\pL\\\\pN\\\\s_\\\\-]{1,30})",
 	":nonce": "(?<nonce>[a-z0-9]{10,30})",
 	":token": "(?<token>[a-z0-9\\\\+\\\\=\\\\-\\\\%]{10,255})",
@@ -3363,12 +3360,17 @@ function isSafeExt( string $path ) {
  *  Send route to registered event
  */
 function sendRoute( $event, $path, $verb, $params ) {
-	$params			= filterParams( $params );
+	// Call request url event with filtered params
+	hook( [ 'requesturl', filterParams( $params ) ] );
+	
+	// Store event results
+	$params			= hook( [ 'requesturl', '' ] );
 	
 	// Append the method and route
 	$params['path']		= $path;
 	$params['method']	= $verb;
 	
+	// Send url event with request url event results
 	hook( [ $event, $params ] );
 }
 
@@ -3401,14 +3403,21 @@ function getRoutePath(
 	return $prefix . $fallback;
 }
 
+/**
+ *  Route placeholder parse event
+ */
+function routeMarkers( string $event, array $hook, array $params ) {
+	return decode( \ROUTE_MARK );
+}
 
 /**
- *  Parse marker placeholders in JSON
+ *  Parse marker placeholders
  */
 function getMarkers() : array {
 	static $markers;
 	if ( !isset( $markers ) ) {
-		$markers = decode( \ROUTE_MARK );
+		hook( [ 'routemarker', [] ] );
+		$markers = hook( [ 'routemarker', '' ] );
 	}
 	return $markers;
 }
@@ -4038,10 +4047,23 @@ function formatPost(
 	return \strtr( $tpl, $data );
 }
 
-
-function filterRequest( array $params ) {
+/**
+ *  Request filter event
+ *  
+ *  @param string	$event	Request event name
+ *  @param array	$hook	Previous hook event data
+ *  @param array	$params	Passed event data
+ */
+function filterRequest( string $event, array $hook, array $params ) {
 	$now	= time();
 	$filter	= [
+		'id'	=> [
+			'filter'	=> \FILTER_VALIDATE_INT,
+			'options'	=> [
+				'min_range'	=> 1,
+				'default'	=> 0
+			]
+		],
 		'page'	=> [
 			'filter'	=> \FILTER_VALIDATE_INT,
 			'options'	=> [
@@ -4093,7 +4115,8 @@ function filterRequest( array $params ) {
 		'nonce'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS
 	];
 	
-	return \filter_var_array( $params, $filter );
+	return 
+	\array_merge( $hook, \filter_var_array( $params, $filter ) );
 }
 
 
@@ -4260,59 +4283,19 @@ function validateForm(
 	verifyNoncePair( $name, $data['token'], $data['nonce'], $chk );
 }
 
-
 /**
- *  Render search form template
+ *  Make text completely bland by stripping punctuation, 
+ *  spaces and diacritics (for further processing)
  */
-function searchForm() : string {
-	// Search form hidden fields
-	$pair	= genNoncePair( 'searchform' );
+function bland( string $text, bool $nospecial = false ) : string {
+	$text = \strip_tags( unifySpaces( $text ) );
 	
-	return 
-	\strtr( \TPL_SEARCHFORM, [
-		'{nonce}'	=> $pair['nonce'],
-		'{token}'	=> $pair['token']
-	] );
-}
-
-/**
- *  Render search pagination path
- */
-function searchPagePath( array $data ) {
-	return homeLink() . 
-		'?nonce=' . $data['nonce'] . 
-		'&token=' . $data['token'] . 
-		'&find=' . $data['find'] . '/';
-}
-
-/**
- *  Special handlers
- */
-
-/**
- *  Register or get internal state
- */
-function internalState( string $name, $value = null ) {
-	static $state = [];
-	if ( empty( $value ) ) {
-		return $state[$name] ?? false;
+	if ( $nospecial ) {
+		return \preg_replace( 
+			'/[^\p{L}\p{N}\-\s_]+/', '', \trim( $text ) 
+		);
 	}
-	
-	$state[$name] = $value;
-}
-
-/**
- *  Reload indexes on cache db creation
- */
-function reloadIndex( string $event, array $hook, array $params ) {
-	if ( !isset( $params['dbname'] ) ) {
-		return;
-	}
-	
-	// New cache database was created
-	if ( 0 == \strcmp( $params['dbname'], \CACHE_DATA ) ) {
-		internalState( 'prepareIndex', true );
-	}
+	return \trim( $text );
 }
 
 /**
@@ -4321,16 +4304,8 @@ function reloadIndex( string $event, array $hook, array $params ) {
  *  @param string	$find	Sent search parameters
  */
 function searchData( string $find ) : string {
-	$find		= \trim( $find );
-	if ( empty( $find ) ) {
-		return '';
-	}
-	
-	// Remove tags and duplicate internal spaces
-	$find		= \strip_tags( $find );
-	$find		= 
-	\trim( \preg_replace( '/[[:space:]]+/', ' ', $find ) );
-	
+	// Remove tags and trim
+	$find	= bland( $find );
 	if ( empty( $find ) ) {
 		return '';
 	}
@@ -4372,6 +4347,61 @@ function searchData( string $find ) : string {
 	);
 }
 
+/**
+ *  Render search form template
+ */
+function searchForm() : string {
+	// Search form hidden fields
+	$pair	= genNoncePair( 'searchform' );
+	
+	return 
+	\strtr( \TPL_SEARCHFORM, [
+		'{nonce}'	=> $pair['nonce'],
+		'{token}'	=> $pair['token']
+	] );
+}
+
+/**
+ *  Render search pagination path
+ */
+function searchPagePath( array $data ) {
+	return homeLink() . 
+		'?nonce=' . $data['nonce'] . 
+		'&token=' . $data['token'] . 
+		'&find=' . $data['find'] . '/';
+}
+
+
+/**
+ *  Special handlers
+ */
+
+/**
+ *  Register or get internal state
+ */
+function internalState( string $name, $value = null ) {
+	static $state = [];
+	if ( empty( $value ) ) {
+		return $state[$name] ?? false;
+	}
+	
+	$state[$name] = $value;
+}
+
+/**
+ *  Reload indexes on cache db creation
+ */
+function reloadIndex( string $event, array $hook, array $params ) {
+	if ( !isset( $params['dbname'] ) ) {
+		return;
+	}
+	
+	// New cache database was created
+	if ( 0 == \strcmp( $params['dbname'], \CACHE_DATA ) ) {
+		internalState( 'prepareIndex', true );
+	}
+}
+
 
 
 /**
@@ -4387,8 +4417,7 @@ function showArchive( string $event, array $hook, array $params ) {
 		shutdown( 'loadIndex' );
 	}
 	
-	$data	= filterRequest( $params );
-	$page	= ( int ) ( $data['page'] ?? 1 );
+	$page	= ( int ) ( $params['page'] ?? 1 );
 	$prefix	= '';
 	$s	= '/';
 	
@@ -4427,14 +4456,13 @@ function showTag( string $event, array $hook, array $params ) {
 		loadIndex();
 	}
 	
-	$data	= filterRequest( $params );
 	// Tag empty?
-	if ( empty( $data['tag'] ) ) {
+	if ( empty( $params['tag'] ) ) {
 		sendError( 404, \MSG_NOTFOUND );
 	}
 	
-	$tag	= slugify( $data['tag'] );
-	$page	= ( int ) ( $data['page'] ?? 1 );
+	$tag	= slugify( $params['tag'] );
+	$page	= ( int ) ( $params['page'] ?? 1 );
 	$prefix	= '';
 	$s	= '/';
 	
@@ -4490,14 +4518,13 @@ function showSearch( string $event, array $hook, array $params ) {
 			sendError( 429 );
 	}
 	
-	$data	= filterRequest( $params );
-	$find	= searchData( $data['find'] ?? '' );
+	$find	= searchData( $params['find'] ?? '' );
 	if ( empty( $find ) ) {
 		sendError( 404, \MSG_NOTFOUND );
 	}
 	
-	$prefix = searchPagePath( $data );
-	$page	= ( int ) ( $data['page'] ?? 1 );
+	$prefix = searchPagePath( $params );
+	$page	= ( int ) ( $params['page'] ?? 1 );
 	
 	// Pagination prep
 	$start	= ( $page - 1 ) * \PAGE_LIMIT;
@@ -4567,13 +4594,12 @@ function showPost( string $event, array $hook, array $params ) {
 		loadIndex();
 	}
 	
-	$data	= filterRequest( $params );
-	$date	= enforceDates( $data );
+	$date	= enforceDates( $params );
 	$title	= '';
 	$s	= '/';
 	$path	= 
 	$date[0] . $s .  $date[1] . $s . $date[2] . $s . 
-		\ltrim( $data['slug'] ?? '', $s );
+		\ltrim( $params['slug'] ?? '', $s );
 	
 	$post	= loadPost( $title, $path );
 	
@@ -4729,9 +4755,12 @@ hook( [ 'reindex',	'runIndex' ] );
 hook( [ 'dbcreated',	'reloadIndex' ] );
 
 // Register request and route handlers
+hook( [ 'requesturl',	'filterRequest' ] );
 hook( [ 'begin',	'request' ] );
 hook( [ 'begin',	'route' ] );
 
+// Append URL route markers
+hook( [ 'routemarker',	'routeMarkers' ] );
 
 // Register blog routes during 'addroutes' event ( called in request() )
 hook( [ 'initroutes',	'addBlogRoutes' ] );
