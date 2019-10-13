@@ -4610,7 +4610,7 @@ function showSearch( string $event, array $hook, array $params ) {
 	
 	$res	= 
 	getResults( 
-		"SELECT posts.post_view AS post_view, 
+		"SELECT DISTINCT posts.post_view AS post_view, 
 		matchinfo(post_search) AS rel 
 		
 		FROM post_search 
