@@ -3591,6 +3591,65 @@ function postData( $raw ) {
 	return [];
 }
 
+/**
+ *  Reset currently stored post in cache
+ */
+function refreshPost(
+	string		$path, 
+	string		$out, 
+	string		$pub, 
+	array		$tags, 
+	int		$mtime 
+) {
+	$db		= getDb( \CACHE_DATA );
+	// Post delete statement
+	$dstm		= 
+	$db->prepare(
+		"DELETE FROM posts WHERE post_path = :path"
+	);
+	
+	// Post insertion statement
+	$pstm		= 
+	$db->prepare( 
+		"INSERT OR IGNORE INTO posts( 
+			post_path, post_view, post_bare, updated, published 
+		) 
+		VALUES ( :path, :pview, :bare, :updated, :pub );" 
+	);
+	
+	// Select post statement
+	$sstm		=
+	$db->prepare(
+		"SELECT id FROM posts WHERE post_path = :perm LIMIT 1;"
+	);
+	
+	// Post tag association statement
+	$tstm		= 
+	$db->prepare( 
+		"REPLACE INTO post_tags( post_id, tag_slug ) 
+		VALUES ( :id, :tag );"
+	);
+	
+	// Tag insertion statement
+	$istm		= 
+	$db->prepare( 
+	"INSERT OR IGNORE INTO tags( slug, term ) 
+		VALUES ( :slug, :term );" 
+	);
+	
+	// Carry out delete
+	$dstm->execute( [':path' => $path ] );
+	
+	// Insert post again
+	insertPost( $pstm, $path, $out, $pub, $mtime );
+	
+	// Add any new tags
+	insertTags( $istm, $tags );
+	
+	// Apply tags if they've changed
+	applyTags( $sstm, $tstm, $path, $tags );
+}
+
 function loadPost(
 	string	&$title,
 	string	$path
@@ -3603,21 +3662,26 @@ function loadPost(
 		return '';
 	}
 	
+	$tags	= [];		
+	$out	= 
+	formatPost( $title, $tags, $data, $path, TPL_POST ?? '' );
+	
 	// If index has not been run before this function was called...
 	if ( !internalState( 'indexRun' ) ) {
-		// If post was modified since it's pub date...
-		if ( postModified( $path, $ppath ) ) {
-			shutdown( 'loadIndex' );
+		$mtime	= filemtime( $ppath );
+		$pub	= getPub( $path );
 		
-		// Or isn't cached
+		// If post was modified since it's pub date...
+		if ( postModified( $path, $mtime ) ) {
+			shutdown( 
+				'refreshPost', 
+				[ $path, $out, $pub, $tags, $mtime ]
+			);
 		} elseif ( !postCached( $path ) ) {
 			shutdown( 'loadIndex' );
 		}
 	}
 	
-	$tags	= [];		
-	$out	= 
-	formatPost( $title, $tags, $data, $path, TPL_POST ?? '' );
 	return $out;
 }
 
@@ -3643,8 +3707,19 @@ function checkPub( $pub ) : bool {
  *  Check if post was modified after its publish time
  */
 function postModified( $path, $mtime ) {
-	$pub = getPub( $path );
-	if ( \strtotime( $pub ) <= $mtime ) {
+	$res = 
+	getResults( 
+		"SELECT strftime( '%s', updated ) FROM posts 
+			WHERE post_path = :path", 
+		[ ':path' => $path ],
+		\CACHE_DATA
+	);
+	
+	if ( empty( $res ) ) {
+		return true;
+	}
+	
+	if ( ( int ) $res[0]['updated'] <= $mtime ) {
 		return true;
 	}
 	return false;
