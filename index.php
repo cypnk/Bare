@@ -3719,7 +3719,7 @@ function postModified( $path, $mtime ) {
 		return true;
 	}
 	
-	if ( ( int ) $res[0]['updated'] <= $mtime ) {
+	if ( ( int ) $res[0]['updated'] < $mtime ) {
 		return true;
 	}
 	return false;
