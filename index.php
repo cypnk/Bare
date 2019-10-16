@@ -78,6 +78,15 @@ define( 'TOKEN_BYTES', 		8 );
 // Form token nonce hash
 define( 'NONCE_HASH',		'tiger160,4' );
 
+// Show sibling (next/previous published) posts
+define( 'SHOW_SIBLINGS',	1 );
+
+// Show related posts based on content in currently viewing post
+define( 'SHOW_RELATED',		1 );
+
+// Maximum number of related posts to show
+define( 'RELATED_LIMIT',	5 );
+
 
 // General page template
 define( 'TPL_PAGE',		<<<HTML
@@ -209,8 +218,29 @@ define( 'TPL_TAGLINK',		<<<HTML
 HTML
 );
 
+define( 'TPL_PREVLINK',		<<<HTML
+	<li>&lt; <a href="{url}">{text}</a></li>
+HTML
+);
+
+define( 'TPL_NEXTLINK',		<<<HTML
+	<li><a href="{url}">{text}</a> &gt;</li>
+HTML
+);
+
 define( 'TPL_NAV',		<<<HTML
 	<nav><ul>{text}</ul></nav>
+HTML
+);
+
+define( 'TPL_SIBLINGNAV',	<<<HTML
+	<nav class="siblings"><ul>{text}</ul></nav>
+HTML
+);
+
+define( 'TPL_RELATEDNAV',	<<<HTML
+	<h3>Related</h3>
+	<nav class="related"><ul>{text}</ul></nav>
 HTML
 );
 
@@ -588,13 +618,13 @@ END;-- --
 
 
 -- Post info for sibling posts
-CREATE VIEW post_preview AS SELECT DISTINCT 
+CREATE VIEW post_siblings AS SELECT DISTINCT 
 	p.post_path AS post_path, 
-	p.published AS published, 
 	( SELECT post_path FROM posts prev
 		WHERE prev.published IS NOT NULL AND
-			strftime( '%s', prev.published ) < 
+			strftime( '%s', prev.published ) <= 
 			strftime( '%s', p.published ) 
+			AND prev.post_path IS NOT p.post_path
 			ORDER BY prev.published DESC LIMIT 1 
 	) AS prev_path, 
 	
@@ -603,19 +633,11 @@ CREATE VIEW post_preview AS SELECT DISTINCT
 		WHERE nxt.published IS NOT NULL AND 
 			strftime( '%s', nxt.published ) > 
 			strftime( '%s', p.published ) 
+			AND nxt.post_path IS NOT p.post_path
 			ORDER BY nxt.published ASC LIMIT 1 
-	) AS next_path,
+	) AS next_path
 	
-	-- Page taxonomy
-	group_concat(
-		'term='		|| tags.term	|| '&' || 
-		'slug='		|| tags.slug
-	) AS tags
-	
-	FROM posts p 
-	LEFT JOIN post_tags pt ON p.id = pt.post_id
-	JOIN tags ON pt.tag_slug = tags.slug;
-
+	FROM posts p;
 SQL
 );
 
@@ -872,6 +894,7 @@ function navHome() : string {
  *  Create next/previous pagination links
  */
 function paginate( $page, $prefix, $posts ) : string {
+	$plimit	= config( 'page_limit', \PAGE_LIMIT, 'int' );
 	$c	= count( $posts );
 	$out	= '';
 	if ( $page > 1 ) {
@@ -885,7 +908,7 @@ function paginate( $page, $prefix, $posts ) : string {
 		] ); 
 	}
 	
-	if ( $c >= PAGE_LIMIT ) {
+	if ( $c >= $plimit ) {
 		$out	.=
 		\strtr( TPL_LINK ?? '', [ 
 			'{url}'		=> 
@@ -1718,8 +1741,10 @@ function enforceDates( array $args ) : array {
 	$m		= ( int ) \date( 'n', $now );
 	$d		= ( int ) \date( 'j', $now );
 	
+	$ys		= config( 'year_start', \YEAR_START, 'int' );
+	
 	// Enforce date ranges
-	$year		= ( $year > $y || $year < YEAR_START ) ? 
+	$year		= ( $year > $y || $year < $ys ) ? 
 				$y : $year;
 	
 	// Current year? Enforce month to current month
@@ -1795,8 +1820,9 @@ function getIP() : string {
 	}
 		
 	$ip	= $_SERVER['REMOTE_ADDR'];
+	$skip	= config( 'skip_local', \SKIP_LOCAL, 'bool' );
 	$va	=
-	( SKIP_LOCAL ) ?
+	( $skip ) ?
 	\filter_var( $ip, \FILTER_VALIDATE_IP ) : 
 	\filter_var(
 		$ip, 
@@ -2673,13 +2699,14 @@ function preamble(
  *  Send list of supported HTTP request methods
  */
 function getAllowedMethods( bool $arr = false ) {
+	$ap	= config( 'allow_post', \ALLOW_POST, 'bool' );
 	if ( $arr ) {
-		return ALLOW_POST ?  
+		return $ap ?  
 		[ 'get', 'post', 'head', 'options' ] : 
 		[ 'get', 'head', 'options' ];
 	}
 	
-	return ALLOW_POST ? 
+	return $ap ? 
 	'GET, POST, HEAD, OPTIONS' : 'GET, HEAD, OPTIONS';
 }
 
@@ -2868,9 +2895,12 @@ function sendError( int $code, $body ) {
 		}
 	}
 	
+	$ptitle	= config( 'page_title', \PAGE_TITLE );
+	$psub	= config( 'page_sub', \PAGE_SUB );
+	
 	$page_t	= \strtr( \TPL_ERROR_PAGE ?? '', [ 
-			'{page_title}'	=> PAGE_TITLE,
-			'{tagline}'	=> PAGE_SUB,
+			'{page_title}'	=> $ptitle,
+			'{tagline}'	=> $psub,
 			'{home}'	=> homeLink(),
 			'{code}'	=> $code,
 			'{body}'	=> $body 
@@ -3346,8 +3376,9 @@ function isSafeExt( string $path ) {
 	}
 	
 	if ( !isset( $safe ) ) {
+		$ecfg	= config( 'safe_ext', \SAFE_EXT );
 		$safe	= 
-		\array_map( 'trim', \explode( ',', SAFE_EXT ) );
+		\array_map( 'trim', \explode( ',', $ecfg ) );
 		$safe	= \array_map( 'strtolower', $safe );
 	}
 	
@@ -3584,6 +3615,9 @@ function filterDir( $path ) {
 	return \trim( $path ?? '' );
 }
 
+/**
+ *  Get post file content as an array of lines
+ */
 function postData( $raw ) {
 	if ( \file_exists( $raw ) ) {
 		return \file( $raw, \FILE_IGNORE_NEW_LINES );
@@ -3669,10 +3703,10 @@ function loadPost(
 	// If index has not been run before this function was called...
 	if ( !internalState( 'indexRun' ) ) {
 		$mtime	= filemtime( $ppath );
-		$pub	= getPub( $path );
 		
 		// If post was modified since it's pub date...
 		if ( postModified( $path, $mtime ) ) {
+			$pub	= getPub( $path );
 			shutdown( 
 				'refreshPost', 
 				[ $path, $out, $pub, $tags, $mtime ]
@@ -3689,6 +3723,7 @@ function loadPost(
  *  Get published date from path
  */
 function getPub( $path ) : string {
+	$path = \ltrim( $path, '/' );
 	return utc( \substr( $path, 0, \strrpos( $path, '/' ) ) );	
 }
 
@@ -3786,8 +3821,9 @@ function extractTags( array &$post ) : array {
 	\array_pop( $post );
 	
 	// Ensure tags don't exceed limit
-	if ( count( $tags ) > \TAG_LIMIT ) {
-		$tags = \array_slice( $tags, 0, \TAG_LIMIT );
+	$tl	= config( 'tag_limit', \TAG_LIMIT, 'int' );
+	if ( count( $tags ) > $tl ) {
+		$tags = \array_slice( $tags, 0, $tl );
 	}
 	
 	$ptags	= [];
@@ -3867,8 +3903,12 @@ function loadPosts(
 	
 	$i	= 0;
 	$posts	= [];
-	$start	= ( $page - 1 ) * PAGE_LIMIT;
-	$end	= $start + PAGE_LIMIT;
+	
+	// Pagination prep
+	$plimit	= config( 'page_limit', \PAGE_LIMIT, 'int' );
+	$start	= ( $page - 1 ) * $plimit;
+	$end	= $start + $plimit;
+	
 	$title	= '';
 	
 	foreach( $it as $file ) {
@@ -4134,6 +4174,10 @@ function formatPost(
  */
 function filterRequest( string $event, array $hook, array $params ) {
 	$now	= time();
+	$mpage	= config( 'max_page', \MAX_PAGE, 'int' );
+	$ys	= config( 'year_start', \YEAR_START, 'int' );
+	$ye	= config( 'year_end', \YEAR_END, 'int' );
+	
 	$filter	= [
 		'id'	=> [
 			'filter'	=> \FILTER_VALIDATE_INT,
@@ -4146,15 +4190,15 @@ function filterRequest( string $event, array $hook, array $params ) {
 			'filter'	=> \FILTER_VALIDATE_INT,
 			'options'	=> [
 				'min_range'	=> 1,
-				'max_range'	=> MAX_PAGE,
+				'max_range'	=> $mpage,
 				'default'	=> 1
 			]
 		],
 		'year'	=> [
 			'filter'	=> \FILTER_SANITIZE_NUMBER_INT,
 			'options'	=> [
-				'min_range'	=> YEAR_START,
-				'max_range'	=> YEAR_END,
+				'min_range'	=> $ys,
+				'max_range'	=> $ye,
 				'default'	=> 
 				( int ) \date( 'Y', $now )
 			]
@@ -4202,10 +4246,14 @@ function filterRequest( string $event, array $hook, array $params ) {
  *  Format index views for archives and tags
  */
 function formatIndex( $prefix, $page, $posts, $cache = true ) {
+	
+	$ptitle	= config( 'page_title', \PAGE_TITLE );
+	$psub	= config( 'page_sub', \PAGE_SUB );
+	
 	$tpl	= [
-		'{page_title}'	=> PAGE_TITLE,
-		'{post_title}'	=> PAGE_TITLE,
-		'{tagline}'	=> PAGE_SUB,
+		'{page_title}'	=> $ptitle,
+		'{post_title}'	=> $ptitle,
+		'{tagline}'	=> $psub,
 		'{home}'	=> homeLink(),
 		
 		// Search form
@@ -4396,9 +4444,10 @@ function searchData( string $find ) : string {
 	
 	$fdata		= \array_unique( $m[0] );
 	if ( count( $fdata ) > 10 ) {
-		$fdata = \array_splice( $fdata, 10 );
+		$fdata = \array_slice( $fdata, 0, 10 );
 	}
-	\array_unshift( $fdata, "\"$find\"" );
+	
+	//\array_unshift( $fdata, "\"$find\"" );
 	
 	// Insert ' OR ' for multiple terms
 	$find		= \implode( ' OR ', $fdata );
@@ -4481,6 +4530,217 @@ function reloadIndex( string $event, array $hook, array $params ) {
 	}
 }
 
+/**
+ *  Format preview info into link
+ */
+function previewLink( string $path, string $mode = '' ) {
+	$ppath	= POSTS . $path. '.md';
+	$data	= postData( $ppath );
+	if ( empty( $data ) ) {
+		return '';
+	}
+	
+	$title	= '';
+	$perm	= '';
+	$pub	= getPub( $path );
+	
+	metadata( $title, $perm, $pub, $data, $path );
+	
+	switch( $mode ) {
+		case 'prev':
+		case 'previous':
+			return
+			\strtr( \TPL_PREVLINK ?? '', [ 
+				'{url}'		=> $perm,
+				'{text}'	=> $title
+			] ); 
+			
+		case 'next':
+			return
+			\strtr( \TPL_NEXTLINK ?? '', [ 
+				'{url}'		=> $perm,
+				'{text}'	=> $title
+			] ); 
+			
+		default: 
+			return
+			\strtr( \TPL_LINK ?? '', [ 
+				'{url}'		=> $perm,
+				'{text}'	=> $title
+			] ); 
+	}
+}
+
+/**
+ *  Get next/previous post details
+ */
+function getSiblings( string $path ) {
+	$res	= 
+	getResults( 
+		"SELECT * FROM post_siblings WHERE post_path = :path", 
+		[ ':path' => $path ], 
+		\CACHE_DATA 
+	);
+	
+	if ( empty( $res ) ) {
+		return '';
+	}
+	$out = '';
+	$p = $res[0];
+	
+	if ( !empty( $p['prev_path'] ) ) {
+		$out .= previewLink( $p['prev_path'], 'prev' );	
+	}
+	
+	if ( !empty( $p['next_path'] ) ) {
+		$out .= previewLink( $p['next_path'], 'next' );	
+	}
+	
+	return \strtr( \TPL_SIBLINGNAV ?? '', [ '{text}' => $out ] );
+}
+
+/**
+ *  Get common words in text for searching
+ *  
+ *  @param array	$lines		Content to process
+ *  @param bool		$as_array	Returns as an array if true
+ */
+function getCommonWords( array $lines, bool $as_array = true ) {
+	// Exclude some English stop words
+	static $stop	= [
+		'a', 'about', 'able', 'above', 'act', 'after', 'again', 
+		'against', 'ago', 'all', 'also', 'am', 'an', 'and', 'any', 
+		'apart', 'are', 'aren\'t', 'as', 'as', 'at', 'away', 
+		'be', 'because', 'been', 'before', 'being', 'besides', 
+		'beside', 'below', 'between', 'beyond', 'both', 'but', 
+		'by', 'can', 'can\'t', 'cannot', 'could', 'couldn\'t', 
+		'did', 'didn\'t', 'do', 'does', 'doesn\'t', 'doing', 
+		'don\'t', 'down', 'during', 'each', 'few', 'for', 'from', 
+		'further', 'had', 'hadn\'t', 'has', 'hasn\'t', 'have', 
+		'haven\'t', 'having', 'he', 'he\'d', 'he\'ll', 'he\'s', 
+		'her', 'here', 'here\'s', 'hers', 'herself', 'hi', 'him', 
+		'himself', 'his', 'how', 'how\'s', 'i', 'i\'d', 'i\'ll', 
+		'i\'m', 'i\'ve', 'ie', 'if', 'in', 'into', 'is', 'isn\'t', 
+		'it', 'it\'s', 'its', 'itself', 'let\'s', 'like', 'j', 'k', 
+		'km', 'kg', 'last', 'late', 'later', 'latter', 'may', 'maybe', 
+		'me', 'more', 'most', 'mustn\'t', 'my', 'myself', 'no', 
+		'nor', 'not', 'of', 'off', 'ok', 'on', 'once', 'only', 
+		'or', 'other', 'ought', 'our', 'ours', 'ourselves', 
+		'out', 'over', 'own', 'same', 'shan\'t', 'she', 'she\'d', 
+		'she\'ll', 'she\'s', 'should', 'shouldn\'t', 'so', 
+		'some', 'soon', 'such', 'than', 'that', 'that\'s', 'the', 
+		'their', 'theirs', 'them', 'themselves', 'then', 'there', 
+		'there\'s', 'these', 'they', 'they\'d', 'they\'ll', 
+		'they\'re', 'they\'ve', 'this', 'those', 'through', 'to', 
+		'too', 'under', 'until', 'up', 'very', 'was', 'wasn\'t', 
+		'we', 'we\'d', 'well', 'we\'ll', 'we\'re', 'we\'ve', 
+		'were', 'weren\'t', 'will', 'what', 'what\'s', 'when', 
+		'when\'s', 'where', 'where\'s', 'which', 'while', 'who', 
+		'who\'s', 'whom', 'why', 'why\'s', 'with', 'won\'t', 
+		'would', 'wouldn\'t', 'yet', 'yes', 'you', 'you\'d', 
+		'you\'ll', 'you\'re', 'you\'ve', 'your', 'yours', 
+		'yourself', 'yourselves'
+	];
+	
+	// Make lines into a continous series of words
+	$text	= \implode( ' ', $lines );
+	
+	// str_word_count alternative for unicode
+	$words	= 
+	\preg_split( '/[^\p{L}\p{N}\']+/u', lowercase( $text ) );
+	
+	// Take out stop words
+	$words	= \array_diff( $words, $stop );
+	
+	// Most frequently used words
+	$fr	= \array_count_values( $words );
+	\arsort( $fr );
+	
+	$words	= \array_unique( \array_keys( $fr ) );
+	
+	return $as_array ? $words : implode( ' ', $words );
+}
+
+/**
+ *  Get posts related to current one by content
+ */
+function getRelated( string $path ) {
+	$res	= 
+	getResults( 
+		'SELECT post_bare FROM posts WHERE post_path = :path', 
+		[ ':path' => $path ],
+		\CACHE_DATA
+	);
+	
+	if ( empty( $res ) ) {
+		return '';
+	}
+	
+	$text	= $res[0]['post_bare'] ?? '';
+	if ( empty( $text ) ) {
+		return '';
+	}
+	
+	$lines	= 
+	\array_filter( 
+		\array_map( 'trim', \preg_split( '/[\r\n]+/', $text ) )
+	);
+	
+	if ( empty( $lines ) ) {
+		return '';
+	}
+	
+	// Parse common words, excluding stop words
+	$words	= getCommonWords( $lines, false );
+	
+	// Make search data with full title intact ( quotes removed )
+	$title	= \strtr( \current( $lines ), [ '"' => '' ] );
+	$data	= searchData( '"' . $title . '" ' . $words );
+	$rlimit	= config( 'related_limit', \RELATED_LIMIT, 'int' );
+	
+	// Search for related content excluding current post
+	$search	= 
+	getResults( 
+		"SELECT DISTINCT 
+			posts.id AS id,
+			posts.post_path AS post_path, 
+			
+		matchinfo(post_search) AS rel 
+		
+		FROM post_search 
+		LEFT JOIN posts ON post_search.docid = posts.id 
+		WHERE post_search MATCH :find AND 
+			posts.post_path IS NOT :path
+		ORDER BY rel DESC 
+		LIMIT :limit",
+		[ 
+			':find'		=> $data, 
+			':path'		=> $path,
+			':limit'	=> $rlimit 
+		],
+		\CACHE_DATA
+	);
+	
+	if ( empty( $search ) ) {
+		return '';
+	}
+	
+	$out	= '';
+	$pr	= [];
+	
+	foreach( $search as $p ) {
+		// Exclude accidental duplicate results
+		if ( \in_array( \trim( $p['post_path'] ), $pr ) ) {
+			continue;
+		}
+		
+		$pr[] = \trim( $p['post_path'] );
+		$out .= previewLink( $p['post_path'] );
+	}
+	
+	return \strtr( \TPL_RELATEDNAV, [ '{text}' => $out ] );
+}
+
 
 
 /**
@@ -4546,7 +4806,8 @@ function showTag( string $event, array $hook, array $params ) {
 	$s	= '/';
 	
 	// Pagination prep
-	$start	= ( $page - 1 ) * \PAGE_LIMIT;
+	$plimit	= config( 'page_limit', \PAGE_LIMIT, 'int' );
+	$start	= ( $page - 1 ) * $plimit;
 	
 	// Get cached tags
 	$res	= 
@@ -4555,10 +4816,9 @@ function showTag( string $event, array $hook, array $params ) {
 			JOIN post_tags ON posts.id = post_tags.post_id 
 			WHERE post_tags.tag_slug = :tag 
 			LIMIT :limit OFFSET :offset;", 
-			
 		[
 			':tag'		=> $tag, 
-			':limit'	=> \PAGE_LIMIT, 
+			':limit'	=> $plimit, 
 			':offset'	=> $start
 		],
 		\CACHE_DATA
@@ -4606,7 +4866,8 @@ function showSearch( string $event, array $hook, array $params ) {
 	$page	= ( int ) ( $params['page'] ?? 1 );
 	
 	// Pagination prep
-	$start	= ( $page - 1 ) * \PAGE_LIMIT;
+	$plimit	= config( 'page_limit', \PAGE_LIMIT, 'int' );
+	$start	= ( $page - 1 ) * $plimit;
 	
 	$res	= 
 	getResults( 
@@ -4621,7 +4882,7 @@ function showSearch( string $event, array $hook, array $params ) {
 		
 		[ 
 			':find'		=> $find,
-			':limit'	=> \PAGE_LIMIT,
+			':limit'	=> $plimit,
 			':offset'	=> $start
 		], 
 		\CACHE_DATA 
@@ -4653,10 +4914,12 @@ function showFeed( string $event, array $hook, array $params ) {
 		sendError( 404, \MSG_NOTFOUND );
 	}
 	
+	$ptitle	= config( 'page_title', \PAGE_TITLE );
+	$psub	= config( 'page_sub', \PAGE_SUB );
 	$tpl	= [
-		'{page_title}'	=> PAGE_TITLE,
+		'{page_title}'	=> $ptitle,
+		'{tagline}'	=> $psub,
 		'{home}'	=> homeLink(),
-		'{tagline}'	=> PAGE_SUB,
 		'{date_gen}'	=> dateRfc(),
 		'{body}'	=> \implode( '', $posts )
 	];
@@ -4686,22 +4949,23 @@ function showPost( string $event, array $hook, array $params ) {
 		sendError( 404, \MSG_NOTFOUND );
 	}
 	
-	/* TODO: Use sibling preview (next, previous posts)
-	$res	= 
-	getResults( 
-		"SELECT * FROM post_preview WHERE post_path = :path", 
-		[ ':path' => $s . $path ], 
-		\CACHE_DATA 
-	);
-	*/
+	
+	// Related and sibling post settings
+	$sib	= config( 'show_siblings', \SHOW_SIBLINGS, 'int' ) ? 
+			getSiblings( $s . $path ) : '';
+	
+	$sib	.= config( 'show_related', \SHOW_RELATED, 'int' ) ? 
+			getRelated( $s . $path ) : '';
+	
+	$ptitle	= config( 'page_title', \PAGE_TITLE );
+	$psub	= config( 'page_sub', \PAGE_SUB );
 	
 	$tpl	= [
-		'{page_title}'	=> PAGE_TITLE,
-		'{post_title}'	=> $title . ' - ' . PAGE_TITLE,
-		'{tagline}'	=> PAGE_SUB,
+		'{page_title}'	=> $ptitle,
+		'{post_title}'	=> $title . ' - ' . $ptitle,
+		'{tagline}'	=> $psub,
 		'{body}'	=> $post,
-		'{paginate}'	=> 
-		\strtr( TPL_NAV ?? '', [ '{text}' => navHome() ] ),
+		'{paginate}'	=> $sib,
 		'{home}'	=> homeLink(),
 		
 		// Search form
@@ -4739,11 +5003,13 @@ function runIndex( string $event, array $hook, array $params ) {
 		}
 	}
 	$out	= \strtr( TPL_INDEX_WRAP, [ '{items}' => $out ] );
+	$ptitle	= config( 'page_title', \PAGE_TITLE );
+	$psub	= config( 'page_sub', \PAGE_SUB );
 	
 	$tpl	= [
-		'{page_title}'	=> PAGE_TITLE,
-		'{post_title}'	=> PAGE_TITLE,
-		'{tagline}'	=> PAGE_SUB,
+		'{page_title}'	=> $ptitle,
+		'{post_title}'	=> $ptitle,
+		'{tagline}'	=> $psub,
 		'{body}'	=> $out,
 		'{paginate}'	=> '',
 		'{home}'	=> homeLink(),
