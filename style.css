@@ -202,6 +202,18 @@ nav.main {
 	text-align: center;
 }
 
+nav.siblings, nav.related, nav.related ul li + li {
+	margin-top: 1rem;
+}
+
+nav.siblings ul li + li {
+	float: right;
+}
+
+nav.related ul li {
+	display: block;
+}
+
 nav.tags {
 	text-align: right;
 	line-height: 1;
