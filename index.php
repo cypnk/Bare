@@ -818,7 +818,7 @@ function loadConfig( string $file ) : array {
 	$data	= loadFile( $file );
 	$params	= json_decode( \utf8_encode( $data ), true );
 	if ( empty( $params ) ) {
-		return [];
+		$params = [];
 	}
 	
 	return $params;
@@ -929,6 +929,7 @@ function shutdown() {
 	
 	// Shutdown called
 	if ( empty( $args ) ) {
+		hook( [ 'shutdown', [] ] );
 		foreach( $registered as $k => $v ) {
 			if ( \is_array( $v ) ) {
 				$k( ...$v );
@@ -1151,6 +1152,7 @@ function getSingle(
  *  Close the session and any open connections
  */
 function cleanup() {
+	hook( [ 'cleanup', [] ] );
 	if ( \session_status() === \PHP_SESSION_ACTIVE ) {
 		\session_write_close();
 	}
@@ -1174,6 +1176,7 @@ function cleanup() {
  *  @return string
  */
 function getCache( string $uri ) : string {
+	hook( [ 'getcache', [ 'uri' => $uri ] ] );
 	$key	= \hash( 'sha256', $uri );
 	$find	= 
 	getResults( 
@@ -1211,6 +1214,7 @@ function getCache( string $uri ) : string {
  *  @param string	$content	Cache data
  */
 function saveCache( string $uri, string $content ) {
+	hook( [ 'savecache', [ 'uri' => $uri, 'content' => $content ] ] );
 	$key	= \hash( 'sha256', $uri );
 	$sql	= 
 	"REPLACE INTO caches ( cache_id, ttl, content )
@@ -2853,10 +2857,18 @@ function send(
 		shutdown( 'saveCache', [ $full, $content ] );
 	}
 	
+	hook( [ 'contentsend', [ 
+		'code'		=> 200,
+		'content'	=> $content, 
+		'cache'		=> $cache,
+		'feed'		=> $feed
+	] ] );
+	
 	// Schedule flush
 	shutdown( 'ob_end_flush' );
 	\ob_start( 'ob_gzhandler' );
 	echo $content;
+	
 	
 	// End
 	shutdown();
@@ -2886,14 +2898,19 @@ function sendError( int $code, $body ) {
 			break;
 	}
 	
-	shutdown( 'cleanup' );
 	if ( !empty( $path ) ) {
 		if ( \file_exists( $path ) ) {
+			hook( [ 'errorfilesend', [ 
+				'path'		=> $path, 
+				'code'		=> $code
+			] ] );
 			sendFilePrep( $path, $code );
 			sendFileFinish( $path, true );
 			shutdown();
 		}
 	}
+	
+	shutdown( 'cleanup' );
 	
 	$ptitle	= config( 'page_title', \PAGE_TITLE );
 	$psub	= config( 'page_sub', \PAGE_SUB );
@@ -3127,6 +3144,10 @@ function redirect(
 	// Directory traversal
 	$path	= \preg_replace( '/\.{2,}', '.', $path );
 	
+	hook( [ 'redirect', [ 
+		'path' => $path, 
+		'code' => $code 
+	] ] );
 	// Check for headers
 	if ( false === \headers_sent() ) {
 		\header( 'Location: ' . $path, true, $code );
@@ -4702,7 +4723,6 @@ function getRelated( string $path ) {
 	$search	= 
 	getResults( 
 		"SELECT DISTINCT 
-			posts.id AS id,
 			posts.post_path AS post_path, 
 			
 		matchinfo(post_search) AS rel 
@@ -4812,7 +4832,7 @@ function showTag( string $event, array $hook, array $params ) {
 	// Get cached tags
 	$res	= 
 	getResults( 
-		"SELECT post_view FROM posts
+		"SELECT DISTINCT post_path, post_view FROM posts
 			JOIN post_tags ON posts.id = post_tags.post_id 
 			WHERE post_tags.tag_slug = :tag 
 			LIMIT :limit OFFSET :offset;", 
