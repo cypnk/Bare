@@ -3681,7 +3681,7 @@ function refreshPost(
 	// Post tag association statement
 	$tstm		= 
 	$db->prepare( 
-		"REPLACE INTO post_tags( post_id, tag_slug ) 
+		"INSERT OR IGNORE INTO post_tags( post_id, tag_slug ) 
 		VALUES ( :id, :tag );"
 	);
 	
@@ -3692,17 +3692,22 @@ function refreshPost(
 		VALUES ( :slug, :term );" 
 	);
 	
-	// Carry out delete
-	$dstm->execute( [':path' => $path ] );
 	
-	// Insert post again
-	insertPost( $pstm, $path, $out, $pub, $mtime );
-	
-	// Add any new tags
-	insertTags( $istm, $tags );
-	
-	// Apply tags if they've changed
-	applyTags( $sstm, $tstm, $path, $tags );
+	if ( $db->beginTransaction() ) {
+		// Carry out delete
+		$dstm->execute( [':path' => $path ] );
+		
+		// Insert post again
+		insertPost( $pstm, $path, $out, $pub, $mtime );
+		
+		// Add any new tags
+		insertTags( $istm, $tags );
+		
+		// Apply tags if they've changed
+		applyTags( $sstm, $tstm, $path, $tags );
+		
+		$db->commit();
+	}
 }
 
 function loadPost(
@@ -3775,10 +3780,11 @@ function postModified( $path, $mtime ) {
 		return true;
 	}
 	
-	if ( ( int ) $res[0]['updated'] < $mtime ) {
-		return true;
-	}
-	return false;
+	// Remove fine resolution issues
+	$ft = utc( $res[0]['updated'] );
+	$mt = utc( $mtime );
+	
+	return ( $mt == $ft ) ? false : true;
 }
 
 /**
@@ -4722,21 +4728,21 @@ function getRelated( string $path ) {
 	// Search for related content excluding current post
 	$search	= 
 	getResults( 
-		"SELECT DISTINCT 
+		"SELECT DISTINCT post_path FROM (
+			SELECT 
 			posts.post_path AS post_path, 
-			
-		matchinfo(post_search) AS rel 
-		
-		FROM post_search 
-		LEFT JOIN posts ON post_search.docid = posts.id 
-		WHERE post_search MATCH :find AND 
-			posts.post_path IS NOT :path
-		ORDER BY rel DESC 
-		LIMIT :limit",
+			matchinfo(post_search) AS rel
+			FROM post_search 
+			LEFT JOIN posts ON post_search.docid = posts.id 
+			WHERE post_search MATCH :find
+			ORDER BY rel DESC
+			LIMIT :limit
+		) WHERE post_path NOT IN ( :path ) 
+			GROUP BY post_path;",
 		[ 
 			':find'		=> $data, 
-			':path'		=> $path,
-			':limit'	=> $rlimit 
+			':limit'	=> $rlimit,
+			':path'		=> $path
 		],
 		\CACHE_DATA
 	);
@@ -4745,20 +4751,16 @@ function getRelated( string $path ) {
 		return '';
 	}
 	
-	$out	= '';
-	$pr	= [];
-	
+	$out	= [];
 	foreach( $search as $p ) {
-		// Exclude accidental duplicate results
-		if ( \in_array( \trim( $p['post_path'] ), $pr ) ) {
-			continue;
-		}
-		
-		$pr[] = \trim( $p['post_path'] );
-		$out .= previewLink( $p['post_path'] );
+		$out[] = previewLink( \trim( $p['post_path'] ) );
 	}
 	
-	return \strtr( \TPL_RELATEDNAV, [ '{text}' => $out ] );
+	// Exclude accidental duplicate results
+	$out = \array_unique( $out );
+	
+	return 
+	\strtr( \TPL_RELATEDNAV, [ '{text}' => \implode( '', $out ) ] );
 }
 
 
