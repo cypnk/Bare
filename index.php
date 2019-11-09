@@ -891,6 +891,14 @@ function navHome() : string {
 }
 
 /**
+ *  Path prefix slash (/) helper
+ */
+function prefixPath( string $path ) : string {
+	return '/'. \ltrim( $path, '/' );
+}
+
+
+/**
  *  Create next/previous pagination links
  */
 function paginate( $page, $prefix, $posts ) : string {
@@ -1573,7 +1581,7 @@ function tstring( $stamp ) {
  *  UTC timestamp
  */
 function utc( $stamp = null ) : string {
-	return \gmdate( 'Y-m-d H:i:s', tstring( $stamp ) );
+	return \gmdate( 'Y-m-d\TH:i:s', tstring( $stamp ) );
 }
 
 /**
@@ -3715,7 +3723,7 @@ function loadPost(
 	string	$path
 ) {
 	$title	= '';
-	$ppath	= POSTS . $path . '.md';
+	$ppath	= POSTS . \ltrim( $path, '/' ) . '.md';
 	$data	= postData( $ppath );
 	
 	if ( empty( $data ) ) {
@@ -3728,24 +3736,23 @@ function loadPost(
 	
 	// If index has not been run before this function was called...
 	if ( !internalState( 'indexRun' ) ) {
-		$mtime	= filemtime( $ppath );
+		$mtime	= \filemtime( $ppath );
 		
-		// Filemtime failed?
+		// filemtime() failed?
 		if ( false === $mtime ) {
+			if ( !postCached( $path ) ) {
+				shutdown( 'loadIndex' );
+			}
 			return $out;
 		}
 		
 		// If post was modified since it's pub date...
 		if ( postModified( $path, $mtime ) ) {
-			// There's a discrepancy in filemtime on some 
-			// systems (especially Windows) 
-			// Until that's resolved, this will be taken out
-			/*$pub	= getPub( $path );
+			$pub	= getPub( $path );
 			shutdown( 
 				'refreshPost', 
 				[ $path, $out, $pub, $tags, $mtime ]
 			);
-			*/
 		} elseif ( !postCached( $path ) ) {
 			shutdown( 'loadIndex' );
 		}
@@ -3781,7 +3788,7 @@ function postModified( $path, $mtime ) {
 	getResults( 
 		"SELECT updated FROM posts 
 			WHERE post_path = :path", 
-		[ ':path' => $path ],
+		[ ':path' => prefixPath( $path ) ],
 		\CACHE_DATA
 	);
 	
@@ -3804,7 +3811,7 @@ function postCached( $path ) {
 	getResults( 
 		"SELECT id FROM posts WHERE post_path = :path
 			LIMIT 1;", 
-		[ ':path' => $path ],
+		[ ':path' => prefixPath( $path ) ],
 		\CACHE_DATA
 	);
 	
@@ -4005,7 +4012,7 @@ function insertPost(
 	int		$mtime 
 ) {
 	$params = [
-		':path'		=> $path, 
+		':path'		=> prefixPath( $path ), 
 		':pview'	=> $out, 
 		':bare'		=> \strip_tags( $out ), 
 		':updated'	=> utc( $mtime ), 
@@ -4092,6 +4099,9 @@ function loadIndex() {
 			
 			// Updated date
 			$mtime		= \filemtime( $raw );
+			if ( false === $mtime ) {
+				$mtime = time();
+			}
 			
 			$tags		= [];
 			
@@ -4614,7 +4624,7 @@ function getSiblings( string $path ) {
 	$res	= 
 	getResults( 
 		"SELECT * FROM post_siblings WHERE post_path = :path", 
-		[ ':path' => $path ], 
+		[ ':path' => prefixPath( $path ) ], 
 		\CACHE_DATA 
 	);
 	
@@ -4701,6 +4711,7 @@ function getCommonWords( array $lines, bool $as_array = true ) {
  *  Get posts related to current one by content
  */
 function getRelated( string $path ) {
+	$path	= prefixPath( $path );
 	$res	= 
 	getResults( 
 		'SELECT post_bare FROM posts WHERE post_path = :path', 
@@ -4972,9 +4983,8 @@ function showPost( string $event, array $hook, array $params ) {
 	$date	= enforceDates( $params );
 	$title	= '';
 	$s	= '/';
-	$path	= 
-	$date[0] . $s .  $date[1] . $s . $date[2] . $s . 
-		\ltrim( $params['slug'] ?? '', $s );
+	$path	= $date[0] . $s .  $date[1] . $s . $date[2] . $s . 
+			\ltrim( $params['slug'] ?? '', $s );
 	
 	$post	= loadPost( $title, $path );
 	
@@ -4985,10 +4995,10 @@ function showPost( string $event, array $hook, array $params ) {
 	
 	// Related and sibling post settings
 	$sib	= config( 'show_siblings', \SHOW_SIBLINGS, 'int' ) ? 
-			getSiblings( $s . $path ) : '';
+			getSiblings( $path ) : '';
 	
 	$sib	.= config( 'show_related', \SHOW_RELATED, 'int' ) ? 
-			getRelated( $s . $path ) : '';
+			getRelated( $path ) : '';
 	
 	$ptitle	= config( 'page_title', \PAGE_TITLE );
 	$psub	= config( 'page_sub', \PAGE_SUB );
