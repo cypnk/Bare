@@ -3730,13 +3730,22 @@ function loadPost(
 	if ( !internalState( 'indexRun' ) ) {
 		$mtime	= filemtime( $ppath );
 		
+		// Filemtime failed?
+		if ( false === $mtime ) {
+			return $out;
+		}
+		
 		// If post was modified since it's pub date...
 		if ( postModified( $path, $mtime ) ) {
-			$pub	= getPub( $path );
+			// There's a discrepancy in filemtime on some 
+			// systems (especially Windows) 
+			// Until that's resolved, this will be taken out
+			/*$pub	= getPub( $path );
 			shutdown( 
 				'refreshPost', 
 				[ $path, $out, $pub, $tags, $mtime ]
 			);
+			*/
 		} elseif ( !postCached( $path ) ) {
 			shutdown( 'loadIndex' );
 		}
@@ -3770,7 +3779,7 @@ function checkPub( $pub ) : bool {
 function postModified( $path, $mtime ) {
 	$res = 
 	getResults( 
-		"SELECT strftime( '%s', updated ) FROM posts 
+		"SELECT updated FROM posts 
 			WHERE post_path = :path", 
 		[ ':path' => $path ],
 		\CACHE_DATA
@@ -3781,10 +3790,10 @@ function postModified( $path, $mtime ) {
 	}
 	
 	// Remove fine resolution issues
-	$ft = utc( $res[0]['updated'] );
-	$mt = utc( $mtime );
+	$ft = \strtotime( utc( $res[0]['updated'] ) );
+	$mt = \strtotime( utc( $mtime ) );
 	
-	return ( $mt == $ft ) ? false : true;
+	return ( $mt > $ft ) ? false : true;
 }
 
 /**
@@ -4837,6 +4846,7 @@ function showTag( string $event, array $hook, array $params ) {
 		"SELECT DISTINCT post_path, post_view FROM posts
 			JOIN post_tags ON posts.id = post_tags.post_id 
 			WHERE post_tags.tag_slug = :tag 
+			ORDER BY posts.published DESC 
 			LIMIT :limit OFFSET :offset;", 
 		[
 			':tag'		=> $tag, 
@@ -4893,15 +4903,16 @@ function showSearch( string $event, array $hook, array $params ) {
 	
 	$res	= 
 	getResults( 
-		"SELECT DISTINCT posts.post_view AS post_view, 
-		matchinfo(post_search) AS rel 
-		
-		FROM post_search 
-		LEFT JOIN posts ON post_search.docid = posts.id 
-		WHERE post_search MATCH :find
-		ORDER BY rel DESC 
-		LIMIT :limit OFFSET :offset ", 
-		
+		"SELECT DISTINCT post_view FROM (
+			SELECT 
+			posts.post_view AS post_view, 
+			matchinfo(post_search) AS rel
+			FROM post_search 
+			LEFT JOIN posts ON post_search.docid = posts.id 
+			WHERE post_search MATCH :find
+			ORDER BY rel DESC
+			LIMIT :limit OFFSET :offset
+		) GROUP BY post_view;", 
 		[ 
 			':find'		=> $find,
 			':limit'	=> $plimit,
