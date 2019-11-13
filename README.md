@@ -49,6 +49,53 @@ And then, follow the conventions in the example post:
 /posts/2018/09/22/a-new-post.md
 ```
 
+An optional **config.json** file can be created in the */cache* folder to  
+override some configuration defaults.
+
+### Requirements
+* Webserver capable of handling URL rewrites (Apache, Nginx etc...)
+* PHP Version 7.3+ (7.2 is supported, but not recommended)
+
+The following PHP extensions may need to be installed or enabled  
+in **php.ini**:
+* pdo_sqlite
+* sqlite3
+* mbstring
+* fileinfo
+* intl
+* tidy
+
+Note: Various Windows and Unix-like platforms have differing  
+locations for [php.ini](https://www.php.net/manual/en/configuration.file.php). Check your installation or contact your  
+administrator to gain access to this file.
+
+Remember to backup **php.ini** before making changes to it.
+
+The GD extension (gd2) is suggested as future plugins may use it  
+however it is not required for core functionality.
+
+### Composer
+If you prefer to use [Composer](https://getcomposer.org/) to handle your environment, use the   
+following example **composer.json**:
+```
+{
+	"require": {
+		"php": "^7.3",
+		"lib-iconv": "*",
+		"ext-pdo": "*",
+		"ext-pdo_sqlite": "*",
+		"ext-mbstring": "*",
+		"ext-fileinfo": "*",
+		"ext-intl" : "*",
+		"ext-tidy" : "*"
+	},
+	"suggest": {
+		"ext-gd": "*"
+	},
+	"prefer-stable": true
+}
+```
+
 ## Content formatting
 
 HTML is filtered of potentially harmful tags, however embedding videos  
@@ -142,15 +189,21 @@ server {
 The OpenBSD operating system comes with its own web server in the base  
 installation. Previously, this was the Apache web server and then Nginx.
 
-OpenBSD does not come with PHP and needs to be installed separately:
+OpenBSD does not come with PHP and needs to be installed separately.  
+Select the highest version after each command:
 ```
 doas pkg_add php_fpm
-```  
-**Note:** Although it shares the same comment style, httpd(8) configuration  
+doas pkg_add php-pdo_sqlite
+doas pkg_add php-tidy
+doas pkg_add php-intl
+```
+If you're already logged in as root, skip the "[doas](https://man.openbsd.org/doas)" before each command.
+
+**Note:** Although it shares the same comment style, httpd(8) [configuration](https://man.openbsd.org/httpd.conf.5)  
 directives *do not* end in a semicolon(;) unlike Nginx settings.
 
 The following configuration can be used if Bare is installed as the  
-"example.com" website (tested on OpenBSD 6.5).
+"example.com" website (tested on OpenBSD 6.6).
 ```
 
 # A site called "example.com" 
