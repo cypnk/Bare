@@ -49,8 +49,8 @@ define( 'PAGE_LINK',	'/' );
 // Number of posts per page
 define( 'PAGE_LIMIT',	12 );
 
-// Make this true if testing locally or running on Tor
-define( 'SKIP_LOCAL', 	'true' );
+// Make this 1 (meaning true) if testing locally or running on Tor
+define( 'SKIP_LOCAL', 	1 );
 
 // Maximum page index
 define( 'MAX_PAGE',	500 );
@@ -62,8 +62,9 @@ define( 'YEAR_START',	2015 );
 define( 'YEAR_END',	2099 );
 
 // Allow POST method 
-// (should be 'false' unless if you have a special need E.G. a plugin)
-define( 'ALLOW_POST',	'false' );
+// Should be 0 (meaning false) unless if you have a special need
+// E.G. a plugin
+define( 'ALLOW_POST',	0 );
 
 // Maximum number of tags to recognize in each post
 define( 'TAG_LIMIT',	5 );
@@ -860,6 +861,30 @@ function config( string $name, $default, string $type = 'string'  ) {
 }
 
 /**
+ *  Helper to determine if given hash algo exists or returns default
+ *  
+ *  @param string	$token		Configuration setting name
+ *  @param string	$default	Defined default value
+ *  @param bool		$hmac		Check hash_hmac_algos() if true
+ *  @return string
+ */
+function hashAlgo(
+	string	$token, 
+	string	$default, 
+	bool	$hmac		= false 
+) : string {
+	$ht = config( $token, $default );
+	
+	if ( $hmac ) { 
+		return 
+		\in_array( $ht, \hash_hmac_algos() ) ? $ht : $default;
+	}
+	
+	return 
+	\in_array( $ht, \hash_algos() ) ? $ht : $default;
+}
+
+/**
  *  Hompage link helper
  */
 function homeLink() : string {
@@ -1228,11 +1253,12 @@ function saveCache( string $uri, string $content ) {
 	"REPLACE INTO caches ( cache_id, ttl, content )
 		VALUES ( :id, :ttl, :content );";
 	
+	$ttl	= config( 'cache_ttl', \CACHE_TTL, 'int' );
 	setInsert(
 		$sql, 
 		[
 			':id'		=> $key, 
-			':ttl'		=> CACHE_TTL, 
+			':ttl'		=> $ttl, 
 			':content'	=> $content 
 		], 
 		CACHE_DATA 
@@ -1588,7 +1614,8 @@ function utc( $stamp = null ) : string {
  *  Friendly datetime stamp
  */
 function dateNice( $stamp = null ) : string {
-	return \gmdate( DATE_NICE, tstring( $stamp ) );
+	$dn	= config( 'date_nice', \DATE_NICE );
+	return \gmdate( $dn, tstring( $stamp ) );
 }
 
 /**
@@ -1832,7 +1859,7 @@ function getIP() : string {
 	}
 		
 	$ip	= $_SERVER['REMOTE_ADDR'];
-	$skip	= config( 'skip_local', \SKIP_LOCAL, 'bool' );
+	$skip	= config( 'skip_local', \SKIP_LOCAL, 'int' );
 	$va	=
 	( $skip ) ?
 	\filter_var( $ip, \FILTER_VALIDATE_IP ) : 
@@ -2711,7 +2738,7 @@ function preamble(
  *  Send list of supported HTTP request methods
  */
 function getAllowedMethods( bool $arr = false ) {
-	$ap	= config( 'allow_post', \ALLOW_POST, 'bool' );
+	$ap	= config( 'allow_post', \ALLOW_POST, 'int' );
 	if ( $arr ) {
 		return $ap ?  
 		[ 'get', 'post', 'head', 'options' ] : 
@@ -2811,7 +2838,7 @@ function fullURI() {
 /**
  *  Set expires header
  */
-function setCacheExp( int $ttl = \CACHE_TTL ) {
+function setCacheExp( int $ttl ) {
 	\header( 'Cache-Control: max-age=' . $ttl, true );
 	\header( 'Expires: ' . 
 		\gmdate( 'D, d M Y H:i:s', time() + $ttl ) . 
@@ -2860,8 +2887,10 @@ function send(
 	
 	// Also save to cache?
 	if ( $cache ) {
-		setCacheExp();
+		$ex	= config( 'cache_ttl', \CACHE_TTL, 'int' );
 		$full	= fullURI();
+		
+		setCacheExp( $ex );
 		shutdown( 'saveCache', [ $full, $content ] );
 	}
 	
@@ -4347,10 +4376,18 @@ function formatIndex( $prefix, $page, $posts, $cache = true ) {
  *  @return array
  */
 function genNoncePair( string $name ) : array {
-	$nonce	= \bin2hex( \random_bytes( \TOKEN_BYTES ) );
+	$tb	= config( 'token_bytes', \TOKEN_BYTES, 'int' );
+	$ha	= hashAlgo( 'nonce_hash', \NONCE_HASH );
+	if ( $tb < 8 ) {
+		$tb = 8;
+	} elseif( $tb > 64 ) {
+		$tb = 64;
+	}
+	
+	$nonce	= \bin2hex( \random_bytes( $tb ) );
 	$time	= time();
 	$data	= $name . getIP() . $time;
-	$token	= "$time:" . \hash( \NONCE_HASH, $data . $nonce );
+	$token	= "$time:" . \hash( $ha, $data . $nonce );
 	return [ 
 		'token' => \base64_encode( $token ), 
 		'nonce' => $nonce 
@@ -4418,8 +4455,9 @@ function verifyNoncePair(
 		}
 	}
 	
+	$ha	= hashAlgo( 'nonce_hash', \NONCE_HASH );
 	$data	= $name . getIP() . $parts[0];
-	$check	= \hash( \NONCE_HASH, $data . $nonce );
+	$check	= \hash( $ha, $data . $nonce );
 	
 	return \hash_equals( $parts[1], $check ) ? 
 		\FORM_STATUS_VALID : \FORM_STATUS_INVALID;
