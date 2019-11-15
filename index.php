@@ -4888,7 +4888,7 @@ function showTag( string $event, array $hook, array $params ) {
 	
 	$tag	= slugify( $params['tag'] );
 	$page	= ( int ) ( $params['page'] ?? 1 );
-	$prefix	= homeLink() . 'tags/' . $tag . '/', $page;
+	$prefix	= homeLink() . 'tags/' . $tag . '/';
 	
 	// Pagination prep
 	$plimit	= config( 'page_limit', \PAGE_LIMIT, 'int' );
@@ -4912,7 +4912,7 @@ function showTag( string $event, array $hook, array $params ) {
 	
 	// Nothing found for this tag
 	if ( empty( $res ) ) {
-		formatIndex( $prefix, [] );
+		formatIndex( $prefix, $page, [] );
 	}
 	
 	// Extract view column and send to formatting
@@ -4920,7 +4920,7 @@ function showTag( string $event, array $hook, array $params ) {
 	foreach( $res as $r ) {
 		$posts[] = $r['post_view'];
 	}
-	formatIndex( $prefix, $posts );
+	formatIndex( $prefix, $page, $posts );
 }
 
 /**
