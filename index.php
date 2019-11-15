@@ -822,6 +822,12 @@ function loadConfig( string $file ) : array {
 		$params = [];
 	}
 	
+	// Call configuration checking event
+	hook( [ 'checkconfig', $params ] );
+	
+	// Load filtered params from event
+	$params	= hook( [ 'checkconfig', '' ] );
+	
 	return $params;
 }
 
@@ -918,10 +924,11 @@ function navHome() : string {
 /**
  *  Path prefix slash (/) helper
  */
-function prefixPath( string $path ) : string {
-	return '/'. \ltrim( $path, '/' );
+function slashPath( string $path, bool $suffix = false ) : string {
+	return $suffix ?
+		\rtrim( $path, '/' ) . '/' : 
+		'/'. \ltrim( $path, '/' );
 }
-
 
 /**
  *  Create next/previous pagination links
@@ -2657,13 +2664,12 @@ function getRoot( bool $err = false ) : string {
 	}
 	
 	if ( $err ) {
-		$link		= config( 'error_root', \ERROR_ROOT );
-		$errors		= \rtrim( $link, '/' ) . '/';
+		$errors	 = slashPath( \ERROR_ROOT, true );
 		return $errors;
 	}
 	
 	$link		= config( 'page_link', \PAGE_LINK );
-	$root		= \rtrim( $link, '/' ) . '/';
+	$root		= slashPath( $link, true );
 	return $root;
 }
 
@@ -3817,7 +3823,7 @@ function postModified( $path, $mtime ) {
 	getResults( 
 		"SELECT updated FROM posts 
 			WHERE post_path = :path", 
-		[ ':path' => prefixPath( $path ) ],
+		[ ':path' => slashPath( $path ) ],
 		\CACHE_DATA
 	);
 	
@@ -3840,7 +3846,7 @@ function postCached( $path ) {
 	getResults( 
 		"SELECT id FROM posts WHERE post_path = :path
 			LIMIT 1;", 
-		[ ':path' => prefixPath( $path ) ],
+		[ ':path' => slashPath( $path ) ],
 		\CACHE_DATA
 	);
 	
@@ -4041,7 +4047,7 @@ function insertPost(
 	int		$mtime 
 ) {
 	$params = [
-		':path'		=> prefixPath( $path ), 
+		':path'		=> slashPath( $path ), 
 		':pview'	=> $out, 
 		':bare'		=> \strip_tags( $out ), 
 		':updated'	=> utc( $mtime ), 
@@ -4662,7 +4668,7 @@ function getSiblings( string $path ) {
 	$res	= 
 	getResults( 
 		"SELECT * FROM post_siblings WHERE post_path = :path", 
-		[ ':path' => prefixPath( $path ) ], 
+		[ ':path' => slashPath( $path ) ], 
 		\CACHE_DATA 
 	);
 	
@@ -4749,7 +4755,7 @@ function getCommonWords( array $lines, bool $as_array = true ) {
  *  Get posts related to current one by content
  */
 function getRelated( string $path ) {
-	$path	= prefixPath( $path );
+	$path	= slashPath( $path );
 	$res	= 
 	getResults( 
 		'SELECT post_bare FROM posts WHERE post_path = :path', 
@@ -4843,7 +4849,7 @@ function showArchive( string $event, array $hook, array $params ) {
 	// Full archive
 	if ( empty( $params['year'] ) ) {
 		$posts	= loadPosts( $page );
-		$prefix	= \rtrim( homeLink(), '/' ) . $s;
+		$prefix	= slashPath( homeLink(), true );
 	
 	// Starting from year?
 	} else {
@@ -4859,7 +4865,7 @@ function showArchive( string $event, array $hook, array $params ) {
 				$date[1] : $date[1] . $s . $date[2];
 		}
 		$stamp	= \trim( $stamp, $s ) . $s;
-		$prefix	= \rtrim( homeLink(), '/' ) . $s . $stamp;
+		$prefix	= slashPath( homeLink(), true ) . $stamp;
 		$posts	= loadPosts( $page, $stamp );
 	}
 	
@@ -4882,8 +4888,7 @@ function showTag( string $event, array $hook, array $params ) {
 	
 	$tag	= slugify( $params['tag'] );
 	$page	= ( int ) ( $params['page'] ?? 1 );
-	$prefix	= '';
-	$s	= '/';
+	$prefix	= homeLink() . 'tags/' . $tag . '/', $page;
 	
 	// Pagination prep
 	$plimit	= config( 'page_limit', \PAGE_LIMIT, 'int' );
@@ -4907,9 +4912,7 @@ function showTag( string $event, array $hook, array $params ) {
 	
 	// Nothing found for this tag
 	if ( empty( $res ) ) {
-		formatIndex( 
-			homeLink() . 'tags/' . $tag . '/', $page, [] 
-		);
+		formatIndex( $prefix, [] );
 	}
 	
 	// Extract view column and send to formatting
@@ -4917,7 +4920,7 @@ function showTag( string $event, array $hook, array $params ) {
 	foreach( $res as $r ) {
 		$posts[] = $r['post_view'];
 	}
-	formatIndex( homeLink() . 'tags/' . $tag . '/', $page, $posts );
+	formatIndex( $prefix, $posts );
 }
 
 /**
@@ -5110,6 +5113,192 @@ function runIndex( string $event, array $hook, array $params ) {
 }
 
 /**
+ *  Settings validator that checks loaded/set configuration options
+ *  
+ *  @param string	$event		Should be 'checkconfig'
+ *  @param array	$hook		Previous configuration settings
+ *  @param array	$params		Current configuration
+ */
+function checkConfig( string $event, array $hook, array $params ) {
+	$filter	= [
+		'page_title'	=> \FILTER_SANITIZE_STRING,
+		'page_sub'	=> \FILTER_SANITIZE_STRING,
+		'page_link'	=> \FILTER_VALIDATE_URL,
+		'page_limit'	=> [
+			'filter'	=> \FILTER_VALIDATE_INT,
+			'options'	=> [
+				'min_range'	=> 1,
+				'max_range'	=> 500,
+				'default'	=> \PAGE_LIMIT
+			]
+		],
+		'max_page' => [
+			'filter'	=> \FILTER_VALIDATE_INT,
+			'options'	=> [
+				'min_range'	=> 1,
+				'max_range'	=> 5000,
+				'default'	=> \MAX_PAGE
+			]
+		],
+		
+		// Date formatting
+		'date_nice'	=> [
+			'filter'	=> \FILTER_SANITIZE_SPECIAL_CHARS,
+			'flags'		=> 
+				\FILTER_FLAG_STRIP_LOW	| 
+				\FILTER_FLAG_STRIP_HIGH	| 
+				\FILTER_FLAG_STRIP_BACKTICK 
+		],
+		
+		// Safe file extensions
+		'safe_ext'	=> [
+			'filter'	=> \FILTER_SANITIZE_SPECIAL_CHARS,
+			'flags'		=> 
+				\FILTER_FLAG_STRIP_LOW	| 
+				\FILTER_FLAG_STRIP_HIGH	| 
+				\FILTER_FLAG_STRIP_BACKTICK 
+		],
+		
+		// Post tagging
+		'tag_limit'	=> [
+			'filter'	=> \FILTER_SANITIZE_SPECIAL_CHARS,
+			'options'	=> [
+				'min_range'	=> 1,
+				'max_range'	=> 50,
+				'default'	=> \TAG_LIMIT
+			]
+		],
+		
+		// Cache settings
+		'cache_ttl'	=> [
+			'filter'	=> \FILTER_VALIDATE_INT,
+			'options'	=> [
+				'min_range'	=> 300,
+				'max_range'	=> 604800,
+				'default'	=> \CACHE_TTL
+			]
+		],
+		
+		// Pagination
+		'year_start'	=> [
+			'filter'	=> \FILTER_VALIDATE_INT,
+			'options'	=> [
+				'min_range'	=> 1990,
+				'max_range'	=> ( int ) \date( 'Y' ),
+				'default'	=> \YEAR_START
+			]
+		],
+		
+		'year_end'	=> [
+			'filter'	=> \FILTER_VALIDATE_INT,
+			'options'	=> [
+				'min_range'	=> 1990,
+				'max_range'	=> ( int ) \date( 'Y' ),
+				'default'	=> \YEAR_END
+			]
+		],
+		
+		// Related and sibling display
+		'related_limit'	=> [
+			'filter'	=> \FILTER_VALIDATE_INT,
+			'options'	=> [
+				'min_range'	=> 1,
+				'max_range'	=> 20,
+				'default'	=> \RELATED_LIMIT
+			]
+		],
+		'show_siblings'	=> [
+			'filter'	=> \FILTER_VALIDATE_INT,
+			'options'	=> [
+				'min_range'	=> 0,
+				'max_range'	=> 1,
+				'default'	=> \SHOW_SIBLINGS
+			]
+		],
+		'show_related'	=> [
+			'filter'	=> \FILTER_VALIDATE_INT,
+			'options'	=> [
+				'min_range'	=> 0,
+				'max_range'	=> 1,
+				'default'	=> \SHOW_RELATED
+			]
+		],
+		
+		// Form settings
+		'token_bytes'	=> [
+			'filter'	=> \FILTER_VALIDATE_INT,
+			'options'	=> [
+				'min_range'	=> 5,
+				'max_range'	=> 24,
+				'default'	=> \TOKEN_BYTES
+			]
+		],
+		'nonce_hash'	=> [
+			'filter'	=> \FILTER_SANITIZE_SPECIAL_CHARS,
+			'flags'	=> 
+				\FILTER_FLAG_STRIP_LOW	| 
+				\FILTER_FLAG_STRIP_HIGH	| 
+				\FILTER_FLAG_STRIP_BACKTICK 
+		],
+		'form_delay'	=> [
+			'filter'	=> \FILTER_VALIDATE_INT,
+			'options'	=> [
+				'min_range'	=> 5,
+				'max_range'	=> 604800,
+				'default'	=> \FORM_DELAY
+			]
+		],
+		'form_expire'	=> [
+			'filter'	=> \FILTER_VALIDATE_INT,
+			'options'	=> [
+				'min_range'	=> 300,
+				'max_range'	=> 604800,
+				'default'	=> \FORM_EXPIRE
+			]
+		],
+		
+		// Scurity and error settings
+		'skip_local'	=> [
+			'filter'	=> \FILTER_VALIDATE_INT,
+			'options'	=> [
+				'min_range'	=> 0,
+				'max_range'	=> 1,
+				'default'	=> \SKIP_LOCAL
+			]
+		],
+		'allow_post'	=> [
+			'filter'	=> \FILTER_VALIDATE_INT,
+			'options'	=> [
+				'min_range'	=> 0,
+				'max_range'	=> 1,
+				'default'	=> \ALLOW_POST
+			]
+		]
+	];
+	
+	// Filter passed params, leaving out unset ones
+	$data	= \filter_var_array( $params, $filter, false );
+	
+	if ( isset( $data['safe_ext'] ) ) { 
+		$safe 			= 
+		\array_map( 'trim', 
+			\explode( ',', ( string ) $data['safe_ext'] ) 
+		);
+		
+		$data['safe_ext']	= 
+		\implode( ',', \array_map( 'strtolower', $safe ) );
+	}
+	
+	if ( isset( $data['nonce_hash'] ) ) {
+		$data['nonce_hash']	= 
+		hashAlgo( ( string ) $data['nonce_hash'], \NONCE_HASH );
+	}
+	
+	return 
+	\array_merge( $hook, [ $data ] );
+}
+
+/**
  *  Blog route adding event
  */
 function addBlogRoutes( string $event, array $hook, array $params ) {
@@ -5156,6 +5345,9 @@ function addBlogRoutes( string $event, array $hook, array $params ) {
 /**
  *  Begin event registry
  */
+
+// Configuration load
+hook( [ 'checkconfig',	'checkConfig' ] );
 
 // Home and archive event handlers
 hook( [ 'home',		'showArchive' ] );
