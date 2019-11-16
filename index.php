@@ -805,30 +805,76 @@ function loadArray(
 }
 
 /**
- *  Load JSON formatted configuration file
+ *  Helper to trigger configmodified event on parameter change
  *  
- *  @param string	$file		File name
+ *  @param array	$params		Configuration settings
+ *  @param array	$modify		Changed parameters
  *  @return array
  */
-function loadConfig( string $file ) : array {
-	static $params;
-	if ( isset( $params ) ) {
-		return $params;
-	}
-	
-	$data	= loadFile( $file );
-	$params	= json_decode( \utf8_encode( $data ), true );
-	if ( empty( $params ) ) {
-		$params = [];
+function modifiedConfig( array $params, array $modify ) : array {
+	if ( count( $modify ) ) {
+		$params = \array_merge( $params, $modify );
+		hook( [ 'configmodified', $params ] );
 	}
 	
 	// Call configuration checking event
 	hook( [ 'checkconfig', $params ] );
 	
-	// Load filtered params from event
-	$params	= hook( [ 'checkconfig', '' ] );
+	// Send filtered params from event
+	return hook( [ 'checkconfig', '' ] );
+}
+
+/**
+ *  Load JSON formatted configuration file
+ *  
+ *  @param string	$file		File name
+ *  @param array	$modify		New settings
+ *  @return array
+ */
+function loadConfig( string $file, array $modify = [] ) : array {
+	static $params;
+	
+	if ( isset( $params ) ) {
+		// Modifying after params were already loaded?
+		if ( !empty( $modify ) ) {
+			$params = modifiedConfig( $params, $modify );
+		}
+		return $params;
+	}
+	
+	$data	= loadFile( $file );
+	$params	= decode( $data );
+	
+	// Check for any modifications and run events/filters
+	$params = modifiedConfig( $params, $modify );
 	
 	return $params;
+}
+
+/**
+ *  Save configuration to config.json
+ *  
+ *  @param array	$params		Configuration settings
+ *  @return bool
+ */
+function saveConfig( array $params ) : bool {
+	$data = encode( $params );
+	if ( empty( $data ) ) {
+		return false;
+	}
+	
+	if ( false === \file_put_contents( \CACHE . CONFIG, $data ) ) {
+		return false;
+	}
+	
+	return true;
+}
+
+/**
+ *  Set to fire when configuration has been changed
+ */
+function configModified( string $event, array $hook, array $params ) {	
+	internalState( 'configModified', true );
 }
 
 /**
@@ -839,8 +885,9 @@ function loadConfig( string $file ) : array {
  *  @param string	$type		String, integer, or boolean
  *  @return mixed
  */
-function config( string $name, $default, string $type = 'string'  ) {
+function config( string $name, $default, string $type = 'string' ) {
 	static	$data;
+	
 	$name	= \strtolower( $name );
 	if ( isset( $data[$name] ) ) {
 		return $data[$name];
@@ -1199,6 +1246,10 @@ function cleanup() {
 	
 	getDb( CACHE_DATA, true );
 	getDb( SESSION_DATA, true );
+	
+	if ( internalState( 'configModified' ) ) {
+		saveConfig( loadConfig( \CONFIG ) );
+	}
 }
 
 
@@ -1829,13 +1880,15 @@ function enforceDates( array $args ) : array {
  *  Safely encode to JSON
  */
 function encode( array $data ) : string {
-	return 
+	$out = 
 	\json_encode( 
 		$data, 
 		\JSON_HEX_TAG | \JSON_HEX_APOS | \JSON_HEX_QUOT | 
 		\JSON_HEX_AMP | \JSON_UNESCAPED_UNICODE | 
 		\JSON_PRETTY_PRINT 
 	);
+	
+	return ( false === $out ) ? '' : $out;
 }
 
 /**
@@ -5161,7 +5214,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 		
 		// Post tagging
 		'tag_limit'	=> [
-			'filter'	=> \FILTER_SANITIZE_SPECIAL_CHARS,
+			'filter'	=> \FILTER_VALIDATE_INT,
 			'options'	=> [
 				'min_range'	=> 1,
 				'max_range'	=> 50,
@@ -5348,6 +5401,7 @@ function addBlogRoutes( string $event, array $hook, array $params ) {
 
 // Configuration load
 hook( [ 'checkconfig',	'checkConfig' ] );
+hook( [ 'configmodified','configModified' ] );
 
 // Home and archive event handlers
 hook( [ 'home',		'showArchive' ] );
