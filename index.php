@@ -852,6 +852,38 @@ function loadConfig( string $file, array $modify = [] ) : array {
 }
 
 /**
+ *  File saving helper with auto backup
+ *  
+ *  @param string	$file	Destination file
+ *  @param string	$data	File contents
+ *  @param int		$fx	Prefix 'bkp.', suffix '.bkp', or nothing
+ */
+function saveFile( 
+	string	$file, 
+	string	$data, 
+	int	$fx	= 0
+) : bool {
+	if ( \file_exists( $file ) ) {
+		
+		// Make a backup first
+		$bkp = slashPath( \dirname( $file ), true ) . 
+			( $fx == 1 ? 'bkp.' : '' ) . 
+			\gmdate( 'Ymd\THis' ) . '.' . 
+			\basename( $file ) . 
+			( $fx == 0 ? '.bkp' : '' );
+		
+		if ( !\copy( $file, $bkp ) ) {
+			// Backup failed? Don't overwrite
+			return false;
+		}
+	}
+	
+	return 
+	( false === \file_put_contents( $file, $data, \LOCK_EX ) ) ? 
+		false : true;
+}
+
+/**
  *  Save configuration to config.json
  *  
  *  @param array	$params		Configuration settings
@@ -863,11 +895,7 @@ function saveConfig( array $params ) : bool {
 		return false;
 	}
 	
-	if ( false === \file_put_contents( \CACHE . CONFIG, $data ) ) {
-		return false;
-	}
-	
-	return true;
+	return saveFile( \CACHE . CONFIG, $data, 1 );
 }
 
 /**
@@ -973,8 +1001,8 @@ function navHome() : string {
  */
 function slashPath( string $path, bool $suffix = false ) : string {
 	return $suffix ?
-		\rtrim( $path, '/' ) . '/' : 
-		'/'. \ltrim( $path, '/' );
+		\rtrim( $path, '/\\' ) . '/' : 
+		'/'. \ltrim( $path, '/\\' );
 }
 
 /**
