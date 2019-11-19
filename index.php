@@ -71,7 +71,7 @@ define( 'TAG_LIMIT',	5 );
 
 // Extensions generally safe to send as-is
 define( 'SAFE_EXT',	
-	'css, js, ico, txt, html, jpg, jpeg, gif, bmp, png' );
+	'css, js, ico, txt, html, jpg, jpeg, gif, bmp, png, tif, tiff' );
 
 // Form nonce size
 define( 'TOKEN_BYTES', 		8 );
@@ -88,6 +88,8 @@ define( 'SHOW_RELATED',		1 );
 // Maximum number of related posts to show
 define( 'RELATED_LIMIT',	5 );
 
+// Send actual Last-Modified header for files 
+define( 'SHOW_MODIFIED',	0 );
 
 // General page template
 define( 'TPL_PAGE',		<<<HTML
@@ -708,6 +710,15 @@ function missing( $func ) {
 }
 
 /**
+ *  Path prefix slash (/) helper
+ */
+function slashPath( string $path, bool $suffix = false ) : string {
+	return $suffix ?
+		\rtrim( $path, '/\\' ) . '/' : 
+		'/'. \ltrim( $path, '/\\' );
+}
+
+/**
  *  Load file contents and check for any server-side code		
  */
 function loadFile( string $name ) : string {
@@ -749,6 +760,7 @@ function loadFile( string $name ) : string {
 	}
 	
 	$loaded[$name] = $data;
+	
 	return $data;
 }
 
@@ -914,7 +926,7 @@ function configModified( string $event, array $hook, array $params ) {
  *  @return mixed
  */
 function config( string $name, $default, string $type = 'string' ) {
-	static	$data;
+	static	$data = [];
 	
 	$name	= \strtolower( $name );
 	if ( isset( $data[$name] ) ) {
@@ -994,15 +1006,6 @@ function navHome() : string {
 	] );
 	
 	return $home;
-}
-
-/**
- *  Path prefix slash (/) helper
- */
-function slashPath( string $path, bool $suffix = false ) : string {
-	return $suffix ?
-		\rtrim( $path, '/\\' ) . '/' : 
-		'/'. \ltrim( $path, '/\\' );
 }
 
 /**
@@ -1542,12 +1545,12 @@ function cleanSession() {
  *  @param bool		$reset		Reset session ID if true
  */
 function session( $reset = false ) {
+	\session_cache_limiter( '' );
 	if ( \session_status() === \PHP_SESSION_ACTIVE && !$reset ) {
 		return;
 	}
 	
 	if ( \session_status() !== \PHP_SESSION_ACTIVE ) {
-		//\session_cache_limiter( 'public' );
 		\session_name( \SESSION_TITLE );
 		\session_start();
 	}
@@ -1718,14 +1721,22 @@ function dateSlug( string $slug, string $stamp ) {
  */
 function dateRfc( $stamp = null ) : string {
 	return 
-	\gmdate( \DATE_RFC2822, \strtotime( $stamp ?? 'now' ) );
+	\gmdate( \DATE_RFC2822, tstring( $stamp ?? 'now' ) );
+}
+
+/**
+ *  File modified timestamp
+ */
+function dateRfcFile( $stamp = null ) : string {
+	return 
+	\gmdate( 'D, d M Y H:i:s T', tstring( $stamp ?? 'now' ) );
 }
 
 /**
  *  Convert all spaces to single character
  */
 function unifySpaces( string $text, string $rpl = ' ' ) {
-	return \preg_replace( '/[[:space:]]+/', ' ', pacify( $text ) );
+	return \preg_replace( '/[[:space:]]+/', $rpl, pacify( $text ) );
 }
 
 /**
@@ -3064,21 +3075,24 @@ function genEtag( $path ) {
 	
 	// Find file size header
 	$tags[$path]['fsize']	= \filesize( $path );
-	if ( false !== $tags[$path]['fsize'] ) {
-		// Similar to Nginx ETag algo: 
-		// Lowercase hex of last modified date and filesize
-		$tags[$path]['fmod']	= \filemtime( $path );
-		if ( false !== $tags[$path]['fmod'] ) {
-			$tags[$path]['etag']	= 
-			\sprintf( '%x-%x', 
-				$tags[$path]['fmod'], 
-				$tags[$path]['fsize']
-			);
-		} else {
-			$tags[$path]['etag'] = '';
-		}
-	} else {
+	
+	// Send empty on failure
+	if ( false === $tags[$path]['fsize'] ) {
 		$tags[$path]['fmod'] = 0;
+		$tags[$path]['etag'] = '';
+		return $tags;
+	}
+	
+	// Similar to Nginx ETag algo: 
+	// Lowercase hex of last modified date and filesize
+	$tags[$path]['fmod']	= \filemtime( $path );
+	if ( false !== $tags[$path]['fmod'] ) {
+		$tags[$path]['etag']	= 
+		\sprintf( '%x-%x', 
+			$tags[$path]['fmod'], 
+			$tags[$path]['fsize']
+		);
+	} else {
 		$tags[$path]['etag'] = '';
 	}
 	
@@ -3165,6 +3179,17 @@ function sendFileFinish( $path ) {
 		if ( !empty( $etag ) ) {
 			\header( "ETag: {$etag}", true );
 		}
+		
+		if ( config( 'show_modified', \SHOW_MODIFIED, 'int' ) ) {
+			$fmod	= $tags['fmod'];
+			if ( !empty( $fmod ) ) {
+				\header( 
+					'Last-Modified: ', 
+					dateRfcFile( $fmod ), 
+					true
+				);
+			}
+		}
 	}
 	
 	// Cleanup and flush before readfile
@@ -3174,7 +3199,7 @@ function sendFileFinish( $path ) {
 	\ob_end_flush();
 	
 	if ( ifModified( $etag ) ) {
-		readfile( $path );
+		\readfile( $path );
 	}
 }
 
@@ -3586,7 +3611,7 @@ function getRoutePath(
  *  Route placeholder parse event
  */
 function routeMarkers( string $event, array $hook, array $params ) {
-	return decode( \ROUTE_MARK );
+	return \array_merge( $hook, decode( \ROUTE_MARK ) );
 }
 
 /**
@@ -4385,7 +4410,7 @@ function filterRequest( string $event, array $hook, array $params ) {
 		],
 		'tag'	=> [
 			'filter'	=> \FILTER_CALLBACK,
-			'options'	=> 'pacify'
+			'options'	=> 'unifyspaces'
 		],
 		'slug'	=> [
 			'filter'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
@@ -4393,7 +4418,7 @@ function filterRequest( string $event, array $hook, array $params ) {
 		],
 		'find'	=> [
 			'filter'	=> \FILTER_CALLBACK,
-			'options'	=> 'pacify'
+			'options'	=> 'unifyspaces'
 		],
 		'token'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
 		'nonce'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS
@@ -5204,7 +5229,12 @@ function checkConfig( string $event, array $hook, array $params ) {
 	$filter	= [
 		'page_title'	=> \FILTER_SANITIZE_STRING,
 		'page_sub'	=> \FILTER_SANITIZE_STRING,
-		'page_link'	=> \FILTER_VALIDATE_URL,
+		'page_link'	=> [
+			'filter'=> \FILTER_VALIDATE_URL,
+			'options' => [
+				'default' => \PAGE_LINK
+			],
+		],
 		'page_limit'	=> [
 			'filter'	=> \FILTER_VALIDATE_INT,
 			'options'	=> [
@@ -5315,7 +5345,8 @@ function checkConfig( string $event, array $hook, array $params ) {
 			]
 		],
 		'nonce_hash'	=> [
-			'filter'	=> \FILTER_SANITIZE_SPECIAL_CHARS,
+			'filter'	=> 
+				\FILTER_SANITIZE_SPECIAL_CHARS,
 			'flags'	=> 
 				\FILTER_FLAG_STRIP_LOW	| 
 				\FILTER_FLAG_STRIP_HIGH	| 
@@ -5324,16 +5355,16 @@ function checkConfig( string $event, array $hook, array $params ) {
 		'form_delay'	=> [
 			'filter'	=> \FILTER_VALIDATE_INT,
 			'options'	=> [
-				'min_range'	=> 5,
-				'max_range'	=> 604800,
+				'min_range'	=> 5, 
+				'max_range'	=> 14400, // 4 Hours
 				'default'	=> \FORM_DELAY
 			]
 		],
 		'form_expire'	=> [
 			'filter'	=> \FILTER_VALIDATE_INT,
 			'options'	=> [
-				'min_range'	=> 300,
-				'max_range'	=> 604800,
+				'min_range'	=> 300, // 5 minutes
+				'max_range'	=> 604800, // 7 Days
 				'default'	=> \FORM_EXPIRE
 			]
 		],
@@ -5354,11 +5385,23 @@ function checkConfig( string $event, array $hook, array $params ) {
 				'max_range'	=> 1,
 				'default'	=> \ALLOW_POST
 			]
+		], 
+		'show_modified' => [
+			'filter'	=> \FILTER_VALIDATE_INT,
+			'options'	=> [
+				'min_range'	=> 0,
+				'max_range'	=> 1,
+				'default'	=> \SHOW_MODIFIED
+			]
 		]
 	];
 	
 	// Filter passed params, leaving out unset ones
-	$data	= \filter_var_array( $params, $filter, false );
+	$data			= 
+	\filter_var_array( $params, $filter, false );
+	
+	$data['page_link']	= 
+	\strip_tags( $data['page_link'] ?? \PAGE_LINK );
 	
 	if ( isset( $data['safe_ext'] ) ) { 
 		$safe 			= 
@@ -5375,8 +5418,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 		hashAlgo( ( string ) $data['nonce_hash'], \NONCE_HASH );
 	}
 	
-	return 
-	\array_merge( $hook, [ $data ] );
+	return \array_merge( $hook, $data );
 }
 
 /**
