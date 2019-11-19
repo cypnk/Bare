@@ -91,6 +91,16 @@ define( 'RELATED_LIMIT',	5 );
 // Send actual Last-Modified header for files 
 define( 'SHOW_MODIFIED',	0 );
 
+// Default language
+define( 'LANGUAGE',	'en-US' );
+
+// Default local timezone when not set in config.json
+define( 'TIMEZONE',		'America/New_York' );
+// For a list of valid values for this, see:
+// https://www.php.net/manual/en/timezones.php
+
+
+
 // General page template
 define( 'TPL_PAGE',		<<<HTML
 <!DOCTYPE html>
@@ -143,16 +153,23 @@ define( 'TPL_FOOTER',		<<<HTML
 HTML
 );
 
+// Form anti-XSRF hidden inputs (required on all forms)
+define( 'TPL_INPUT_XSRF',	<<<HTML
+<input type="hidden" name="nonce" value="{nonce}">
+<input type="hidden" name="token" value="{token}">
+HTML
+);
+
 // Search form
 define( 'TPL_SEARCHFORM',	<<<HTML
 <form action="{home}" method="get">
-<input type="hidden" name="nonce" value="{nonce}">
-<input type="hidden" name="token" value="{token}">
+{xsrf}
 <input type="search" name="find" required> 
 	<input type="submit" value="Search">
 </form>
 HTML
 );
+
 
 // Generic error page
 define( 'TPL_ERROR_PAGE',	<<<HTML
@@ -4677,10 +4694,15 @@ function searchForm() : string {
 	// Search form hidden fields
 	$pair	= genNoncePair( 'searchform' );
 	
-	return 
-	\strtr( \TPL_SEARCHFORM, [
+	$xsrf	= 
+	\strtr( \TPL_INPUT_XSRF ?? '', [
 		'{nonce}'	=> $pair['nonce'],
-		'{token}'	=> $pair['token'],
+		'{token}'	=> $pair['token']
+	] );
+	
+	return 
+	\strtr( \TPL_SEARCHFORM ?? '', [
+		'{xsrf}'	=> $xsrf,
 		'{home}'	=> homeLink()
 	] );
 }
