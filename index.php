@@ -1052,7 +1052,12 @@ function paginate( $page, $prefix, $posts ) : string {
 		] ); 
 	}
 	
-	return \strtr( TPL_NAV ?? '', [ '{text}' => $out ] );
+	if ( \defined( 'RENDER_PLUGIN' ) ) {
+		return 
+		\strtr( \TPL_PAGINATION, [ '{links}' => $out ] );
+	}
+	
+	return \strtr( \TPL_NAV ?? '', [ '{text}' => $out ] );
 }
 
 /**
@@ -1092,6 +1097,67 @@ function genSeqId() : string {
 }
 
 /**
+ *  Split a block of text into an array of lines
+ *  
+ *  @param string	$text	Raw text to split into lines
+ *  @param int		$lim	Max line limit, defaults to unlimited
+ *  @param bool		$tr	Also trim lines if true
+ *  @return array
+ */
+function lines( string $text, int $lim = -1, bool $tr = true ) : array {
+	return $tr ?
+	\preg_split( 
+		'/\s*\R\s*/', 
+		trim( $text ), 
+		$lim, 
+		\PREG_SPLIT_NO_EMPTY 
+	) : 
+	\preg_split( '/\R/', $text, $lim, \PREG_SPLIT_NO_EMPTY );
+}
+
+/**
+ *  Helper to turn items (one per line) into a unique value array
+ *  
+ *  @param string	$text	Lined settings (one per line)
+ *  @param int		$lim	Maximum number of items
+ *  @return array
+ */
+function lineSettings( string $text, int $lim ) : array {
+	$ln = \array_unique( lines( $text ) );
+	
+	return ( count( $ln ) > $lim ) ? 
+		\array_slice( $ln, 0, $lim ) : $ln;
+}
+
+
+/**
+ *  Get presets as lined items (one item per line)
+ *  
+ *  @param string	$label		Preset unique identifier
+ *  @param string	$base		Setting name in config.json
+ *  @param mixed	$default	Defined configuration
+ *  @param string	$data		String block of items
+ */ 
+function linePresets(
+	string		$label,
+	string		$base,
+			$default, 
+	string		$data
+) {
+	static $prs	= [];
+	
+	if ( isset( $prs[$label] ) ) {
+		return $prs[$label];
+	}
+	
+	// Maximum number of items
+	$lim		= config( $base, $default, 'int' );
+	$prs[$label]	= lineSettings( $data, $lim );
+	
+	return $prs[$label];
+}
+
+/**
  *  Collection of functions to execute after content sent
  */
 function shutdown() {
@@ -1121,8 +1187,6 @@ function shutdown() {
 }
 
 
-
-
 /**
  *  Database
  */
@@ -1142,8 +1206,7 @@ function loadSQL( string $dsn ) {
 	$def	= \explode( '_', $my[$dsn] )[0];
 	
 	// SQL Lines from defined component + "_SQL"
-	$lines	= \preg_split( "/[\r\n]+/", constant( $def . '_SQL' ) );
-	return \array_filter( \array_map( 'trim', $lines ) );
+	return lines( \constant( $def . '_SQL' ) ?? '', -1, false );
 }
 
 /**
@@ -4316,6 +4379,12 @@ function formatTags( array $tags ) : string {
 	if ( empty( $tags ) ) {
 		return '';
 	}
+	
+	// Render plugin installed?
+	if ( defined( 'RENDER_PLUGIN' ) ) {
+		return tagLinks( $tags );
+	}
+	
 	$out	= '';
 	$r	= getRoot();
 	foreach( $tags as $t ) {
@@ -4465,6 +4534,37 @@ function formatIndex( $prefix, $page, $posts, $cache = true ) {
 	
 	$ptitle	= config( 'page_title', \PAGE_TITLE );
 	$psub	= config( 'page_sub', \PAGE_SUB );
+	
+	// Use the render plugin if added
+	if ( defined( 'RENDER_PLUGIN' ) ) {
+		$items = empty( $posts ) ? 
+			\strtr( 
+				TPL_NOPOSTS ?? '', 
+				[ '{home}'	=> homeLink() ] 
+			) : \implode( '', $posts );
+		
+		setRegion( [
+			'{after_title}'	=> renderFeedTag(),
+			'{page_title}'	=> $ptitle,
+			'{post_title}'	=> $ptitle,
+			'{tagline}'	=> $psub,
+			'{body}'	=>  
+				\strtr( 
+					\TPL_PAGE_ITEMS_WRAP, 
+					[ '{items}' => $items ] 
+				),
+			'{body_after}'	=>
+			empty( $posts ) ?
+			\strtr( TPL_NAV ?? '', [ '{text}' => navHome() ] ) : 
+			paginate( $page, $prefix, $posts )
+		] );
+		
+		// Send results (don't cache if no posts found)
+		$cache	= empty( $posts ) ? false : $cache;
+		shutdown( 'cleanup' );
+		
+		send( 200, render( \TPL_FULL_PAGE ), $cache );
+	}
 	
 	$tpl	= [
 		'{page_title}'	=> $ptitle,
@@ -4826,6 +4926,14 @@ function getSiblings( string $path ) {
 		$out .= previewLink( $p['next_path'], 'next' );	
 	}
 	
+	// Next/previous template from the render plugin available?
+	if ( \defined( 'TPL_PAGE_NEXTPREV' ) ) {
+		return 
+		\strtr( 
+			\TPL_PAGE_NEXTPREV, [ '{links}' => $out ] 
+		);
+	}
+	
 	return \strtr( \TPL_SIBLINGNAV ?? '', [ '{text}' => $out ] );
 }
 
@@ -4912,11 +5020,7 @@ function getRelated( string $path ) {
 		return '';
 	}
 	
-	$lines	= 
-	\array_filter( 
-		\array_map( 'trim', \preg_split( '/[\r\n]+/', $text ) )
-	);
-	
+	$lines	= lines( $text );
 	if ( empty( $lines ) ) {
 		return '';
 	}
@@ -4962,6 +5066,15 @@ function getRelated( string $path ) {
 	
 	// Exclude accidental duplicate results
 	$out = \array_unique( $out );
+	
+	// Use generic list from the render plugin, if available
+	if ( \defined( 'TPL_PAGE_LIST' ) ) {
+		return
+		\strtr( \TPL_PAGE_LIST, [
+			'{heading}'	=> '{lang:headings:related}',
+			'{text}'	=> \implode( '', $out )
+		] );
+	}
 	
 	return 
 	\strtr( \TPL_RELATEDNAV, [ '{text}' => \implode( '', $out ) ] );
@@ -5184,6 +5297,25 @@ function showPost( string $event, array $hook, array $params ) {
 	$ptitle	= config( 'page_title', \PAGE_TITLE );
 	$psub	= config( 'page_sub', \PAGE_SUB );
 	
+	
+	if ( \defined( 'RENDER_PLUGIN' ) ) {
+		setRegion( [
+			'{after_title}'	=> renderFeedTag(),
+			'{page_title}'	=> $ptitle,
+			'{post_title}'	=> $title . ' - ' . $ptitle,
+			'{tagline}'	=> $psub,
+			'{body}'	=>  
+				\strtr( 
+					\TPL_PAGE_ITEMS_WRAP, 
+					[ '{items}' => $post ] 
+				),
+			'{body_after}'	=> $sib,
+		] );
+		
+		shutdown( 'cleanup' );
+		send( 200, render( \TPL_FULL_PAGE ), true );
+	}
+	
 	$tpl	= [
 		'{page_title}'	=> $ptitle,
 		'{post_title}'	=> $title . ' - ' . $ptitle,
@@ -5229,6 +5361,22 @@ function runIndex( string $event, array $hook, array $params ) {
 	$out	= \strtr( TPL_INDEX_WRAP, [ '{items}' => $out ] );
 	$ptitle	= config( 'page_title', \PAGE_TITLE );
 	$psub	= config( 'page_sub', \PAGE_SUB );
+	
+	
+	if ( \defined( 'RENDER_PLUGIN' ) ) {
+		setRegion( [
+			'{after_title}'	=> renderFeedTag(),
+			'{page_title}'	=> $ptitle,
+			'{post_title}'	=> $ptitle,
+			'{tagline}'	=> $psub,
+			'{body}'	=> $out, 
+			'{paginate}'	=> ''
+		] );
+		
+		shutdown( 'cleanup' );
+		send( 200, render( \TPL_FULL_PAGE ), true );
+	}
+	
 	
 	$tpl	= [
 		'{page_title}'	=> $ptitle,
