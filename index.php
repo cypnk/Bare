@@ -4884,7 +4884,8 @@ function reloadIndex( string $event, array $hook, array $params ) {
 function previewLink( 
 	string		$path, 
 	string		$mode	= '', 
-	bool		$nr	= false ) {
+	bool		$nr	= false 
+) {
 	$ppath	= POSTS . $path. '.md';
 	$data	= postData( $ppath );
 	if ( empty( $data ) ) {
@@ -5085,19 +5086,24 @@ function getRelated( string $path ) {
 	}
 	
 	$out	= [];
-	foreach( $search as $p ) {
-		$out[] = 
-		previewLink( \trim( $p['post_path'] ), '', false );
-	}
 	
 	// Use generic list from the render plugin, if available
 	if ( \defined( 'RENDER_PLUGIN' ) ) {
-		$wrap = 
+		foreach( $search as $p ) {
+			$out[] = 
+			previewLink( \trim( $p['post_path'] ), '', true );
+		}
+	
+		$wrap	= 
 		\strtr( \TPL_PAGE_LIST, [
 			'{heading}'	=> '{lang:headings:related}'
 		] );
-		
 		return renderNavLinks( 'related', $out, $wrap );
+	}
+	
+	foreach( $search as $p ) {
+		$out[] = 
+		previewLink( \trim( $p['post_path'] ) );
 	}
 	
 	return 
