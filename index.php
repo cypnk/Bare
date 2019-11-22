@@ -1056,6 +1056,42 @@ function paginate( $page, $prefix, $posts ) : string {
 }
 
 /**
+ *  Generate a random string ID based on given random bytes
+ *  
+ *  @param int		$bytes		Size of random bytes
+ *  @return string
+ */
+function genId( int $bytes = 16 ) : string {
+	return \bin2hex( \random_bytes( $bytes ) );
+}
+
+/**
+ *  Generate a system time based sqeuential random ID
+ *  
+ *  Note: Downgrading from PHP 7.3 to 7.2 may cause IDs to appear out 
+ *  of sync
+ *  
+ *  @return string
+ */
+function genSeqId() : string {
+	static $nohr;
+	if ( !isset( $nohr ) ) {
+		$nohr  = missing( 'hrtime' );
+	}
+	
+	if ( $nohr ) {
+		list( $us, $se ) = 
+			\explode( ' ', \microtime() );
+		$t = $se . $us;
+	} else {
+		$t = ( string ) hrtime( true );
+	}
+	
+	return 
+	\base_convert( $t, 10, 16 ) . \genId();
+}
+
+/**
  *  Collection of functions to execute after content sent
  */
 function shutdown() {
@@ -1407,7 +1443,7 @@ function sessionClose() { return true; }
  *  @return string
  */
 function sessionCreateID() {
-	$id	= \bin2hex( \random_bytes( SESSION_BYTES ) );
+	$id	= \genId( SESSION_BYTES );
 	$sql	= 
 	"INSERT OR IGNORE INTO sessions ( session_id )
 		VALUES ( :id );";
@@ -1520,9 +1556,7 @@ function sessionCanary( string $visit = '' ) {
 	[
 		'exp'		=> time() + \SESSION_EXP,
 		'visit'		=> 
-		empty( $visit ) ? 
-			\bin2hex( \random_bytes( \SESSION_BYTES ) ) : 
-			$visit
+		empty( $visit ) ? \genId( \SESSION_BYTES ) : $visit
 	];
 }
 	
@@ -2064,39 +2098,6 @@ function signature() {
 }
 
 /**
- *  Flatten a multi-dimensional array into a path map
- *  
- *  @link https://stackoverflow.com/a/2703121
- *  
- *  @param array	$items		Raw item map (parsed JSON)
- *  @param string	$delim		Phrase separator in E.G. {lang:}
- *  @return array
- */ 
-function flatten(
-	array		$items, 
-	string		$delim	= ':'
-) : array {
-	$it	= new \RecursiveIteratorIterator( 
-			new \RecursiveArrayIterator( $items )
-		);
-	
-	$out	= [];
-	foreach ( $it as $leaf ) {
-		$path = '';
-		foreach ( \range( 0, $it->getDepth() ) as $depth ) {
-			$path .= 
-			\sprintf( 
-				"$delim%s", 
-				$it->getSubIterator( $depth )->key() 
-			);
-		}
-		$out[$path] = $leaf;
-	}
-	
-	return $out;
-}
-
-/**
  *  Hooks and extensions
  *  Append a hook handler in [ 'event', 'handler' ] format
  *  Call the hook event in [ 'event', args... ] format
@@ -2143,6 +2144,12 @@ function hook( array $params ) {
 		}
 	}
 }
+
+
+
+/**
+ *  Filtering
+ */
 
 /**
  *  Strip unusable characters from raw text/html and conform to UTF-8
@@ -2513,7 +2520,12 @@ function html( string $value, $prefix = '' ) : string {
  *  @return string
  */
 function tidyup( string $text ) : string {
-	if ( missing( 'tidy_repair_string' ) ) {
+	static $notidy;
+	
+	if ( !isset( $notidy ) ) { 
+		 $notidy = missing( 'tidy_repair_string' );
+	}
+	if ( $notidy ) {
 		return $text;
 	}
 	
@@ -4513,7 +4525,7 @@ function genNoncePair( string $name ) : array {
 		$tb = 64;
 	}
 	
-	$nonce	= \bin2hex( \random_bytes( $tb ) );
+	$nonce	= genId( $tb );
 	$time	= time();
 	$data	= $name . getIP() . $time;
 	$token	= "$time:" . \hash( $ha, $data . $nonce );
@@ -5361,8 +5373,8 @@ function checkConfig( string $event, array $hook, array $params ) {
 		'token_bytes'	=> [
 			'filter'	=> \FILTER_VALIDATE_INT,
 			'options'	=> [
-				'min_range'	=> 5,
-				'max_range'	=> 24,
+				'min_range'	=> 8,
+				'max_range'	=> 64,
 				'default'	=> \TOKEN_BYTES
 			]
 		],
