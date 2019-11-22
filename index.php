@@ -1854,6 +1854,19 @@ function unifySpaces( string $text, string $rpl = ' ' ) {
 }
 
 /**
+ *  Get a list of tokens separated by spaces
+ */
+function uniqueTerms( string $value ) : array {
+	return 
+	\array_unique( 
+		\preg_split( 
+			'/[[:space:]]+/', trim( $value ), -1, 
+			\PREG_SPLIT_NO_EMPTY 
+		) 
+	);
+}
+
+/**
  *  Clean entry title
  *  
  *  @param string	$title	Raw title entered by the user
@@ -4861,9 +4874,17 @@ function reloadIndex( string $event, array $hook, array $params ) {
 }
 
 /**
- *  Format preview info into link
+ *  Format preview info into link, return as rendered HTML or array
+ *  
+ *  @param string	$path		Post permalink
+ *  @param string	$mode		Link render mode
+ *  @param bool		$nr		Don't render template if true
+ *  @return mixed
  */
-function previewLink( string $path, string $mode = '' ) {
+function previewLink( 
+	string		$path, 
+	string		$mode	= '', 
+	bool		$nr	= false ) {
 	$ppath	= POSTS . $path. '.md';
 	$data	= postData( $ppath );
 	if ( empty( $data ) ) {
@@ -4893,7 +4914,11 @@ function previewLink( string $path, string $mode = '' ) {
 			] ); 
 			
 		default: 
-			return
+			return $nr ? // Don't render?
+			[ 
+				'{url}'		=> $perm,
+				'{text}'	=> $title
+			] : 
 			\strtr( \TPL_LINK ?? '', [ 
 				'{url}'		=> $perm,
 				'{text}'	=> $title
@@ -5061,19 +5086,18 @@ function getRelated( string $path ) {
 	
 	$out	= [];
 	foreach( $search as $p ) {
-		$out[] = previewLink( \trim( $p['post_path'] ) );
+		$out[] = 
+		previewLink( \trim( $p['post_path'] ), '', false );
 	}
 	
-	// Exclude accidental duplicate results
-	$out = \array_unique( $out );
-	
 	// Use generic list from the render plugin, if available
-	if ( \defined( 'TPL_PAGE_LIST' ) ) {
-		return
+	if ( \defined( 'RENDER_PLUGIN' ) ) {
+		$wrap = 
 		\strtr( \TPL_PAGE_LIST, [
-			'{heading}'	=> '{lang:headings:related}',
-			'{text}'	=> \implode( '', $out )
+			'{heading}'	=> '{lang:headings:related}'
 		] );
+		
+		return renderNavLinks( 'related', $out, $wrap );
 	}
 	
 	return 
