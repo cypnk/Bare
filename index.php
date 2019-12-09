@@ -4561,6 +4561,7 @@ function formatIndex( $prefix, $page, $posts, $cache = true ) {
 			'{page_title}'	=> $ptitle,
 			'{post_title}'	=> $ptitle,
 			'{tagline}'	=> $psub,
+			'{extra}'	=> '',
 			'{body}'	=>  
 				\strtr( 
 					\TPL_PAGE_ITEMS_WRAP, 
@@ -5334,6 +5335,7 @@ function showPost( string $event, array $hook, array $params ) {
 			'{page_title}'	=> $ptitle,
 			'{post_title}'	=> $title . ' - ' . $ptitle,
 			'{tagline}'	=> $psub,
+			'{extra}'	=> '',
 			'{body}'	=>  
 				\strtr( 
 					\TPL_PAGE_ITEMS_WRAP, 
@@ -5399,6 +5401,7 @@ function runIndex( string $event, array $hook, array $params ) {
 			'{page_title}'	=> $ptitle,
 			'{post_title}'	=> $ptitle,
 			'{tagline}'	=> $psub,
+			'{extra}'	=> '',
 			'{body}'	=> $out, 
 			'{paginate}'	=> ''
 		] );
