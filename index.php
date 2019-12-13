@@ -71,7 +71,7 @@ define( 'TAG_LIMIT',	5 );
 
 // Extensions generally safe to send as-is
 define( 'SAFE_EXT',	
-	'css, js, ico, txt, html, jpg, jpeg, gif, bmp, png, tif, tiff' );
+	'css, js, ico, txt, html, jpg, jpeg, gif, bmp, png, tif, tiff, ttf, otf' );
 
 // Form nonce size
 define( 'TOKEN_BYTES', 		8 );
@@ -1241,17 +1241,31 @@ function installSQL( \PDO $db, string $dsn ) {
 /**
  *  Get database connection
  *  
- *  @param bool		$close	Close connection (optional)
+ *  @param string	$dsn	Connection string
+ *  @param string	$mode	Return mode
  */
-function getDb( string $dsn, bool $close = false ) {
+function getDb( string $dsn, string $mode = 'get' ) {
 	static $db	= [];
 	
-	if ( $close ) {
-		if ( isset( $db[$dsn] ) ) {
-			$db[$dsn] = null;
-			unset( $db[$dsn] );
-		}
-		return;
+	switch( $mode ) {
+		case 'close':	
+			if ( isset( $db[$dsn] ) ) {
+				$db[$dsn] = null;
+				unset( $db[$dsn] );
+			}
+			return;
+		
+		case 'closeall':
+			foreach( $db as $k => $v  ) {
+				$db[$k] = null;
+				unset( $db[$k] );
+			}
+			return;
+		
+		default:
+			if ( empty( $dsn ) ) {
+				return null;
+			}
 	}
 	
 	if ( isset( $db[$dsn] ) ) {
@@ -1391,8 +1405,7 @@ function cleanup() {
 		\session_write_close();
 	}
 	
-	getDb( CACHE_DATA, true );
-	getDb( SESSION_DATA, true );
+	getDb( '', 'closeall' );
 	
 	if ( internalState( 'configModified' ) ) {
 		saveConfig( loadConfig( \CONFIG ) );
@@ -3962,6 +3975,13 @@ function refreshPost(
 		
 		$db->commit();
 	}
+	
+	// Cleanup
+	$dstm	= null;
+	$pstm	= null;
+	$sstm	= null;
+	$tstm	= null;
+	$istm	= null;
 }
 
 function loadPost(
@@ -4368,6 +4388,12 @@ function loadIndex() {
 			applyTags( $sstm, $tstm, $perm, $tags );
 		}
 	}
+	
+	// Cleanup
+	$istm	= null;
+	$pstm	= null;
+	$sstm	= null;
+	$tstm	= null;
 	
 	internalState( 'indexRun', true );	
 	return \array_filter( $posts );
