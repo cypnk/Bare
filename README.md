@@ -146,13 +146,13 @@ The Nginx web server supports URL rewriting and file filtering. The
 following is a simple configuration for a site named example.com.  
 Note: The pound sign(#) denotes comments.
 
-The following is an example configuration tested on Arch linux.
+The following is an example server block tested on Arch linux.
 ```
 server {
 	server_name example.com;
 	
 	# Change this to your web root, if it's different
-	root /usr/share/nginx/example.com/html;
+	root /srv/http/example.com/html;
 	
 	# Prevent access to special files
 	location ~\.(hta|htp|md|conf|db|sql|json|sh)\$ {
