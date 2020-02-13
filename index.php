@@ -408,6 +408,7 @@ define( 'ROUTE_MARK',	<<<JSON
 	":nonce": "(?<nonce>[a-z0-9]{10,30})",
 	":token": "(?<token>[a-z0-9\\\\+\\\\=\\\\-\\\\%]{10,255})",
 	":tag"	: "(?<tag>[\\\\pL\\\\pN\\\\s_\\\\,\\\\-]{1,30})",
+	":tags"	: "(?<tags>[\\\\pL\\\\pN\\\\s_\\\\,\\\\-]{1,255})",
 	":year"	: "(?<year>[2][0-9]{3})",
 	":month": "(?<month>[0-3][0-9]{1})",
 	":day"	: "(?<day>[0-9][0-9]{1})",
@@ -4095,7 +4096,7 @@ function extractTags( array &$post ) : array {
 	
 	if ( !isset( $tagp ) ) {
 		$tagp	= 
-		getMarkers()[':tag'] ?? '(?<tag>[\pL\pN\s_\,\-]{1,30})';
+		getMarkers()[':tags'] ?? '(?<tags>[\pL\pN\s_\,\-]{1,255})';
 	}
 	
 	$c	= count( $post );
@@ -4111,14 +4112,14 @@ function extractTags( array &$post ) : array {
 		'/^tags\s?\:' . $tagp . '/is', $line, $m 
 	);
 	
-	if ( empty( $m['tag'] ) ) {
+	if ( empty( $m['tags'] ) ) {
 		return [];
 	}
 	
 	// Clean tags
 	$tags	= 
 	\array_filter( \array_map( 
-		'trim', \explode( ',', $m['tag'] ?? '' ) 
+		'trim', \explode( ',', $m['tags'] ?? '' ) 
 	) );
 	
 	// No tags left after cleaning?
