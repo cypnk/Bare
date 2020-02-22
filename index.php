@@ -99,6 +99,8 @@ define( 'TIMEZONE',		'America/New_York' );
 // For a list of valid values for this, see:
 // https://www.php.net/manual/en/timezones.php
 
+// Whitelist of allowed server host names
+define( 'SERVER_WHITE',		'kpz62k4pnyh5g5t2efecabkywt2aiwcnqylthqyywilqgxeiipen5xid.onion' );
 
 
 // General page template
@@ -3028,6 +3030,32 @@ function httpCode( int $code ) {
 	die( 'Unknown status code "' . $code . '"' );
 }
 
+/**
+ *  Host server name
+ *  @return string
+ */
+function getHost() : string {
+	static $host;
+	if ( isset( $host ) ) { return $host; }
+	
+	$sw	= \array_map( 'trim', \explode( ',', \SERVER_WHITE ) );
+	$sh	= [ 'HTTP_HOST', 'SERVER_NAME', 'SERVER_ADDR' ];
+	
+	foreach ( $sh as $h ) {
+		if ( isset( $_SERVER[$h] ) ) {
+			if ( empty( $_SERVER[$h] ) ) { continue; }
+			
+			$host	= 
+			\in_array( $_SERVER[$h], $sw ) ? 
+				$_SERVER[$h] : '';
+			
+			return $host;
+		}
+	}
+	
+	$host	= '';
+	return $host;
+}
 
 /**
  *  Current website with protocol prefix
@@ -3040,8 +3068,7 @@ function website() {
 		return $url;
 	}
 	
-	$url	= isSecure() ? 'https://' : 'http://';
-	$url	.= $_SERVER['SERVER_NAME'];
+	$url	= ( isSecure() ? 'https://' : 'http://' ) . getHost();
 	return $url;
 }
 
@@ -3599,6 +3626,11 @@ function request( string $event, array $hook, array $params ) : array {
 	
 	// Check throttling
 	sessionThrottle();
+	
+	// Empty host?
+	if ( empty( getHost() ) ) {
+		sendError( 400, \MSG_INVALID );
+	}
 	
 	// Sanity checks
 	$path	= $_SERVER['REQUEST_URI'];
