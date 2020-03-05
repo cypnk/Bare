@@ -383,7 +383,7 @@ define( 'DEFAULT_JCSP',		<<<JSON
 	"style-src"		: "'self'",
 	"script-src"		: "'self'",
 	"form-action"		: "'self'",
-	"frame-ancestors"	: "'self' https:\/\/www.youtube.com https:\/\/player.vimeo.com"
+	"frame-ancestors"	: "'self' https:\/\/www.youtube.com https:\/\/player.vimeo.com https:\/\/archive.org"
 }
 JSON
 );
@@ -2672,7 +2672,16 @@ function embeds( string $html ) : string {
 		// Peertube
 		'/\[peertube http(s)?\:\/\/(.*?)\/videos\/watch\/([0-9\-a-z_]*)\]/is'
 		=>
-		'<div class="media"><iframe width="560" height="315" sandbox="allow-same-origin allow-scripts" src="https://$2/videos/embed/$3" frameborder="0" allowfullscreen></iframe></div>'
+		'<div class="media"><iframe width="560" height="315" sandbox="allow-same-origin allow-scripts" src="https://$2/videos/embed/$3" frameborder="0" allowfullscreen></iframe></div>',
+		
+		// Archive.org
+		'/\[archive http(s)?\:\/\/(www)?\.?archive\.org\/details\/([0-9\-a-z_\/\.]*)\]/is'
+		=>
+		'<div class="media"><iframe width="560" height="315" sandbox="allow-same-origin allow-scripts" src="https://archive.org/embed/$3" frameborder="0" allowfullscreen></iframe></div>',
+		
+		'/\[archive ([0-9a-z_\/\.]*)\]/is'
+		=> 
+		'<div class="media"><iframe width="560" height="315" src="https://archive.org/embed/$1" frameborder="0" allowfullscreen></iframe></div>'
 	];
 		
 	return 
