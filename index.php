@@ -886,14 +886,16 @@ function loadConfig( string $file, array $modify = [] ) : array {
 /**
  *  File saving helper with auto backup
  *  
- *  @param string	$file	Destination file
- *  @param string	$data	File contents
- *  @param int		$fx	Prefix 'bkp.', suffix '.bkp', or nothing
+ *  @param string	$file		Destination file
+ *  @param string	$data		File contents
+ *  @param int		$fx		Prefix 'bkp.', suffix '.bkp', or nothing
+ *  @param bool		$append		Append to file instead of replacing it
  */
 function saveFile( 
 	string	$file, 
 	string	$data, 
-	int	$fx	= 0
+	int	$fx		= 0,
+	bool	$append		= false
 ) : bool {
 	if ( \file_exists( $file ) ) {
 		
@@ -908,6 +910,13 @@ function saveFile(
 			// Backup failed? Don't overwrite
 			return false;
 		}
+	}
+	
+	if ( $append ) {
+		return 
+		( false === \file_put_contents( 
+			$file, $data, \FILE_APPEND | \LOCK_EX 
+		) ) ? false : true;
 	}
 	
 	return 
@@ -3165,10 +3174,38 @@ function send(
 }
 
 /**
+ *  Error file sending helper
+ *  
+ *  @param string	$path		Error file path
+ *  @param int		$code		Error code number
+ */
+function sendErrorFile( string $path, int $code ) {
+	// Prepend error root
+	$path = getRoot( true ) . $path;
+	if ( !\file_exists( $path ) ) {
+		return;
+	}
+	
+	hook( [ 'errorfilesend', [ 
+			'path'		=> $path, 
+			'code'		=> $code
+		] ] );
+		sendFilePrep( $path, $code );
+		sendFileFinish( $path, true );
+		shutdown();
+	}
+}
+
+/**
  *  Send error message wrapped in default page template
  */
 function sendError( int $code, $body ) {
-	$path = '';
+	// Try to send generic file error, if it exists, and exit
+	if ( \in_array( $code, [ 500, 501, 503 ] ) ) {
+		sendErrorFile( '50x.html', $code );
+	}
+	
+	$path	= '';
 	
 	// Try to send a static error file if it exists first
 	switch( $code ) {
@@ -3178,28 +3215,19 @@ function sendError( int $code, $body ) {
 		case 404:
 		case 405:
 		case 429:
-			$path = getRoot( true ) . $code . '.html';
-			break;
-			
 		case 500:
 		case 501:
 		case 503:
-			$path = getRoot( true ) . '50x.html';
+			$path = $code . '.html';
 			break;
 	}
 	
+	// Should end here if error file exists
 	if ( !empty( $path ) ) {
-		if ( \file_exists( $path ) ) {
-			hook( [ 'errorfilesend', [ 
-				'path'		=> $path, 
-				'code'		=> $code
-			] ] );
-			sendFilePrep( $path, $code );
-			sendFileFinish( $path, true );
-			shutdown();
-		}
+		sendErrorFile( $path, $code );
 	}
 	
+	// No error file sent, continue with built-in error page
 	shutdown( 'cleanup' );
 	
 	$ptitle	= config( 'page_title', \PAGE_TITLE );
