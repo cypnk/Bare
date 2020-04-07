@@ -3189,11 +3189,11 @@ function sendErrorFile( string $path, int $code ) {
 	hook( [ 'errorfilesend', [ 
 			'path'		=> $path, 
 			'code'		=> $code
-		] ] );
-		sendFilePrep( $path, $code );
-		sendFileFinish( $path, true );
-		shutdown();
-	}
+		] 
+	] );
+	sendFilePrep( $path, $code );
+	sendFileFinish( $path, true );
+	shutdown();
 }
 
 /**
