@@ -3992,10 +3992,6 @@ function postData( $raw, bool $fl = true ) {
 			if ( false === $data ) {
 				return [];
 			}
-			
-			if ( empty( $data ) ) {
-				return [];
-			}
 		} else {
 			return [];
 		}
@@ -4003,6 +3999,20 @@ function postData( $raw, bool $fl = true ) {
 	// Or break content into lines
 	} else {
 		$data	= explode( "\n", $raw );
+	}
+	
+	if ( empty( $data ) ) {
+		return [];
+	}
+	
+	// Remove empty lines from beginning of post 
+	// (titles etc...)
+	while( "" === trim( \current( $data ) ) ) {
+		\array_shift( $data );
+	}
+	
+	if ( empty( $data ) ) {
+		return [];
 	}
 	
 	// Empty lines from end of post 
