@@ -4005,25 +4005,6 @@ function postData( $raw, bool $fl = true ) {
 		$data	= explode( "\n", $raw );
 	}
 	
-	// Remove empty lines from beginning of post 
-	// (helps with titles etc...)
-	while( false !== \current( $data ) ) ) {
-		if ( empty( trim( \current( $data ) ) ) ) {
-			\array_shift( $data );
-		
-		// Found content
-		} else {
-			break;
-		}
-		
-		// Reached the end already?
-		if ( false === \next( $data ) ) {
-			return [];
-		}
-	}
-	
-	\reset( $data );
-	
 	// Empty lines from end of post 
 	// (tags etc...)
 	while( "" === trim( \end( $data ) ) ) {
