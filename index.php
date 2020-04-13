@@ -995,15 +995,20 @@ function hashAlgo(
 	string	$default, 
 	bool	$hmac		= false 
 ) : string {
-	$ht = config( $token, $default );
-	
-	if ( $hmac ) { 
-		return 
-		\in_array( $ht, \hash_hmac_algos() ) ? $ht : $default;
+	static $algos	= [];
+	$t		= $token . ( string ) $hmac;
+	if ( isset( $algos[$t] ) ) {
+		return $algos[$t];
 	}
 	
-	return 
-	\in_array( $ht, \hash_algos() ) ? $ht : $default;
+	$ht		= config( $token, $default );
+	
+	$algos[$t]	= 
+		\in_array( $ht, 
+			( $hmac ? \hash_hmac_algos() : \hash_algos() ) 
+		) ? $ht : $default;
+		
+	return $algos[$t];	
 }
 
 /**
@@ -1101,7 +1106,7 @@ function genSeqId() : string {
 			\explode( ' ', \microtime() );
 		$t = $se . $us;
 	} else {
-		$t = ( string ) hrtime( true );
+		$t = ( string ) \hrtime( true );
 	}
 	
 	return 
@@ -1726,7 +1731,7 @@ function lastVisit() : int {
 		return SESSION_STATE_CORRUPT;
 	}
 	
-	// Check for generallly safe extensions requested 
+	// Check for generally safe extensions requested 
 	// in rapid succession
 	$nice	= isSafeExt( $_SERVER['REQUEST_URI'] );
 		
@@ -3974,13 +3979,59 @@ function filterDir( $path ) {
 }
 
 /**
- *  Get post file content as an array of lines
+ *  Get post content as an array of lines
+ *  
+ *  @param mixed	$raw	Post content or file path
+ *  @param bool		$fl	Content is in a file
  */
-function postData( $raw ) {
-	if ( \file_exists( $raw ) ) {
-		return \file( $raw, \FILE_IGNORE_NEW_LINES );
+function postData( $raw, bool $fl = true ) {
+	// Get content from files
+	if ( $fl ) {
+		if ( \file_exists( $raw ) ) {
+			$data	= \file( $raw, \FILE_IGNORE_NEW_LINES );
+			if ( false === $data ) {
+				return [];
+			}
+			
+			if ( empty( $data ) ) {
+				return [];
+			}
+		} else {
+			return [];
+		}
+	
+	// Or break content into lines
+	} else {
+		$data	= explode( "\n", $raw );
 	}
-	return [];
+	
+	// Remove empty lines from beginning of post 
+	// (helps with titles etc...)
+	while( false !== \current( $data ) ) ) {
+		if ( empty( trim( \current( $data ) ) ) ) {
+			\array_shift( $data );
+		
+		// Found content
+		} else {
+			break;
+		}
+		
+		// Reached the end already?
+		if ( false === \next( $data ) ) {
+			return [];
+		}
+	}
+	
+	\reset( $data );
+	
+	// Empty lines from end of post 
+	// (tags etc...)
+	while( "" === trim( \end( $data ) ) ) {
+		\array_pop( $data );
+	}
+	
+	\reset( $data );
+	return $data;
 }
 
 /**
