@@ -1819,7 +1819,7 @@ function sessionCookieParams() : bool {
 	
 	// Override some defaults
 	$options['lifetime']	=  config( 'cookie_exp', \COOKIE_EXP, 'int' );
-	\unset( $options['expires'] );
+	unset( $options['expires'] );
 	
 	if ( newPHP() ) {
 		return \session_set_cookie_params( $options );
@@ -4166,7 +4166,8 @@ function postData( $raw, bool $fl = true ) {
 		\array_pop( $data );
 	}
 	
-	$loaded[$key]	= \reset( $data );
+	\reset( $data );
+	$loaded[$key]	= $data;
 	return $data;
 }
 
