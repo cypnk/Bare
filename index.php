@@ -1576,7 +1576,7 @@ function defaultCookieOptions( array $options = [] ) : array {
 		'path'		=> $cpath,
 		'domain'	=> getHost(),
 		'samesite'	=> sameSiteCookie(),
-		'secure'	=> isSecure() ? true, false,
+		'secure'	=> isSecure() ? true : false,
 		'httponly'	=> true
 	] );
 }
