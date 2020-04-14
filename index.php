@@ -102,6 +102,9 @@ define( 'TIMEZONE',		'America/New_York' );
 // Whitelist of allowed server host names
 define( 'SERVER_WHITE',		'kpz62k4pnyh5g5t2efecabkywt2aiwcnqylthqyywilqgxeiipen5xid.onion' );
 
+// Application name
+define( 'APP_NAME',		'Bare' );
+
 
 // General page template
 define( 'TPL_PAGE',		<<<HTML
@@ -487,6 +490,12 @@ define( 'SESSION_LIMIT_MEDIUM', 3 );
 // Seconds between requests before "heavy" throttling
 define( 'SESSION_LIMIT_HEAVY', 1 );
 
+// Cookie defaults
+define( 'COOKIE_EXP', 		86400 );
+define( 'COOKIE_PATH',		'/' );
+// Restrict cookies to same-site origin (I.E. No third party can snoop)
+define( 'COOKIE_RESTRICT',	1 );
+
 
 /**
  *  Form settings
@@ -727,6 +736,40 @@ function missing( $func ) {
 	}
 	
 	return !\function_exists( $func );
+}
+
+/**
+ *  Check if script is running with the latest supported PHP version
+ *  
+ *  @return bool
+ */
+function newPHP() : bool {
+	static $is_new;
+	if ( isset ( $is_new ) ) {
+		return $is_new;
+	}
+	
+	$is_new = 
+	\version_compare( \PHP_VERSION, '7.3', '>=' ) ? true : false;
+	
+	return $is_new;
+}
+
+/**
+ *  Guess if current request is secure
+ */
+function isSecure() : bool {
+	$ssl	= $_SERVER['HTTPS'] ?? '0';
+	if ( $ssl == 'on' || $ssl == '1' ) {
+		return true;
+	}
+	
+	$port	= ( int ) ( $_SERVER['SERVER_PORT'] ?? 80 );
+	if ( $port == 443 ) {
+		return true;
+	}
+	
+	return false;
 }
 
 /**
@@ -1510,6 +1553,92 @@ function saveCache( string $uri, string $content ) {
  */
 
 /**
+ *  Samesite cookie origin setting
+ */
+function sameSiteCookie() : string {
+	if ( \COOKIE_RESTRICT ) {
+		return 'Strict';
+	}
+	
+	return isSecure() ? 'None' : 'Lax';
+}
+
+/**
+ *  Set the cookie options when defaults are/aren't specified
+ */
+function defaultCookieOptions( array $options = [] ) : array {
+	$cexp	= config( 'cookie_exp', \COOKIE_EXP, 'int' );
+	$cpath	= config( 'cookie_path', \COOKIE_PATH );
+	return
+	\array_merge( $options, [
+		'expires'	=> 
+			( int ) ( $options['expires'] ?? time() + $cexp ),
+		'path'		=> $cpath,
+		'domain'	=> getHost(),
+		'samesite'	=> sameSiteCookie(),
+		'secure'	=> isSecure() ? true, false,
+		'httponly'	=> true
+	] );
+}
+
+/**
+ *  Get collective cookie data
+ *  
+ *  @param string	$name		Cookie label name
+ *  @param mixed	$default	Default return if cookie isn't set
+ *  @return mixed
+ */
+function getCookie( string $name, $default ) {
+	if ( !isset( $_COOKIE[\APP_NAME] ) ) {
+		return $default;
+	}
+	
+	if ( !is_array( $_COOKIE[\APP_NAME]) ) {
+		return $default;
+	}
+	
+	return $_COOKIE[\APP_NAME][$name] ?? $default;
+}
+
+/**
+ *  Set application cookie
+ *  
+ *  @param int		$name		Cookie data label
+ *  @param mixed	$data		Cookie data
+ *  @param array	$options	Cookie settings and options
+ *  @return bool
+ */
+function makeCookie( string $name, $data, array $options = [] ) : bool {
+	$options	= defaultCookieOptions( $options );
+	if ( newPHP() ) {
+		return 
+		\setcookie( \APP_NAME . "[$name]", $data, $options );
+	}
+	
+	// PHP < 7.3
+	return 
+	\setcookie( 
+		\APP_NAME . "[$name]", 
+		$data,
+		$options['expires'],
+		$options['path'],
+		$options['domain'],
+		$options['secure'],
+		$options['httponly']
+	);
+}
+
+/**
+ *  Remove preexisting cookie
+ *  
+ *  @param string	$name		Cookie label
+ *  @return bool
+ */
+function deleteCookie( string $name ) : bool {
+	return makeCookie( $name, '', [ 'expires' => 1 ] );
+}
+
+/**
  *  Set session handler functions
  */
 function setSessionHandler() {
@@ -1683,6 +1812,31 @@ function cleanSession() {
 }
 
 /**
+ *  Set session cookie parameters
+ */
+function sessionCookieParams() : bool {
+	$options		= defaultCookieOptions();
+	
+	// Override some defaults
+	$options['lifetime']	=  config( 'cookie_exp', \COOKIE_EXP, 'int' );
+	\unset( $options['expires'] );
+	
+	if ( newPHP() ) {
+		return \session_set_cookie_params( $options );
+	}
+	
+	// PHP < 7.3
+	return 
+	\session_set_cookie_params( 
+		$options['lifetime'], 
+		$options['path'], 
+		$options['domain'],
+		$options['secure'],
+		$options['httponly']
+	);
+}
+
+/**
  *  Initiate a session if it doesn't already exist
  *  Optionally reset and destroy session data
  *  
@@ -1695,6 +1849,7 @@ function session( $reset = false ) {
 	}
 	
 	if ( \session_status() !== \PHP_SESSION_ACTIVE ) {
+		sessionCookieParams();
 		\session_name( \SESSION_TITLE );
 		\session_start();
 	}
@@ -2910,23 +3065,6 @@ function getRoot( bool $err = false ) : string {
 }
 
 /**
- *  Guess if current request is secure
- */
-function isSecure() : bool {
-	$ssl	= $_SERVER['HTTPS'] ?? '0';
-	if ( $ssl == 'on' || $ssl == '1' ) {
-		return true;
-	}
-	
-	$port	= ( int ) ( $_SERVER['SERVER_PORT'] ?? 80 );
-	if ( $port == 443 ) {
-		return true;
-	}
-	
-	return false;
-}
-
-/**
  *  Safety headers
  *  
  *  @param string	$chk	Content checksum
@@ -3985,6 +4123,13 @@ function filterDir( $path ) {
  *  @param bool		$fl	Content is in a file
  */
 function postData( $raw, bool $fl = true ) {
+	static $loaded	= [];
+	$key		= $raw . ( string ) $fl;
+	
+	if ( isset( $loaded[$key] ) ) {
+		return $loaded[$key];
+	}
+	
 	// Get content from files
 	if ( $fl ) {
 		if ( \file_exists( $raw ) ) {
@@ -4021,7 +4166,7 @@ function postData( $raw, bool $fl = true ) {
 		\array_pop( $data );
 	}
 	
-	\reset( $data );
+	$loaded[$key]	= \reset( $data );
 	return $data;
 }
 
