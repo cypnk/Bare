@@ -756,6 +756,83 @@ function newPHP() : bool {
 }
 
 /**
+ *  Hooks and extensions
+ *  Append a hook handler in [ 'event', 'handler' ] format
+ *  Call the hook event in [ 'event', args... ] format
+ *  
+ *  @param array	$params		[ 'event', 'handler' ]
+ */
+function hook( array $params ) {
+	static $handlers	= [];
+	static $output		= [];
+	
+	// Nothing to add?
+	if ( empty( $params ) ) { return; }
+	
+	// First parameter is the event name
+	$name			= 
+	\strtolower( \array_shift( $params ) );
+	
+	// Prepare event to receive handlers
+	if ( !isset( $handlers[$name] ) ) {
+		$handlers[$name]	= [];
+	}
+	
+	// Adding a handler to the given event?
+	// Need an event name and a handler
+	if ( 
+		\is_string( $params[0] )	&& 
+		\is_callable( $params[0] )
+	) {
+		$handlers[$name][]	= $params[0];
+		
+	// Handler being called with parameters, if any
+	} else {
+		// Asking for hook-named output?
+		if ( \is_string( $params[0] ) && empty( $params[0] ) ) {
+			return $output[$name] ?? [];
+		}
+		
+		// Execute handlers in order and store in output
+		foreach( $handlers[$name] as $handler ) {
+			$output[$name] = 
+			$handler( 
+				$name, $output[$name] ?? [], ...$params 
+			) ?? [];
+		}
+	}
+}
+
+/**
+ *  Collection of functions to execute after content sent
+ */
+function shutdown() {
+	static $registered	= [];
+	$args			= \func_get_args();
+	
+	// Shutdown called
+	if ( empty( $args ) ) {
+		hook( [ 'shutdown', [] ] );
+		foreach( $registered as $k => $v ) {
+			if ( \is_array( $v ) ) {
+				$k( ...$v );
+			} elseif ( $v !== null ) {
+				$k( $v );
+			} else {
+				$k();
+			}
+		}
+		
+		// End
+		die();
+	}
+	
+	if ( \is_callable( $args[0] ) ) {
+		$registered[$args[0]] = $args[1] ?? null;
+	}
+}
+
+/**
  *  Guess if current request is secure
  */
 function isSecure() : bool {
@@ -1217,35 +1294,6 @@ function linePresets(
 	return $prs[$label];
 }
 
-/**
- *  Collection of functions to execute after content sent
- */
-function shutdown() {
-	static $registered	= [];
-	$args			= \func_get_args();
-	
-	// Shutdown called
-	if ( empty( $args ) ) {
-		hook( [ 'shutdown', [] ] );
-		foreach( $registered as $k => $v ) {
-			if ( \is_array( $v ) ) {
-				$k( ...$v );
-			} elseif ( $v !== null ) {
-				$k( $v );
-			} else {
-				$k();
-			}
-		}
-		
-		// End
-		die();
-	}
-	
-	if ( \is_callable( $args[0] ) ) {
-		$registered[$args[0]] = $args[1] ?? null;
-	}
-}
-
 
 /**
  *  Database
@@ -1569,7 +1617,8 @@ function sameSiteCookie() : string {
 function defaultCookieOptions( array $options = [] ) : array {
 	$cexp	= config( 'cookie_exp', \COOKIE_EXP, 'int' );
 	$cpath	= config( 'cookie_path', \COOKIE_PATH );
-	return
+	
+	$opts	= 
 	\array_merge( $options, [
 		'expires'	=> 
 			( int ) ( $options['expires'] ?? time() + $cexp ),
@@ -1579,6 +1628,9 @@ function defaultCookieOptions( array $options = [] ) : array {
 		'secure'	=> isSecure() ? true : false,
 		'httponly'	=> true
 	] );
+	
+	hook( [ 'cookieparams', $opts ] );
+	return $opts;
 }
 
 /**
@@ -1610,6 +1662,12 @@ function getCookie( string $name, $default ) {
  */
 function makeCookie( string $name, $data, array $options = [] ) : bool {
 	$options	= defaultCookieOptions( $options );
+	
+	hook( [ 'cookieset', [ 
+		'name'		=> $name, 
+		'data'		=> $data, 
+		'options'	=> $options 
+	] ] );
 	if ( newPHP() ) {
 		return 
 		\setcookie( \APP_NAME . "[$name]", $data, $options );
@@ -1635,6 +1693,7 @@ function makeCookie( string $name, $data, array $options = [] ) : bool {
  *  @return bool
  */
 function deleteCookie( string $name ) : bool {
+	hook( [ 'cookiedelete', [ 'name' => $name ] ] );
 	return makeCookie( $name, '', [ 'expires' => 1 ] );
 }
 
@@ -1665,12 +1724,12 @@ function sessionClose() { return true; }
  *  @return string
  */
 function sessionCreateID() {
-	$id	= \genId( SESSION_BYTES );
+	$id	= \genId( \SESSION_BYTES );
 	$sql	= 
 	"INSERT OR IGNORE INTO sessions ( session_id )
 		VALUES ( :id );";
-		
-	$db	= getDb( SESSION_DATA );
+	
+	$db	= getDb( \SESSION_DATA );
 	$stm	= $db->prepare( $sql );
 	
 	if ( $stm->execute( [ ':id' => $id ] ) ) {
@@ -1733,6 +1792,7 @@ function sessionRead( $id ) {
 	
 	if ( $stm->execute( [ ':id' => $id ] ) ) {
 		$data = $stm->fetchColumn();
+		hook( [ 'sessionread', [ 'id' => $id, 'data' => $data ] ] );
 		return empty( $data ) ? '' : $data;
 	}
 	
@@ -1757,6 +1817,7 @@ function sessionWrite( $id, $data ) {
 		':id'		=> $id, 
 		':data'		=> $data
 	] ) ) {
+		hook( [ 'sessionwrite', [ 'id' => $id, 'data' => $data ] ] );
 		return true;
 	}
 	return false;
@@ -1821,6 +1882,7 @@ function sessionCookieParams() : bool {
 	$options['lifetime']	=  config( 'cookie_exp', \COOKIE_EXP, 'int' );
 	unset( $options['expires'] );
 	
+	hook( [ 'sessioncookieparams', $options ] );
 	if ( newPHP() ) {
 		return \session_set_cookie_params( $options );
 	}
@@ -1852,6 +1914,8 @@ function session( $reset = false ) {
 		sessionCookieParams();
 		\session_name( \SESSION_TITLE );
 		\session_start();
+		
+		hook( [ 'sessioncreated', [ 'id' => \session_id() ] ] );
 	}
 	
 	if ( $reset ) {
@@ -1859,6 +1923,8 @@ function session( $reset = false ) {
 		foreach ( \array_keys( $_SESSION ) as $k ) {
 			unset( $_SESSION[$k] );
 		}
+		
+		hook( [ 'sessiondestroyed', [] ] );
 	}
 }
 
@@ -1871,69 +1937,105 @@ function lastVisit() : int {
 	$now	= time();
 
 	// Default return state
-	$check 	= SESSION_STATE_FRESH;
+	$check 	= \SESSION_STATE_FRESH;
+	
+	// Check for generally safe extensions requested 
+	$nice	= isSafeExt( $_SERVER['REQUEST_URI'] );
 	
 	// First visit?
 	$last	= $_SESSION['last'] ?? [];
 	if ( empty( $last ) ) {
-		$_SESSION['last'] = [ $now, 0 ];
+		$last			= [ $now, 0 ];
+		$_SESSION['last']	= $last;
+		hook( [ 'lastvisit', [ 
+			'check'	=> $check, 
+			'last'	=> $last,
+			'now'	=> $now,
+			'ext'	=> $nice
+		] ] );
 		return $check;
 	}
 	
-	// Session corrupted? Reset and send Not Modified
+	// Session corrupted?
 	if ( !\is_array( $last ) || \count( $last ) !== 2 ) {
-		$_SESSION['last'] = [ $now, 0 ];
-		return SESSION_STATE_CORRUPT;
+		$last			= [ $now, 0 ];
+		$_SESSION['last']	= $last;
+		$check			= \SESSION_STATE_CORRUPT;
+		hook( [ 'lastvisit', [ 
+			'check'	=> $check, 
+			'last'	=> $last,
+			'now'	=> $now,
+			'ext'	=> $nice
+		] ] );
+		return $check;
 	}
-	
-	// Check for generally safe extensions requested 
-	// in rapid succession
-	$nice	= isSafeExt( $_SERVER['REQUEST_URI'] );
 		
 	// Timestamp segments
-	$t	= ( int ) $last[0] ?? time();
-	$q	= ( int ) $last[1] ?? 0;
+	$t	= ( int ) ( $last[0] ?? time() );
+	$q	= ( int ) ( $last[1] ?? 0 );
 	
 	// Rapid query limit exceeded?
-	if ( $q >= SESSION_LIMIT_COUNT ) {
+	if ( $q >= \SESSION_LIMIT_COUNT ) {
 		// Delay has timed out? Reset
-		if ( ( $t + SESSION_EXP ) > $now ) {
-			$_SESSION['last'] = [ $now, 0 ];
+		if ( ( $t + \SESSION_EXP ) > $now ) {
+			$last			= [ $now, 0 ];
+			$_SESSION['last']	= $last;
 		
 		// Generally safe extension?
 		} elseif ( $nice ) {
 			// Return as-is
+			hook( [ 'lastvisit', [ 
+				'check'	=> $check, 
+				'last'	=> $last,
+				'now'	=> $now,
+				'ext'	=> $nice
+			] ] );
 			return $check;
 			
 		// Still within limit
 		// Set time, but keep query limit
 		} else {
-			$_SESSION['last'] = [ $now, $q ];
-			$check = SESSION_STATE_LIGHT;
+			$last			= [ $now, $q ];
+			$_SESSION['last']	= $last;
+			$check			= \SESSION_STATE_LIGHT;
 		}
 	} else {
 		// Generally safe extension?
 		if ( $nice ) {
+			hook( [ 'lastvisit', [ 
+				'check'	=> $check, 
+				'last'	=> $last,
+				'now'	=> $now,
+				'ext'	=> $nice
+			] ] );
 			return $check;
 		
 		// Last request less than heavy throttle limit?
 		// Probably abuse
-		} elseif ( \abs( $now - $t ) < SESSION_LIMIT_HEAVY ) {
-			$_SESSION['last'] = [ $now, $q++ ];
-			$check = SESSION_STATE_HEAVY;
+		} elseif ( \abs( $now - $t ) < \SESSION_LIMIT_HEAVY ) {
+			$last			= [ $now, $q++ ];
+			$_SESSION['last']	= $last;
+			$check			= \SESSION_STATE_HEAVY;
 			
 		// Less than medium throttle limit?
 		// Probably just impatient
-		} elseif ( \abs( $now - $t ) < SESSION_LIMIT_MEDIUM ) {
-			$_SESSION['last'] = [ $now, $q ];
-			$check = SESSION_STATE_MEDIUM;
+		} elseif ( \abs( $now - $t ) < \SESSION_LIMIT_MEDIUM ) {
+			$last			= [ $now, $q ];
+			$_SESSION['last']	= $last;
+			$check			= \SESSION_STATE_MEDIUM;
 		
 		// No limits exceeded. Reset
 		} else {
-			$_SESSION['last'] = [ $now, 0 ];
+			$last			= [ $now, 0 ];
+			$_SESSION['last']	= $last;
 		}
 	}
-	
+	hook( [ 'lastvisit', [ 
+		'check'	=> $check, 
+		'last'	=> $last,
+		'now'	=> $now,
+		'ext'	=> $nice
+	] ] );
 	return $check;
 }
 
@@ -2358,53 +2460,6 @@ function signature() {
 	return $sig;
 }
 
-/**
- *  Hooks and extensions
- *  Append a hook handler in [ 'event', 'handler' ] format
- *  Call the hook event in [ 'event', args... ] format
- *  
- *  @param array	$params		[ 'event', 'handler' ]
- */
-function hook( array $params ) {
-	static $handlers	= [];
-	static $output		= [];
-	
-	// Nothing to add?
-	if ( empty( $params ) ) { return; }
-	
-	// First parameter is the event name
-	$name			= 
-	\strtolower( \array_shift( $params ) );
-	
-	// Prepare event to receive handlers
-	if ( !isset( $handlers[$name] ) ) {
-		$handlers[$name]	= [];
-	}
-	
-	// Adding a handler to the given event?
-	// Need an event name and a handler
-	if ( 
-		\is_string( $params[0] )	&& 
-		\is_callable( $params[0] )
-	) {
-		$handlers[$name][]	= $params[0];
-		
-	// Handler being called with parameters, if any
-	} else {
-		// Asking for hook-named output?
-		if ( \is_string( $params[0] ) && empty( $params[0] ) ) {
-			return $output[$name] ?? [];
-		}
-		
-		// Execute handlers in order and store in output
-		foreach( $handlers[$name] as $handler ) {
-			$output[$name] = 
-			$handler( 
-				$name, $output[$name] ?? [], ...$params 
-			) ?? [];
-		}
-	}
-}
 
 
 
