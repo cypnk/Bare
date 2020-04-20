@@ -2177,14 +2177,15 @@ function title( string $text, int $max = 255 ) : string {
  *  
  *  @param string	$text		
  */
-function normal( string $text ) {
-	if ( \class_exists( "Normalizer" ) ) {
-		\Normalizer::normalize( 
-			$text, \Normalizer::FORM_C 
-		);
+function normal( string $text ) : string {
+	if ( missing( 'normalizer_normalize' ) ) {
+		return $text;
 	}
 	
-	return $text;
+	$normal = 
+	\normalizer_normalize( $text, \Normalizer::FORM_C );
+	
+	return ( false === $normal ) ? $text : $normal;
 }
 
 /**
