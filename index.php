@@ -850,6 +850,38 @@ function isSecure() : bool {
 }
 
 /**
+ *  Safely encode to JSON
+ */
+function encode( array $data ) : string {
+	$out = 
+	\json_encode( 
+		$data, 
+		\JSON_HEX_TAG | \JSON_HEX_APOS | \JSON_HEX_QUOT | 
+		\JSON_HEX_AMP | \JSON_UNESCAPED_UNICODE | 
+		\JSON_PRETTY_PRINT 
+	);
+	
+	return ( false === $out ) ? '' : $out;
+}
+
+/**
+ *  Safely decode JSON to array
+ */
+function decode( string $data ) : array {
+	$data = 
+	\json_decode( 
+		\utf8_encode( $data ), true, 10, 
+		\JSON_BIGINT_AS_STRING
+	);
+	
+	if ( empty( $data ) || false === $data ) {
+		return [];
+	}
+	
+	return $data;
+}
+
+/**
  *  Path prefix slash (/) helper
  */
 function slashPath( string $path, bool $suffix = false ) : string {
@@ -1006,17 +1038,19 @@ function loadConfig( string $file, array $modify = [] ) : array {
 /**
  *  File saving helper with auto backup
  *  
- *  @param string	$file		Destination file
+ *  @param string	$name		Destination file name
  *  @param string	$data		File contents
  *  @param int		$fx		Prefix 'bkp.', suffix '.bkp', or nothing
  *  @param bool		$append		Append to file instead of replacing it
  */
 function saveFile( 
-	string	$file, 
+	string	$name, 
 	string	$data, 
 	int	$fx		= 0,
 	bool	$append		= false
 ) : bool {
+	$file = \CACHE . $name;
+	
 	if ( \file_exists( $file ) ) {
 		
 		// Make a backup first
@@ -1056,7 +1090,19 @@ function saveConfig( array $params ) : bool {
 		return false;
 	}
 	
-	return saveFile( \CACHE . CONFIG, $data, 1 );
+	return saveFile( CONFIG, $data, 1 );
+}
+
+/**
+ *  Register or get internal state
+ */
+function internalState( string $name, $value = null ) {
+	static $state = [];
+	if ( empty( $value ) ) {
+		return $state[$name] ?? false;
+	}
+	
+	$state[$name] = $value;
 }
 
 /**
@@ -2331,38 +2377,6 @@ function enforceDates( array $args ) : array {
 }
 
 /**
- *  Safely encode to JSON
- */
-function encode( array $data ) : string {
-	$out = 
-	\json_encode( 
-		$data, 
-		\JSON_HEX_TAG | \JSON_HEX_APOS | \JSON_HEX_QUOT | 
-		\JSON_HEX_AMP | \JSON_UNESCAPED_UNICODE | 
-		\JSON_PRETTY_PRINT 
-	);
-	
-	return ( false === $out ) ? '' : $out;
-}
-
-/**
- *  Safely decode JSON to array
- */
-function decode( string $data ) : array {
-	$data = 
-	\json_decode( 
-		\utf8_encode( $data ), true, 10, 
-		\JSON_BIGINT_AS_STRING
-	);
-	
-	if ( empty( $data ) || false === $data ) {
-		return [];
-	}
-	
-	return $data;
-}
-
-/**
  *  Get IP address (best guess)
  */
 function getIP() : string {
@@ -2752,6 +2766,27 @@ function makeParagraphs( $val, $skipCode = false ) {
 }
 
 /**
+ *  Post formatting handler
+ *  
+ *  @param string	$html	Raw HTML entered by the user
+ *  @param string	$prefix	Link path prefix
+ *  @return string
+ */
+function formatHTML( string $html, string $prefix ) {
+	hook( [ 'formatting', [ 
+		'html'		=> $html, 
+		'prefix'	=> $prefix 
+	] ] );
+	
+	// Check if formatting was handled or use the default markdown formatter
+	$sent	= hook( [ 'formatting', '' ] );
+	
+	return empty( $sent ) ? 
+		markdown( $html, $prefix ) : 
+		( $sent['html'] ?? markdown( $html, $prefix ) );
+}
+
+/**
  *  HTML filter
  */
 function html( string $value, $prefix = '' ) : string {
@@ -2767,8 +2802,18 @@ function html( string $value, $prefix = '' ) : string {
 	// Preliminary cleaning
 	$html		= pacify( $value, true );
 	
-	// Apply Markdown formatting
-	$html		= markdown( $html, $prefix );
+	// Nothing to format?
+	if ( empty( $html ) ) {
+		return '';
+	}
+	
+	// Apply formatting handler
+	$html		= formatHTML( $html, $prefix );
+	
+	// Nothing formatted?
+	if ( empty( $html ) ) {
+		return '';
+	}
 	
 	// Format linebreaks and code
 	$html		= makeParagraphs( $html );
@@ -3431,16 +3476,34 @@ function sendError( int $code, $body ) {
 	
 	$ptitle	= config( 'page_title', \PAGE_TITLE );
 	$psub	= config( 'page_sub', \PAGE_SUB );
+	$params	= [ 
+		'{page_title}'	=> $ptitle,
+		'{tagline}'	=> $psub,
+		'{home}'	=> homeLink(),
+		'{code}'	=> $code,
+		'{body}'	=> $body 
+	];
 	
-	$page_t	= \strtr( \TPL_ERROR_PAGE ?? '', [ 
-			'{page_title}'	=> $ptitle,
-			'{tagline}'	=> $psub,
-			'{home}'	=> homeLink(),
-			'{code}'	=> $code,
-			'{body}'	=> $body 
-		] );
+	// Call error code hook
+	hook( [ 'errocodesend', [
+		'code'		=> $code,
+		'title'		=> $ptitle,
+		'psub'		=> $psub,
+		'path'		=> $path,
+		'template'	=> $params
+	] ] );
 	
-	send( $code, $page_t );
+	// Handle custom errors
+	$page	= hook( [ 'errocodesend', '' ] );
+	
+	// Send standard error page if nothing handled
+	if ( empty( $page ) ) {
+		$page_t	= \strtr( \TPL_ERROR_PAGE ?? '', $params );
+		send( $code, $page_t );
+	}
+	
+	// Send custom errors
+	send( $code, $page );
 }
 
 /**
@@ -5187,18 +5250,6 @@ function searchPagePath( array $data ) {
 /**
  *  Special handlers
  */
-
-/**
- *  Register or get internal state
- */
-function internalState( string $name, $value = null ) {
-	static $state = [];
-	if ( empty( $value ) ) {
-		return $state[$name] ?? false;
-	}
-	
-	$state[$name] = $value;
-}
 
 /**
  *  Reload indexes on cache db creation
