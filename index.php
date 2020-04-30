@@ -1491,7 +1491,7 @@ function getDb( string $dsn, string $mode = 'get' ) {
 	} catch ( \PDOException $e ) {
 		logError( 
 			'Error connecting to database ' . $dsn . 
-			' Messsage:' . $e 
+			' Messsage:' . $e->getMessage()
 		);
 		die();
 	}
@@ -3523,7 +3523,6 @@ function sendErrorFile( string $path, int $code ) {
 			'code'		=> $code
 		] 
 	] );
-	
 	sendFilePrep( $path, $code );
 	sendFileFinish( $path, true );
 	shutdown();
@@ -4304,7 +4303,7 @@ function getPosts( string $root = '' ) {
 		
 	} catch( \Exception $e ) {
 		logError( 'Error retrieving posts from ' . 
-			POSTS . $root . ' ' . $e );
+			POSTS . $root . ' ' . $e->getMessage() );
 		return null;
 	}
 }
@@ -4467,6 +4466,11 @@ function loadPost(
 	
 	if ( empty( $data ) ) {
 		return '';
+	}
+	
+	$pub		= getPub( $path );
+	if ( !checkPub( $pub ) ) {
+		sendError( 404, \MSG_NOTFOUND );
 	}
 	
 	$tags	= [];		
@@ -4941,6 +4945,7 @@ function formatPost(
 	if ( count( $post ) < 3 ) {
 		return '';
 	}
+	$pub		= getPub( $path );
 	
 	// Process tags
 	$tags	= extractTags( $post );
@@ -4953,7 +4958,7 @@ function formatPost(
 	
 	// Everything else is the body
 	$post	= \array_slice( $post, 1 );
-	$data['{body}'] = html( \implode( "\n", $post ), homeLink() );
+	$data['{body}'] = html( \implode( "\n", $post ), homeLink() ); 
 	
 	return \strtr( $tpl, $data );
 }
@@ -5042,38 +5047,6 @@ function formatIndex( $prefix, $page, $posts, $cache = true ) {
 	
 	$ptitle	= config( 'page_title', \PAGE_TITLE );
 	$psub	= config( 'page_sub', \PAGE_SUB );
-	
-	// Use the render plugin if added
-	if ( defined( 'RENDER_PLUGIN' ) ) {
-		$items = empty( $posts ) ? 
-			\strtr( 
-				TPL_NOPOSTS ?? '', 
-				[ '{home}'	=> homeLink() ] 
-			) : \implode( '', $posts );
-		
-		setRegion( [
-			'{after_title}'	=> renderFeedTag(),
-			'{page_title}'	=> $ptitle,
-			'{post_title}'	=> $ptitle,
-			'{tagline}'	=> $psub,
-			'{extra}'	=> '',
-			'{body}'	=>  
-				\strtr( 
-					\TPL_PAGE_ITEMS_WRAP, 
-					[ '{items}' => $items ] 
-				),
-			'{body_after}'	=>
-			empty( $posts ) ?
-			\strtr( TPL_NAV ?? '', [ '{text}' => navHome() ] ) : 
-			paginate( $page, $prefix, $posts )
-		] );
-		
-		// Send results (don't cache if no posts found)
-		$cache	= empty( $posts ) ? false : $cache;
-		shutdown( 'cleanup' );
-		
-		send( 200, render( \TPL_FULL_PAGE ), $cache );
-	}
 	
 	$tpl	= [
 		'{page_title}'	=> $ptitle,
@@ -5571,20 +5544,6 @@ function getRelated( string $path ) {
 	
 	$out	= [];
 	
-	// Use generic list from the render plugin, if available
-	if ( \defined( 'RENDER_PLUGIN' ) ) {
-		foreach( $search as $p ) {
-			$out[] = 
-			previewLink( \trim( $p['post_path'] ), '', true );
-		}
-	
-		$wrap	= 
-		\strtr( \TPL_PAGE_LIST, [
-			'{heading}'	=> '{lang:headings:related}'
-		] );
-		return renderNavLinks( 'related', $out, $wrap );
-	}
-	
 	foreach( $search as $p ) {
 		$out[] = 
 		previewLink( \trim( $p['post_path'] ) );
@@ -5806,15 +5765,6 @@ function showPost( string $event, array $hook, array $params ) {
 		sendError( 404, \MSG_NOTFOUND );
 	}
 	
-	// Send to render hook
-	hook( [ 'postrender', [ 'post' => $post ] ] );
-	$html	= hookHTML( hook( [ 'postrender', '' ] ) );
-	
-	// Send result if hook returned content
-	if ( !empty( $html ) ) {
-		shutdown( 'cleanup' );
-		send( 200, $html, true );
-	}
 	
 	// Related and sibling post settings
 	$sib	= config( 'show_siblings', \SHOW_SIBLINGS, 'int' ) ? 
@@ -5825,6 +5775,7 @@ function showPost( string $event, array $hook, array $params ) {
 	
 	$ptitle	= config( 'page_title', \PAGE_TITLE );
 	$psub	= config( 'page_sub', \PAGE_SUB );
+	
 	
 	$tpl	= [
 		'{page_title}'	=> $ptitle,
@@ -5859,18 +5810,6 @@ function runIndex( string $event, array $hook, array $params ) {
 		die( 'No posts created' );
 	}
 	
-	// Send to render hook
-	hook( [ 'indexrender', [ 'posts' => $posts ] ] );
-	$html	= hookHTML( hook( [ 'indexrender', '' ] ) );
-	
-	// Send result if hook returned content
-	if ( !empty( $html ) ) {
-		shutdown( 'cleanup' );
-		send( 200, $html, true );
-	}
-	
-	$ptitle	= config( 'page_title', \PAGE_TITLE );
-	$psub	= config( 'page_sub', \PAGE_SUB );
 	$out	= '';
 	foreach( $posts as $k => $v ) {
 		if ( is_array( $v ) ) {
@@ -5880,8 +5819,9 @@ function runIndex( string $event, array $hook, array $params ) {
 			}
 		}
 	}
-	
 	$out	= \strtr( TPL_INDEX_WRAP, [ '{items}' => $out ] );
+	$ptitle	= config( 'page_title', \PAGE_TITLE );
+	$psub	= config( 'page_sub', \PAGE_SUB );
 	
 	$tpl	= [
 		'{page_title}'	=> $ptitle,
