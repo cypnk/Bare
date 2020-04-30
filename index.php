@@ -815,6 +815,19 @@ function hook( array $params ) {
 }
 
 /**
+ *  Get HTML from hook result, if sent
+ *  
+ *  @param mixed	$sent	Hook execution result
+ *  @return string
+ */
+function hookHTML( $sent ) : string {
+	if ( \is_array( $sent ) ) {
+		return $sent['html'] ?? '';
+	}
+	return '';
+}
+
+/**
  *  Collection of functions to execute after content sent
  */
 function shutdown() {
@@ -1472,14 +1485,24 @@ function getDb( string $dsn, string $mode = 'get' ) {
 			\PDO::ERRMODE_EXCEPTION
 	];
 	
-	$db[$dsn]	= 
+	try {
+		$db[$dsn]	= 
 		new \PDO( 'sqlite:' . $dsn, null, null, $opts );
-		
+	} catch ( \PDOException $e ) {
+		logError( 
+			'Error connecting to database ' . $dsn . 
+			' Messsage:' . $e 
+		);
+		die();
+	}
+	
 	// Prepare defaults if first run
 	if ( $first_run ) {
 		$db[$dsn]->exec( 'PRAGMA encoding = "UTF-8";' );
+		$db[$dsn]->exec( 'PRAGMA page_size = "16384";' );
 		$db[$dsn]->exec( 'PRAGMA auto_vacuum = "2";' );
 		$db[$dsn]->exec( 'PRAGMA temp_store = "2";' );
+		$db[$dsn]->exec( 'PRAGMA secure_delete = "1"' );
 		
 		// Load and process SQL
 		installSQL( $db[$dsn], $dsn );
@@ -2079,7 +2102,7 @@ function lastVisit() : int {
 		] ] );
 		return $check;
 	}
-		
+	
 	// Timestamp segments
 	$t	= ( int ) ( $last[0] ?? time() );
 	$q	= ( int ) ( $last[1] ?? 0 );
@@ -2345,7 +2368,7 @@ function smartTrim(
 	$words	= \preg_split( '/([\.\s]+)/', $val, -1, 
 			\PREG_SPLIT_OFFSET_CAPTURE | 
 			\PREG_SPLIT_DELIM_CAPTURE );
-		
+	
 	for ( $i = 0; $i < \count( $words ); $i++ ) {
 		$w	= $words[$i];
 		// Add if this word's length is less than length
@@ -3500,6 +3523,7 @@ function sendErrorFile( string $path, int $code ) {
 			'code'		=> $code
 		] 
 	] );
+	
 	sendFilePrep( $path, $code );
 	sendFileFinish( $path, true );
 	shutdown();
@@ -3927,6 +3951,7 @@ function checkMethodRoutes( string $verb, array $routes ) {
 	
 	// No method implemented for this route
 	if ( !$mfound ) {
+		logError( \MSG_NOMETHOD . ' ' . $verb );
 		sendError( 501, \MSG_NOMETHOD );
 	}
 }
@@ -4278,6 +4303,8 @@ function getPosts( string $root = '' ) {
 		return $tmp;
 		
 	} catch( \Exception $e ) {
+		logError( 'Error retrieving posts from ' . 
+			POSTS . $root . ' ' . $e );
 		return null;
 	}
 }
@@ -4411,6 +4438,8 @@ function refreshPost(
 		applyTags( $sstm, $tstm, $path, $tags );
 		
 		$db->commit();
+	} else {
+		logError( 'Error starting DB transaction in refreshPost()' );
 	}
 	
 	// Cleanup
@@ -4421,6 +4450,13 @@ function refreshPost(
 	$istm	= null;
 }
 
+/**
+ *  Get single post data
+ *  
+ *  @param stirng	$title	Post title (first line)
+ *  @param string	$path	Post publication permalink
+ *  @return string
+ */
 function loadPost(
 	string	&$title,
 	string	$path
@@ -4905,10 +4941,6 @@ function formatPost(
 	if ( count( $post ) < 3 ) {
 		return '';
 	}
-	$pub		= getPub( $path );
-	if ( !checkPub( $pub ) ) {
-		sendError( 404, \MSG_NOTFOUND );
-	}
 	
 	// Process tags
 	$tags	= extractTags( $post );
@@ -4921,7 +4953,7 @@ function formatPost(
 	
 	// Everything else is the body
 	$post	= \array_slice( $post, 1 );
-	$data['{body}'] = html( \implode( "\n", $post ), homeLink() ); 
+	$data['{body}'] = html( \implode( "\n", $post ), homeLink() );
 	
 	return \strtr( $tpl, $data );
 }
@@ -5762,12 +5794,27 @@ function showPost( string $event, array $hook, array $params ) {
 	$path	= $date[0] . $s .  $date[1] . $s . $date[2] . $s . 
 			\ltrim( $params['slug'] ?? '', $s );
 	
+	// Check publication date
+	$pub		= getPub( $path );
+	if ( !checkPub( $pub ) ) {
+		sendError( 404, \MSG_NOTFOUND );
+	}
+	
 	$post	= loadPost( $title, $path );
 	
 	if ( empty( $post ) ) {
 		sendError( 404, \MSG_NOTFOUND );
 	}
 	
+	// Send to render hook
+	hook( [ 'postrender', [ 'post' => $post ] ] );
+	$html	= hookHTML( hook( [ 'postrender', '' ] ) );
+	
+	// Send result if hook returned content
+	if ( !empty( $html ) ) {
+		shutdown( 'cleanup' );
+		send( 200, $html, true );
+	}
 	
 	// Related and sibling post settings
 	$sib	= config( 'show_siblings', \SHOW_SIBLINGS, 'int' ) ? 
@@ -5778,26 +5825,6 @@ function showPost( string $event, array $hook, array $params ) {
 	
 	$ptitle	= config( 'page_title', \PAGE_TITLE );
 	$psub	= config( 'page_sub', \PAGE_SUB );
-	
-	
-	if ( \defined( 'RENDER_PLUGIN' ) ) {
-		setRegion( [
-			'{after_title}'	=> renderFeedTag(),
-			'{page_title}'	=> $ptitle,
-			'{post_title}'	=> $title . ' - ' . $ptitle,
-			'{tagline}'	=> $psub,
-			'{extra}'	=> '',
-			'{body}'	=>  
-				\strtr( 
-					\TPL_PAGE_ITEMS_WRAP, 
-					[ '{items}' => $post ] 
-				),
-			'{body_after}'	=> $sib,
-		] );
-		
-		shutdown( 'cleanup' );
-		send( 200, render( \TPL_FULL_PAGE ), true );
-	}
 	
 	$tpl	= [
 		'{page_title}'	=> $ptitle,
@@ -5832,6 +5859,18 @@ function runIndex( string $event, array $hook, array $params ) {
 		die( 'No posts created' );
 	}
 	
+	// Send to render hook
+	hook( [ 'indexrender', [ 'posts' => $posts ] ] );
+	$html	= hookHTML( hook( [ 'indexrender', '' ] ) );
+	
+	// Send result if hook returned content
+	if ( !empty( $html ) ) {
+		shutdown( 'cleanup' );
+		send( 200, $html, true );
+	}
+	
+	$ptitle	= config( 'page_title', \PAGE_TITLE );
+	$psub	= config( 'page_sub', \PAGE_SUB );
 	$out	= '';
 	foreach( $posts as $k => $v ) {
 		if ( is_array( $v ) ) {
@@ -5841,26 +5880,8 @@ function runIndex( string $event, array $hook, array $params ) {
 			}
 		}
 	}
+	
 	$out	= \strtr( TPL_INDEX_WRAP, [ '{items}' => $out ] );
-	$ptitle	= config( 'page_title', \PAGE_TITLE );
-	$psub	= config( 'page_sub', \PAGE_SUB );
-	
-	
-	if ( \defined( 'RENDER_PLUGIN' ) ) {
-		setRegion( [
-			'{after_title}'	=> renderFeedTag(),
-			'{page_title}'	=> $ptitle,
-			'{post_title}'	=> $ptitle,
-			'{tagline}'	=> $psub,
-			'{extra}'	=> '',
-			'{body}'	=> $out, 
-			'{paginate}'	=> ''
-		] );
-		
-		shutdown( 'cleanup' );
-		send( 200, render( \TPL_FULL_PAGE ), true );
-	}
-	
 	
 	$tpl	= [
 		'{page_title}'	=> $ptitle,
