@@ -29,10 +29,21 @@ define( 'FILE_PATH',	POSTS );
 // Configuration filename (optional, overrides some constants here)
 define( 'CONFIG',		'config.json' );
 
+// Error log filename (will be created if it doesn't exist)
+define( 'ERROR',		'errors.log' );
+
 // Custom error file folder (optional)
 define( 'ERROR_ROOT',		\realpath( \dirname( __FILE__ ) ) . '/errors/' );
 // Use this if error files are outside web root
 // define( 'ERROR_ROOT',		\realpath( \dirname( __FILE__, 2 ) ) . '/errors/' );
+
+// Plugins directory
+define( 'PLUGINS',	PATH . 'plugins/' );
+// Use this if you keep plugins outside the web root
+// define( 'PLUGINS',		\realpath( \dirname( __FILE__, 2 ) ) . '/plugins/' );
+
+// Whitelisted plugins as comma separated list
+define( 'PLUGINS_ENABLED', '' );
 
 // Friendly date format
 define( 'DATE_NICE',	'l, F j, Y' );
@@ -850,6 +861,19 @@ function isSecure() : bool {
 }
 
 /**
+ *  Error logging
+ */
+function logError( string $err ) : bool {
+	$file	= \CACHE . \ERROR;
+	$err	= unifyspaces( pacify( $err ) );
+	\touch( $file );
+	
+	return file_exists( $file ) ? 
+		\error_log( $err . "\n", 3, $file ) : \error_log( $err );
+}
+
+
+/**
  *  Safely encode to JSON
  */
 function encode( array $data ) : string {
@@ -879,6 +903,13 @@ function decode( string $data ) : array {
 	}
 	
 	return $data;
+}
+
+/**
+ *  String to list helper
+ */
+function trimmedList( string $text ) : array {
+	return \array_map( 'trim', \explode( ',', $text ) );
 }
 
 /**
@@ -1566,8 +1597,41 @@ function cleanup() {
 	}
 }
 
-
-
+/**
+ *  Plugin loading event handler
+ */
+function loadPlugins( string $event, array $hook, array $params ) {
+	// This should be the first function called 
+	// so there shouldn't be any previous return data
+	if ( !empty( $hook ) ) {
+		logError( 'Out of order call. Check hooks.' );
+		die();
+	}
+	
+	if ( empty( \PLUGINS_ENABLED ) ) {
+		// Nothing to load
+		return;
+	}
+	
+	$plugins	= trimmedList( \PLUGINS_ENABLED );
+	$plugins	= \array_map( 'strtolower', $plugins );
+	$msg		= [];
+	
+	foreach ( $plugins as $p ) {
+		$path = \PLUGINS . $p . DIRECTORY_SEPARATOR . $p . '.php';
+		if ( \file_exists( $path ) ) {
+			require( $path );
+		} else {
+			$msg[] = $p;
+		}
+	}
+	
+	if ( !empty( $msg ) ) {
+		$err = 'Error loading plugis(s): ' . \implode( ', ', $msg ) . 
+			' From directory: ' . \PLUGINS;
+		logError( $err );
+	}
+}
 
 
 
@@ -3289,7 +3353,8 @@ function httpCode( int $code ) {
 			return;
 	}
 	
-	die( 'Unknown status code "' . $code . '"' );
+	logError( 'Unknown status code "' . $code . '"' );
+	die();
 }
 
 /**
@@ -3729,7 +3794,8 @@ function redirect(
 	
 	// Arbitrary redirect attempt?
 	if ( $host != $_SERVER['SERVER_NAME'] ) {
-		die( 'Invalid URL' );
+		logError( 'Invalid URL: ' . $path );
+		die();
 	}
 	
 	// Get get current path
@@ -3914,11 +3980,6 @@ function methodPreParse( string $verb, string $path, array $routes ) {
  *  @param array	$params		Hook params
  */
 function request( string $event, array $hook, array $params ) : array {
-	// Request should be the first function called 
-	// so there shouldn't be any previous return data
-	if ( !empty( $hook ) ) {
-		die( 'Out of order request call. Check hooks.' );
-	}
 	
 	// Set session save handler
 	setSessionHandler();
@@ -3970,7 +4031,8 @@ function request( string $event, array $hook, array $params ) : array {
 	$routes = hook( [ 'initroutes', '' ] );
 	
 	if ( empty( $routes ) ) {
-		die( \MSG_NOROUTE );
+		logError( \MSG_NOROUTE );
+		die();
 	}
 	
 	// Handle special methods before routing
@@ -3996,9 +4058,7 @@ function isSafeExt( string $path ) {
 	}
 	
 	if ( !isset( $safe ) ) {
-		$ecfg	= config( 'safe_ext', \SAFE_EXT );
-		$safe	= 
-		\array_map( 'trim', \explode( ',', $ecfg ) );
+		$safe	= trimmedList( config( 'safe_ext', \SAFE_EXT ) );
 		$safe	= \array_map( 'strtolower', $safe );
 	}
 	
@@ -6102,8 +6162,9 @@ hook( [ 'reindex',	'runIndex' ] );
 // Special events
 hook( [ 'dbcreated',	'reloadIndex' ] );
 
-// Register request and route handlers
+// Register request, route, and plugin load handlers
 hook( [ 'requesturl',	'filterRequest' ] );
+hook( [ 'begin',	'loadPlugins' ] );
 hook( [ 'begin',	'request' ] );
 hook( [ 'begin',	'route' ] );
 
