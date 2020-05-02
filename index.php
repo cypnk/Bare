@@ -593,7 +593,7 @@ BEGIN
 		) WHERE rowid = NEW.rowid;
 END;-- --
 
--- -- Post content
+-- Post content
 CREATE TABLE posts(
 	id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
 	post_path TEXT NOT NULL COLLATE NOCASE,
@@ -1243,6 +1243,13 @@ function navHome() : string {
 		return $home;
 	}
 	
+	hook( [ 'homelink', [ 'url' => homeLink() ] ] );
+	$html = hookHTML( hook( [ 'homelink', '' ] );
+	if ( !empty( $html ) ) {
+		$home = $html;
+		return $html;
+	}
+	
 	$home = 
 	\strtr( TPL_LINK ?? '', [ 
 		'{url}' => homeLink(), 
@@ -1258,6 +1265,21 @@ function navHome() : string {
 function paginate( $page, $prefix, $posts ) : string {
 	$plimit	= config( 'page_limit', \PAGE_LIMIT, 'int' );
 	$c	= count( $posts );
+	
+	hook( [ 'paginate', [ 
+		'page'		=> $page, 
+		'limit'		=> $plimit, 
+		'prefix'	=> $prefix, 
+		'posts'		=> $posts, 
+		'count'		=> $c,
+		'type'		=> 'nextprev'
+	] ] );
+	
+	$html	= hookHTML( hook( [ 'paginate', '' ] ) );
+	if ( !empty( $html ) ) {
+		return $html;
+	}
+	
 	$out	= '';
 	if ( $page > 1 ) {
 		$pm1	= $page - 1;
@@ -1277,11 +1299,6 @@ function paginate( $page, $prefix, $posts ) : string {
 				$prefix . 'page'. ( $page + 1 ),
 			'{text}'	=> TPL_NEXT ?? ''
 		] ); 
-	}
-	
-	if ( \defined( 'RENDER_PLUGIN' ) ) {
-		return 
-		\strtr( \TPL_PAGINATION, [ '{links}' => $out ] );
 	}
 	
 	return \strtr( \TPL_NAV ?? '', [ '{text}' => $out ] );
@@ -1491,7 +1508,7 @@ function getDb( string $dsn, string $mode = 'get' ) {
 	} catch ( \PDOException $e ) {
 		logError( 
 			'Error connecting to database ' . $dsn . 
-			' Messsage:' . $e->getMessage()
+			' Messsage: ' . $e->getMessage()
 		);
 		die();
 	}
@@ -4473,7 +4490,7 @@ function loadPost(
 		sendError( 404, \MSG_NOTFOUND );
 	}
 	
-	$tags	= [];		
+	$tags	= [];
 	$out	= 
 	formatPost( $title, $tags, $data, $path, TPL_POST ?? '' );
 	
@@ -4891,14 +4908,16 @@ function metadata( &$title, &$perm, $pub, $post, $path ) {
  *  Apply tag template
  */
 function formatTags( array $tags ) : string {
+	// Render plugin installed?
+	hook( [ 'formattags', [ 'tags' => $tags ] ] );
+	$html	= hookHTML( hook( [ 'formattags', '' ] ) );
+	if ( !empty( $html ) ) {
+		return $html;
+	}
+	
 	// No tags in this post?
 	if ( empty( $tags ) ) {
 		return '';
-	}
-	
-	// Render plugin installed?
-	if ( defined( 'RENDER_PLUGIN' ) ) {
-		return tagLinks( $tags );
 	}
 	
 	$out	= '';
@@ -4958,7 +4977,7 @@ function formatPost(
 	
 	// Everything else is the body
 	$post	= \array_slice( $post, 1 );
-	$data['{body}'] = html( \implode( "\n", $post ), homeLink() ); 
+	$data['{body}'] = html( \implode( "\n", $post ), homeLink() );
 	
 	return \strtr( $tpl, $data );
 }
@@ -5045,9 +5064,35 @@ function filterRequest( string $event, array $hook, array $params ) {
  */
 function formatIndex( $prefix, $page, $posts, $cache = true ) {
 	
+	// Don't cache if no posts found
+	$cache	= empty( $posts ) ? false : $cache;
 	$ptitle	= config( 'page_title', \PAGE_TITLE );
 	$psub	= config( 'page_sub', \PAGE_SUB );
 	
+	// Use the render plugin if added
+	hook( [ 'renderindex', [ 
+		'prefix'	=> $prefix,
+		'title'		=> $ptitle,
+		'subtitle'	=> $psub,
+		'posts'		=> $posts,
+		'page'		=> $page,
+		'cache'		=> $cache
+	] ] ) ;
+	
+	$sent	= hook( [ 'renderindex', '' ] );
+	$html	= hookHTML( $sent );
+	
+	// Plugin rendered? Send rendered index
+	if ( !empty( $html ) ) {
+		shutdown( 'cleanup' );
+		send( 
+			( int ) ( $sent['code'] ?? 200 ), 
+			$html, 
+			( bool ) ( $sent['cache'] ?? $cache ) 
+		);
+	}
+	
+	// Default handler
 	$tpl	= [
 		'{page_title}'	=> $ptitle,
 		'{post_title}'	=> $ptitle,
@@ -5080,8 +5125,7 @@ function formatIndex( $prefix, $page, $posts, $cache = true ) {
 		paginate( $page, $prefix, $posts );
 	}
 	
-	// Send results (don't cache if no posts found)
-	$cache	= empty( $posts ) ? false : $cache;
+	// Send results
 	shutdown( 'cleanup' );
 	send( 200, \strtr( TPL_PAGE ?? '', $tpl ), $cache );
 }
@@ -5544,6 +5588,18 @@ function getRelated( string $path ) {
 	
 	$out	= [];
 	
+	// Apply render
+	hook( [ 'getrelated', [ 
+		'search'	=> $search,
+		'title'		=> $title,
+		'limit'		=> $rlimit
+	] ] );
+	
+	$html	= hookHTML( hook( [ 'getrelated', '' ] ) );
+	if ( !empty( $html ) ) {
+		return $html;
+	}
+	
 	foreach( $search as $p ) {
 		$out[] = 
 		previewLink( \trim( $p['post_path'] ) );
@@ -5765,6 +5821,24 @@ function showPost( string $event, array $hook, array $params ) {
 		sendError( 404, \MSG_NOTFOUND );
 	}
 	
+	// Send to render hook
+	hook( [ 'postrender', [ 
+		'post'	=> $post, 
+		'title'	=> $title,
+		'path'	=> $path
+	] ] );
+	$sent	= hook( [ 'postrender', '' ] );
+	$html	= hookHTML( $sent );
+	
+	// Send result if hook returned content
+	if ( !empty( $html ) ) {
+		shutdown( 'cleanup' );
+		send( 
+			( int ) ( $sent['code'] ?? 200 ), 
+			$html, 
+			( bool ) ( $sent['cache'] ?? true )
+		);
+	}
 	
 	// Related and sibling post settings
 	$sib	= config( 'show_siblings', \SHOW_SIBLINGS, 'int' ) ? 
@@ -5775,7 +5849,6 @@ function showPost( string $event, array $hook, array $params ) {
 	
 	$ptitle	= config( 'page_title', \PAGE_TITLE );
 	$psub	= config( 'page_sub', \PAGE_SUB );
-	
 	
 	$tpl	= [
 		'{page_title}'	=> $ptitle,
@@ -5810,6 +5883,28 @@ function runIndex( string $event, array $hook, array $params ) {
 		die( 'No posts created' );
 	}
 	
+	$ptitle	= config( 'page_title', \PAGE_TITLE );
+	$psub	= config( 'page_sub', \PAGE_SUB );
+	
+	// Send to render hook
+	hook( [ 'indexrender', [ 
+		'posts'		=> $posts,
+		'title'		=> $ptitle,
+		'subtitle'	=> $psub
+	] ] );
+	$sent	= hook( [ 'indexrender', '' ] );
+	$html	= hookHTML( $sent );
+	
+	// Send result if hook returned content
+	if ( !empty( $html ) ) {
+		shutdown( 'cleanup' );
+		send( 
+			( int ) ( $sent['code'] ?? 200 ), 
+			$html, 
+			( bool ) ( $sent['cache'] ?? true )
+		);
+	}
+	
 	$out	= '';
 	foreach( $posts as $k => $v ) {
 		if ( is_array( $v ) ) {
@@ -5819,10 +5914,8 @@ function runIndex( string $event, array $hook, array $params ) {
 			}
 		}
 	}
-	$out	= \strtr( TPL_INDEX_WRAP, [ '{items}' => $out ] );
-	$ptitle	= config( 'page_title', \PAGE_TITLE );
-	$psub	= config( 'page_sub', \PAGE_SUB );
 	
+	$out	= \strtr( TPL_INDEX_WRAP, [ '{items}' => $out ] );
 	$tpl	= [
 		'{page_title}'	=> $ptitle,
 		'{post_title}'	=> $ptitle,
