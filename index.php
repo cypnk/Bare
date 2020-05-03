@@ -3577,10 +3577,29 @@ function sendError( int $code, $body ) {
 	}
 	
 	// No error file sent, continue with built-in error page
-	shutdown( 'cleanup' );
-	
 	$ptitle	= config( 'page_title', \PAGE_TITLE );
 	$psub	= config( 'page_sub', \PAGE_SUB );
+	
+	// Call error code hook
+	hook( [ 'errocodesend', [
+		'code'		=> $code,
+		'title'		=> $ptitle,
+		'subtitle'	=> $psub,
+		'path'		=> $path,
+		'body'		=> $body
+	] ] );
+	
+	// Handle custom errors
+	$page	= hook( [ 'errocodesend', '' ] );
+	$html	= hookHTML( $page );
+	
+	// Send standard error page if nothing handled
+	if ( !empty( $html ) ) {
+		shutdown( 'cleanup' );
+		// Send custom errors
+		send( $code, $html );
+	}
+	
 	$params	= [ 
 		'{page_title}'	=> $ptitle,
 		'{tagline}'	=> $psub,
@@ -3589,26 +3608,9 @@ function sendError( int $code, $body ) {
 		'{body}'	=> $body 
 	];
 	
-	// Call error code hook
-	hook( [ 'errocodesend', [
-		'code'		=> $code,
-		'title'		=> $ptitle,
-		'psub'		=> $psub,
-		'path'		=> $path,
-		'template'	=> $params
-	] ] );
-	
-	// Handle custom errors
-	$page	= hook( [ 'errocodesend', '' ] );
-	
-	// Send standard error page if nothing handled
-	if ( empty( $page ) ) {
-		$page_t	= \strtr( \TPL_ERROR_PAGE ?? '', $params );
-		send( $code, $page_t );
-	}
-	
-	// Send custom errors
-	send( $code, $page );
+	$page_t	= \strtr( \TPL_ERROR_PAGE ?? '', $params );
+	shutdown( 'cleanup' );
+	send( $code, $page_t );
 }
 
 /**
@@ -4485,14 +4487,17 @@ function loadPost(
 		return '';
 	}
 	
-	$pub		= getPub( $path );
+	$pub	= getPub( $path );
 	if ( !checkPub( $pub ) ) {
 		sendError( 404, \MSG_NOTFOUND );
 	}
 	
+	$tpl	=  TPL_POST ?? '';
+	hook( [ 'formatpostprep', [ 'feed' => false, 'template' => $tpl ] ] );
+	
 	$tags	= [];
 	$out	= 
-	formatPost( $title, $tags, $data, $path, TPL_POST ?? '' );
+	formatPost( $title, $tags, $data, $path, $tpl );
 	
 	// If index has not been run before this function was called...
 	if ( !internalState( 'indexRun' ) ) {
@@ -4576,6 +4581,14 @@ function postCached( $path ) {
 	);
 	
 	return empty( $res ) ? false : true; 
+}
+
+/**
+ *  Get summary or abstract from the last or second-to-last line
+ */
+function extractSummary( array &$post ) : string {
+	// TODO: Build summary extractor
+	return '';
 }
 
 /**
@@ -4713,6 +4726,8 @@ function loadPosts(
 	$end	= $start + $plimit;
 	
 	$title	= '';
+	$tpl	= $feed ? ( TPL_ITEM  ?? '' ) : ( TPL_POST ?? '' );
+	hook( [ 'formatpostprep', [ 'feed' => $feed, 'template' => $tpl ] ] );
 	
 	foreach( $it as $file ) {
 		
@@ -4738,10 +4753,6 @@ function loadPosts(
 			if ( empty( $data ) || false === $data ) {
 				continue;
 			}
-			
-			$tpl		= 
-			$feed ? 
-			( TPL_ITEM  ?? '' ) : ( TPL_POST ?? '' );
 			
 			$tags		= [];
 			$posts[$path]	= 
@@ -4964,20 +4975,40 @@ function formatPost(
 	if ( count( $post ) < 3 ) {
 		return '';
 	}
-	$pub		= getPub( $path );
+	$pub	= getPub( $path );
 	
 	// Process tags
 	$tags	= extractTags( $post );
 	
+	// Process summary
+	$summ	= extractSummary( $post );
+	
 	// Apply metadata
 	metadata( $title, $perm, $pub, $post, $path );
-	// Format metadata
 	
-	$data	= formatMeta( $title, $pub, $perm, $tags );
-	
-	// Everything else is the body
+	// Everything else after the first line is the body
 	$post	= \array_slice( $post, 1 );
-	$data['{body}'] = html( \implode( "\n", $post ), homeLink() );
+	$body	= html( \implode( "\n", $post ), homeLink() );
+	
+	hook( [ 'formatpost', [ 
+		'title'		=> $title,
+		'tags'		=> $tags,
+		'permalink'	=> $perm,
+		'published'	=> $pub,
+		'summary'	=> $summ,
+		'body'		=> $body
+	] ] ) ;
+	
+	$html	= hookHTML( hook( [ 'formatpost', '' ] ) );
+	
+	// If the hook rendered this post, send it back
+	if ( !empty( $html  ) ) {
+		return $html;
+	}
+	
+	// Format metadata
+	$data		= formatMeta( $title, $pub, $perm, $tags );
+	$data['{body}'] = $body;
 	
 	return \strtr( $tpl, $data );
 }
@@ -5783,6 +5814,26 @@ function showFeed( string $event, array $hook, array $params ) {
 	
 	$ptitle	= config( 'page_title', \PAGE_TITLE );
 	$psub	= config( 'page_sub', \PAGE_SUB );
+	
+	// Send to render hook
+	hook( [ 'feedrender', [  
+		'title'		=> $ptitle,
+		'subtitle'	=> $psub,
+		'posts'		=> $posts
+	] ] );
+	$sent	= hook( [ 'feedrender', '' ] );
+	$html	= hookHTML( $sent );
+	
+	// Send result if hook returned content
+	if ( !empty( $html ) ) {
+		shutdown( 'cleanup' );
+		send( 
+			( int ) ( $sent['code'] ?? 200 ), 
+			$html, 
+			( bool ) ( $sent['cache'] ?? true ), true
+		);
+	}
+	
 	$tpl	= [
 		'{page_title}'	=> $ptitle,
 		'{tagline}'	=> $psub,
