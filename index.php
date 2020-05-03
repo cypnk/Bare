@@ -1243,8 +1243,9 @@ function navHome() : string {
 		return $home;
 	}
 	
-	hook( [ 'homelink', [ 'url' => homeLink() ] ] );
-	$html = hookHTML( hook( [ 'homelink', '' ] );
+	$url	= homeLink();
+	hook( [ 'homelink', [ 'url' => $url ] ] );
+	$html	= hookHTML( hook( [ 'homelink', '' ] ) );
 	if ( !empty( $html ) ) {
 		$home = $html;
 		return $html;
@@ -1252,7 +1253,7 @@ function navHome() : string {
 	
 	$home = 
 	\strtr( TPL_LINK ?? '', [ 
-		'{url}' => homeLink(), 
+		'{url}' => $url, 
 		'{text}'=> TPL_HOME ?? ''
 	] );
 	
@@ -3580,8 +3581,9 @@ function sendError( int $code, $body ) {
 	$ptitle	= config( 'page_title', \PAGE_TITLE );
 	$psub	= config( 'page_sub', \PAGE_SUB );
 	
+	
 	// Call error code hook
-	hook( [ 'errocodesend', [
+	hook( [ 'errorcodesend', [
 		'code'		=> $code,
 		'title'		=> $ptitle,
 		'subtitle'	=> $psub,
@@ -3590,7 +3592,7 @@ function sendError( int $code, $body ) {
 	] ] );
 	
 	// Handle custom errors
-	$page	= hook( [ 'errocodesend', '' ] );
+	$page	= hook( [ 'errorcodesend', '' ] );
 	$html	= hookHTML( $page );
 	
 	// Send standard error page if nothing handled
@@ -5002,7 +5004,7 @@ function formatPost(
 	$html	= hookHTML( hook( [ 'formatpost', '' ] ) );
 	
 	// If the hook rendered this post, send it back
-	if ( !empty( $html  ) ) {
+	if ( !empty( $html ) ) {
 		return $html;
 	}
 	
@@ -5936,7 +5938,7 @@ function runIndex( string $event, array $hook, array $params ) {
 	
 	$ptitle	= config( 'page_title', \PAGE_TITLE );
 	$psub	= config( 'page_sub', \PAGE_SUB );
-	
+
 	// Send to render hook
 	hook( [ 'indexrender', [ 
 		'posts'		=> $posts,
