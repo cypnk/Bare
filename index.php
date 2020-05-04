@@ -60,6 +60,9 @@ define( 'PAGE_LINK',	'/' );
 // Number of posts per page
 define( 'PAGE_LIMIT',	12 );
 
+// Number of posts on archive index page
+define( 'INDEX_LIMIT',	60 );
+
 // Make this 1 (meaning true) if testing locally or running on Tor
 define( 'SKIP_LOCAL', 	1 );
 
@@ -4819,7 +4822,7 @@ function insertPost(
 /**
  *  Load all published posts
  */
-function loadIndex() {
+function loadIndex( int $start = 0, int $limit = 0 ) : array {
 	$it	= getPosts();
 	if ( empty( $it ) ) {
 		return [];
@@ -4858,6 +4861,11 @@ function loadIndex() {
 		"REPLACE INTO post_tags( post_id, tag_slug ) 
 		VALUES ( :id, :tag );"
 	);
+	
+	// Returns are limited by page and index?
+	$limited	= ( $limit > 0 ) ? true : false;
+	$i		= 0;
+	$j		= 0;
 	
 	foreach( $it as $file ) {
 		$raw	= $file->getRealPath();
@@ -4907,14 +4915,23 @@ function loadIndex() {
 			$out		= 
 			formatPost( $title, $tags, $post, $path, TPL_POST ?? '' );
 			
-			// Format metadata
-			$posts[$lastDir][] = 
-			formatMeta( $title, $pub, $path, $tags );
+			if ( $limited ) {
+				if ( $i >= $start && $j <= $limit ) {
+					$posts[$lastDir][] = 
+					formatMeta( $title, $pub, $path, $tags );
+					$j++;
+				}
+			} else {
+				$posts[$lastDir][] = 
+				formatMeta( $title, $pub, $path, $tags );
+			}
 			
 			// Create tags and cache page info
 			insertPost( $pstm, $perm, $out, $pub, $mtime );
 			insertTags( $istm, $tags );
 			applyTags( $sstm, $tstm, $perm, $tags );
+			
+			$i++;
 		}
 	}
 	
@@ -5927,7 +5944,7 @@ function showPost( string $event, array $hook, array $params ) {
 	$sib	= config( 'show_siblings', \SHOW_SIBLINGS, 'int' ) ? 
 			getSiblings( $path ) : '';
 	
-	$sib	.= config( 'show_related', \SHOW_RELATED, 'int' ) ? 
+	$rel	= config( 'show_related', \SHOW_RELATED, 'int' ) ? 
 			getRelated( $path ) : '';
 	
 	$ptitle	= config( 'page_title', \PAGE_TITLE );
@@ -5941,6 +5958,7 @@ function showPost( string $event, array $hook, array $params ) {
 		'subtitle'	=> $psub,
 		'path'		=> $path,
 		'siblings'	=> $sib,
+		'related'	=> $rel
 	] ] );
 	
 	// Send result if hook returned content
@@ -5951,7 +5969,7 @@ function showPost( string $event, array $hook, array $params ) {
 		'{post_title}'	=> $title . ' - ' . $ptitle,
 		'{tagline}'	=> $psub,
 		'{body}'	=> $post,
-		'{paginate}'	=> $sib,
+		'{paginate}'	=> $sib . $rel,
 		'{home}'	=> homeLink(),
 		
 		// Search form
@@ -5969,14 +5987,21 @@ function showPost( string $event, array $hook, array $params ) {
 	send( 200, \strtr( TPL_PAGE ?? '', $tpl ), true );
 }
 
-
 /**
  *  Rebuild index and cache output
  */
 function runIndex( string $event, array $hook, array $params ) {
-	$posts	= loadIndex();
+	// Pagination prep
+	$page	= ( int ) ( $params['page'] ?? 1 );
+	$ilimit	= config( 'index_limit', \INDEX_LIMIT, 'int' );
+	$start	= ( $page - 1 ) * $ilimit;
+	
+	// Load index
+	$posts	= loadIndex( $start, $ilimit );
+	
 	if ( empty( $posts ) ) {
-		die( 'No posts created' );
+		// No more posts
+		sendError( 404, \MSG_NOTFOUND );
 	}
 	
 	$ptitle	= config( 'page_title', \PAGE_TITLE );
@@ -5992,12 +6017,13 @@ function runIndex( string $event, array $hook, array $params ) {
 	// Send result if hook returned content
 	sendOverride( 'indexrender' );
 	
+	$prefix	= slashPath( homeLink(), true ) . 'archive'; 
+	$tpl	= TPL_INDEX ?? '';
 	$out	= '';
 	foreach( $posts as $k => $v ) {
 		if ( is_array( $v ) ) {
 			foreach( $v as $p ) {
-				$out .= 
-				\strtr( TPL_INDEX ?? '', $p );
+				$out .= \strtr( $tpl, $p );
 			}
 		}
 	}
@@ -6008,7 +6034,7 @@ function runIndex( string $event, array $hook, array $params ) {
 		'{post_title}'	=> $ptitle,
 		'{tagline}'	=> $psub,
 		'{body}'	=> $out,
-		'{paginate}'	=> '',
+		'{paginate}'	=> paginate( $page, $prefix, $posts ),
 		'{home}'	=> homeLink(),
 		
 		'{search_form}'	=> searchForm(),
@@ -6257,6 +6283,7 @@ function addBlogRoutes( string $event, array $hook, array $params ) {
 	 *  Generate archive cache
 	 */
 	[ 'get', 'archive',				'reindex' ],
+	[ 'get', 'archive/page:page',			'reindexpaged' ],
 	
 	/**
 	 *  Single post
@@ -6299,6 +6326,7 @@ hook( [ 'searchpaginate','showSearch' ] );
 // Syndication feed and archive index events
 hook( [ 'feed',		'showFeed' ] );
 hook( [ 'reindex',	'runIndex' ] );
+hook( [ 'reindexpaged',	'runIndex' ] );
 
 // Special events
 hook( [ 'dbcreated',	'reloadIndex' ] );
