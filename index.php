@@ -1284,6 +1284,10 @@ function paginate( $page, $prefix, $posts ) : string {
 		return $html;
 	}
 	
+	if ( $c == 0 ) {
+		return '';
+	}
+	
 	$out	= '';
 	if ( $page > 1 ) {
 		$pm1	= $page - 1;
@@ -6017,13 +6021,17 @@ function runIndex( string $event, array $hook, array $params ) {
 	// Send result if hook returned content
 	sendOverride( 'indexrender' );
 	
-	$prefix	= slashPath( homeLink(), true ) . 'archive'; 
+	$prefix	= slashPath( homeLink(), true ) . 'archive/'; 
 	$tpl	= TPL_INDEX ?? '';
 	$out	= '';
+	$pf	= '';
+	$plist	= [];
 	foreach( $posts as $k => $v ) {
 		if ( is_array( $v ) ) {
 			foreach( $v as $p ) {
-				$out .= \strtr( $tpl, $p );
+				$pf		= \strtr( $tpl, $p );
+				$plist[]	= $pf;
+				$out		.= $pf;
 			}
 		}
 	}
@@ -6034,7 +6042,7 @@ function runIndex( string $event, array $hook, array $params ) {
 		'{post_title}'	=> $ptitle,
 		'{tagline}'	=> $psub,
 		'{body}'	=> $out,
-		'{paginate}'	=> paginate( $page, $prefix, $posts ),
+		'{paginate}'	=> paginate( $page, $prefix, $plist ),
 		'{home}'	=> homeLink(),
 		
 		'{search_form}'	=> searchForm(),
