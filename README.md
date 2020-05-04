@@ -38,6 +38,9 @@ Upload the following to your web root:
 Change the default settings in *index.php* E.G. SITE_NAME etc...  
 *index.php* Also has the default theme so there are no other files to edit.
 
+Add your site's domain name, E.G. *example.com*, to the comma-delimited  
+whitelist in SERVER_WHITE.
+
 Bare supports caching of formatted posts. Simply enable write  
 permissions to the cache directory. On \*nix systems:
 ```
