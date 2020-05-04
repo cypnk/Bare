@@ -3616,6 +3616,28 @@ function sendError( int $code, $body ) {
 }
 
 /**
+ *  Override content sending if hook was called
+ *  
+ *  @param string	$event	Event name to call back from hook
+ *  @param bool		$feed	Sent content is to be rendered as feed
+ */
+function sendOverride( string $event, bool $feed = false ) {
+	$sent	= hook( [ $event, '' ] );
+	$html	= hookHTML( $sent );
+	if ( empty( $html ) ) {
+		return;
+	}
+	
+	shutdown( 'cleanup' );
+	send( 
+		( int ) ( $sent['code'] ?? 200 ), 
+		$html, 
+		( bool ) ( $sent['cache'] ?? true ),
+		$feed
+	);
+}
+
+/**
  *  Generate ETag from file path
  */
 function genEtag( $path ) {
@@ -5112,18 +5134,8 @@ function formatIndex( $prefix, $page, $posts, $cache = true ) {
 		'cache'		=> $cache
 	] ] ) ;
 	
-	$sent	= hook( [ 'renderindex', '' ] );
-	$html	= hookHTML( $sent );
-	
 	// Plugin rendered? Send rendered index
-	if ( !empty( $html ) ) {
-		shutdown( 'cleanup' );
-		send( 
-			( int ) ( $sent['code'] ?? 200 ), 
-			$html, 
-			( bool ) ( $sent['cache'] ?? $cache ) 
-		);
-	}
+	sendOverride( 'renderindex' );
 	
 	// Default handler
 	$tpl	= [
@@ -5658,8 +5670,18 @@ function showArchive( string $event, array $hook, array $params ) {
 	}
 	
 	$page	= ( int ) ( $params['page'] ?? 1 );
+	
+	hook( [ 'showarchiveprep', [
+		'params'	=> $params,
+		'page'		=> $page
+	] ] );
+	
+	// Override content if hook already rendered
+	sendOverride( 'showarchiveprep' );
+	
 	$prefix	= '';
 	$s	= '/';
+	$stamp	= null;
 	
 	// Full archive
 	if ( empty( $params['year'] ) ) {
@@ -5683,6 +5705,15 @@ function showArchive( string $event, array $hook, array $params ) {
 		$prefix	= slashPath( homeLink(), true ) . $stamp;
 		$posts	= loadPosts( $page, $stamp );
 	}
+	
+	hook( [ 'showarchive', [
+		'params'	=> $params,
+		'page'		=> $page,
+		'stamp'		=> $stamp ?? '',
+		'prefix'	=> $prefix
+	] ] );
+	
+	sendOverride( 'showarchive' );
 	
 	// Display
 	formatIndex( $prefix, $page, $posts );
@@ -5724,6 +5755,19 @@ function showTag( string $event, array $hook, array $params ) {
 		],
 		\CACHE_DATA
 	);
+	
+	// Send to render hook
+	hook( [ 'tagsearchrender', [ 
+		'prefix'	=> $prefix,
+		'tag'		=> $tag,
+		'limit'		=> $plimit,
+		'start'		=> $start,
+		'page'		=> $page,
+		'results'	=> $res
+	] ] );
+	
+	// Send result if hook returned content
+	sendOverride( 'tagsearchrender' );
 	
 	// Nothing found for this tag
 	if ( empty( $res ) ) {
@@ -5788,6 +5832,20 @@ function showSearch( string $event, array $hook, array $params ) {
 		\CACHE_DATA 
 	);
 	
+	// Send to render hook
+	hook( [ 'searchrender', [ 
+		'prefix'	=> $prefix,
+		'find'		=> $find,
+		'limit'		=> $plimit,
+		'start'		=> $start,
+		'page'		=> $page,
+		'results'	=> $res,
+		'status'	=> $status
+	] ] );
+	
+	// Send result if hook returned content
+	sendOverride( 'searchrender' );
+	
 	// Nothing found for this search
 	if ( empty( $res ) ) {
 		formatIndex( $prefix, $page, [] );
@@ -5823,18 +5881,9 @@ function showFeed( string $event, array $hook, array $params ) {
 		'subtitle'	=> $psub,
 		'posts'		=> $posts
 	] ] );
-	$sent	= hook( [ 'feedrender', '' ] );
-	$html	= hookHTML( $sent );
 	
 	// Send result if hook returned content
-	if ( !empty( $html ) ) {
-		shutdown( 'cleanup' );
-		send( 
-			( int ) ( $sent['code'] ?? 200 ), 
-			$html, 
-			( bool ) ( $sent['cache'] ?? true ), true
-		);
-	}
+	sendOverride( 'feedrender', true );
 	
 	$tpl	= [
 		'{page_title}'	=> $ptitle,
@@ -5874,25 +5923,6 @@ function showPost( string $event, array $hook, array $params ) {
 		sendError( 404, \MSG_NOTFOUND );
 	}
 	
-	// Send to render hook
-	hook( [ 'postrender', [ 
-		'post'	=> $post, 
-		'title'	=> $title,
-		'path'	=> $path
-	] ] );
-	$sent	= hook( [ 'postrender', '' ] );
-	$html	= hookHTML( $sent );
-	
-	// Send result if hook returned content
-	if ( !empty( $html ) ) {
-		shutdown( 'cleanup' );
-		send( 
-			( int ) ( $sent['code'] ?? 200 ), 
-			$html, 
-			( bool ) ( $sent['cache'] ?? true )
-		);
-	}
-	
 	// Related and sibling post settings
 	$sib	= config( 'show_siblings', \SHOW_SIBLINGS, 'int' ) ? 
 			getSiblings( $path ) : '';
@@ -5902,6 +5932,19 @@ function showPost( string $event, array $hook, array $params ) {
 	
 	$ptitle	= config( 'page_title', \PAGE_TITLE );
 	$psub	= config( 'page_sub', \PAGE_SUB );
+	
+	// Send to render hook
+	hook( [ 'postrender', [ 
+		'post'		=> $post, 
+		'title'		=> $title,
+		'posttitle'	=> $ptitle,
+		'subtitle'	=> $psub,
+		'path'		=> $path,
+		'siblings'	=> $sib,
+	] ] );
+	
+	// Send result if hook returned content
+	sendOverride( 'postrender' );
 	
 	$tpl	= [
 		'{page_title}'	=> $ptitle,
@@ -5938,25 +5981,16 @@ function runIndex( string $event, array $hook, array $params ) {
 	
 	$ptitle	= config( 'page_title', \PAGE_TITLE );
 	$psub	= config( 'page_sub', \PAGE_SUB );
-
+	
 	// Send to render hook
 	hook( [ 'indexrender', [ 
 		'posts'		=> $posts,
 		'title'		=> $ptitle,
 		'subtitle'	=> $psub
 	] ] );
-	$sent	= hook( [ 'indexrender', '' ] );
-	$html	= hookHTML( $sent );
 	
 	// Send result if hook returned content
-	if ( !empty( $html ) ) {
-		shutdown( 'cleanup' );
-		send( 
-			( int ) ( $sent['code'] ?? 200 ), 
-			$html, 
-			( bool ) ( $sent['cache'] ?? true )
-		);
-	}
+	sendOverride( 'indexrender' );
 	
 	$out	= '';
 	foreach( $posts as $k => $v ) {
