@@ -1284,7 +1284,7 @@ function paginate( $page, $prefix, $posts ) : string {
 		return $html;
 	}
 	
-	if ( $c == 0 ) {
+	if ( $c < $plimit ) {
 		return '';
 	}
 	
@@ -6042,7 +6042,8 @@ function runIndex( string $event, array $hook, array $params ) {
 		'{post_title}'	=> $ptitle,
 		'{tagline}'	=> $psub,
 		'{body}'	=> $out,
-		'{paginate}'	=> paginate( $page, $prefix, $plist ),
+		'{paginate}'	=> ( count( $plist ) < $ilimit ) ? 
+			'' : paginate( $page, $prefix, $plist ),
 		'{home}'	=> homeLink(),
 		
 		'{search_form}'	=> searchForm(),
