@@ -2259,6 +2259,43 @@ function utc( $stamp = null ) : string {
 }
 
 /**
+ *  Length of given string
+ *  
+ *  @param string	$text	Raw input
+ *  @return int
+ */
+function strsize( string $text ) : int {
+	static $mbm;
+	if ( !isset( $mbm ) ) {
+		$mbm = missing( 'mb_strlen' );
+	}
+	
+	return $mbm ? \strlen( $text ) : \mb_strlen( $text, '8bit' );
+}
+
+/**
+ *  Limit string size
+ *  
+ *  @param string	$text	Raw input
+ *  @param int		$size	Maximum string length
+ *  @return string
+ */
+function truncate( string $text, int $start, int $size ) {
+	static $mbm;
+	if ( !isset( $mbm ) ) {
+		$mbm = missing( 'mb_substr' );
+	}
+	
+	if ( strsize( $text ) <= $size ) {
+		return $text;
+	}
+	
+	return $mbm ? 
+		\substr( $text, $start, $size ) :
+		\mb_substr( $text, $start, $size, '8bit' );
+}
+
+/**
  *  Friendly datetime stamp
  */
 function dateNice( $stamp = null ) : string {
@@ -2368,7 +2405,14 @@ function labelName( string $text ) : string {
  *  @return string
  */
 function lowercase( string $text ) : string {
-	return \mb_convert_case( $text, \MB_CASE_LOWER, 'UTF-8' );
+	static $mbm;
+	if ( !isset( $mbm ) ) {
+		$mbm = missing( 'mb_convert_case' );
+	}
+	
+	return $mbm ? 
+		\strtolower( $txt ) : 
+		\mb_convert_case( $text, \MB_CASE_LOWER, 'UTF-8' );
 }
 
 /**
@@ -2383,7 +2427,7 @@ function smartTrim(
 	int		$max		= 100
 ) : string {
 	$val	= \trim( $val );
-	$len	= \mb_strlen( $val );
+	$len	= strsize( $val );
 	
 	if ( $len <= $max ) {
 		return $val;
@@ -2405,8 +2449,8 @@ function smartTrim(
 	$out	= \preg_replace( "/\r?\n/", '', $out );
 	
 	// If there's too much overlap
-	if ( \mb_strlen( $out ) > $max + 10 ) {
-		$out = \mb_substr( $out, 0, $max );
+	if ( strsize( $out ) > $max + 10 ) {
+		$out = truncate( $out, 0, $max );
 	}
 	
 	return $out;
@@ -4100,7 +4144,7 @@ function request( string $event, array $hook, array $params ) : array {
 	}
 	
 	// Request path hard limit
-	if ( \mb_strlen( $path, '8bit' ) > 255 ) {
+	if ( strsize( $path ) > 255 ) {
 		shutdown( 'cleanup' );
 		send( 414 );
 	}
