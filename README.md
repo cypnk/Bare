@@ -63,10 +63,10 @@ There is also a [plugin](https://github.com/cypnk/Bare-Plugins) project for Bare
 
 The following PHP extensions may need to be installed or enabled  
 in **php.ini**:
-* pdo_sqlite
-* sqlite3
+* pdo_sqlite (*required*)
+* sqlite3 (*required*)
 * mbstring
-* fileinfo
+* fileinfo (*required*)
 * intl
 * tidy
 
