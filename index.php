@@ -2595,18 +2595,37 @@ function signature() {
  */
 
 /**
+ *  Apply uniform encoding of given text to UTF-8
+ *  
+ *  @param string	$text	Raw input
+ *  @param bool		$ignore Discard unconvertable characters (default)
+ *  @return string
+ */
+function utf( string $text, bool $ignore = true ) : string {
+	$out = $ignore ? 
+		\iconv( 'UTF-8', 'UTF-8//IGNORE', $text ) : 
+		\iconv( 'UTF-8', 'UTF-8', $text );
+	
+	return ( false === $out ) ? '' : $out;
+}
+
+/**
  *  Strip unusable characters from raw text/html and conform to UTF-8
  *  
  *  @param string	$html	Raw content body to be cleaned
- *  @param bool		$entities Convert to HTML entities (defaults to true)
+ *  @param bool		$entities Convert to HTML entities
  *  @return string
  */
 function pacify( 
 	string		$html, 
 	bool		$entities	= false 
 ) : string {
-	$html		= \trim( $html );
-	$html		= \iconv( 'UTF-8', 'UTF-8//IGNORE', $html );
+	static $mbm;
+	if ( !isset( $mbm ) ) {
+		$mbm = missing( 'mb_convert_encoding' );
+	}
+	
+	$html		= utf( \trim( $html ) );
 	
 	// Remove control chars except linebreaks/tabs etc...
 	$html		= 
@@ -2627,10 +2646,10 @@ function pacify(
 	);
 		
 	// Convert Unicode character entities?
-	if ( $entities ) {
+	if ( $entities && !$mbm ) {
 		$html	= 
 		\mb_convert_encoding( 
-			$html, 'HTML-ENTITIES', "UTF-8" 
+			$html, 'HTML-ENTITIES', 'UTF-8' 
 		);
 	}
 	
@@ -2653,13 +2672,13 @@ function entities(
 	if ( $quotes ) {
 		$v	=
 		\htmlentities( 
-			\iconv( 'UTF-8', 'UTF-8', $v ), 
+			utf( $v, false ), 
 			\ENT_QUOTES | \ENT_SUBSTITUTE, 
 			'UTF-8'
 		);
 	} else {
 		$v =  \htmlentities( 
-			\iconv( 'UTF-8', 'UTF-8', $v ), 
+			utf( $v, false ), 
 			\ENT_NOQUOTES | \ENT_SUBSTITUTE, 
 			'UTF-8'
 		);
@@ -3413,7 +3432,7 @@ function getHost() : string {
 	static $host;
 	if ( isset( $host ) ) { return $host; }
 	
-	$sw	= \array_map( 'trim', \explode( ',', \SERVER_WHITE ) );
+	$sw	= trimmedList( \SERVER_WHITE );
 	$sh	= [ 'HTTP_HOST', 'SERVER_NAME', 'SERVER_ADDR' ];
 	
 	foreach ( $sh as $h ) {
@@ -3522,9 +3541,12 @@ function send(
 	
 	// Schedule flush
 	shutdown( 'ob_end_flush' );
-	\ob_start( 'ob_gzhandler' );
-	echo $content;
 	
+	// Check gzip prerequisites
+	if ( $code != 304 && \extension_loaded( 'zlib' ) ) {
+		\ob_start( 'ob_gzhandler' );
+	}
+	echo $content;
 	
 	// End
 	shutdown();
