@@ -897,7 +897,7 @@ function isSecure() : bool {
  *  Logging safe string
  */
 function logStr( $text, int $len = 255 ) {
-	return truncate( pacify( ( string ) ( $text ?? '' ) ), $len );
+	return truncate( pacify( ( string ) ( $text ?? '' ) ), 0, $len );
 }
 
 /**
@@ -912,7 +912,7 @@ function logError( string $err, bool $app = true ) : bool {
 	$err	= unifyspaces( pacify( $err ) );
 	
 	if ( !$app ) {
-		$err = truncate( $err, 2048 );
+		$err = truncate( $err, 0, 2048 );
 	}
 	
 	\touch( $file );
