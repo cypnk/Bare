@@ -894,9 +894,16 @@ function isSecure() : bool {
 }
 
 /**
+ *  Logging safe string
+ */
+function logStr( $text, int $len = 255 ) {
+	return truncate( pacify( ( string ) ( $text ?? '' ) ), $len );
+}
+
+/**
  *  Error logging
  *  
- *  @param string 	$err Error message to store
+ *  @param string	$err Error message to store
  *  @param bool		$app Application error if true, visitor error if false
  *  @return bool		True if successful
  */
@@ -905,7 +912,7 @@ function logError( string $err, bool $app = true ) : bool {
 	$err	= unifyspaces( pacify( $err ) );
 	
 	if ( !$app ) {
-		$err = truncate( $err, 1000 );
+		$err = truncate( $err, 2048 );
 	}
 	
 	\touch( $file );
@@ -913,6 +920,25 @@ function logError( string $err, bool $app = true ) : bool {
 	return file_exists( $file ) ? 
 		\error_log( $err . "\n", 3, $file ) : \error_log( $err );
 }
+
+/**
+ *  Log visitor error
+ *  
+ *  @param string	$msg Error type/Custom message
+ *  @return bool
+ */
+function visitorError( string $msg = '-' ) {
+	$ua	= 'UA: ' . logStr( $_SERVER['HTTP_USER_AGENT'] ?? '-' ) . ' ';
+	$me	= 'Method: ' . logStr( $_SERVER['REQUEST_METHOD'] ) . ' ';
+	$uri	= 'URI: ' . logStr( $_SERVER['REQUEST_URI'] );
+	
+	$err	= 
+		'IP: ' . getIP() . ' Msg: ' . $msg . ' Time: ' . utc() . ' ' . 
+		$ua . $me . $uri;
+	
+	shutdown( 'logError', [ $err, false ] );
+}
+
 
 /**
  *  Safely encode to JSON
@@ -2267,7 +2293,9 @@ function tstring( $stamp ) {
  *  UTC timestamp
  */
 function utc( $stamp = null ) : string {
-	return \gmdate( 'Y-m-d\TH:i:s', tstring( $stamp ) );
+	return empty( $stamp ) ? 
+		\gmdate( 'Y-m-d\TH:i:s' ) : 
+		\gmdate( 'Y-m-d\TH:i:s', tstring( $stamp ) );
 }
 
 /**
@@ -4117,6 +4145,7 @@ function request( string $event, array $hook, array $params ) : array {
 	
 	// Empty host?
 	if ( empty( getHost() ) ) {
+		visitorError( 'Host' );
 		sendError( 400, \MSG_INVALID );
 	}
 	
@@ -4128,12 +4157,14 @@ function request( string $event, array $hook, array $params ) : array {
 	// Unrecognized method?
 	if ( !\in_array( $verb, $safe ) ) {
 		// Send method not allowed
+		visitorError( 'Method' );
 		sendError( 405, \MSG_BADMETHOD );
 	}
 	
 	// Request path hard limit
 	if ( strsize( $path ) > 255 ) {
 		shutdown( 'cleanup' );
+		visitorError( 'Path' );
 		send( 414 );
 	}
 	
@@ -4142,6 +4173,7 @@ function request( string $event, array $hook, array $params ) : array {
 		false !== \strpos( $path, '..' ) || 
 		false !== \strpos( $path, '<' )	
 	) {
+		visitorError( 'Path' );
 		sendError( 400, \MSG_INVALID );
 	}
 	
@@ -4151,6 +4183,7 @@ function request( string $event, array $hook, array $params ) : array {
 		\preg_match( RX_XSS4, $path ) || 
 		!empty( $_FILES )
 	) {
+		visitorError( 'Denied' );
 		sendError( 403, \MSG_DENIED );
 	}
 	
@@ -4367,6 +4400,7 @@ function route( string $event, array $hook, array $params ) {
 	// No handler for this route?
 	if ( empty( $match ) ) {
 		// Nothing else sent
+		visitorError( 'Not found' );
 		sendError( 404, MSG_NOTFOUND );
 	}
 	
@@ -4574,6 +4608,7 @@ function loadPost(
 	
 	$pub	= getPub( $path );
 	if ( !checkPub( $pub ) ) {
+		visitorError( 'Not found' );
 		sendError( 404, \MSG_NOTFOUND );
 	}
 	
