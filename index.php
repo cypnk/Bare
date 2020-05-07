@@ -32,6 +32,9 @@ define( 'CONFIG',		'config.json' );
 // Error log filename (will be created if it doesn't exist)
 define( 'ERROR',		'errors.log' );
 
+// Visitor error log (will be created if if doesn't exist)
+define( 'ERROR_VISIT',		'visitor_errors.log' );
+
 // Custom error file folder (optional)
 define( 'ERROR_ROOT',		\realpath( \dirname( __FILE__ ) ) . '/errors/' );
 // Use this if error files are outside web root
@@ -720,15 +723,28 @@ SQL
  *  Helpers
  */
 
+
+/**
+ *  String to list helper
+ */
+function trimmedList( string $text, bool $lower = false ) : array {
+	$map = \array_map( 'trim', \explode( ',', $text ) );
+	return $lower ? \array_map( 'strtolower', $map ) : $map;
+}
+
 /**
  *  Suhosin aware checking for function availability
  *  
- *  @param string $func Function name
- *  @return boolean true If the function exists
+ *  @param string	$func Function name
+ *  @return bool	true If the function isn't available 
  */
-function missing( $func ) {
+function missing( $func ) : bool {
 	static $exts;
 	static $blocked;
+	static $fn	= [];
+	if ( isset( $fn[$func] ) ) {
+		return $fn[$func];
+	}
 	
 	if ( \extension_loaded( 'suhosin' ) ) {
 		if ( !isset( $exts ) ) {
@@ -736,20 +752,21 @@ function missing( $func ) {
 		}
 		if ( !empty( $exts ) ) {
 			if ( !isset( $blocked ) ) {
-				$blocked = \explode( ',', \strtolower( $exts ) );
-				$blocked = \array_map( 'trim', $blocked );
+				$blocked = trimmedList( $exts, true );
 			}
 			
-			$search = \strtolower( $func );
+			$search		= \strtolower( $func );
 			
-			return (
+			$fn[$func]	= (
 				false	== \function_exists( $func ) && 
 				true	== \array_search( $search, $blocked ) 
 			);
 		}
+	} else {
+		$fn[$func] = !\function_exists( $func );
 	}
 	
-	return !\function_exists( $func );
+	return $fn[$func];
 }
 
 /**
@@ -878,16 +895,24 @@ function isSecure() : bool {
 
 /**
  *  Error logging
+ *  
+ *  @param string 	$err Error message to store
+ *  @param bool		$app Application error if true, visitor error if false
+ *  @return bool		True if successful
  */
-function logError( string $err ) : bool {
-	$file	= \CACHE . \ERROR;
+function logError( string $err, bool $app = true ) : bool {
+	$file	= \CACHE . ( $app ? \ERROR : \ERROR_VISIT );
 	$err	= unifyspaces( pacify( $err ) );
+	
+	if ( !$app ) {
+		$err = truncate( $err, 1000 );
+	}
+	
 	\touch( $file );
 	
 	return file_exists( $file ) ? 
 		\error_log( $err . "\n", 3, $file ) : \error_log( $err );
 }
-
 
 /**
  *  Safely encode to JSON
@@ -919,13 +944,6 @@ function decode( string $data ) : array {
 	}
 	
 	return $data;
-}
-
-/**
- *  String to list helper
- */
-function trimmedList( string $text ) : array {
-	return \array_map( 'trim', \explode( ',', $text ) );
 }
 
 /**
@@ -1331,12 +1349,7 @@ function genId( int $bytes = 16 ) : string {
  *  @return string
  */
 function genSeqId() : string {
-	static $nohr;
-	if ( !isset( $nohr ) ) {
-		$nohr  = missing( 'hrtime' );
-	}
-	
-	if ( $nohr ) {
+	if ( missing( 'hrtime' ) ) {
 		list( $us, $se ) = 
 			\explode( ' ', \microtime() );
 		$t = $se . $us;
@@ -1661,8 +1674,7 @@ function loadPlugins( string $event, array $hook, array $params ) {
 		return;
 	}
 	
-	$plugins	= trimmedList( \PLUGINS_ENABLED );
-	$plugins	= \array_map( 'strtolower', $plugins );
+	$plugins	= trimmedList( \PLUGINS_ENABLED, true );
 	$msg		= [];
 	
 	foreach ( $plugins as $p ) {
@@ -2265,12 +2277,8 @@ function utc( $stamp = null ) : string {
  *  @return int
  */
 function strsize( string $text ) : int {
-	static $mbm;
-	if ( !isset( $mbm ) ) {
-		$mbm = missing( 'mb_strlen' );
-	}
-	
-	return $mbm ? \strlen( $text ) : \mb_strlen( $text, '8bit' );
+	return missing( 'mb_strlen' ) ? 
+		\strlen( $text ) : \mb_strlen( $text, '8bit' );
 }
 
 /**
@@ -2281,17 +2289,12 @@ function strsize( string $text ) : int {
  *  @return string
  */
 function truncate( string $text, int $start, int $size ) {
-	static $mbm;
-	if ( !isset( $mbm ) ) {
-		$mbm = missing( 'mb_substr' );
-	}
-	
 	if ( strsize( $text ) <= $size ) {
 		return $text;
 	}
 	
-	return $mbm ? 
-		\substr( $text, $start, $size ) :
+	return missing( 'mb_substr' ) ? 
+		\substr( $text, $start, $size ) : 
 		\mb_substr( $text, $start, $size, '8bit' );
 }
 
@@ -2405,12 +2408,7 @@ function labelName( string $text ) : string {
  *  @return string
  */
 function lowercase( string $text ) : string {
-	static $mbm;
-	if ( !isset( $mbm ) ) {
-		$mbm = missing( 'mb_convert_case' );
-	}
-	
-	return $mbm ? 
+	return missing( 'mb_convert_case' ) ? 
 		\strtolower( $txt ) : 
 		\mb_convert_case( $text, \MB_CASE_LOWER, 'UTF-8' );
 }
@@ -2664,11 +2662,6 @@ function pacify(
 	string		$html, 
 	bool		$entities	= false 
 ) : string {
-	static $mbm;
-	if ( !isset( $mbm ) ) {
-		$mbm = missing( 'mb_convert_encoding' );
-	}
-	
 	$html		= utf( \trim( $html ) );
 	
 	// Remove control chars except linebreaks/tabs etc...
@@ -2690,7 +2683,7 @@ function pacify(
 	);
 		
 	// Convert Unicode character entities?
-	if ( $entities && !$mbm ) {
+	if ( $entities && !missing( 'mb_convert_encoding' ) ) {
 		$html	= 
 		\mb_convert_encoding( 
 			$html, 'HTML-ENTITIES', 'UTF-8' 
@@ -3057,12 +3050,7 @@ function html( string $value, $prefix = '' ) : string {
  *  @return string
  */
 function tidyup( string $text ) : string {
-	static $notidy;
-	
-	if ( !isset( $notidy ) ) { 
-		 $notidy = missing( 'tidy_repair_string' );
-	}
-	if ( $notidy ) {
+	if ( missing( 'tidy_repair_string' ) ) {
 		return $text;
 	}
 	
@@ -4198,8 +4186,8 @@ function isSafeExt( string $path ) {
 	}
 	
 	if ( !isset( $safe ) ) {
-		$safe	= trimmedList( config( 'safe_ext', \SAFE_EXT ) );
-		$safe	= \array_map( 'strtolower', $safe );
+		$safe	= 
+		trimmedList( config( 'safe_ext', \SAFE_EXT ), true );
 	}
 	
 	$ext		= 
@@ -4425,15 +4413,15 @@ function getPosts( string $root = '' ) {
 }
 
 function filterDir( $path ) {
-	$lp	= \strlen( POSTS );
-	if ( \strlen( $path ) < $lp ) { 
+	$lp	= strsize( POSTS );
+	if ( strsize( $path ) < $lp ) { 
 		return ''; 
 	}
 	$pos	= \strpos( $path, POSTS );
 	if ( false === $pos ) {
 		return '';
 	}
-	$path	= \substr(  $path, $pos + $lp );
+	$path	= truncate( $path, $pos + $lp );
 	return \trim( $path ?? '' );
 }
 
@@ -4720,10 +4708,7 @@ function extractTags( array &$post ) : array {
 	}
 	
 	// Clean tags
-	$tags	= 
-	\array_filter( \array_map( 
-		'trim', \explode( ',', $m['tags'] ?? '' ) 
-	) );
+	$tags	= \array_filter( trimmedList( $m['tags'] ?? '' ) );
 	
 	// No tags left after cleaning?
 	if ( empty( $tags ) ) {
@@ -6312,13 +6297,10 @@ function checkConfig( string $event, array $hook, array $params ) {
 	\strip_tags( $data['page_link'] ?? \PAGE_LINK );
 	
 	if ( isset( $data['safe_ext'] ) ) { 
-		$safe 			= 
-		\array_map( 'trim', 
-			\explode( ',', ( string ) $data['safe_ext'] ) 
-		);
-		
 		$data['safe_ext']	= 
-		\implode( ',', \array_map( 'strtolower', $safe ) );
+		\implode( ',', trimmedList( 
+			( string ) $data['safe_ext'], true 
+		) );
 	}
 	
 	if ( isset( $data['nonce_hash'] ) ) {
