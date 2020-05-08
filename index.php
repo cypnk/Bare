@@ -4871,7 +4871,8 @@ function isPost( $file ) : bool {
 function loadPosts(
 	int	$page	= 1,
 	string	$prefix	= '',
-	bool	$feed	= false
+	bool	$feed	= false,
+	int	$slvl	= 0
 ) : array {
 	$it	= getPosts( $prefix );
 	if ( empty( $it ) ) {
@@ -4889,8 +4890,6 @@ function loadPosts(
 	$title	= '';
 	$tpl	= $feed ? ( TPL_ITEM  ?? '' ) : ( TPL_POST ?? '' );
 	hook( [ 'formatpostprep', [ 'feed' => $feed, 'template' => $tpl ] ] );
-	
-	$slvl	= config( 'summary_level', \SUMMARY_LEVEL, 'int' );
 	
 	foreach( $it as $file ) {
 		
@@ -4986,7 +4985,7 @@ function loadIndex( int $start = 0, int $limit = 0 ) : array {
 			post_path, post_view, post_bare, post_summary, 
 			updated, published 
 		) 
-		VALUES ( :path, :pview, :bare, :updated, :pub );" 
+		VALUES ( :path, :pview, :bare, :summary, :updated, :pub );" 
 	);
 	
 	// Select post statement
@@ -5889,9 +5888,12 @@ function showArchive( string $event, array $hook, array $params ) {
 	$s	= '/';
 	$stamp	= null;
 	
+	
+	$slvl	= config( 'summary_level', \SUMMARY_LEVEL, 'int' );
+	
 	// Full archive
 	if ( empty( $params['year'] ) ) {
-		$posts	= loadPosts( $page, '', false );
+		$posts	= loadPosts( $page, '', false, $slvl );
 		$prefix	= slashPath( homeLink(), true );
 	
 	// Starting from year?
@@ -5909,7 +5911,7 @@ function showArchive( string $event, array $hook, array $params ) {
 		}
 		$stamp	= \trim( $stamp, $s ) . $s;
 		$prefix	= slashPath( homeLink(), true ) . $stamp;
-		$posts	= loadPosts( $page, $stamp, false );
+		$posts	= loadPosts( $page, $stamp, false, $slvl );
 	}
 	
 	hook( [ 'showarchive', [
@@ -6060,7 +6062,8 @@ function showFeed( string $event, array $hook, array $params ) {
 		loadIndex();
 	}
 	
-	$posts	= loadPosts( 1, '', true );
+	$slvl	= config( 'summary_level', \SUMMARY_LEVEL, 'int' );
+	$posts	= loadPosts( 1, '', true, $slvl );
 	if ( empty( $posts ) ) {
 		sendError( 404, \MSG_NOTFOUND );
 	}
