@@ -86,6 +86,10 @@ define( 'ALLOW_POST',	0 );
 // Maximum number of tags to recognize in each post
 define( 'TAG_LIMIT',	5 );
 
+// Post summary level shown on indexes E.G. hompage, tags, search etc...
+define( 'SUMMARY_LEVEL',	0 );
+// 0 = Full post view. 1 = Summary, if available, or full post. 2 = Summary view
+
 // Extensions generally safe to send as-is
 define( 'SAFE_EXT',	
 	'css, js, ico, txt, html, jpg, jpeg, gif, bmp, png, tif, tiff, ttf, otf' );
@@ -605,6 +609,7 @@ CREATE TABLE posts(
 	post_path TEXT NOT NULL COLLATE NOCASE,
 	post_view TEXT NOT NULL COLLATE NOCASE,
 	post_bare TEXT NOT NULL COLLATE NOCASE, 
+	post_summary TEXT DEFAULT '' COLLATE NOCASE, 
 	updated DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	published DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );-- --
@@ -4704,6 +4709,51 @@ function postCached( $path ) {
 }
 
 /**
+ *  Extract a given feature line in "item: content" format from the post range
+ *  
+ *  @param array	$post	Post data as lines
+ *  @param string	$search	Parameter to search
+ *  @param int		$lines	Number of lines from the bottom to search
+ *  @return array		Extracted match(es)
+ */
+function extractFeature(
+	array		&$post,
+	string		$search,
+	int		$lines	= 1 
+) : array {
+	$c	= count( $post );
+	
+	// Need at least three lines
+	if ( $c < 3 ) {
+		return [];
+	}
+	
+	$p = $c - 1;
+	$i = 0;
+	while ( $i < $lines && $p > 0 ) {
+		$line = \trim( unifySpaces( $post[$p] ) );
+		
+		// Nothing to find? Skip line
+		if ( empty( $line ) ) {
+			$p--;
+			continue;
+		}
+		
+		// Search for feature
+		if ( \preg_match( $search, $line, $m ) ) {
+			// Remove line if feature was found
+			unset( $post[$p] );
+			return $m;
+		}
+		
+		$p--;
+		$i++;
+	}
+	
+	return [];
+}
+
+/**
  *  Get summary or abstract from the last or second-to-last line
  */
 function extractSummary( array &$post ) : string {
@@ -4722,36 +4772,21 @@ function extractTags( array &$post ) : array {
 	
 	if ( !isset( $tagp ) ) {
 		$tagp	= 
-		getMarkers()[':tags'] ?? '(?<tags>[\pL\pN\s_\,\-]{1,255})';
+		'/^tags\s?\:' . 
+		( getMarkers()[':tags'] ?? '(?<tags>[\pL\pN\s_\,\-]{1,255})' ) . 
+		'/is';
 	}
 	
-	$c	= count( $post );
-	// Need at least three lines
-	if ( $c < 3 ) {
-		return [];
-	}
-	
-	// Last line
-	$line	= 
-	\preg_replace( '/\s+/', ' ', \trim( $post[$c - 1] ) );
-	\preg_match( 
-		'/^tags\s?\:' . $tagp . '/is', $line, $m 
-	);
-	
-	if ( empty( $m['tags'] ) ) {
-		return [];
-	}
+	// Search for tags in the last 3 lines of the post
+	$find	= extractFeature( $post, $tagp, 2 );
 	
 	// Clean tags
-	$tags	= \array_filter( trimmedList( $m['tags'] ?? '' ) );
+	$tags	= \array_filter( trimmedList( $find['tags'] ?? '' ) );
 	
 	// No tags left after cleaning?
 	if ( empty( $tags ) ) {
 		return [];
 	}
-	
-	// Remove last line if tags were found
-	\array_pop( $post );
 	
 	// Ensure tags don't exceed limit
 	$tl	= config( 'tag_limit', \TAG_LIMIT, 'int' );
