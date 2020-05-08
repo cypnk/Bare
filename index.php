@@ -914,7 +914,7 @@ function logStr( $text, int $len = 255 ) {
  */
 function logError( string $err, bool $app = true ) : bool {
 	$file	= \CACHE . ( $app ? \ERROR : \ERROR_VISIT );
-	$err	= unifyspaces( pacify( $err ) );
+	$err	= unifySpaces( pacify( $err ) );
 	
 	if ( !$app ) {
 		$err = truncate( $err, 0, 2048 );
@@ -4452,15 +4452,15 @@ function getPosts( string $root = '' ) {
 }
 
 function filterDir( $path ) {
-	$lp	= strsize( POSTS );
-	if ( strsize( $path ) < $lp ) { 
+	$lp	= \strlen( POSTS );
+	if ( \strlen( $path ) < $lp ) { 
 		return ''; 
 	}
 	$pos	= \strpos( $path, POSTS );
 	if ( false === $pos ) {
 		return '';
 	}
-	$path	= truncate( $path, $pos + $lp );
+	$path	= \substr( $path, $pos + $lp );
 	return \trim( $path ?? '' );
 }
 
@@ -4524,6 +4524,7 @@ function postData( $raw, bool $fl = true ) {
  */
 function refreshPost(
 	string		$path, 
+	string		$summ, 
 	string		$out, 
 	string		$pub, 
 	array		$tags, 
@@ -4540,9 +4541,10 @@ function refreshPost(
 	$pstm		= 
 	$db->prepare( 
 		"INSERT OR IGNORE INTO posts( 
-			post_path, post_view, post_bare, updated, published 
+			post_path, post_view, post_bare, post_summary, 
+			updated, published 
 		) 
-		VALUES ( :path, :pview, :bare, :updated, :pub );" 
+		VALUES ( :path, :pview, :bare, :summary, :updated, :pub );" 
 	);
 	
 	// Select post statement
@@ -4571,7 +4573,7 @@ function refreshPost(
 		$dstm->execute( [':path' => $path ] );
 		
 		// Insert post again
-		insertPost( $pstm, $path, $out, $pub, $mtime );
+		insertPost( $pstm, $path, $summ, $out, $pub, $mtime );
 		
 		// Add any new tags
 		insertTags( $istm, $tags );
@@ -4604,6 +4606,7 @@ function loadPost(
 	string	$path
 ) {
 	$title	= '';
+	$summ	= '';
 	$ppath	= POSTS . \ltrim( $path, '/' ) . '.md';
 	$data	= postData( $ppath );
 	
@@ -4622,7 +4625,7 @@ function loadPost(
 	
 	$tags	= [];
 	$out	= 
-	formatPost( $title, $tags, $data, $path, $tpl );
+	formatPost( $title, $tags, $summ, $data, $path, $tpl, 0 );
 	
 	// If index has not been run before this function was called...
 	if ( !internalState( 'indexRun' ) ) {
@@ -4641,7 +4644,7 @@ function loadPost(
 			$pub	= getPub( $path );
 			shutdown( 
 				'refreshPost', 
-				[ $path, $out, $pub, $tags, $mtime ]
+				[ $path, $summ, $out, $pub, $tags, $mtime ]
 			);
 		} elseif ( !postCached( $path ) ) {
 			shutdown( 'loadIndex' );
@@ -4754,11 +4757,19 @@ function extractFeature(
 }
 
 /**
- *  Get summary or abstract from the last or second-to-last line
+ *  Get summary or abstract from post
  */
 function extractSummary( array &$post ) : string {
-	// TODO: Build summary extractor
-	return '';
+	static $sump;
+	
+	if ( !isset( $sump ) ) {
+		$sump	= 
+		'/^summary\s?\:' . ( getMarkers()[':all'] ?? '(?<all>.+)' ) . 
+		'/isu';
+	}
+	
+	$find	= extractFeature( $post, $sump, 2 );
+	return html( $find['all'] ?? '' );
 }
 
 /**
@@ -4771,10 +4782,8 @@ function extractTags( array &$post ) : array {
 	static $tagp;
 	
 	if ( !isset( $tagp ) ) {
-		$tagp	= 
-		'/^tags\s?\:' . 
-		( getMarkers()[':tags'] ?? '(?<tags>[\pL\pN\s_\,\-]{1,255})' ) . 
-		'/is';
+		$mc	= getMarkers()[':tags'] ?? '(?<tags>[\pL\pN\s_\,\-]{1,255})';
+		$tagp	= '/^tags\s?\:' . $mc . '/is';
 	}
 	
 	// Search for tags in the last 3 lines of the post
@@ -4881,6 +4890,8 @@ function loadPosts(
 	$tpl	= $feed ? ( TPL_ITEM  ?? '' ) : ( TPL_POST ?? '' );
 	hook( [ 'formatpostprep', [ 'feed' => $feed, 'template' => $tpl ] ] );
 	
+	$slvl	= config( 'summary_level', \SUMMARY_LEVEL, 'int' );
+	
 	foreach( $it as $file ) {
 		
 		// Check if it's a post
@@ -4906,9 +4917,10 @@ function loadPosts(
 				continue;
 			}
 			
+			$summ		= '';
 			$tags		= [];
 			$posts[$path]	= 
-			formatPost( $title, $tags, $data, $path, $tpl );
+			formatPost( $title, $tags, $summ, $data, $path, $tpl, $slvl );
 		}
 		
 		// Increment number of entries if published
@@ -4930,6 +4942,7 @@ function loadPosts(
 function insertPost(
 			$pstm, 
 	string		$path, 
+	string		$summ,
 	string		$out, 
 	string		$pub, 
 	int		$mtime 
@@ -4938,6 +4951,7 @@ function insertPost(
 		':path'		=> slashPath( $path ), 
 		':pview'	=> $out, 
 		':bare'		=> \strip_tags( $out ), 
+		':summary'	=> $summ,		
 		':updated'	=> utc( $mtime ), 
 		':pub'		=> $pub
 	];
@@ -5031,14 +5045,18 @@ function loadIndex( int $start = 0, int $limit = 0 ) : array {
 				$mtime = time();
 			}
 			
+			$summ		= '';
 			$tags		= [];
 			
 			// Apply metadata
 			metadata( $title, $perm, $pub, $post, $path );
 			
-			// Load formatted and process tags
+			// Load formatted and process features
 			$out		= 
-			formatPost( $title, $tags, $post, $path, TPL_POST ?? '' );
+			formatPost( 
+				$title, $tags, $summ, $post, $path,
+				TPL_POST ?? '', 0
+			);
 			
 			if ( $limited ) {
 				if ( $i >= $start && $j <= $limit ) {
@@ -5052,7 +5070,7 @@ function loadIndex( int $start = 0, int $limit = 0 ) : array {
 			}
 			
 			// Create tags and cache page info
-			insertPost( $pstm, $perm, $out, $pub, $mtime );
+			insertPost( $pstm, $perm, $summ, $out, $pub, $mtime );
 			insertTags( $istm, $tags );
 			applyTags( $sstm, $tstm, $perm, $tags );
 			
@@ -5128,14 +5146,16 @@ function formatMeta( $title, $pub, $path, $tags = [] ) : array {
 }
 
 /**
- *  Apply post template, if post exists and published or return 404
+ *  Apply post template, if post exists and published
  */
 function formatPost(
 	string	&$title,
 	array	&$tags,
+	string	&$summ,
 	array	$post,
 	string	$path,
-	string	$tpl
+	string	$tpl,
+	int	$slvl
 ) {	
 	// Check for post validity
 	if ( count( $post ) < 3 ) {
@@ -5162,7 +5182,8 @@ function formatPost(
 		'permalink'	=> $perm,
 		'published'	=> $pub,
 		'summary'	=> $summ,
-		'body'		=> $body
+		'body'		=> $body,
+		'slevel'	=> $slvl
 	] ] ) ;
 	
 	$html	= hookHTML( hook( [ 'formatpost', '' ] ) );
@@ -5174,7 +5195,18 @@ function formatPost(
 	
 	// Format metadata
 	$data		= formatMeta( $title, $pub, $perm, $tags );
-	$data['{body}'] = $body;
+	switch( $slvl ) {
+		case 1:
+			$data['{body}'] = empty( $summ ) ? $body : $summ;
+			break;
+			
+		case 2:
+			$data['{body}'] = $summ;
+			break;
+			
+		default: 
+			$data['{body}'] = $body;
+	}
 	
 	return \strtr( $tpl, $data );
 }
@@ -5237,7 +5269,7 @@ function filterRequest( string $event, array $hook, array $params ) {
 		],
 		'tag'	=> [
 			'filter'	=> \FILTER_CALLBACK,
-			'options'	=> 'unifyspaces'
+			'options'	=> 'unifySpaces'
 		],
 		'slug'	=> [
 			'filter'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
@@ -5245,7 +5277,7 @@ function filterRequest( string $event, array $hook, array $params ) {
 		],
 		'find'	=> [
 			'filter'	=> \FILTER_CALLBACK,
-			'options'	=> 'unifyspaces'
+			'options'	=> 'unifySpaces'
 		],
 		'token'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
 		'nonce'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS
@@ -5796,6 +5828,37 @@ function getRelated( string $path ) {
 	\strtr( \TPL_RELATEDNAV, [ '{text}' => \implode( '', $out ) ] );
 }
 
+/**
+ *  Aggregate post body depending on summary level
+ */
+function collectBody( array $res ) : array {
+	if ( empty( $res ) ) {
+		return [];
+	}
+	$slvl	= config( 'summary_level', \SUMMARY_LEVEL, 'int' );
+	$posts	= [];
+	switch( $slvl ) {
+		case 1: 
+			foreach( $res as $r ) {
+				$posts[] = 
+				empty( $r['post_summary'] ) ?
+					$r['post_view'] : $r['post_summary'];
+			}
+			break;
+		
+		case 2: 
+			foreach( $res as $r ) {
+				$posts[] = $r['post_summary'];
+			}
+			break;
+			
+		default: 
+			foreach( $res as $r ) {
+				$posts[] = $r['post_view'];
+			}
+	}
+	return $posts;
+}
 
 
 /**
@@ -5827,7 +5890,7 @@ function showArchive( string $event, array $hook, array $params ) {
 	
 	// Full archive
 	if ( empty( $params['year'] ) ) {
-		$posts	= loadPosts( $page );
+		$posts	= loadPosts( $page, '', false );
 		$prefix	= slashPath( homeLink(), true );
 	
 	// Starting from year?
@@ -5845,7 +5908,7 @@ function showArchive( string $event, array $hook, array $params ) {
 		}
 		$stamp	= \trim( $stamp, $s ) . $s;
 		$prefix	= slashPath( homeLink(), true ) . $stamp;
-		$posts	= loadPosts( $page, $stamp );
+		$posts	= loadPosts( $page, $stamp, false );
 	}
 	
 	hook( [ 'showarchive', [
@@ -5857,7 +5920,7 @@ function showArchive( string $event, array $hook, array $params ) {
 	
 	sendOverride( 'showarchive' );
 	
-	// Display
+	// Display archive
 	formatIndex( $prefix, $page, $posts );
 }
 
@@ -5885,7 +5948,7 @@ function showTag( string $event, array $hook, array $params ) {
 	// Get cached tags
 	$res	= 
 	getResults( 
-		"SELECT DISTINCT post_path, post_view FROM posts
+		"SELECT DISTINCT post_path, post_view, post_summary, FROM posts
 			JOIN post_tags ON posts.id = post_tags.post_id 
 			WHERE post_tags.tag_slug = :tag 
 			ORDER BY posts.published DESC 
@@ -5911,17 +5974,8 @@ function showTag( string $event, array $hook, array $params ) {
 	// Send result if hook returned content
 	sendOverride( 'tagsearchrender' );
 	
-	// Nothing found for this tag
-	if ( empty( $res ) ) {
-		formatIndex( $prefix, $page, [] );
-	}
-	
-	// Extract view column and send to formatting
-	$posts	= [];
-	foreach( $res as $r ) {
-		$posts[] = $r['post_view'];
-	}
-	formatIndex( $prefix, $page, $posts );
+	// Display tag
+	formatIndex( $prefix, $page, collectBody( $res ) );
 }
 
 /**
@@ -5959,6 +6013,7 @@ function showSearch( string $event, array $hook, array $params ) {
 		"SELECT DISTINCT post_view FROM (
 			SELECT 
 			posts.post_view AS post_view, 
+			posts.post_summary AS post_summary, 
 			matchinfo(post_search) AS rel
 			FROM post_search 
 			LEFT JOIN posts ON post_search.docid = posts.id 
@@ -5988,16 +6043,8 @@ function showSearch( string $event, array $hook, array $params ) {
 	// Send result if hook returned content
 	sendOverride( 'searchrender' );
 	
-	// Nothing found for this search
-	if ( empty( $res ) ) {
-		formatIndex( $prefix, $page, [] );
-	}
-	
-	$posts	= [];
-	foreach( $res as $post ) {
-		$posts[] = $post['post_view'];
-	}
-	formatIndex( $prefix, $page, $posts );
+	// Display search
+	formatIndex( $prefix, $page, collectBody( $res ) );
 }
 
 
@@ -6206,12 +6253,28 @@ function checkConfig( string $event, array $hook, array $params ) {
 				'default'	=> \PAGE_LIMIT
 			]
 		],
+		'index_limit'	=> [
+			'filter'	=> \FILTER_VALIDATE_INT,
+			'options'	=> [
+				'min_range'	=> 1,
+				'max_range'	=> 500,
+				'default'	=> \INDEX_LIMIT
+			]
+		],
 		'max_page' => [
 			'filter'	=> \FILTER_VALIDATE_INT,
 			'options'	=> [
 				'min_range'	=> 1,
 				'max_range'	=> 5000,
 				'default'	=> \MAX_PAGE
+			]
+		],
+		'summary_level'	=> [
+			'filter'	=> \FILTER_VALIDATE_INT,
+			'options'	=> [
+				'min_range'	=> 0,
+				'max_range'	=> 2,
+				'default'	=> \SUMMARY_LEVEL
 			]
 		],
 		
