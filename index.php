@@ -4983,7 +4983,8 @@ function loadIndex( int $start = 0, int $limit = 0 ) : array {
 	$pstm		= 
 	$db->prepare( 
 		"INSERT OR IGNORE INTO posts( 
-			post_path, post_view, post_bare, updated, published 
+			post_path, post_view, post_bare, post_summary, 
+			updated, published 
 		) 
 		VALUES ( :path, :pview, :bare, :updated, :pub );" 
 	);
@@ -5948,7 +5949,10 @@ function showTag( string $event, array $hook, array $params ) {
 	// Get cached tags
 	$res	= 
 	getResults( 
-		"SELECT DISTINCT post_path, post_view, post_summary, FROM posts
+		"SELECT DISTINCT 
+			posts.post_path AS post_path, 
+			posts.post_view AS post_view, 
+			posts.post_summary AS post_summary FROM posts
 			JOIN post_tags ON posts.id = post_tags.post_id 
 			WHERE post_tags.tag_slug = :tag 
 			ORDER BY posts.published DESC 
