@@ -4837,7 +4837,7 @@ function initPostFeatures() : array {
  *  @return array
  */
 function postFeatures( array &$post, int $flines ) : array {
-	static $features	= [];
+	static $features;
 	
 	// Core feature presets: summary and tags
 	if ( !isset( $features ) ) {
@@ -4862,7 +4862,7 @@ function postFeatures( array &$post, int $flines ) : array {
 	foreach( $features as $k => $v ) {
 		$find = 
 		extractFeature( 
-			$post, $v['search'], $v['lines'] ?? $flines
+			$post, $v['search'], ( $v['lines'] ?? $flines )
 		);
 		if ( !empty( $find ) ) {
 			$filter		= $v['filter'];
@@ -4930,6 +4930,15 @@ function isPost( $file ) : bool {
 	return false;	
 }
 
+/**
+ *  Load all published posts on file and extract properties
+ *  
+ *  @param int		$page	Current page index
+ *  @param string	$prefix	Link prefix
+ *  @param bool		$feed	Specify if this is a syndication feed
+ *  @param int		$slvl	Summary display level
+ *  @return array
+ */
 function loadPosts(
 	int	$page	= 1,
 	string	$prefix	= '',
@@ -5028,7 +5037,11 @@ function insertPost(
 }
 
 /**
- *  Load all published posts
+ *  Load all published posts into database cache
+ *  
+ *  @param int	$start	Return starting page index
+ *  @param int	$limit	Maximum number of posts to return
+ *  @return array
  */
 function loadIndex( int $start = 0, int $limit = 0 ) : array {
 	$it	= getPosts();
