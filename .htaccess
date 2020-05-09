@@ -1,9 +1,6 @@
 Options +FollowSymLinks
 RewriteEngine on
 
-# All files not ending in these specific extensions
-RewriteCond %{REQUEST_URI} !\.(jpe?g|bmp|png|gif|css|js|mp4|mp3|ogg|html|txt)$ [NC]
-
 # All requests to /data folder
 RewriteCond %{REQUEST_URI} ^/data [NC]
 
