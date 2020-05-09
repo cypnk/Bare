@@ -842,18 +842,85 @@ function hook( array $params ) {
 	}
 }
 
+
+/**
+ *  Hook result rendering helpers
+ */
+
+/**
+ *  Check for non-empty string result from hook
+ *  
+ *  @param string	$event		Hook event name
+ *  @param string	$default	Fallback content
+ *  @return array
+ */
+function hookStringResult( string $event, string $default = '' ) : string {
+	$sent	= hook( [ $event, '' ] );
+	return 
+	( !empty( $sent ) && \is_string( $sent ) ) ? $sent : $default;
+}
+
+/**
+ *  Check for non-empty array result from hook
+ *  
+ *  @param string	$event		Hook event name
+ *  @param array	$default	Fallback content
+ *  @return array
+ */
+function hookArrayResult( string $event, array $default = [] ) : array {
+	$sent	= hook( [ $event, '' ] );
+	return 
+	( !empty( $sent ) && \is_array( $sent ) ) ? $sent : $default;
+}
+
 /**
  *  Get HTML from hook result, if sent
  *  
- *  @param mixed	$sent	Hook execution result
+ *  @param string	$event		Hook event name
+ *  @param string	$default	Fallback html content
  *  @return string
  */
-function hookHTML( $sent ) : string {
-	if ( \is_array( $sent ) ) {
-		return $sent['html'] ?? '';
-	}
-	return '';
+function hookHTML( string $event, string $default = '' ) : string {
+	return hookArrayResult( $event )['html'] ?? $default;
 }
+
+/**
+ *  Wrap component region in 'before' and 'after' event hooks and their output
+ *  
+ *  @param string	$before		Before template parsing event
+ *  @param string	$after		After template parsing event
+ *  @param string	$tpl		Base component template
+ *  @param array	$input		Raw component data
+ *  
+ *  @return string
+ */
+function hookWrap( 
+	string		$before, 
+	string		$after, 
+	string		$tpl		= '', 
+	array		$input		= []
+) {
+	// Call "before" event hook
+	hook( [ $before, [ 'data' => $input, 'template' => $tpl ] ] );
+	$sent	= hookArrayResult( $before );
+	
+	// Prepend any HTML output and render the new ( or old ) template
+	$html	= 
+		( $sent['html'] ?? '' ) . 
+		\strtr( $sent['template'] ?? $tpl, $input );
+	
+	// Call "after" event hook
+	hook( [ $after, [ 
+		'data'		=> $input,	// Raw component data
+		'before'	=> $before,	// Event called before
+		'html'		=> $html,	// Current HTML
+		'template'	=> $tpl		// New or previously replaced
+	] ] );
+	
+	// Send any replaced HTML or already rendered HTML
+	return hookArrayResult( $after )['html'] ?? $html;
+}
+
 
 /**
  *  Collection of functions to execute after content sent
@@ -1300,7 +1367,7 @@ function navHome() : string {
 	
 	$url	= homeLink();
 	hook( [ 'homelink', [ 'url' => $url ] ] );
-	$html	= hookHTML( hook( [ 'homelink', '' ] ) );
+	$html	= hookHTML( 'homelink' );
 	if ( !empty( $html ) ) {
 		$home = $html;
 		return $html;
@@ -1331,7 +1398,7 @@ function paginate( $page, $prefix, $posts ) : string {
 		'type'		=> 'nextprev'
 	] ] );
 	
-	$html	= hookHTML( hook( [ 'paginate', '' ] ) );
+	$html	= hookHTML( 'paginate' );
 	if ( !empty( $html ) ) {
 		return $html;
 	}
@@ -2990,7 +3057,7 @@ function formatHTML( string $html, string $prefix ) {
 	] ] );
 	
 	// Check if formatting was handled or use the default markdown formatter
-	$sent	= hook( [ 'formatting', '' ] );
+	$sent	= hookArrayResult( 'formatting' );
 	
 	return empty( $sent ) ? 
 		markdown( $html, $prefix ) : 
@@ -3696,16 +3763,15 @@ function sendError( int $code, $body ) {
 	] ] );
 	
 	// Handle custom errors
-	$page	= hook( [ 'errorcodesend', '' ] );
-	$html	= hookHTML( $page );
+	$html	= hookHTML( 'errorcodesend' );
 	
-	// Send standard error page if nothing handled
+	// Send custom errors
 	if ( !empty( $html ) ) {
 		shutdown( 'cleanup' );
-		// Send custom errors
 		send( $code, $html );
 	}
 	
+	// Send standard error page if nothing handled
 	$params	= [ 
 		'{page_title}'	=> $ptitle,
 		'{tagline}'	=> $psub,
@@ -3727,7 +3793,11 @@ function sendError( int $code, $body ) {
  */
 function sendOverride( string $event, bool $feed = false ) {
 	$sent	= hook( [ $event, '' ] );
-	$html	= hookHTML( $sent );
+	if ( empty( $sent ) || !\is_array( $sent ) ) {
+		return;
+	}
+	
+	$html	= $sent['html'] ?? '';
 	if ( empty( $html ) ) {
 		return;
 	}
@@ -4828,7 +4898,7 @@ function initPostFeatures() : array {
 	] ] );
 	
 	// Intercept feature extras
-	$sent		= hook( [ 'postfeatureinit', '' ] );
+	$sent		= hookArrayResult( 'postfeatureinit' );
 	
 	return empty( $sent ) ? 
 		$features : 
@@ -4857,8 +4927,8 @@ function postFeatures( array &$post, int $flines ) : array {
 	] ] );
 	
 	// Intercept feature extraction, if available
-	$sent	= hook( [ 'postfeatures', '' ] );
-	if ( !empty( $sent ) && \is_array( $sent ) ) {
+	$sent	= hookArrayResult( 'postfeatures' );
+	if ( !empty( $sent ) ) {
 		return $sent;
 	}
 	
@@ -5196,7 +5266,7 @@ function metadata( &$title, &$perm, $pub, $post, $path ) {
 function formatTags( array $tags ) : string {
 	// Render plugin installed?
 	hook( [ 'formattags', [ 'tags' => $tags ] ] );
-	$html	= hookHTML( hook( [ 'formattags', '' ] ) );
+	$html	= hookHTML( 'formattags' );
 	if ( !empty( $html ) ) {
 		return $html;
 	}
@@ -5225,6 +5295,18 @@ function formatTags( array $tags ) : string {
  *  Apply post data to template placeholders
  */
 function formatMeta( $title, $pub, $path, $tags = [] ) : array {
+	hook( [ 'formatmeta', [ 
+		'title'		=> $title, 
+		'published'	=> $pub,
+		'path'		=> $path,
+		'tags'		=> $tags 
+	] ] );
+	
+	$sent	= hookArrayResult( 'formatmeta' );
+	if (  !empty( $sent ) ) {
+		return $sent;
+	}
+	
 	return [
 		'{title}'	=> $title,
 		'{date_utc}'	=> $pub,
@@ -5270,18 +5352,18 @@ function formatPost(
 	$body	= html( \implode( "\n", $post ), homeLink() );
 	
 	hook( [ 'formatpost', [ 
-		'title'		=> $title,
-		'tags'		=> $tags,
-		'permalink'	=> $perm,
-		'published'	=> $pub,
-		'summary'	=> $summ,
-		'body'		=> $body,
-		'slevel'	=> $slvl,
-		'features'	=> $feat,
-		'fline'		=> $fline
+		'title'		=> $title,	// Post main title
+		'tags'		=> $tags,	// Array of tags
+		'permalink'	=> $perm,	// Permalink
+		'published'	=> $pub,	// Publish date
+		'summary'	=> $summ,	// Formatted post summary
+		'body'		=> $body,	// Formatted post body
+		'slevel'	=> $slvl,	// Summary level
+		'features'	=> $feat,	// Any extra features
+		'fline'		=> $fline	// Feature search lines
 	] ] ) ;
 	
-	$html	= hookHTML( hook( [ 'formatpost', '' ] ) );
+	$html	= hookHTML( 'formatpost' );
 	
 	// If the hook rendered this post, send it back
 	if ( !empty( $html ) ) {
@@ -5909,7 +5991,7 @@ function getRelated( string $path ) {
 		'limit'		=> $rlimit
 	] ] );
 	
-	$html	= hookHTML( hook( [ 'getrelated', '' ] ) );
+	$html	= hookHTML( 'getrelated' );
 	if ( !empty( $html ) ) {
 		return $html;
 	}
