@@ -1817,6 +1817,9 @@ function sameSiteCookie() : string {
 
 /**
  *  Set the cookie options when defaults are/aren't specified
+ *  
+ *  @param array	$options	Additional cookie options
+ *  @return array
  */
 function defaultCookieOptions( array $options = [] ) : array {
 	$cexp	= config( 'cookie_exp', \COOKIE_EXP, 'int' );
@@ -2301,9 +2304,8 @@ function tstring( $stamp ) {
  *  UTC timestamp
  */
 function utc( $stamp = null ) : string {
-	return empty( $stamp ) ? 
-		\gmdate( 'Y-m-d\TH:i:s' ) : 
-		\gmdate( 'Y-m-d\TH:i:s', tstring( $stamp ) );
+	return 
+	\gmdate( 'Y-m-d\TH:i:s', tstring( $stamp ?? 'now' ) );
 }
 
 /**
@@ -2372,7 +2374,8 @@ function dateRfcFile( $stamp = null ) : string {
  *  Convert all spaces to single character
  */
 function unifySpaces( string $text, string $rpl = ' ' ) {
-	return \preg_replace( '/[[:space:]]+/', $rpl, pacify( $text ) );
+	return 
+	\preg_replace( '/[[:space:]]+/', $rpl, pacify( $text ) );
 }
 
 /**
@@ -2515,6 +2518,9 @@ function slugify(
 
 /**
  *  Ensure date arguments don't exceed today
+ *  
+ *  @param array	$args	Date in year, month, day
+ *  @return array
  */
 function enforceDates( array $args ) : array {
 	$now	= time();
@@ -4745,7 +4751,7 @@ function extractFeature(
 		// Search for feature
 		if ( \preg_match( $search, $line, $m ) ) {
 			// Remove line if feature was found
-			unset( $post[$p] );
+			\array_splice( $post, $p, 1 );
 			return $m;
 		}
 		
