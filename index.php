@@ -112,6 +112,9 @@ define( 'RELATED_LIMIT',	5 );
 // Send actual Last-Modified header for files 
 define( 'SHOW_MODIFIED',	0 );
 
+// Lines from the bottom of each post to search for features I.E. Summary and tags
+define( 'FEATURE_LINES',	5 );
+
 // Default language
 define( 'LANGUAGE',	'en-US' );
 
@@ -2318,6 +2321,7 @@ function strsize( string $text ) : int {
  *  Limit string size
  *  
  *  @param string	$text	Raw input
+ *  @param int		$start	Beginning index
  *  @param int		$size	Maximum string length
  *  @return string
  */
@@ -4615,17 +4619,13 @@ function loadPost(
 	}
 	
 	$pub	= getPub( $path );
-	if ( !checkPub( $pub ) ) {
-		visitorError( 'Not found' );
-		sendError( 404, \MSG_NOTFOUND );
-	}
-	
-	$tpl	=  TPL_POST ?? '';
+	$fline	= config( 'feature_lines', \FEATURE_LINES, 'int' );
+	$tpl	= TPL_POST ?? '';
 	hook( [ 'formatpostprep', [ 'feed' => false, 'template' => $tpl ] ] );
 	
 	$tags	= [];
 	$out	= 
-	formatPost( $title, $tags, $summ, $data, $path, $tpl, 0 );
+	formatPost( $title, $tags, $summ, $data, $path, $tpl, 0, $fline );
 	
 	// If index has not been run before this function was called...
 	if ( !internalState( 'indexRun' ) ) {
@@ -4722,7 +4722,7 @@ function postCached( $path ) {
 function extractFeature(
 	array		&$post,
 	string		$search,
-	int		$lines	= 1 
+	int		$lines
 ) : array {
 	$c	= count( $post );
 	
@@ -4759,36 +4759,17 @@ function extractFeature(
 /**
  *  Get summary or abstract from post
  */
-function extractSummary( array &$post ) : string {
-	static $sump;
-	
-	if ( !isset( $sump ) ) {
-		$sump	= 
-		'/^summary\s?\:' . ( getMarkers()[':all'] ?? '(?<all>.+)' ) . 
-		'/isu';
-	}
-	
-	$find	= extractFeature( $post, $sump, 2 );
+function extractSummary( array $find ) : string {
 	return html( $find['all'] ?? '' );
 }
 
 /**
- *  Get the last line from the post and try to parse post category tags
+ *  Try to parse post category tags
  *  
  *  @param array	$post	Content as an array of lines
  *  @return array
  */
-function extractTags( array &$post ) : array {
-	static $tagp;
-	
-	if ( !isset( $tagp ) ) {
-		$mc	= getMarkers()[':tags'] ?? '(?<tags>[\pL\pN\s_\,\-]{1,255})';
-		$tagp	= '/^tags\s?\:' . $mc . '/is';
-	}
-	
-	// Search for tags in the last 3 lines of the post
-	$find	= extractFeature( $post, $tagp, 2 );
-	
+function extractTags( array $find ) : array {
 	// Clean tags
 	$tags	= \array_filter( trimmedList( $find['tags'] ?? '' ) );
 	
@@ -4812,6 +4793,87 @@ function extractTags( array &$post ) : array {
 	}
 	
 	return $ptags;	
+}
+
+/**
+ *  Initialize core features and append any hook features
+ *  
+ *  @return array
+ */
+function initPostFeatures() : array {
+	$summ	= getMarkers()[':all'] ?? '(?<all>.+)';
+	$tags	= getMarkers()[':tags'] ?? '(?<tags>[\pL\pN\s_\,\-]{1,255})';
+	$features	= [
+		'summmary' => [
+			'search'	=> '/^summary\s?\:' . $summ . '/isu',
+			'filter'	=> 'extractSummary'
+		],
+		
+		'tags' => [
+			'search'	=> '/^tags\s?\:' . $tags . '/is',
+			'filter'	=> 'extractTags'
+		]
+	];
+	
+	// Send feature extraction initialization to hook
+	hook( [ 'postfeatureinit', [ 
+		'post'		=> $post,
+		'features'	=> $features
+	] ] );
+	
+	// Intercept feature extras
+	$sent		= hook( [ 'postfeatureinit', '' ] );
+	
+	return empty( $sent ) ? 
+		$features : 
+		\array_merge( $features, ( $sent['features'] ?? [] ) );
+}
+
+/**
+ *  Core post feature extractor
+ *  
+ *  @param array	$post	Main post content
+ *  @param int		$flines	Feature search number of lines
+ *  @return array
+ */
+function postFeatures( array &$post, int $flines ) : array {
+	static $features	= [];
+	
+	// Core feature presets: summary and tags
+	if ( !isset( $features ) ) {
+		$features = initPostFeatures();
+	}
+	
+	// Send feature extraction to hook
+	hook( [ 'postfeatures', [ 
+		'post'		=> $post,
+		'features'	=> $features
+	] ] );
+	
+	// Intercept feature extraction, if available
+	$sent	= hook( [ 'postfeatures', '' ] );
+	if ( !empty( $sent ) && \is_array( $sent ) ) {
+		return $sent;
+	}
+	
+	// Default features
+	$found	= [];
+	$filter	= '';
+	foreach( $features as $k => $v ) {
+		$find = 
+		extractFeature( 
+			$post, $v['search'], $v['lines'] ?? $flines
+		);
+		if ( !empty( $find ) ) {
+			$filter		= $v['filter'];
+			$found[$k]	= 
+			( \is_callable( $filter ) ? 
+				$filter( $find ) : $find 
+			) ?? '';
+		}
+	}
+	
+	return $found;
 }
 
 /**
@@ -4889,7 +4951,12 @@ function loadPosts(
 	
 	$title	= '';
 	$tpl	= $feed ? ( TPL_ITEM  ?? '' ) : ( TPL_POST ?? '' );
-	hook( [ 'formatpostprep', [ 'feed' => $feed, 'template' => $tpl ] ] );
+	$fline	= config( 'feature_lines', \FEATURE_LINES, 'int' );
+	
+	hook( [ 'formatpostprep', [ 
+		'feed'		=> $feed, 
+		'template'	=> $tpl
+	] ] );
 	
 	foreach( $it as $file ) {
 		
@@ -4919,7 +4986,10 @@ function loadPosts(
 			$summ		= '';
 			$tags		= [];
 			$posts[$path]	= 
-			formatPost( $title, $tags, $summ, $data, $path, $tpl, $slvl );
+			formatPost( 
+				$title, $tags, $summ, $data, $path, 
+				$tpl, $slvl, $fline 
+			);
 		}
 		
 		// Increment number of entries if published
@@ -5006,6 +5076,8 @@ function loadIndex( int $start = 0, int $limit = 0 ) : array {
 	$i		= 0;
 	$j		= 0;
 	
+	$fline		= config( 'feature_lines', \FEATURE_LINES, 'int' );
+	
 	foreach( $it as $file ) {
 		$raw	= $file->getRealPath();
 		$path	= filterDir( $raw );
@@ -5055,7 +5127,7 @@ function loadIndex( int $start = 0, int $limit = 0 ) : array {
 			$out		= 
 			formatPost( 
 				$title, $tags, $summ, $post, $path,
-				TPL_POST ?? '', 0
+				TPL_POST ?? '', 0, $fline
 			);
 			
 			if ( $limited ) {
@@ -5155,7 +5227,8 @@ function formatPost(
 	array	$post,
 	string	$path,
 	string	$tpl,
-	int	$slvl
+	int	$slvl,
+	int	$fline
 ) {	
 	// Check for post validity
 	if ( count( $post ) < 3 ) {
@@ -5163,11 +5236,12 @@ function formatPost(
 	}
 	$pub	= getPub( $path );
 	
-	// Process tags
-	$tags	= extractTags( $post );
+	// Process features
+	$feat	= postFeatures( $post, $fline );
 	
-	// Process summary
-	$summ	= extractSummary( $post );
+	// Core features
+	$tags	= $feat['tags'] ?? [];
+	$summ	= $feat['summary'] ?? '';
 	
 	// Apply metadata
 	metadata( $title, $perm, $pub, $post, $path );
@@ -5183,7 +5257,9 @@ function formatPost(
 		'published'	=> $pub,
 		'summary'	=> $summ,
 		'body'		=> $body,
-		'slevel'	=> $slvl
+		'slevel'	=> $slvl,
+		'features'	=> $feat,
+		'fline'		=> $fline
 	] ] ) ;
 	
 	$html	= hookHTML( hook( [ 'formatpost', '' ] ) );
@@ -6110,12 +6186,14 @@ function showPost( string $event, array $hook, array $params ) {
 	// Check publication date
 	$pub		= getPub( $path );
 	if ( !checkPub( $pub ) ) {
+		visitorError( 'Not found' );
 		sendError( 404, \MSG_NOTFOUND );
 	}
 	
 	$post	= loadPost( $title, $path );
 	
 	if ( empty( $post ) ) {
+		visitorError( 'Not found' );
 		sendError( 404, \MSG_NOTFOUND );
 	}
 	
@@ -6282,6 +6360,14 @@ function checkConfig( string $event, array $hook, array $params ) {
 				'min_range'	=> 0,
 				'max_range'	=> 2,
 				'default'	=> \SUMMARY_LEVEL
+			]
+		],
+		'feature_lines'	=> [
+			'filter'	=> \FILTER_VALIDATE_INT,
+			'options'	=> [
+				'min_range'	=> 1,
+				'max_range'	=> 10,
+				'default'	=> \FEATURE_LINES
 			]
 		],
 		
