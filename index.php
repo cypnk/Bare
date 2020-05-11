@@ -885,6 +885,26 @@ function hookHTML( string $event, string $default = '' ) : string {
 }
 
 /**
+ *  Get HTML render template from hook result, if sent
+ *  
+ *  @param string	$event		Hook event name
+ *  @param string	$default	Fallback template
+ *  @param array	$input		Component to apply template to
+ *  @return string
+ */
+function hookTemplateRender( 
+	string	$event, 
+	string	$default,
+	array	$input
+) : string {
+	return 
+	\strtr( 
+		hookArrayResult( $event )['template'] ?? 
+		hookStringResult( $event, $default ), $input
+	);
+}
+
+/**
  *  Wrap component region in 'before' and 'after' event hooks and their output
  *  
  *  @param string	$before		Before template parsing event
@@ -902,12 +922,10 @@ function hookWrap(
 ) {
 	// Call "before" event hook
 	hook( [ $before, [ 'data' => $input, 'template' => $tpl ] ] );
-	$sent	= hookArrayResult( $before );
 	
 	// Prepend any HTML output and render the new ( or old ) template
-	$html	= 
-		( $sent['html'] ?? '' ) . 
-		\strtr( $sent['template'] ?? $tpl, $input );
+	$html	= hookHTML( $before ) . 
+			hookTemplateRender( $before, $tpl, $input );
 	
 	// Call "after" event hook
 	hook( [ $after, [ 
@@ -918,7 +936,7 @@ function hookWrap(
 	] ] );
 	
 	// Send any replaced HTML or already rendered HTML
-	return hookArrayResult( $after )['html'] ?? $html;
+	return hookHTML( $after, $html );
 }
 
 
@@ -2322,6 +2340,7 @@ function sessionThrottle() {
 	
 	// Sender should not be served for the duration of this session
 	if ( isset( $_SESSION['kill'] ) ) {
+		visitorError( 'Denied' );
 		sendError( 403, \MSG_DENIED );
 	}
 	
@@ -2333,6 +2352,7 @@ function sessionThrottle() {
 		case SESSION_STATE_HEAVY:
 			shutdown( 'cleanup' );
 			shutdown( 'sleep', 20 );
+			visitorError( 'Request num' );
 			send( 429 );
 			
 		// Send Not Modified for the rest
@@ -4208,6 +4228,7 @@ function methodPreParse( string $verb, string $path, array $routes ) {
 		
 		// Nothing else implemented
 		default:
+			visitorError( 'Method' );
 			shutdown( 'cleanup' );
 			send( 405 );
 	}
@@ -4898,11 +4919,11 @@ function initPostFeatures() : array {
 	] ] );
 	
 	// Intercept feature extras
-	$sent		= hookArrayResult( 'postfeatureinit' );
+	$sent	= 
+	hookArrayResult( 'postfeatureinit' )['features'] ?? [];
 	
 	return empty( $sent ) ? 
-		$features : 
-		\array_merge( $features, ( $sent['features'] ?? [] ) );
+		$features : \array_merge( $features, $sent );
 }
 
 /**
@@ -6114,6 +6135,7 @@ function showTag( string $event, array $hook, array $params ) {
 	
 	// Tag empty?
 	if ( empty( $params['tag'] ) ) {
+		visitorError( 'Not found' );
 		sendError( 404, \MSG_NOTFOUND );
 	}
 	
@@ -6173,14 +6195,17 @@ function showSearch( string $event, array $hook, array $params ) {
 	switch( $status ) {
 		case FORM_STATUS_INVALID:
 		case FORM_STATUS_EXPIRED:
+			visitorError( 'Form expired' );
 			sendError( 403, \MSG_EXPIRED );
 		
 		case FORM_STATUS_FLOOD:
+			visitorError( 'Form flood' );
 			sendError( 429 );
 	}
 	
 	$find	= searchData( $params['find'] ?? '' );
 	if ( empty( $find ) ) {
+		visitorError( 'Not found' );
 		sendError( 404, \MSG_NOTFOUND );
 	}
 	
@@ -6242,6 +6267,7 @@ function showFeed( string $event, array $hook, array $params ) {
 	$slvl	= config( 'summary_level', \SUMMARY_LEVEL, 'int' );
 	$posts	= loadPosts( 1, '', true, $slvl );
 	if ( empty( $posts ) ) {
+		visitorError( 'Not found' );
 		sendError( 404, \MSG_NOTFOUND );
 	}
 	
@@ -6359,6 +6385,7 @@ function runIndex( string $event, array $hook, array $params ) {
 	
 	if ( empty( $posts ) ) {
 		// No more posts
+		visitorError( 'Not found' );
 		sendError( 404, \MSG_NOTFOUND );
 	}
 	
