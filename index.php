@@ -123,6 +123,9 @@ define( 'TIMEZONE',		'America/New_York' );
 // For a list of valid values for this, see:
 // https://www.php.net/manual/en/timezones.php
 
+// Default post content type
+define( 'POST_TYPE',		'blogpost' );
+
 // Whitelist of allowed server host names
 define( 'SERVER_WHITE',		'kpz62k4pnyh5g5t2efecabkywt2aiwcnqylthqyywilqgxeiipen5xid.onion' );
 
@@ -613,6 +616,7 @@ CREATE TABLE posts(
 	post_view TEXT NOT NULL COLLATE NOCASE,
 	post_bare TEXT NOT NULL COLLATE NOCASE, 
 	post_summary TEXT DEFAULT '' COLLATE NOCASE, 
+	post_type TEXT DEFAULT '' COLLATE NOCASE, 
 	updated DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	published DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );-- --
@@ -2350,9 +2354,9 @@ function sessionThrottle() {
 	switch( $check ) {
 		// Send Too Many Requests
 		case SESSION_STATE_HEAVY:
+			visitorError( 'Request num' );
 			shutdown( 'cleanup' );
 			shutdown( 'sleep', 20 );
-			visitorError( 'Request num' );
 			send( 429 );
 			
 		// Send Not Modified for the rest
@@ -4626,6 +4630,7 @@ function postData( $raw, bool $fl = true ) {
 function refreshPost(
 	string		$path, 
 	string		$summ, 
+	string		$type, 
 	string		$out, 
 	string		$pub, 
 	array		$tags, 
@@ -4643,9 +4648,9 @@ function refreshPost(
 	$db->prepare( 
 		"INSERT OR IGNORE INTO posts( 
 			post_path, post_view, post_bare, post_summary, 
-			updated, published 
+			post_type, updated, published 
 		) 
-		VALUES ( :path, :pview, :bare, :summary, :updated, :pub );" 
+		VALUES ( :path, :pview, :bare, :summary, :type, :updated, :pub );" 
 	);
 	
 	// Select post statement
@@ -4674,7 +4679,7 @@ function refreshPost(
 		$dstm->execute( [':path' => $path ] );
 		
 		// Insert post again
-		insertPost( $pstm, $path, $summ, $out, $pub, $mtime );
+		insertPost( $pstm, $path, $summ, $type, $out, $pub, $mtime );
 		
 		// Add any new tags
 		insertTags( $istm, $tags );
@@ -4708,6 +4713,7 @@ function loadPost(
 ) {
 	$title	= '';
 	$summ	= '';
+	$type	= '';
 	$ppath	= POSTS . \ltrim( $path, '/' ) . '.md';
 	$data	= postData( $ppath );
 	
@@ -4722,7 +4728,7 @@ function loadPost(
 	
 	$tags	= [];
 	$out	= 
-	formatPost( $title, $tags, $summ, $data, $path, $tpl, 0, $fline );
+	formatPost( $title, $tags, $summ, $type, $data, $path, $tpl, 0, $fline );
 	
 	// If index has not been run before this function was called...
 	if ( !internalState( 'indexRun' ) ) {
@@ -4741,7 +4747,7 @@ function loadPost(
 			$pub	= getPub( $path );
 			shutdown( 
 				'refreshPost', 
-				[ $path, $summ, $out, $pub, $tags, $mtime ]
+				[ $path, $summ, $type, $out, $pub, $tags, $mtime ]
 			);
 		} elseif ( !postCached( $path ) ) {
 			shutdown( 'loadIndex' );
@@ -4893,6 +4899,13 @@ function extractTags( array $find ) : array {
 }
 
 /**
+ *  Parse current post's type or send default type
+ */
+function extractType( array $find ) : string {
+	return label( $html['label'] ?? \POST_TYPE );
+}
+
+/**
  *  Initialize core features and append any hook features
  *  
  *  @return array
@@ -4900,6 +4913,8 @@ function extractTags( array $find ) : array {
 function initPostFeatures() : array {
 	$summ	= getMarkers()[':all'] ?? '(?<all>.+)';
 	$tags	= getMarkers()[':tags'] ?? '(?<tags>[\pL\pN\s_\,\-]{1,255})';
+	$label	= getMarkers()[':label'] ?? '(?<label>[\pL\pN\s_\-]{1,30})';
+	
 	$features	= [
 		'summmary' => [
 			'search'	=> '/^summary\s?\:' . $summ . '/isu',
@@ -4909,6 +4924,11 @@ function initPostFeatures() : array {
 		'tags' => [
 			'search'	=> '/^tags\s?\:' . $tags . '/is',
 			'filter'	=> 'extractTags'
+		],
+		
+		'type' => [
+			'search'	=> '/^type\s?\:' . $label . '/is',
+			'filter'	=> 'extractType'
 		]
 	];
 	
@@ -5091,9 +5111,10 @@ function loadPosts(
 			
 			$summ		= '';
 			$tags		= [];
+			$type		= '';
 			$posts[$path]	= 
 			formatPost( 
-				$title, $tags, $summ, $data, $path, 
+				$title, $tags, $summ, $type, $data, $path, 
 				$tpl, $slvl, $fline 
 			);
 		}
@@ -5110,6 +5131,8 @@ function loadPosts(
  *  Insert post data into cache database using given statement 
  *  
  *  @param string	$path		Post permalink
+ *  @param string	$summ		Summary or abstract
+ *  @param string	$type		Post render type
  *  @param string	$out		Formatted post data
  *  @param string	$pub		Post publication date
  *  @param int		$mtime		File modified time
@@ -5118,6 +5141,7 @@ function insertPost(
 			$pstm, 
 	string		$path, 
 	string		$summ,
+	string		$type, 
 	string		$out, 
 	string		$pub, 
 	int		$mtime 
@@ -5126,11 +5150,35 @@ function insertPost(
 		':path'		=> slashPath( $path ), 
 		':pview'	=> $out, 
 		':bare'		=> \strip_tags( $out ), 
-		':summary'	=> $summ,		
+		':summary'	=> $summ, 
+		':type'		=> $type,		
 		':updated'	=> utc( $mtime ), 
 		':pub'		=> $pub
 	];
 	$pstm->execute( $params );
+}
+
+/**
+ *  Set rendering mode to regular post or 
+ *  
+ *  @param bool	$feed	Rendering mode is RSS feed if true (defaults to false)
+ *  @return bool
+ */
+function postIsFeed( bool $feed = false ) : bool {
+	static $st;
+	if ( isset( $st ) ) {
+		return $st;
+	}
+	
+	$st = $feed;
+	return $st;	
+}
+
+/**
+ *  Prepare posts for rendering by setting render mode
+ */
+function formatPostPrep( string $event, array $hook, array $params ) {
+	postIsFeed( ( bool ) ( $params['feed'] ?? false ) );
 }
 
 /**
@@ -5163,9 +5211,9 @@ function loadIndex( int $start = 0, int $limit = 0 ) : array {
 	$db->prepare( 
 		"INSERT OR IGNORE INTO posts( 
 			post_path, post_view, post_bare, post_summary, 
-			updated, published 
+			post_type, updated, published 
 		) 
-		VALUES ( :path, :pview, :bare, :summary, :updated, :pub );" 
+		VALUES ( :path, :pview, :bare, :summary, :type, :updated, :pub );" 
 	);
 	
 	// Select post statement
@@ -5187,6 +5235,7 @@ function loadIndex( int $start = 0, int $limit = 0 ) : array {
 	$j		= 0;
 	
 	$fline		= config( 'feature_lines', \FEATURE_LINES, 'int' );
+	$tpl		= \TPL_POST ?? '';
 	
 	foreach( $it as $file ) {
 		$raw	= $file->getRealPath();
@@ -5229,6 +5278,7 @@ function loadIndex( int $start = 0, int $limit = 0 ) : array {
 			
 			$summ		= '';
 			$tags		= [];
+			$type		= '';
 			
 			// Apply metadata
 			metadata( $title, $perm, $pub, $post, $path );
@@ -5236,23 +5286,23 @@ function loadIndex( int $start = 0, int $limit = 0 ) : array {
 			// Load formatted and process features
 			$out		= 
 			formatPost( 
-				$title, $tags, $summ, $post, $path,
-				TPL_POST ?? '', 0, $fline
+				$title, $tags, $summ, $type, $post, $path,
+				$tpl, 0, $fline
 			);
 			
 			if ( $limited ) {
 				if ( $i >= $start && $j <= $limit ) {
 					$posts[$lastDir][] = 
-					formatMeta( $title, $pub, $path, $tags );
+					formatMeta( $title, $type, $pub, $path, $tags );
 					$j++;
 				}
 			} else {
 				$posts[$lastDir][] = 
-				formatMeta( $title, $pub, $path, $tags );
+				formatMeta( $title, $type, $pub, $path, $tags );
 			}
 			
 			// Create tags and cache page info
-			insertPost( $pstm, $perm, $summ, $out, $pub, $mtime );
+			insertPost( $pstm, $perm, $summ, $type, $out, $pub, $mtime );
 			insertTags( $istm, $tags );
 			applyTags( $sstm, $tstm, $perm, $tags );
 			
@@ -5315,12 +5365,13 @@ function formatTags( array $tags ) : string {
 /**
  *  Apply post data to template placeholders
  */
-function formatMeta( $title, $pub, $path, $tags = [] ) : array {
+function formatMeta( $title, $type, $pub, $path, $tags = [] ) : array {
 	hook( [ 'formatmeta', [ 
+		'type'		=> $type, 
 		'title'		=> $title, 
-		'published'	=> $pub,
-		'path'		=> $path,
-		'tags'		=> $tags 
+		'published'	=> $pub, 
+		'path'		=> $path, 
+		'tags'		=> $tags
 	] ] );
 	
 	$sent	= hookArrayResult( 'formatmeta' );
@@ -5346,6 +5397,7 @@ function formatPost(
 	string	&$title,
 	array	&$tags,
 	string	&$summ,
+	string	&$type, 
 	array	$post,
 	string	$path,
 	string	$tpl,
@@ -5364,6 +5416,7 @@ function formatPost(
 	// Core features
 	$tags	= $feat['tags'] ?? [];
 	$summ	= $feat['summary'] ?? '';
+	$type	= $feat['type'] ?? \POST_TYPE;
 	
 	// Apply metadata
 	metadata( $title, $perm, $pub, $post, $path );
@@ -5373,6 +5426,7 @@ function formatPost(
 	$body	= html( \implode( "\n", $post ), homeLink() );
 	
 	hook( [ 'formatpost', [ 
+		'type'		=> $type,	// Post type
 		'title'		=> $title,	// Post main title
 		'tags'		=> $tags,	// Array of tags
 		'permalink'	=> $perm,	// Permalink
@@ -5381,7 +5435,8 @@ function formatPost(
 		'body'		=> $body,	// Formatted post body
 		'slevel'	=> $slvl,	// Summary level
 		'features'	=> $feat,	// Any extra features
-		'fline'		=> $fline	// Feature search lines
+		'fline'		=> $fline,	// Feature search lines
+		'template'	=> $tpl		// Given template
 	] ] ) ;
 	
 	$html	= hookHTML( 'formatpost' );
@@ -5392,7 +5447,7 @@ function formatPost(
 	}
 	
 	// Format metadata
-	$data		= formatMeta( $title, $pub, $perm, $tags );
+	$data		= formatMeta( $title, $type, $pub, $perm, $tags );
 	switch( $slvl ) {
 		case 1:
 			$data['{body}'] = empty( $summ ) ? $body : $summ;
@@ -6153,7 +6208,8 @@ function showTag( string $event, array $hook, array $params ) {
 		"SELECT DISTINCT 
 			posts.post_path AS post_path, 
 			posts.post_view AS post_view, 
-			posts.post_summary AS post_summary FROM posts
+			posts.post_summary AS post_summary, 
+			posts.post_type AS post_type FROM posts 
 			JOIN post_tags ON posts.id = post_tags.post_id 
 			WHERE post_tags.tag_slug = :tag 
 			ORDER BY posts.published DESC 
@@ -6222,6 +6278,7 @@ function showSearch( string $event, array $hook, array $params ) {
 			SELECT 
 			posts.post_view AS post_view, 
 			posts.post_summary AS post_summary, 
+			posts.post_type AS post_type, 
 			matchinfo(post_search) AS rel
 			FROM post_search 
 			LEFT JOIN posts ON post_search.docid = posts.id 
@@ -6747,6 +6804,9 @@ hook( [ 'requesturl',	'filterRequest' ] );
 hook( [ 'begin',	'loadPlugins' ] );
 hook( [ 'begin',	'request' ] );
 hook( [ 'begin',	'route' ] );
+
+// Render events
+hook( [ 'formatpostprep', 'formatPostPrep' ] );
 
 // Append URL route markers
 hook( [ 'routemarker',	'routeMarkers' ] );
