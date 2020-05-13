@@ -1000,8 +1000,8 @@ function logStr( $text, int $len = 255 ) {
 /**
  *  Error logging
  *  
- *  @param string	$err Error message to store
- *  @param bool		$app Application error if true, visitor error if false
+ *  @param string	$err	Error message to store
+ *  @param bool		$app	Application error if true, visitor error if false
  *  @return bool		True if successful
  */
 function logError( string $err, bool $app = true ) : bool {
@@ -1012,26 +1012,46 @@ function logError( string $err, bool $app = true ) : bool {
 		$err = truncate( $err, 0, 2048 );
 	}
 	
-	\touch( $file );
+	// Log friendly date and time format
+	$dt	= \gmdate( 'Y-m-d H:i:s' );
 	
-	return file_exists( $file ) ? 
-		\error_log( $err . "\n", 3, $file ) : \error_log( $err );
+	// New file? Prepare log header
+	if ( !file_exists( $file ) ) {
+		// Create header
+		$header =
+		'#Software: ' . label( \APP_NAME ) . "\n#Date: $dt\n#Fields: ";
+		
+		// Application errors have simpler headers
+		$header .= $app ? 
+		"date, time, s-comment\n\n" : 
+		"date, time, sc-status, c-ip, cs-method, s-comment, cs-useragent, cs-uri\n\n";
+		
+		// Prepare line with header + date and time
+		$err	= $header . $dt . ' '. $err;
+		
+	// Prepare line with date and time
+	} else {
+		$err	= $dt . ' '. $err;
+	}
+	
+	\touch( $file );
+	return \error_log( $err . "\n", 3, $file );
 }
 
 /**
  *  Log visitor error
  *  
- *  @param string	$msg Error type/Custom message
+ *  @param int		$code	Error type
+ *  @param string	$msg	Custom message
  *  @return bool
  */
-function visitorError( string $msg = '-' ) {
-	$ua	= 'UA: ' . logStr( $_SERVER['HTTP_USER_AGENT'] ?? '-' ) . ' ';
-	$me	= 'Method: ' . logStr( $_SERVER['REQUEST_METHOD'] ) . ' ';
-	$uri	= 'URI: ' . logStr( $_SERVER['REQUEST_URI'] );
+function visitorError( int $code = 0, string $msg = '-' ) {
+	$ua	= logStr( $_SERVER['HTTP_USER_AGENT'] ?? '-' );
+	$me	= logStr( $_SERVER['REQUEST_METHOD'] );
+	$uri	= logStr( $_SERVER['REQUEST_URI'] );
 	
-	$err	= 
-		'IP: ' . getIP() . ' Msg: ' . $msg . ' Time: ' . utc() . ' ' . 
-		$ua . $me . $uri;
+	$err	= $code . ' ' . getIP() . ' ' . $me . ' ' . $msg . ' ' . 
+			$ua . ' ' . $uri;
 	
 	shutdown( 'logError', [ $err, false ] );
 }
@@ -2344,7 +2364,7 @@ function sessionThrottle() {
 	
 	// Sender should not be served for the duration of this session
 	if ( isset( $_SESSION['kill'] ) ) {
-		visitorError( 'Denied' );
+		visitorError( 403, 'Denied' );
 		sendError( 403, \MSG_DENIED );
 	}
 	
@@ -2354,7 +2374,7 @@ function sessionThrottle() {
 	switch( $check ) {
 		// Send Too Many Requests
 		case SESSION_STATE_HEAVY:
-			visitorError( 'Request num' );
+			visitorError( 429, 'Requests' );
 			shutdown( 'cleanup' );
 			shutdown( 'sleep', 20 );
 			send( 429 );
@@ -4232,7 +4252,7 @@ function methodPreParse( string $verb, string $path, array $routes ) {
 		
 		// Nothing else implemented
 		default:
-			visitorError( 'Method' );
+			visitorError( 405, 'Method' );
 			shutdown( 'cleanup' );
 			send( 405 );
 	}
@@ -4255,7 +4275,7 @@ function request( string $event, array $hook, array $params ) : array {
 	
 	// Empty host?
 	if ( empty( getHost() ) ) {
-		visitorError( 'Host' );
+		visitorError( 400, 'Host' );
 		sendError( 400, \MSG_INVALID );
 	}
 	
@@ -4267,14 +4287,14 @@ function request( string $event, array $hook, array $params ) : array {
 	// Unrecognized method?
 	if ( !\in_array( $verb, $safe ) ) {
 		// Send method not allowed
-		visitorError( 'Method' );
+		visitorError( 405, 'Method' );
 		sendError( 405, \MSG_BADMETHOD );
 	}
 	
 	// Request path hard limit
 	if ( strsize( $path ) > 255 ) {
+		visitorError( 414, 'Path' );
 		shutdown( 'cleanup' );
-		visitorError( 'Path' );
 		send( 414 );
 	}
 	
@@ -4283,7 +4303,7 @@ function request( string $event, array $hook, array $params ) : array {
 		false !== \strpos( $path, '..' ) || 
 		false !== \strpos( $path, '<' )	
 	) {
-		visitorError( 'Path' );
+		visitorError( 400, 'Path' );
 		sendError( 400, \MSG_INVALID );
 	}
 	
@@ -4293,7 +4313,7 @@ function request( string $event, array $hook, array $params ) : array {
 		\preg_match( RX_XSS4, $path ) || 
 		!empty( $_FILES )
 	) {
-		visitorError( 'Denied' );
+		visitorError( 403, 'Denied' );
 		sendError( 403, \MSG_DENIED );
 	}
 	
@@ -4510,7 +4530,7 @@ function route( string $event, array $hook, array $params ) {
 	// No handler for this route?
 	if ( empty( $match ) ) {
 		// Nothing else sent
-		visitorError( 'Not found' );
+		visitorError( 404, 'NotFound' );
 		sendError( 404, MSG_NOTFOUND );
 	}
 	
@@ -6190,7 +6210,7 @@ function showTag( string $event, array $hook, array $params ) {
 	
 	// Tag empty?
 	if ( empty( $params['tag'] ) ) {
-		visitorError( 'Not found' );
+		visitorError( 404, 'NotFound' );
 		sendError( 404, \MSG_NOTFOUND );
 	}
 	
@@ -6251,17 +6271,17 @@ function showSearch( string $event, array $hook, array $params ) {
 	switch( $status ) {
 		case FORM_STATUS_INVALID:
 		case FORM_STATUS_EXPIRED:
-			visitorError( 'Form expired' );
+			visitorError( 403, 'Expired' );
 			sendError( 403, \MSG_EXPIRED );
 		
 		case FORM_STATUS_FLOOD:
-			visitorError( 'Form flood' );
+			visitorError( 429, 'Flood' );
 			sendError( 429 );
 	}
 	
 	$find	= searchData( $params['find'] ?? '' );
 	if ( empty( $find ) ) {
-		visitorError( 'Not found' );
+		visitorError( 404, 'NotFound' );
 		sendError( 404, \MSG_NOTFOUND );
 	}
 	
@@ -6324,7 +6344,7 @@ function showFeed( string $event, array $hook, array $params ) {
 	$slvl	= config( 'summary_level', \SUMMARY_LEVEL, 'int' );
 	$posts	= loadPosts( 1, '', true, $slvl );
 	if ( empty( $posts ) ) {
-		visitorError( 'Not found' );
+		visitorError( 404, 'NotFound' );
 		sendError( 404, \MSG_NOTFOUND );
 	}
 	
@@ -6370,14 +6390,14 @@ function showPost( string $event, array $hook, array $params ) {
 	// Check publication date
 	$pub		= getPub( $path );
 	if ( !checkPub( $pub ) ) {
-		visitorError( 'Not found' );
+		visitorError( 404, 'NotFound' );
 		sendError( 404, \MSG_NOTFOUND );
 	}
 	
 	$post	= loadPost( $title, $path );
 	
 	if ( empty( $post ) ) {
-		visitorError( 'Not found' );
+		visitorError( 404, 'NotFound' );
 		sendError( 404, \MSG_NOTFOUND );
 	}
 	
@@ -6442,7 +6462,7 @@ function runIndex( string $event, array $hook, array $params ) {
 	
 	if ( empty( $posts ) ) {
 		// No more posts
-		visitorError( 'Not found' );
+		visitorError( 404, 'NotFound' );
 		sendError( 404, \MSG_NOTFOUND );
 	}
 	
