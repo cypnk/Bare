@@ -1019,7 +1019,7 @@ function logError( string $err, bool $app = true ) : bool {
 	if ( !file_exists( $file ) ) {
 		// Create header
 		$header =
-		'#Software: ' . label( \APP_NAME ) . "\n#Date: $dt\n#Fields: ";
+		'#Software: ' . labelName( \APP_NAME ) . "\n#Date: $dt\n#Fields: ";
 		
 		// Application errors have simpler headers
 		$header .= $app ? 
@@ -4922,7 +4922,7 @@ function extractTags( array $find ) : array {
  *  Parse current post's type or send default type
  */
 function extractType( array $find ) : string {
-	return label( $html['label'] ?? \POST_TYPE );
+	return labelName( $html['label'] ?? \POST_TYPE );
 }
 
 /**
