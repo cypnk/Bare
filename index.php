@@ -1139,7 +1139,7 @@ function backupFile(
 	string	$file,
 	bool	$copy, 
 	string	$ext	= 'bkp',
-	bool	$fx	= 0
+	int	$fx	= 0
 ) : bool {
 	if ( !\file_exists( $file ) ) {
 		return true;
@@ -1150,7 +1150,7 @@ function backupFile(
 	
 	// Extension mode
 	$prefix = $fx == 1 ? \rtrim( $ext, '.' ) . '.' : '';
-	$suffix	= $fx == 0 ? '.' . \ltrim( $ext, '.' ) : '' );
+	$suffix	= $fx == 0 ? '.' . \ltrim( $ext, '.' ) : '';
 	
 	// Backup file name inferred from full file path
 	$name	= 
