@@ -27,18 +27,18 @@ define( 'FILE_PATH',	POSTS );
 // define( 'FILE_PATH',	\realpath( \dirname( __FILE__, 2 ) ) . '/uploads/' );
 
 // Configuration filename (optional, overrides some constants here)
-define( 'CONFIG',		'config.json' );
+define( 'CONFIG',	'config.json' );
 
 // Error log filename (will be created if it doesn't exist)
-define( 'ERROR',		'errors.log' );
+define( 'ERROR',	'errors.log' );
 
 // Visitor error log (will be created if if doesn't exist)
-define( 'ERROR_VISIT',		'visitor_errors.log' );
+define( 'ERROR_VISIT',	'visitor_errors.log' );
 
 // Custom error file folder (optional)
-define( 'ERROR_ROOT',		\realpath( \dirname( __FILE__ ) ) . '/errors/' );
+define( 'ERROR_ROOT',	PATH . 'errors/' );
 // Use this if error files are outside web root
-// define( 'ERROR_ROOT',		\realpath( \dirname( __FILE__, 2 ) ) . '/errors/' );
+// define( 'ERROR_ROOT',	\realpath( \dirname( __FILE__, 2 ) ) . '/errors/' );
 
 // Plugins directory
 define( 'PLUGINS',	PATH . 'plugins/' );
@@ -128,6 +128,9 @@ define( 'POST_TYPE',		'blogpost' );
 
 // Maximum log file size before rolling over (in bytes)
 define( 'MAX_LOG_SIZE',		5000000 );
+
+// Maximum number of words allowed for searching posts
+define( 'MAX_SEARCH_WORDS',	10 );
 
 // Whitelist of allowed server host names
 define( 'SERVER_WHITE',		'kpz62k4pnyh5g5t2efecabkywt2aiwcnqylthqyywilqgxeiipen5xid.onion' );
@@ -1356,6 +1359,9 @@ function saveConfig( array $params ) : bool {
 
 /**
  *  Register or get internal state
+ *  
+ *  @param string	$name		State name
+ *  @param mixed	$value		State value, defaults to false if unset
  */
 function internalState( string $name, $value = null ) {
 	static $state = [];
@@ -1439,7 +1445,7 @@ function hashAlgo(
 }
 
 /**
- *  Hompage link helper
+ *  Hompage link with website and relative path root
  */
 function homeLink() : string {
 	static $home;
@@ -1479,8 +1485,13 @@ function navHome() : string {
 
 /**
  *  Create next/previous pagination links
+ *  
+ *  @param int		$page		Current page index
+ *  @param string	$prefix		Relative path prefix added to links
+ *  @param array	$posts		Array of entries
+ *  @return string
  */
-function paginate( $page, $prefix, $posts ) : string {
+function paginate( int $page, string $prefix, array $posts ) : string {
 	$plimit	= config( 'page_limit', \PAGE_LIMIT, 'int' );
 	$c	= count( $posts );
 	
@@ -5616,8 +5627,18 @@ function filterRequest( string $event, array $hook, array $params ) {
 
 /**
  *  Format index views for archives and tags
+ *  
+ *  @param string	$prefix		Pagination page path prefix
+ *  @param int		$page		Current page index
+ *  @param array	$post		Collection of entries
+ *  @param bool		$cache		Cache output result with current URI
  */
-function formatIndex( $prefix, $page, $posts, $cache = true ) {
+function formatIndex( 
+	string	$prefix, 
+	int	$page		= 1, 
+	array	$posts		= [], 
+	bool	$cache		= true 
+) {
 	
 	// Don't cache if no posts found
 	$cache	= empty( $posts ) ? false : $cache;
@@ -5808,6 +5829,10 @@ function validateForm(
 /**
  *  Make text completely bland by stripping punctuation, 
  *  spaces and diacritics (for further processing)
+ *  
+ *  @param string	$text		Raw input text
+ *  @param bool		$nospecial	Remove special characters if true
+ *  @return string
  */
 function bland( string $text, bool $nospecial = false ) : string {
 	$text = \strip_tags( unifySpaces( $text ) );
@@ -5824,6 +5849,7 @@ function bland( string $text, bool $nospecial = false ) : string {
  *  Process search pattern for full text searching
  *  
  *  @param string	$find	Sent search parameters
+ *  @return string
  */
 function searchData( string $find ) : string {
 	// Remove tags and trim
@@ -5838,28 +5864,30 @@ function searchData( string $find ) : string {
 		return '';
 	}
 	
-	$fdata		= \array_unique( $m[0] );
-	if ( count( $fdata ) > 10 ) {
-		$fdata = \array_slice( $fdata, 0, 10 );
+	// Limit maximum number of unique words to search
+	$fdata	= \array_unique( $m[0] );
+	$sc	= config( 'max_search_words', \MAX_SEARCH_WORDS, 'int' );
+	if ( count( $fdata ) > $sc ) {
+		$fdata = \array_slice( $fdata, 0, $sc );
 	}
 	
 	//\array_unshift( $fdata, "\"$find\"" );
 	
 	// Insert ' OR ' for multiple terms
-	$find		= \implode( ' OR ', $fdata );
+	$find	= \implode( ' OR ', $fdata );
 	
 	// Remove conflicting/duplicate params
-	$find		= 
+	$find	= 
 	\preg_replace( '/\b(AND|OR|NEAR|NOT)(?:\s\1)+/iu', 'OR', $find );
 	
-	$find		= \preg_replace( '/\bOR NEAR/iu', 'NEAR', $find );
-	$find		= \preg_replace( '/\bNEAR OR/iu', 'NEAR', $find );
-	$find		= \preg_replace( '/\bOR AND/iu', 'AND', $find );
-	$find		= \preg_replace( '/\bAND OR/iu', 'AND', $find );
-	$find		= \preg_replace( '/\bOR NOT/iu', 'NOT', $find );
-	$find		= \preg_replace( '/\bNOT OR/iu', 'NOT', $find );
+	$find	= \preg_replace( '/\bOR NEAR/iu', 'NEAR', $find );
+	$find	= \preg_replace( '/\bNEAR OR/iu', 'NEAR', $find );
+	$find	= \preg_replace( '/\bOR AND/iu', 'AND', $find );
+	$find	= \preg_replace( '/\bAND OR/iu', 'AND', $find );
+	$find	= \preg_replace( '/\bOR NOT/iu', 'NOT', $find );
+	$find	= \preg_replace( '/\bNOT OR/iu', 'NOT', $find );
 	
-	$find		= 
+	$find	= 
 	\preg_replace( '/\b(AND|OR|NEAR|NOT)(?:\s\1)+/iu', 'OR', $find );
 	
 	// Return with keywords removed from beginning and end
@@ -5944,6 +5972,30 @@ function previewLink(
 	
 	metadata( $title, $perm, $pub, $data, $path );
 	
+	// Send to render hook
+	hook( [ 'previewlink', [
+		'permalink'	=> $perm,
+		'title'		=> $title,
+		'path'		=> $path,
+		'published'	=> $pub,
+		'mode'		=> $mode,
+		'render'	=> $nr,
+		'data'		=> $data
+	] ] );
+	
+	// Return hook result as array if not rendering
+	if ( $nr ) {
+		$out	= hookArrayResult( 'previewlink' );
+		if ( !empty( $out ) ) {
+			return $out;
+		}
+	}  else {
+		$out	= hookHTML( 'previewlink' );
+		if ( !empty( $out ) ) {
+			return $out;
+		}
+	}
+	
 	switch( $mode ) {
 		case 'prev':
 		case 'previous':
@@ -5974,15 +6026,28 @@ function previewLink(
 }
 
 /**
- *  Get next/previous post details
+ *  Render next/previous post details
+ *  
+ *  @param string	$path	Current post permalink path
+ *  @return string
  */
-function getSiblings( string $path ) {
+function getSiblings( string $path ) : string {
 	$res	= 
 	getResults( 
 		"SELECT * FROM post_siblings WHERE post_path = :path", 
 		[ ':path' => slashPath( $path ) ], 
 		\CACHE_DATA 
 	);
+	
+	hook( [ 'getsiblings', [
+		'posts'	=> $res,
+		'path'	=> $path
+	] ] );
+	
+	$out	= hookHTML( 'getsiblings' );
+	if ( !empty( $out ) ) {
+		return $out;
+	}
 	
 	if ( empty( $res ) ) {
 		return '';
@@ -6014,10 +6079,13 @@ function getSiblings( string $path ) {
  *  
  *  @param array	$lines		Content to process
  *  @param bool		$as_array	Returns as an array if true
+ *  @return mixed
  */
 function getCommonWords( array $lines, bool $as_array = true ) {
+	static $stop;
+	
 	// Exclude some English stop words
-	static $stop	= [
+	static $default	= [
 		'a', 'about', 'able', 'above', 'act', 'after', 'again', 
 		'against', 'ago', 'all', 'also', 'am', 'an', 'and', 'any', 
 		'apart', 'are', 'aren\'t', 'as', 'as', 'at', 'away', 
@@ -6052,6 +6120,13 @@ function getCommonWords( array $lines, bool $as_array = true ) {
 		'yourself', 'yourselves'
 	];
 	
+	// Preset stop words
+	if ( !isset( $stop ) ) {
+		$cstop	= config( 'stop_words', [], 'array' );
+		$stop	= ( \is_array( $cstop ) && !empty( $cstop ) ) ?
+				\array_merge( $default, $cstop ) : $default;
+	}
+	
 	// Make lines into a continous series of words
 	$text	= \implode( ' ', $lines );
 	
@@ -6073,8 +6148,11 @@ function getCommonWords( array $lines, bool $as_array = true ) {
 
 /**
  *  Get posts related to current one by content
+ *  
+ *  @param string	$path	Current post permalink path
+ *  @return string
  */
-function getRelated( string $path ) {
+function getRelated( string $path ) : string {
 	$path	= slashPath( $path );
 	$res	= 
 	getResults( 
@@ -6131,8 +6209,6 @@ function getRelated( string $path ) {
 		return '';
 	}
 	
-	$out	= [];
-	
 	// Apply render
 	hook( [ 'getrelated', [ 
 		'search'	=> $search,
@@ -6145,6 +6221,7 @@ function getRelated( string $path ) {
 		return $html;
 	}
 	
+	$out	= [];
 	foreach( $search as $p ) {
 		$out[] = 
 		previewLink( \trim( $p['post_path'] ) );
@@ -6156,6 +6233,9 @@ function getRelated( string $path ) {
 
 /**
  *  Aggregate post body depending on summary level
+ *  
+ *  @param array	$res	Post data results
+ *  @return array
  */
 function collectBody( array $res ) : array {
 	if ( empty( $res ) ) {
@@ -6242,6 +6322,7 @@ function showArchive( string $event, array $hook, array $params ) {
 	
 	hook( [ 'showarchive', [
 		'params'	=> $params,
+		'date'		=> $date,
 		'page'		=> $page,
 		'stamp'		=> $stamp ?? '',
 		'prefix'	=> $prefix
