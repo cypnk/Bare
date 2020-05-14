@@ -126,6 +126,9 @@ define( 'TIMEZONE',		'America/New_York' );
 // Default post content type
 define( 'POST_TYPE',		'blogpost' );
 
+// Maximum log file size before rolling over (in bytes)
+define( 'MAX_LOG_SIZE',		5000000 );
+
 // Whitelist of allowed server host names
 define( 'SERVER_WHITE',		'kpz62k4pnyh5g5t2efecabkywt2aiwcnqylthqyywilqgxeiipen5xid.onion' );
 
@@ -998,6 +1001,28 @@ function logStr( $text, int $len = 255 ) {
 }
 
 /**
+ *  Check log file size and rollover, if needed
+ *  
+ *  @param string	$file	Log file name
+ */
+function logRollover( string $file ) {
+	// Nothing to rollover
+	if ( !file_exists( $file ) ) {
+		return;
+	}
+	
+	$fs	= \filesize( $file );
+	if ( false === $fs ) {
+		return;
+	}
+	
+	$cf	= config( 'max_log_size', \MAX_LOG_SIZE, 'int' );
+	if ( $fs > $cf ) {
+		backupFile( $file, false, 'log', 0 );
+	}
+}
+
+/**
  *  Error logging
  *  
  *  @param string	$err	Error message to store
@@ -1006,8 +1031,9 @@ function logStr( $text, int $len = 255 ) {
  */
 function logError( string $err, bool $app = true ) : bool {
 	$file	= \CACHE . ( $app ? \ERROR : \ERROR_VISIT );
-	$err	= unifySpaces( pacify( $err ) );
+	logRollover( $file );
 	
+	$err	= unifySpaces( pacify( $err ) );
 	if ( !$app ) {
 		$err = truncate( $err, 0, 2048 );
 	}
@@ -1096,6 +1122,43 @@ function slashPath( string $path, bool $suffix = false ) : string {
 	return $suffix ?
 		\rtrim( $path, '/\\' ) . '/' : 
 		'/'. \ltrim( $path, '/\\' );
+}
+
+/**
+ *  Create a datestamped backup of the given file before moving or copying it
+ *  
+ *  @param string	$file	File name path
+ *  @param bool		$copy	Copy if true, rename if false
+ *  @param string	$ext	Backup file extension (defaults to bkp)
+ *  @param int		$fx	Prepend or append extension
+ *  				1 = Prefix, 0 = Suffix, other = Add nothing
+ *  
+ *  @return bool		True if no action needed or action successful
+ */
+function backupFile(
+	string	$file,
+	bool	$copy, 
+	string	$ext	= 'bkp',
+	bool	$fx	= 0
+) : bool {
+	if ( !\file_exists( $file ) ) {
+		return true;
+	}
+	
+	// Filter file extension
+	$ext	= labelName( $ext );
+	
+	// Extension mode
+	$prefix = $fx == 1 ? \rtrim( $ext, '.' ) . '.' : '';
+	$suffix	= $fx == 0 ? '.' . \ltrim( $ext, '.' ) : '' );
+	
+	// Backup file name inferred from full file path
+	$name	= 
+	slashPath( \dirname( $file ), true ) . $prefix . 
+		\gmdate( 'Ymd\THis' ) . '.' . 
+		\basename( $file ) . $suffix;
+	
+	return $copy ? \copy( $file, $name ) : \rename( $file, $name );
 }
 
 /**
@@ -1259,19 +1322,9 @@ function saveFile(
 ) : bool {
 	$file = \CACHE . $name;
 	
-	if ( \file_exists( $file ) ) {
-		
-		// Make a backup first
-		$bkp = slashPath( \dirname( $file ), true ) . 
-			( $fx == 1 ? 'bkp.' : '' ) . 
-			\gmdate( 'Ymd\THis' ) . '.' . 
-			\basename( $file ) . 
-			( $fx == 0 ? '.bkp' : '' );
-		
-		if ( !\copy( $file, $bkp ) ) {
-			// Backup failed? Don't overwrite
-			return false;
-		}
+	// Backup failed? Don't overwrite
+	if ( !backupFile( $file, true, 'bkp', $fx ) ) {
+		return false;
 	}
 	
 	if ( $append ) {
