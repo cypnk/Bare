@@ -4930,7 +4930,7 @@ function extractType( array $find ) : string {
  *  
  *  @return array
  */
-function initPostFeatures() : array {
+function initPostFeatures( array $post ) : array {
 	$summ	= getMarkers()[':all'] ?? '(?<all>.+)';
 	$tags	= getMarkers()[':tags'] ?? '(?<tags>[\pL\pN\s_\,\-]{1,255})';
 	$label	= getMarkers()[':label'] ?? '(?<label>[\pL\pN\s_\-]{1,30})';
@@ -4978,7 +4978,7 @@ function postFeatures( array &$post, int $flines ) : array {
 	
 	// Core feature presets: summary and tags
 	if ( !isset( $features ) ) {
-		$features = initPostFeatures();
+		$features = initPostFeatures( $post );
 	}
 	
 	// Send feature extraction to hook
