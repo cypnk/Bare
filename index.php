@@ -6323,7 +6323,7 @@ function showArchive( string $event, array $hook, array $params ) {
 	$prefix	= '';
 	$s	= '/';
 	$stamp	= null;
-	
+	$date	= [];
 	
 	$slvl	= config( 'summary_level', \SUMMARY_LEVEL, 'int' );
 	
@@ -6409,6 +6409,7 @@ function showTag( string $event, array $hook, array $params ) {
 	// Send to render hook
 	hook( [ 'tagsearchrender', [ 
 		'prefix'	=> $prefix,
+		'date'		=> [],
 		'tag'		=> $tag,
 		'limit'		=> $plimit,
 		'start'		=> $start,
@@ -6485,6 +6486,7 @@ function showSearch( string $event, array $hook, array $params ) {
 		'limit'		=> $plimit,
 		'start'		=> $start,
 		'page'		=> $page,
+		'date'		=> [],
 		'results'	=> $res,
 		'status'	=> $status
 	] ] );
@@ -6519,6 +6521,7 @@ function showFeed( string $event, array $hook, array $params ) {
 	hook( [ 'feedrender', [  
 		'title'		=> $ptitle,
 		'subtitle'	=> $psub,
+		'date'		=> [],
 		'posts'		=> $posts
 	] ] );
 	
