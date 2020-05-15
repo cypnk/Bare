@@ -997,6 +997,21 @@ function isSecure() : bool {
 }
 
 /**
+ *  Filter number within min and max range, inclusive
+ *  
+ *  @param mixed	$val		Given default value
+ *  @param int		$min		Minimum, returned if less than this
+ *  @param int		$max		Maximum, returned if greater than this
+ *  @return int
+ */
+function intRange( $val, int $min, int $max ) : int {
+	$out = ( int ) $val;
+	
+	return 
+	( $out > $max ) ? $max : ( ( $out < $min ) ? $min : $out );
+}
+
+/**
  *  Logging safe string
  */
 function logStr( $text, int $len = 255 ) {
@@ -1036,13 +1051,9 @@ function logError( string $err, bool $app = true ) : bool {
 	$file	= \CACHE . ( $app ? \ERROR : \ERROR_VISIT );
 	logRollover( $file );
 	
-	$err	= unifySpaces( pacify( $err ) );
-	if ( !$app ) {
-		$err = truncate( $err, 0, 2048 );
-	}
-	
 	// Log friendly date and time format
 	$dt	= \gmdate( 'Y-m-d H:i:s' );
+	$err	= $app ? unifySpaces( $err ) : truncate( $err, 0, 2048 );
 	
 	// New file? Prepare log header
 	if ( !file_exists( $file ) ) {
@@ -1104,18 +1115,19 @@ function encode( array $data ) : string {
 /**
  *  Safely decode JSON to array
  */
-function decode( string $data ) : array {
-	$data = 
+function decode( string $data, int $depth = 10 ) : array {
+	$depth	= intRange( $depth, 1, 50 );
+	$out	= 
 	\json_decode( 
-		\utf8_encode( $data ), true, 10, 
+		\utf8_encode( $data ), true, $depth, 
 		\JSON_BIGINT_AS_STRING
 	);
 	
-	if ( empty( $data ) || false === $data ) {
+	if ( empty( $out ) || false === $out ) {
 		return [];
 	}
 	
-	return $data;
+	return $out;
 }
 
 /**
@@ -1544,7 +1556,7 @@ function paginate( int $page, string $prefix, array $posts ) : string {
  *  @return string
  */
 function genId( int $bytes = 16 ) : string {
-	return \bin2hex( \random_bytes( $bytes ) );
+	return \bin2hex( \random_bytes( intRange( $bytes, 1, 16 ) ) );
 }
 
 /**
@@ -1566,6 +1578,19 @@ function genSeqId() : string {
 	
 	return 
 	\base_convert( $t, 10, 16 ) . \genId();
+}
+
+/**
+ *  Generate a random, alphanumeric, string
+ *  
+ *  @param int	$size	Code size between 1 and 24, inclusive
+ *  @return string
+ */
+function genAlphaNum( int $size = 18 ) : string {
+	$code	= \base64_encode( \random_bytes( 32 ) );
+	$code	= \preg_replace( '/[^[:alnum:]]/u', '', $code );
+	
+	return truncate( $code, 0, intRange( $size, 1, 24 ) );
 }
 
 /**
@@ -2700,45 +2725,33 @@ function slugify(
 function enforceDates( array $args ) : array {
 	$now	= time();
 	
-	// Requested year/month/day
-	$year		= ( int ) ( $args['year'] ?? \date( 'Y', $now ) );
-	$month		= ( int ) ( $args['month'] ?? \date( 'n', $now ) );
-	$day		= ( int ) ( $args['day'] ?? \date( 'j', $now ) );
-	
 	// Current year/month/day
-	$y		= ( int ) \date( 'Y', $now );
-	$m		= ( int ) \date( 'n', $now );
-	$d		= ( int ) \date( 'j', $now );
+	$y	= ( int ) \date( 'Y', $now );
+	$m	= ( int ) \date( 'n', $now );
+	$d	= ( int ) \date( 'j', $now );
 	
-	$ys		= config( 'year_start', \YEAR_START, 'int' );
+	// Requested year/month/day
+	$year	= $args['year'] ?? $y;
+	$month	= $args['month'] ?? $m;
+	$day	= $args['day'] ?? $d;
+	
+	$ys	= config( 'year_start', \YEAR_START, 'int' );
 	
 	// Enforce date ranges
-	$year		= ( $year > $y || $year < $ys ) ? 
-				$y : $year;
+	$year	= intRange( $year, $ys, $y );
 	
-	// Current year? Enforce month to current month
-	if ( $y == $year ) {
-		$month	= ( $month > $m || $month <= 0 ) ? 
-				$m : $month;
-	
-	// No more than 12 months
-	} else {
-		$month = ( $month <= 0 || $month > 12 ) ? 
-				1 : $month;
-	}
+	// Current year? Enforce month to current month or January of this year
+	$month	= ( $y == $year ) ? 
+			intRange( $month, 1, $m ) : 
+			intRange( $month, 1, 12 );
 	
 	// Days in requested year and month
-	$days	= \date( 't', \mktime( 0, 0, 0, $month, 1, $year ) );
+	$days	= ( int ) \date( 't', \mktime( 0, 0, 0, $month, 1, $year ) );
 	
-	// No more than the number of days in requested month
-	$day	= ( $day <= 0 || $day > $days ) ? 1 : $day;
-	
-	// No more than the current day, if it's the current year/month
-	if ( $year == $y && $month == $m ) {
-		if ( $day > $d ) {
-			$day = $d;
-		}
-	}
+	// No more than the number of days in requested or current year/month
+	$day	= ( $year == $y && $month == $m ) ? 
+			intRange( $day, 1, $d ) : 
+			intRange( $day, 1, $days );
 	
 	// Format date to string array
 	return [
@@ -4953,7 +4966,7 @@ function extractSummary( array $find ) : string {
 /**
  *  Try to parse post category tags
  *  
- *  @param array	$post	Content as an array of lines
+ *  @param array	$find	Content as labled regular expression match
  *  @return array
  */
 function extractTags( array $find ) : array {
@@ -4980,6 +4993,16 @@ function extractTags( array $find ) : array {
 	}
 	
 	return $ptags;	
+}
+
+/**
+ *  Extract JSON encoded custom metadata from post
+ *  
+ *  @param array	$find	Content as labled regular expression match
+ *  @return array
+ */
+function extractMeta( array $find ) : array {
+	return decode( $find['all'] ?? '' );
 }
 
 /**
@@ -5013,6 +5036,11 @@ function initPostFeatures( array $post ) : array {
 		'type' => [
 			'search'	=> '/^type\s?\:' . $label . '/is',
 			'filter'	=> 'extractType'
+		],
+		
+		'meta' => [
+			'search'	=> '/^meta\s?\:' . $label . '/isu',
+			'filter'	=> 'extractMeta'
 		]
 	];
 	
@@ -5501,6 +5529,7 @@ function formatPost(
 	$tags	= $feat['tags'] ?? [];
 	$summ	= $feat['summary'] ?? '';
 	$type	= $feat['type'] ?? \POST_TYPE;
+	$meta	= $feat['meta'] ?? [];
 	
 	// Apply metadata
 	metadata( $title, $perm, $pub, $post, $path );
@@ -5520,6 +5549,7 @@ function formatPost(
 		'slevel'	=> $slvl,	// Summary level
 		'features'	=> $feat,	// Any extra features
 		'fline'		=> $fline,	// Feature search lines
+		'meta'		=> $meta,	// Custom metadata
 		'template'	=> $tpl		// Given template
 	] ] ) ;
 	
