@@ -250,7 +250,7 @@ define( 'TPL_POST',		<<<HTML
 	<header>
 	<div class="content">
 		<h2><a href="{permalink}">{title}</a></h2>
-		<time datetime="{date_utc}">{date_stamp}</time>
+		<time datetime="{date_utc}">{date_stamp}</time> {read_time}
 	</div>
 	</header>
 	<div class="content">
@@ -258,6 +258,11 @@ define( 'TPL_POST',		<<<HTML
 		{tags}
 	</div>
 </article>
+HTML
+);
+
+define( 'TPL_READ_TIME', <<<HTML
+<span class="readtime">{time} minutes</span>
 HTML
 );
 
@@ -312,7 +317,7 @@ HTML
 define( 'TPL_INDEX',		<<<HTML
 	<li><time datetime="{date_utc}">{date_stamp}</time>
 		<a href="{permalink}">{title}</a>
-		{tags}</li>
+		{read_time} {tags}</li>
 HTML
 );
 
@@ -4770,6 +4775,7 @@ function loadPost(
 	$title	= '';
 	$summ	= '';
 	$type	= '';
+	$rtime	= 0;
 	$ppath	= POSTS . \ltrim( $path, '/' ) . '.md';
 	$data	= postData( $ppath );
 	
@@ -4784,7 +4790,8 @@ function loadPost(
 	
 	$tags	= [];
 	$out	= 
-	formatPost( $title, $tags, $summ, $type, $data, $path, $tpl, 0, $fline );
+	formatPost( $title, $tags, $summ, $type, $rtime, $data, $path, $tpl, 0, 
+		$fline );
 	
 	// If index has not been run before this function was called...
 	if ( !internalState( 'indexRun' ) ) {
@@ -5183,10 +5190,11 @@ function loadPosts(
 			$summ		= '';
 			$tags		= [];
 			$type		= '';
+			$rtime		= 0;
 			$posts[$path]	= 
 			formatPost( 
-				$title, $tags, $summ, $type, $data, $path, 
-				$tpl, $slvl, $fline 
+				$title, $tags, $summ, $type, $rtime, $data, 
+				$path, $tpl, $slvl, $fline
 			);
 		}
 		
@@ -5350,6 +5358,7 @@ function loadIndex( int $start = 0, int $limit = 0 ) : array {
 			$summ		= '';
 			$tags		= [];
 			$type		= '';
+			$rtime		= 0;
 			
 			// Apply metadata
 			metadata( $title, $perm, $pub, $post, $path );
@@ -5357,19 +5366,25 @@ function loadIndex( int $start = 0, int $limit = 0 ) : array {
 			// Load formatted and process features
 			$out		= 
 			formatPost( 
-				$title, $tags, $summ, $type, $post, $path,
-				$tpl, 0, $fline
+				$title, $tags, $summ, $type, $rtime, $post, 
+				$path, $tpl, 0, $fline
 			);
 			
+			// Arrange index for presentation
+			
+			// Limited index?
 			if ( $limited ) {
 				if ( $i >= $start && $j <= $limit ) {
 					$posts[$lastDir][] = 
-					formatMeta( $title, $type, $pub, $path, $tags );
+					formatMeta( $title, $type, $pub, $path, 
+						$rtime, $tags );
 					$j++;
 				}
+			
+			// Full index?
 			} else {
 				$posts[$lastDir][] = 
-				formatMeta( $title, $type, $pub, $path, $tags );
+				formatMeta( $title, $type, $pub, $path, $rtime, $tags );
 			}
 			
 			// Create tags and cache page info
@@ -5436,12 +5451,13 @@ function formatTags( array $tags ) : string {
 /**
  *  Apply post data to template placeholders
  */
-function formatMeta( $title, $type, $pub, $path, $tags = [] ) : array {
+function formatMeta( $title, $type, $pub, $path, $rtime, $tags = [] ) : array {
 	hook( [ 'formatmeta', [ 
 		'type'		=> $type, 
 		'title'		=> $title, 
 		'published'	=> $pub, 
 		'path'		=> $path, 
+		'readtime'	=> $rtime,
 		'tags'		=> $tags
 	] ] );
 	
@@ -5455,6 +5471,7 @@ function formatMeta( $title, $type, $pub, $path, $tags = [] ) : array {
 		'{date_utc}'	=> $pub,
 		'{date_rfc}'	=> dateRfc( $pub ),
 		'{date_stamp}'	=> dateNice( $pub ),
+		'{read_time}'	=> \strtr( \TPL_READ_TIME, [ '{time}' => $rtime ] ),
 		'{tags}'	=> formatTags( $tags ),
 		'{permalink}'	=> 
 		website() . dateSlug( \basename( $path ), $pub )
@@ -5469,6 +5486,7 @@ function formatPost(
 	array	&$tags,
 	string	&$summ,
 	string	&$type, 
+	int	&$rtime, 
 	array	$post,
 	string	$path,
 	string	$tpl,
@@ -5497,12 +5515,16 @@ function formatPost(
 	$post	= \array_slice( $post, 1 );
 	$body	= html( \implode( "\n", $post ), homeLink() );
 	
+	// Calculate read time from formatted post body
+	$rtime	= readingTime( $body ); 
+	
 	hook( [ 'formatpost', [ 
 		'type'		=> $type,	// Post type
 		'title'		=> $title,	// Post main title
 		'tags'		=> $tags,	// Array of tags
 		'permalink'	=> $perm,	// Permalink
 		'published'	=> $pub,	// Publish date
+		'readtime'	=> $rtime,	// Estimated reading time
 		'summary'	=> $summ,	// Formatted post summary
 		'body'		=> $body,	// Formatted post body
 		'slevel'	=> $slvl,	// Summary level
@@ -5520,7 +5542,9 @@ function formatPost(
 	}
 	
 	// Format metadata
-	$data		= formatMeta( $title, $type, $pub, $perm, $tags );
+	$data		= 
+	formatMeta( $title, $type, $pub, $perm, $rtime, $tags );
+	
 	switch( $slvl ) {
 		case 1:
 			$data['{body}'] = empty( $summ ) ? $body : $summ;
