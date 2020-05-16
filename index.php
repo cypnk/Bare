@@ -1628,34 +1628,6 @@ function lineSettings( string $text, int $lim ) : array {
 
 
 /**
- *  Get presets as lined items (one item per line)
- *  
- *  @param string	$label		Preset unique identifier
- *  @param string	$base		Setting name in config.json
- *  @param mixed	$default	Defined configuration
- *  @param string	$data		String block of items
- */ 
-function linePresets(
-	string		$label,
-	string		$base,
-			$default, 
-	string		$data
-) {
-	static $prs	= [];
-	
-	if ( isset( $prs[$label] ) ) {
-		return $prs[$label];
-	}
-	
-	// Maximum number of items
-	$lim		= config( $base, $default, 'int' );
-	$prs[$label]	= lineSettings( $data, $lim );
-	
-	return $prs[$label];
-}
-
-
-/**
  *  Database
  */
 
@@ -2576,19 +2548,6 @@ function dateRfcFile( $stamp = null ) : string {
 function unifySpaces( string $text, string $rpl = ' ' ) {
 	return 
 	\preg_replace( '/[[:space:]]+/', $rpl, pacify( $text ) );
-}
-
-/**
- *  Get a list of tokens separated by spaces
- */
-function uniqueTerms( string $value ) : array {
-	return 
-	\array_unique( 
-		\preg_split( 
-			'/[[:space:]]+/', trim( $value ), -1, 
-			\PREG_SPLIT_NO_EMPTY 
-		) 
-	);
 }
 
 /**
@@ -5896,7 +5855,7 @@ function wordcount( string $find, string $mode = '' ) : int {
 			$pat = '//u';
 			break;
 			
-		case 'words'
+		case 'words':
 			// Split into words separated by non-letter/num chars
 			$pat = '/[^\p{L}\p{N}\-_\']+/u';
 			break;
