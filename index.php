@@ -5876,6 +5876,94 @@ function bland( string $text, bool $nospecial = false ) : string {
 }
 
 /**
+ *  Find word or character count within a block of text
+ *  
+ *  @param string	$find	Raw text to match
+ *  @param string	$mode	Word splitting mode
+ *  @return int
+ *  
+ */
+function wordcount( string $find, string $mode = '' ) : int {
+	// Select split type
+	switch( $mode ) {
+		case 'dist':
+			// Words seprated by non-letters and non-punctuation
+			$pat = '/[^\p{L}\p{P}]+/u';
+			break;
+			
+		case 'chars':
+			// All characters
+			$pat = '//u';
+			break;
+			
+		case 'words'
+			// Split into words separated by non-letter/num chars
+			$pat = '/[^\p{L}\p{N}\-_\']+/u';
+			break;
+
+		default:
+			// Simplest split by various separators. E.G. Space
+			$pat = '/[\p{Z}]+/u';
+	}
+	
+	$c = \preg_split( $pat, $find, -1, \PREG_SPLIT_NO_EMPTY );
+	return ( false === $c ) ? 0 : count( $c );
+}
+
+/**
+ *  Estimate reading time in minutes based on words/characters in a text block
+ *  
+ *  @param string $text Text input
+ *  @return int
+ */
+function readingTime( string $text ) : int {
+	// Remove tags and trim
+	$text	= bland( $text );
+	if ( empty( $text ) ) {
+		return 0;
+	}
+	
+	// Character and measurement sets
+	static $sets	= [
+		// Matching type, average matches / minute, character pattern
+		[ 'words', 230, '/[\p{Latin}\p{Greek}\p{Cyrillic}]/u' ],
+		[ 'words', 250, '/[\p{Arabic}\p{Hebrew}]/u' ],
+		
+		[ 'chars', 1000, '/[\p{Han}\p{Hiragana}\p{Katakana}]/u' ]
+	];
+	
+	// Default
+	$speed	= 200;
+	$set	= 'words';
+	
+	// Total characters
+	$chars	= wordcount( $text, 'chars' );
+	
+	// Previous character count
+	$prev	= 0;
+	
+	// Guess language type based on search chars to total chars ratio
+	foreach( $sets as $k => $v ) {
+		$m = \preg_split( $v[2], $text );
+		if ( false === $m ) {
+			continue;
+		}
+		
+		$c = count( $m );
+		if ( !$c ) { continue; }
+		
+		// Current character ratio exceeds previous? Set new defaults
+		if ( ( $c / $chars ) > ( $prev / $chars ) ) {
+			$set	= $v[0];
+			$speed	= $v[1];
+			$prev	= $c;
+		}
+	}
+	
+	return ceil( wordcount( $text, $set ) / $speed );
+}
+
+/**
  *  Process search pattern for full text searching
  *  
  *  @param string	$find	Sent search parameters
@@ -5888,14 +5976,20 @@ function searchData( string $find ) : string {
 		return '';
 	}
 	
-	// Split into words, including quoted terms
-	\preg_match_all( '/"(?:\\\\.|[^\\\\"])*"|\S+/', $find, $m );
-	if ( empty( $m ) ) {
+	if ( \preg_match_all( '/"(?:\\\\.|[^\\\\"])*"|\S+/', $find, $m ) ) {
+		if ( empty( $m ) ) {
+			return '';
+		}
+		$fdata	= \array_unique( $m[0] ?? [] );
+	} else {
+		return '';
+	}
+	
+	if ( empty( $fdata ) ) {
 		return '';
 	}
 	
 	// Limit maximum number of unique words to search
-	$fdata	= \array_unique( $m[0] );
 	$sc	= config( 'max_search_words', \MAX_SEARCH_WORDS, 'int' );
 	if ( count( $fdata ) > $sc ) {
 		$fdata = \array_slice( $fdata, 0, $sc );
