@@ -5900,20 +5900,23 @@ function wordcount( string $find, string $mode = '' ) : int {
  *  @return int
  */
 function readingTime( string $text ) : int {
+	static $sets;
+	if ( !isset( $sets ) ) {
+		// Character and measurement sets
+		$sets = [
+			// Matching type, average matches / minute, character pattern
+			[ 'words', 230, '/[\p{Latin}\p{Greek}\p{Cyrillic}]/u' ],
+			[ 'words', 250, '/[\p{Arabic}\p{Hebrew}]/u' ],
+			
+			[ 'chars', 1000, '/[\p{Han}\p{Hiragana}\p{Katakana}]/u' ]
+		];
+	}
+	
 	// Remove tags and trim
 	$text	= bland( $text );
 	if ( empty( $text ) ) {
-		return 0;
+		return 1;
 	}
-	
-	// Character and measurement sets
-	static $sets	= [
-		// Matching type, average matches / minute, character pattern
-		[ 'words', 230, '/[\p{Latin}\p{Greek}\p{Cyrillic}]/u' ],
-		[ 'words', 250, '/[\p{Arabic}\p{Hebrew}]/u' ],
-		
-		[ 'chars', 1000, '/[\p{Han}\p{Hiragana}\p{Katakana}]/u' ]
-	];
 	
 	// Default
 	$speed	= 200;
@@ -5943,7 +5946,9 @@ function readingTime( string $text ) : int {
 		}
 	}
 	
-	return ceil( wordcount( $text, $set ) / $speed );
+	// Always send back at least 1 minute reading time
+	$rt = ( int ) ceil( wordcount( $text, $set ) / $speed );
+	return ( $rt <= 0 ) ? 1 : $rt;
 }
 
 /**
