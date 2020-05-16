@@ -80,7 +80,7 @@ a {
 	color: #2c3e50;
 }
 
-time {
+time, .readtime {
 	text-transform: uppercase;
 	font-size: .9rem;
 	letter-spacing: .07rem;
