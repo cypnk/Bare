@@ -475,6 +475,7 @@ define( 'MSG_DENIED',		'Access denied' );
 define( 'MSG_INVALID',		'Invalid request' );
 define( 'MSG_CODEDETECT',	'Server-side code detected' );
 define( 'MSG_EXPIRED',		'This form has expired' );
+define( 'MSG_TOOMANY',		'Too many requests' );
 
 
 /**
@@ -2443,7 +2444,7 @@ function sessionThrottle() {
 			visitorError( 429, 'Requests' );
 			shutdown( 'cleanup' );
 			shutdown( 'sleep', 20 );
-			send( 429 );
+			sendError( 429, \MSG_TOOMANY );
 			
 		// Send Not Modified for the rest
 		case SESSION_STATE_MEDIUM:
@@ -6523,7 +6524,7 @@ function showSearch( string $event, array $hook, array $params ) {
 		
 		case FORM_STATUS_FLOOD:
 			visitorError( 429, 'Flood' );
-			sendError( 429 );
+			sendError( 429, \MSG_TOOMANY );
 	}
 	
 	$find	= searchData( $params['find'] ?? '' );
