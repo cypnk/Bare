@@ -262,7 +262,7 @@ HTML
 );
 
 define( 'TPL_READ_TIME', <<<HTML
-<span class="readtime">{time}min</span>
+<span class="readtime">{time}</span>
 HTML
 );
 
