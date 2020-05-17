@@ -222,7 +222,9 @@ define( 'TPL_ABOUT',		<<<HTML
 </div>
 </header>
 <main>
+<div class="content">
 {body}
+</div>
 {footer}
 </main>
 </body>
@@ -6794,14 +6796,13 @@ function showAbout( string $event, array $hook, array $params ) {
 	$psub	= config( 'page_sub', \PAGE_SUB );
 	
 	// First line is the about title, everything else is the body
-	$title	= \array_slice( $post, 1 );
+	$title	= title( \array_shift( $post ) );
 	$body	= html( \implode( "\n", $post ), homeLink() );
 	
 	// Send to render hook
 	hook( [ 'aboutrender', [ 
 		'title'		=> $title,
 		'posttitle'	=> $ptitle,
-		'title'		=> $ptitle,
 		'subtitle'	=> $psub,
 		'body'		=> $body,
 		'path'		=> $path
