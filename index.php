@@ -5375,6 +5375,11 @@ function loadIndex( int $start = 0, int $limit = 0 ) : array {
 			continue;
 		}
 		
+		// Skip about page(s)
+		if ( false !== strpos( $raw, '/about/' ) ) {
+			continue;
+		}
+		
 		// Already added?
 		if ( \array_key_exists( $path, $posts ) ) {
 			continue;
