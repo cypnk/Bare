@@ -222,9 +222,11 @@ define( 'TPL_ABOUT',		<<<HTML
 </div>
 </header>
 <main>
+<article>
 <div class="content">
 {body}
 </div>
+</article>
 {footer}
 </main>
 </body>
