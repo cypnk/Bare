@@ -195,6 +195,44 @@ define( 'TPL_FOOTER',		<<<HTML
 HTML
 );
 
+// About page template
+define( 'TPL_ABOUT',		<<<HTML
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="alternate" type="application/xml" title="{page_title}" href="{home}feed">
+<title>{post_title}</title>
+<link rel="stylesheet" href="{home}style.css">
+</head>
+<body>
+
+<header>
+<div class="content">
+	<h1><a href="{home}">{page_title}</a></h1>
+	<p>{tagline}</p>
+	<nav class="main">
+	<ul>
+		<li><a href="/archive">Archive</a></li>
+		<li><a href="/feed">Feed</a></li>
+	</ul>
+	</nav>
+	{search_form}
+</div>
+</header>
+<main>
+{body}
+{footer}
+</main>
+</body>
+</html>
+HTML
+);
+
+
+
+
 // Form anti-XSRF hidden inputs (required on all forms)
 define( 'TPL_INPUT_XSRF',	<<<HTML
 <input type="hidden" name="nonce" value="{nonce}">
@@ -717,7 +755,6 @@ CREATE VIEW post_siblings AS SELECT DISTINCT
 	FROM posts p;
 SQL
 );
-
 
 /**
  *  Sessions database
@@ -6740,6 +6777,62 @@ function showPost( string $event, array $hook, array $params ) {
 }
 
 /**
+ *  View about page and other custom content
+ */
+function showAbout( string $event, array $hook, array $params ) {
+	$path	= $params['slug'] ?? 'main'; // Sub about page or main
+	$apath	= POSTS . 'about/' . $path . '.md';
+	$post	= loadText( $apath );
+	
+	// No about found
+	if ( empty( $post ) ) {
+		visitorError( 404, 'NotFound' );
+		sendError( 404, \MSG_NOTFOUND );
+	}
+	
+	$ptitle	= config( 'page_title', \PAGE_TITLE );
+	$psub	= config( 'page_sub', \PAGE_SUB );
+	
+	// First line is the about title, everything else is the body
+	$title	= \array_slice( $post, 1 );
+	$body	= html( \implode( "\n", $post ), homeLink() );
+	
+	// Send to render hook
+	hook( [ 'aboutrender', [ 
+		'title'		=> $title,
+		'posttitle'	=> $ptitle,
+		'title'		=> $ptitle,
+		'subtitle'	=> $psub,
+		'body'		=> $body,
+		'path'		=> $path
+	] ] );
+	
+	// Send result if hook returned content
+	sendOverride( 'aboutrender' );
+	
+	$tpl	= [
+		'{page_title}'	=> $ptitle,
+		'{post_title}'	=> $title . ' - ' . $ptitle,
+		'{tagline}'	=> $psub,
+		'{body}'	=> $body,
+		'{home}'	=> homeLink(),
+		
+		// Search form
+		'{search_form}'	=> searchForm(),
+		
+		// Footer with home link set
+		'{footer}'	=> 
+		\strtr( 
+			TPL_FOOTER ?? '', 
+			[ '{home}'	=> homeLink() ] 
+		)
+	];
+	
+	shutdown( 'cleanup' );
+	send( 200, \strtr( TPL_ABOUT ?? '', $tpl ), true );
+}
+
+/**
  *  Rebuild index and cache output
  */
 function runIndex( string $event, array $hook, array $params ) {
@@ -7070,6 +7163,12 @@ function addBlogRoutes( string $event, array $hook, array $params ) {
 	[ 'get', ':year/:month/:day/:slug',		'postview' ],
 	
 	/**
+	 *  About pages
+	 */
+	[ 'get', 'about',				'aboutview' ],
+	[ 'get', 'about/:slug',				'aboutview' ],
+	
+	/**
 	 *  Searching
 	 */
 	[ 'get', '\\?nonce=:nonce&token=:token&find=:find','search' ],
@@ -7097,6 +7196,9 @@ hook( [ 'tagpaginate',	'showTag' ] );
 
 // Post view event
 hook( [ 'postview',	'showPost' ] );
+
+// About page event
+hook( [ 'aboutview',	'showAbout' ] );
 
 // Searching
 hook( [ 'search',	'showSearch' ] );
