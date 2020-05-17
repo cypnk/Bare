@@ -15,6 +15,10 @@ only show posts from the current date and into the past.
 Bare will also create an archive of all posts and create a syndication  
 feed of the most recent ones.
 
+An about page can be created by editing *posts/about/main.md*. Additional  
+about pages can be added to the same directory and again the URL  
+is the filename.
+
 Bare understands a rudimentary subset of [Markdown](https://daringfireball.net/projects/markdown/) and will filter HTML  
 for you. 
 
