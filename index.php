@@ -126,6 +126,10 @@ define( 'TIMEZONE',		'America/New_York' );
 // Default post content type
 define( 'POST_TYPE',		'blogpost' );
 
+// Comma delimited content types which have their read times calculated
+// blogpost, news, etc...
+define( 'READTIME_TYPES',	'blogpost' );
+
 // Maximum log file size before rolling over (in bytes)
 define( 'MAX_LOG_SIZE',		5000000 );
 
@@ -4976,7 +4980,7 @@ function extractMeta( array $find ) : array {
  *  Parse current post's type or send default type
  */
 function extractType( array $find ) : string {
-	return labelName( $html['label'] ?? \POST_TYPE );
+	return lowercase( labelName( $html['label'] ?? \POST_TYPE ) );
 }
 
 /**
@@ -5450,6 +5454,27 @@ function formatTags( array $tags ) : string {
 }
 
 /**
+ *  Checks if the given post type will have its read time calculated
+ *  
+ *  @param string	$type	Post content type, default should be POST_TYPE
+ *  @return bool
+ */
+function hasReadTime( string $type ) : bool {
+	static $rtypes;
+	if ( !isset( $rtypes ) ) {
+		$default	= trimmedList( \READTIME_TYPES, true );
+		
+		// Send to hook for additional types
+		hook( [ 'hasreadtime', [ 'types' => $default ] ] );
+		
+		$rtypes		= 
+		hookArrayResult( 'hasreadtime' )['types'] ?? $default;
+	}
+	
+	return \in_array( $type, $rtypes, true );
+}
+
+/**
  *  Apply post data to template placeholders
  */
 function formatMeta( $title, $type, $pub, $path, $rtime, $tags = [] ) : array {
@@ -5467,12 +5492,16 @@ function formatMeta( $title, $type, $pub, $path, $rtime, $tags = [] ) : array {
 		return $sent;
 	}
 	
+	// Format read time, if appropriate
+	$read	= hasReadTime( $type ) ? 
+		\strtr( \TPL_READ_TIME, [ '{time}' => $rtime ] ) : '';
+	
 	return [
 		'{title}'	=> $title,
 		'{date_utc}'	=> $pub,
 		'{date_rfc}'	=> dateRfc( $pub ),
 		'{date_stamp}'	=> dateNice( $pub ),
-		'{read_time}'	=> \strtr( \TPL_READ_TIME, [ '{time}' => $rtime ] ),
+		'{read_time}'	=> $read,
 		'{tags}'	=> formatTags( $tags ),
 		'{permalink}'	=> 
 		website() . dateSlug( \basename( $path ), $pub )
@@ -5516,8 +5545,8 @@ function formatPost(
 	$post	= \array_slice( $post, 1 );
 	$body	= html( \implode( "\n", $post ), homeLink() );
 	
-	// Calculate read time from formatted post body
-	$rtime	= readingTime( $body ); 
+	// Calculate read time, if appropriate, from formatted body
+	$rtime	= hasReadTime( $type ) ? readingTime( $body ) : 0;
 	
 	hook( [ 'formatpost', [ 
 		'type'		=> $type,	// Post type
@@ -5903,14 +5932,19 @@ function wordcount( string $find, string $mode = '' ) : int {
 function readingTime( string $text ) : int {
 	static $sets;
 	if ( !isset( $sets ) ) {
-		// Character and measurement sets
-		$sets = [
+		// Deafult character and measurement sets
+		$default = [
 			// Matching type, average matches / minute, character pattern
 			[ 'words', 230, '/[\p{Latin}\p{Greek}\p{Cyrillic}]/u' ],
 			[ 'words', 250, '/[\p{Arabic}\p{Hebrew}]/u' ],
 			
 			[ 'chars', 1000, '/[\p{Han}\p{Hiragana}\p{Katakana}]/u' ]
 		];
+		
+		// Send to hook for additional sets
+		hook( [ 'readingtime', [ 'sets' => $default ] ] );
+		
+		$sets	= hookArrayResult( 'readingtime' )['sets'] ?? $default;
 	}
 	
 	// Remove tags and trim
@@ -5931,6 +5965,11 @@ function readingTime( string $text ) : int {
 	
 	// Guess language type based on search chars to total chars ratio
 	foreach( $sets as $k => $v ) {
+		if ( !preg_match( $v[2], $text ) ) {
+			continue;
+		}
+		
+		// Character set found
 		$m = \preg_split( $v[2], $text );
 		if ( false === $m ) {
 			continue;
@@ -5949,7 +5988,7 @@ function readingTime( string $text ) : int {
 	
 	// Always send back at least 1 minute reading time
 	$rt = ( int ) ceil( wordcount( $text, $set ) / $speed );
-	return ( $rt <= 0 ) ? 1 : $rt;
+	return ( $rt < 1 ) ? 1 : $rt;
 }
 
 /**
@@ -5965,6 +6004,7 @@ function searchData( string $find ) : string {
 		return '';
 	}
 	
+	// Search words including quoted terms
 	if ( \preg_match_all( '/"(?:\\\\.|[^\\\\"])*"|\S+/', $find, $m ) ) {
 		if ( empty( $m ) ) {
 			return '';
