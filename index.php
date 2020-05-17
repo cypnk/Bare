@@ -1150,6 +1150,39 @@ function slashPath( string $path, bool $suffix = false ) : string {
 }
 
 /**
+ *  Split a block of text into an array of lines
+ *  
+ *  @param string	$text	Raw text to split into lines
+ *  @param int		$lim	Max line limit, defaults to unlimited
+ *  @param bool		$tr	Also trim lines if true
+ *  @return array
+ */
+function lines( string $text, int $lim = -1, bool $tr = true ) : array {
+	return $tr ?
+	\preg_split( 
+		'/\s*\R\s*/', 
+		trim( $text ), 
+		$lim, 
+		\PREG_SPLIT_NO_EMPTY 
+	) : 
+	\preg_split( '/\R/', $text, $lim, \PREG_SPLIT_NO_EMPTY );
+}
+
+/**
+ *  Helper to turn items (one per line) into a unique value array
+ *  
+ *  @param string	$text	Lined settings (one per line)
+ *  @param int		$lim	Maximum number of items
+ *  @return array
+ */
+function lineSettings( string $text, int $lim ) : array {
+	$ln = \array_unique( lines( $text ) );
+	
+	return ( count( $ln ) > $lim ) ? 
+		\array_slice( $ln, 0, $lim ) : $ln;
+}
+
+/**
  *  Create a datestamped backup of the given file before moving or copying it
  *  
  *  @param string	$file	File name path
@@ -1233,32 +1266,91 @@ function loadFile( string $name ) : string {
 }
 
 /**
+ *  Get text content as an array of lines
+ *  
+ *  @param mixed	$raw	Post content or file path
+ *  @param bool		$fl	Content is in a file
+ *  @param bool		$skip	Skip empty lines when loading
+ */
+function loadText( $raw, bool $fl = true, bool $skip = false ) {
+	static $loaded	= [];
+	$key		= $raw . ( string ) $fl;
+	
+	if ( isset( $loaded[$key] ) ) {
+		return $loaded[$key];
+	}
+	
+	// Get content from files
+	if ( $fl ) {
+		if ( \file_exists( $raw ) ) {
+			$data	= $skip ? 
+			\file( $raw, 
+				\FILE_IGNORE_NEW_LINES | \FILE_SKIP_EMPTY_LINES 
+			) : \file( $raw, \FILE_IGNORE_NEW_LINES );
+			
+			if ( false === $data ) {
+				return [];
+			}
+		} else {
+			return [];
+		}
+	
+	// Or break content into lines
+	} else {
+		$data	= explode( "\n", $raw );
+	}
+	
+	if ( empty( $data ) ) {
+		return [];
+	}
+	
+	// Remove empty lines from beginning of post 
+	// (titles etc...)
+	while( "" === trim( \current( $data ) ) ) {
+		\array_shift( $data );
+	}
+	
+	if ( empty( $data ) ) {
+		return [];
+	}
+	
+	// Empty lines from end of post 
+	// (tags etc...)
+	while( "" === trim( \end( $data ) ) ) {
+		\array_pop( $data );
+	}
+	
+	\reset( $data );
+	$loaded[$key]	= $data;
+	return $data;
+}
+
+/**
  *  Load file into array, optionally return the first n lines
  *  
  *  @param string	$name	File name to load from storage 
  *  @param int		$lines	Return only the first lines if not zero
  *  @param bool		$filter	Filters lines that start with ; or #
+ *  @param bool		$skip	Skip empty lines when loading
  */
 function loadArray( 
 	string		$name,
 	int		$lines	= 0,
-	bool		$filter	= true
+	bool		$filter	= true,
+	bool		$skip	= true
 ) {
 	static $loaded	= [];
+	$key		= $name . ( string ) $filter;
 	
-	if ( isset( $loaded[$name] ) ) {
-		if ( $lines > 0 ) {
-			return \array_slice( $loaded[$name], 0, $lines );
-		} 
-		return $loaded[$name];
+	// Prefiltered ?
+	if ( isset( $loaded[$key] ) ) {
+		return ( $lines > 0 ) ? 
+			\array_slice( $loaded[$key], 0, $lines ) : 
+			$loaded[$key];
 	}
 	
-	$data	= \file( 
-			\CACHE . $name, 
-			\FILE_IGNORE_NEW_LINES | \FILE_SKIP_EMPTY_LINES 
-		);
-	
-	if ( false === $data ) {
+	$data	= loadText( $name, $skip, true );
+	if ( empty( $data ) ) {
 		return [];
 	}
 	
@@ -1275,13 +1367,10 @@ function loadArray(
 		} );
 	}
 	
-	$loaded[$name] = $data;
+	$loaded[$key] = $data;
 	
 	// Specific number of lines?
-	if ( $lines > 0 ) {
-		return \array_slice( $loaded[$name], 0, $lines );
-	}
-	return $loaded[$name];
+	return ( $lines > 0 ) ? \array_slice( $data, 0, $lines ) : $data;
 }
 
 /**
@@ -1601,39 +1690,6 @@ function genAlphaNum( int $size = 18 ) : string {
 	$code	= \preg_replace( '/[^[:alnum:]]/u', '', $code );
 	
 	return truncate( $code, 0, intRange( $size, 1, 24 ) );
-}
-
-/**
- *  Split a block of text into an array of lines
- *  
- *  @param string	$text	Raw text to split into lines
- *  @param int		$lim	Max line limit, defaults to unlimited
- *  @param bool		$tr	Also trim lines if true
- *  @return array
- */
-function lines( string $text, int $lim = -1, bool $tr = true ) : array {
-	return $tr ?
-	\preg_split( 
-		'/\s*\R\s*/', 
-		trim( $text ), 
-		$lim, 
-		\PREG_SPLIT_NO_EMPTY 
-	) : 
-	\preg_split( '/\R/', $text, $lim, \PREG_SPLIT_NO_EMPTY );
-}
-
-/**
- *  Helper to turn items (one per line) into a unique value array
- *  
- *  @param string	$text	Lined settings (one per line)
- *  @param int		$lim	Maximum number of items
- *  @return array
- */
-function lineSettings( string $text, int $lim ) : array {
-	$ln = \array_unique( lines( $text ) );
-	
-	return ( count( $ln ) > $lim ) ? 
-		\array_slice( $ln, 0, $lim ) : $ln;
 }
 
 
@@ -4636,61 +4692,6 @@ function filterDir( $path ) {
 }
 
 /**
- *  Get post content as an array of lines
- *  
- *  @param mixed	$raw	Post content or file path
- *  @param bool		$fl	Content is in a file
- */
-function postData( $raw, bool $fl = true ) {
-	static $loaded	= [];
-	$key		= $raw . ( string ) $fl;
-	
-	if ( isset( $loaded[$key] ) ) {
-		return $loaded[$key];
-	}
-	
-	// Get content from files
-	if ( $fl ) {
-		if ( \file_exists( $raw ) ) {
-			$data	= \file( $raw, \FILE_IGNORE_NEW_LINES );
-			if ( false === $data ) {
-				return [];
-			}
-		} else {
-			return [];
-		}
-	
-	// Or break content into lines
-	} else {
-		$data	= explode( "\n", $raw );
-	}
-	
-	if ( empty( $data ) ) {
-		return [];
-	}
-	
-	// Remove empty lines from beginning of post 
-	// (titles etc...)
-	while( "" === trim( \current( $data ) ) ) {
-		\array_shift( $data );
-	}
-	
-	if ( empty( $data ) ) {
-		return [];
-	}
-	
-	// Empty lines from end of post 
-	// (tags etc...)
-	while( "" === trim( \end( $data ) ) ) {
-		\array_pop( $data );
-	}
-	
-	\reset( $data );
-	$loaded[$key]	= $data;
-	return $data;
-}
-
-/**
  *  Reset currently stored post in cache
  */
 function refreshPost(
@@ -4782,7 +4783,7 @@ function loadPost(
 	$type	= '';
 	$rtime	= 0;
 	$ppath	= POSTS . \ltrim( $path, '/' ) . '.md';
-	$data	= postData( $ppath );
+	$data	= loadText( $ppath );
 	
 	if ( empty( $data ) ) {
 		return '';
@@ -5187,7 +5188,7 @@ function loadPosts(
 		$pub		= getPub( $path );
 		// We're below offset
 		if ( $i >= $start && checkPub( $pub ) ) {
-			$data		= postData( $raw );
+			$data		= loadText( $raw );
 			if ( empty( $data ) || false === $data ) {
 				continue;
 			}
@@ -5349,7 +5350,7 @@ function loadIndex( int $start = 0, int $limit = 0 ) : array {
 				continue;
 			}
 			
-			$post		= postData( $raw );
+			$post		= loadText( $raw );
 			if ( empty( $post ) || false == $post ) {
 				continue;
 			}
@@ -6114,7 +6115,7 @@ function previewLink(
 	bool		$nr	= false 
 ) {
 	$ppath	= POSTS . $path. '.md';
-	$data	= postData( $ppath );
+	$data	= loadText( $ppath );
 	if ( empty( $data ) ) {
 		return '';
 	}
