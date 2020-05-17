@@ -5224,6 +5224,11 @@ function loadPosts(
 			continue;
 		}
 		
+		// Skip about page(s)
+		if ( false !== strpos( $raw, '/about/' ) ) {
+			continue;
+		}
+		
 		$pub		= getPub( $path );
 		// We're below offset
 		if ( $i >= $start && checkPub( $pub ) ) {
