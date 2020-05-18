@@ -4532,13 +4532,12 @@ function sendRoute( $event, $path, $verb, $params ) {
  */
 function eventRoutePrefix(
 	string	$event,
-	string	$default,
-	bool	$first		= true
+	string	$default
 ) : string {
 	// First instance of route path by event name
 	$frag	= getRoutePath( $event, $default );
 	
-	return \trim( ( $first ? \dirname( $frag ) : $frag ), '\\/' );
+	return \trim( $frag , '\\/' );
 }
 
 /**
