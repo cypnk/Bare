@@ -80,11 +80,19 @@ a {
 	color: #2c3e50;
 }
 
-time, .readtime {
+time, header .readtime {
 	text-transform: uppercase;
 	font-size: .9rem;
 	letter-spacing: .07rem;
 	color: #607d8b;
+}
+
+header .readtime:before {
+	content: ' | ';
+}
+
+.readtime:after {
+	content: ' min read';
 }
 
 footer {
@@ -215,8 +223,12 @@ nav.related ul li {
 }
 
 nav.tags {
-	text-align: right;
 	line-height: 1;
+	font-size: 90%;
+}
+
+article nav.tags {
+	text-align: right;
 }
 
 nav ul {
@@ -246,9 +258,17 @@ ul.index li + li {
 	margin-top: 1rem;
 }
 
-ul.index li time {
+ul.index li time, ul.index li .readtime {
 	display: block;
 }
+
+ul.index li .readtime {
+	font-size: 90%;
+}
+
+ul.index li nav.tags ul, ul.index li nav.tags ul li {
+	margin: 0;
+} 
 
 nav.main ul {
 	display: inline-block;
