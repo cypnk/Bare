@@ -4523,6 +4523,25 @@ function sendRoute( $event, $path, $verb, $params ) {
 }
 
 /**
+ *  Find the first matching route path associated the given event name
+ *  
+ *  @param string	$event		Event to which the route is attached
+ *  @param string	$default	Default route if no event is attached
+ *  @param string	$first		Only first matching path or entire path
+ *  @return string
+ */
+function eventRoutePrefix(
+	string	$event,
+	string	$default,
+	bool	$first		= true
+) : string {
+	// First instance of route path by event name
+	$frag	= getRoutePath( $event, $default );
+	
+	return \trim( ( $first ? \dirname( $frag ) : $frag ), '\\/' );
+}
+
+/**
  *  Find the path from given hook event handler name
  *  
  *  @param string	$event		Hook event name
@@ -4541,14 +4560,13 @@ function getRoutePath(
 		return;
 	}
 	
-	$prefix	= website() . config( 'page_link', \PAGE_LINK );
 	foreach ( $loaded as $map ) {
 		if ( 0 == \strcasecmp( $map[2], $event ) ) {
-			return $prefix . $map[1];
+			return $map[1];
 		}
 	}
 	
-	return $prefix . $fallback;
+	return $fallback;
 }
 
 /**
@@ -5209,6 +5227,9 @@ function loadPosts(
 		'template'	=> $tpl
 	] ] );
 	
+	// Find the about view path to skip
+	$about	= '/' . eventRoutePrefix( 'aboutview', 'about' ) .'/';
+	
 	foreach( $it as $file ) {
 		
 		// Check if it's a post
@@ -5227,7 +5248,7 @@ function loadPosts(
 		}
 		
 		// Skip about page(s)
-		if ( false !== strpos( $raw, '/about/' ) ) {
+		if ( false !== strpos( $raw, $about ) ) {
 			continue;
 		}
 		
@@ -5368,6 +5389,9 @@ function loadIndex( int $start = 0, int $limit = 0 ) : array {
 	$fline		= config( 'feature_lines', \FEATURE_LINES, 'int' );
 	$tpl		= \TPL_POST ?? '';
 	
+	// Find the about view path to skip
+	$about	= '/' . eventRoutePrefix( 'aboutview', 'about' ) .'/';
+	
 	foreach( $it as $file ) {
 		$raw	= $file->getRealPath();
 		$path	= filterDir( $raw );
@@ -5376,7 +5400,7 @@ function loadIndex( int $start = 0, int $limit = 0 ) : array {
 		}
 		
 		// Skip about page(s)
-		if ( false !== strpos( $raw, '/about/' ) ) {
+		if ( false !== strpos( $raw, $about ) ) {
 			continue;
 		}
 		
@@ -7177,6 +7201,7 @@ function addBlogRoutes( string $event, array $hook, array $params ) {
 	
 	/**
 	 *  About pages
+	 *  Remember to rename your about directory in POSTS if these are changed
 	 */
 	[ 'get', 'about',				'aboutview' ],
 	[ 'get', 'about/:slug',				'aboutview' ],
