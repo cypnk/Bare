@@ -63,6 +63,9 @@ define( 'PAGE_LINK',	'/' );
 // Number of posts per page
 define( 'PAGE_LIMIT',	12 );
 
+// Whitelist of allowed server host names
+define( 'SERVER_WHITE',		'kpz62k4pnyh5g5t2efecabkywt2aiwcnqylthqyywilqgxeiipen5xid.onion' );
+
 // Number of posts on archive index page
 define( 'INDEX_LIMIT',	60 );
 
@@ -77,6 +80,14 @@ define( 'YEAR_START',	2015 );
 
 // Ending date for post archive
 define( 'YEAR_END',	2099 );
+
+// Default language
+define( 'LANGUAGE',	'en-US' );
+
+// Default local timezone when not set in config.json
+define( 'TIMEZONE',		'America/New_York' );
+// For a list of valid values for this, see:
+// https://www.php.net/manual/en/timezones.php
 
 // Allow POST method 
 // Should be 0 (meaning false) unless if you have a special need
@@ -115,14 +126,6 @@ define( 'SHOW_MODIFIED',	0 );
 // Lines from the bottom of each post to search for features I.E. Summary and tags
 define( 'FEATURE_LINES',	5 );
 
-// Default language
-define( 'LANGUAGE',	'en-US' );
-
-// Default local timezone when not set in config.json
-define( 'TIMEZONE',		'America/New_York' );
-// For a list of valid values for this, see:
-// https://www.php.net/manual/en/timezones.php
-
 // Default post content type
 define( 'POST_TYPE',		'blogpost' );
 
@@ -136,11 +139,51 @@ define( 'MAX_LOG_SIZE',		5000000 );
 // Maximum number of words allowed for searching posts
 define( 'MAX_SEARCH_WORDS',	10 );
 
-// Whitelist of allowed server host names
-define( 'SERVER_WHITE',		'kpz62k4pnyh5g5t2efecabkywt2aiwcnqylthqyywilqgxeiipen5xid.onion' );
-
 // Application name
 define( 'APP_NAME',		'Bare' );
+
+
+
+/**
+ *  Navigation links
+ */
+
+// Main navigation links shown in headers
+define( 'DEFAULT_MAIN_LINKS',		<<<JSON
+{
+	"links" : [
+		{ "{url}" : "{home}about", "{text}" : "{lang:nav:about}" },
+		{ "{url}" : "{home}archive", "{text}" : "{lang:nav:archive}" },
+		{ "{url}" : "{home}feed", "{text}" : "{lang:nav:feed}" }
+	]
+}
+JSON
+);
+
+// Navigation shown in /about page headers
+define( 'DEFAULT_ABOUT_LINKS',		<<<JSON
+{
+	"links" : [
+		{ "{url}" : "{home}archive", "{text}" : "{lang:nav:archive}" },
+		{ "{url}" : "{home}feed", "{text}" : "{lang:nav:feed}" }
+	]
+}
+JSON
+);
+
+// Footer links in all pages
+define( 'DEFAULT_FOOTER_LINKS',		<<<JSON
+{
+	"links" : [
+		{ "{url}" : "{home}about", "{text}" : "{lang:nav:about}" },
+		{ "{url}" : "{home}archive", "{text}" : "{lang:nav:archive}" },
+		{ "{url}" : "{home}feed", "{text}" : "{lang:nav:feed}" }
+	]
+}
+JSON
+);
+
+
 
 
 // General page template
@@ -160,12 +203,7 @@ define( 'TPL_PAGE',		<<<HTML
 <div class="content">
 	<h1><a href="{home}">{page_title}</a></h1>
 	<p>{tagline}</p>
-	<nav class="main">
-	<ul>
-		<li><a href="/archive">Archive</a></li>
-		<li><a href="/feed">Feed</a></li>
-	</ul>
-	</nav>
+	{main_links}
 	{search_form}
 </div>
 </header>
@@ -212,12 +250,7 @@ define( 'TPL_ABOUT',		<<<HTML
 <div class="content">
 	<h1><a href="{home}">{page_title}</a></h1>
 	<p>{tagline}</p>
-	<nav class="main">
-	<ul>
-		<li><a href="/archive">Archive</a></li>
-		<li><a href="/feed">Feed</a></li>
-	</ul>
-	</nav>
+	{about_links}
 	{search_form}
 </div>
 </header>
@@ -237,6 +270,7 @@ HTML
 
 
 
+
 // Form anti-XSRF hidden inputs (required on all forms)
 define( 'TPL_INPUT_XSRF',	<<<HTML
 <input type="hidden" name="nonce" value="{nonce}">
@@ -248,8 +282,8 @@ HTML
 define( 'TPL_SEARCHFORM',	<<<HTML
 <form action="{home}" method="get">
 {xsrf}
-<input type="search" name="find" required> 
-	<input type="submit" value="Search">
+<input type="search" name="find" placeholder="{lang:forms:search:placeholder}" required> 
+	<input type="submit" value="{lang:forms:search:button}">
 </form>
 HTML
 );
@@ -262,7 +296,7 @@ define( 'TPL_ERROR_PAGE',	<<<HTML
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Error {code} - {page_title}</title>
+<title>{lang:errors:error} {code} - {page_title}</title>
 <link rel="stylesheet" href="{home}style.css">
 </head>
 <body>
@@ -275,7 +309,7 @@ define( 'TPL_ERROR_PAGE',	<<<HTML
 <main>
 <div class="content">
 {body}
-<p><a href="{home}">Return home</a></p>
+<p>{lang:errors:returnhome}</p>
 </div>
 </main>
 </body>
@@ -285,7 +319,7 @@ HTML
 
 define( 'TPL_NOPOSTS',		<<<HTML
 <div class="content">
-	<p>No more posts. Return <a href="{home}">home</a>.</p>
+	<p>{lang:errors:noposts}</p>
 </div>
 HTML
 );
@@ -308,14 +342,25 @@ HTML
 );
 
 define( 'TPL_READ_TIME', <<<HTML
-<span class="readtime">{time}</span>
+<span class="readtime">{lang:headings:readtime}</span>
 HTML
 );
 
 define( 'TPL_TAGWRAP', <<<HTML
-<nav class="tags">Tags: <ul class="tags">{tags}</ul></nav>
+<nav class="tags">{lang:headings:tags} <ul class="tags">{tags}</ul></nav>
 HTML
 );
+
+define( 'TPL_MAINNAV_WRAP', <<<HTML
+<nav class="main"><ul>{links}</ul></nav>
+HTML
+);
+
+define( 'TPL_FOOTERNAV_WRAP', <<<HTML
+<nav><ul>{links}</ul></nav>
+HTML
+);
+
 
 define( 'TPL_LINK',		<<<HTML
 	<li><a href="{url}">{text}</a></li>
@@ -323,6 +368,11 @@ HTML
 );
 
 define( 'TPL_TAGLINK',		<<<HTML
+	<li><a href="{url}">{text}</a></li>
+HTML
+);
+
+define( 'TPL_PAGE_NAV_LINK',	<<<HTML
 	<li><a href="{url}">{text}</a></li>
 HTML
 );
@@ -348,7 +398,7 @@ HTML
 );
 
 define( 'TPL_RELATEDNAV',	<<<HTML
-	<h3>Related</h3>
+	<h3>{lang:headings:related}</h3>
 	<nav class="related"><ul>{text}</ul></nav>
 HTML
 );
@@ -367,9 +417,11 @@ define( 'TPL_INDEX',		<<<HTML
 HTML
 );
 
-define( 'TPL_PREVIOUS',		'Previous' );
-define( 'TPL_NEXT',		'Next' );
-define( 'TPL_HOME',		'Home' );
+// Language placeholders
+define( 'TPL_PREVIOUS',		'{lang:nav:previous}' );
+define( 'TPL_NEXT',		'{lang:nav:next}' );
+define( 'TPL_HOME',		'{lang:nav:home}' );
+
 
 // Feed index template
 define( 'TPL_FEED',		<<<XML
@@ -392,6 +444,54 @@ define( 'TPL_ITEM',		<<<XML
 	<content type="html"><![CDATA[{body}]]></content>
 </entry>
 XML
+);
+
+
+
+/**
+ *  Default language placholders 
+ *  These can be overridden by a language file in the CACHE directory
+ *  E.G. en-US.json (using the default language of en-US)
+ */
+define( 'DEFAULT_LANGUAGE',	<<<JSON
+{
+	"date_nice"	: "l, F j, Y",
+	"headings"	: {
+		"related"	: "Related", 
+		"tags"		: "Tags:",
+		"readtime"	: "{time} min read"
+	}, 
+	"forms"		: {
+		"search"	: {
+			"placeholder"	: "Find posts by title or body",
+			"button"	: "Search"
+		}
+	},
+	"nav"		: {
+		"previous"	: "Previous",
+		"next"		: "Next",
+		"home"		: "Home",
+		"about"		: "About",
+		"archive"	: "Archive",
+		"feed"		: "Feed"
+	}, 
+	"errors"	: {
+		"error"		: "Error",
+		"generic"	: "An error has occured",
+		"returnhome"	: "<a href=\"{home}\">Return home<\/a>",
+		"noposts"	: "No more posts. Return <a href=\"{home}\">home<\/a>.",
+		"notfound"	: "Page not found",
+		"noroute"	: "No route defined",
+		"badmethod"	: "Method not allowed",
+		"nomethod"	: "Method not implemented",
+		"denied"	: "Access denied",
+		"invalid"	: "Invalid request",
+		"codedetect"	: "Server-side code detected",
+		"expired"	: "This form has expired",
+		"toomany"	: "Too many requests"
+	}
+}
+JSON
 );
 
 
@@ -902,6 +1002,40 @@ function hook( array $params ) {
 		}
 	}
 }
+
+/**
+ *  Flatten a multi-dimensional array into a path map
+ *  
+ *  @link https://stackoverflow.com/a/2703121
+ *  
+ *  @param array	$items		Raw item map (parsed JSON)
+ *  @param string	$delim		Phrase separator in E.G. {lang:}
+ *  @return array
+ */ 
+function flatten(
+	array		$items, 
+	string		$delim	= ':'
+) : array {
+	$it	= new \RecursiveIteratorIterator( 
+			new \RecursiveArrayIterator( $items )
+		);
+	
+	$out	= [];
+	foreach ( $it as $leaf ) {
+		$path = '';
+		foreach ( \range( 0, $it->getDepth() ) as $depth ) {
+			$path .= 
+			\sprintf( 
+				"$delim%s", 
+				$it->getSubIterator( $depth )->key() 
+			);
+		}
+		$out[$path] = $leaf;
+	}
+	
+	return $out;
+}
+
 
 
 /**
@@ -1596,6 +1730,127 @@ function hashAlgo(
 	return $algos[$t];	
 }
 
+
+
+/**
+ *  Language translation
+ */
+
+/**
+ *  Load and process language file
+ *  
+ *  @return array
+ */
+function language() {
+	static $data;
+	
+	if ( isset( $data ) ) {
+		return $data;
+	}
+	
+	$terms	= decode( \DEFAULT_LANGUAGE );
+	$lang	= config( 'language', \LANGUAGE );
+	$file	= loadFile( $lang . '.json' );
+	if ( !empty( $file ) ) {
+		$terms	= 
+		\array_merge_recursive( $terms,  decode( $file ) );
+	}
+	
+	$data	= empty( $terms ) ? [] : $terms;
+	// Trigger language load hook
+	hook( [ 'loadlanguage', [ 
+		'lang'	=> \LANGUAGE, 
+		'zone'	=> \TIMEZONE,
+		'terms' => $data
+	] ] );
+	
+	return $data;
+}
+
+/**
+ *  Get language specific terms
+ *  
+ *  @param string	$name		Language substitution label
+ *  @param string	$default	Default value if not given
+ *  @return string
+ */
+function langVar( string $name, string $default ) {
+	$data = language();
+	return $data[$name] ?? $default;
+}
+
+/**
+ *  Get translation file error message with fallback
+ *  
+ *  @param string	$name		Language substitution label
+ *  @param string	$default	Fallback value if not available
+ *  @return string
+ */
+function errorLang( string $name, string $default ) {
+	$data = language();
+	return $data['errors'][$name] ?? $default;
+}
+
+/**
+ *  Term replacement helper
+ *  Flattens multidimensional array into {$prefix:group:label...} format
+ *  and replaces matching placeholders in content
+ *  
+ *  @param string	$prefix		Replacement prefix E.G. 'lang'
+ *  @param array	$data		Multidimensional array
+ *  @param string	$content	Placeholders to replace
+ *  @return string
+ */ 
+function prefixReplace(
+	string		$prefix, 
+	array		$data, 
+	string		$content
+) : string {
+	// Find placeholders with given prefix
+	\preg_match_all( 
+		'/\{' . $prefix . '(\:[\:a-z_]{1,100}+)\}/i', 
+		$content, $m 
+	);
+	// Convert data to :group:label... format
+	$terms	= flatten( $data );
+	
+	// Replacements list
+	$rpl	= [];
+	
+	$c	= \count( $m );
+	
+	// Set {prefix:group:label... } replacements or empty string
+	for( $i = 0; $i < $c; $i++ ) {
+		if ( !isset( $m[1] ) ) {
+			continue;
+		}
+		$rpl['{' . $prefix . $m[1][$i] . '}']	= 
+			$terms[$m[1][$i]] ?? '';
+	}
+	
+	return \strtr( $content, $rpl );
+}
+
+/**
+ *  Scan template for language placeholders
+ *  
+ *  @param string	$tpl	Loaded template data
+ *  @return string
+ */
+function parseLang( string $tpl ) : string {
+	$tpl		= prefixReplace( 'lang', language(), $tpl );
+	
+	// Change variable placeholders
+	return \preg_replace( '/\s*__(\w+)__\s*/', ' {\1} ', $tpl );
+}
+
+
+
+
+/**
+ *  Template helpers
+ */
+
 /**
  *  Hompage link with website and relative path root
  */
@@ -1686,8 +1941,57 @@ function paginate( int $page, string $prefix, array $posts ) : string {
 		] ); 
 	}
 	
-	return \strtr( \TPL_NAV ?? '', [ '{text}' => $out ] );
+	$out	= \strtr( \TPL_NAV ?? '', [ '{text}' => $out ] );
+	return parseLang( $out );
 }
+
+/**
+ *  Navigation link formatter
+ *  
+ *  @param string	$wrap		Link wrapper template
+ *  @param string	$def		Link JSON definition
+ */
+function renderNavLinks(
+	string		$wrap,
+	string		$def
+) {
+	$links	= decode( $def );
+	
+	$out	= '';
+	foreach ( $links['links'] ?? [] as $k => $v ) {
+		$out	.= 
+		parseLang( \strtr( \TPL_PAGE_NAV_LINK, $v ) );
+	}
+	
+	// Replace any home link references
+	$out	= \strtr( $out, [ '{home}' => homeLink() ] );
+	
+	// Return language replaced
+	return 
+	parseLang( \strtr( $wrap, [ '{links}' => $out ] ) );
+}
+
+/**
+ *  Footer template rendering helper
+ */
+function pageFooter() : string {
+	// Footer with home link set
+	return 
+	\strtr( TPL_FOOTER ?? '', [ 
+		'{footer_links}'=> 
+			renderNavLinks( 
+				\TPL_FOOTERNAV_WRAP, 
+				\DEFAULT_FOOTER_LINKS 
+			),
+		'{home}'	=> homeLink() 
+	] );
+}
+
+
+
+/**
+ *  Generators
+ */
 
 /**
  *  Generate a random string ID based on given random bytes
@@ -2533,7 +2837,7 @@ function sessionThrottle() {
 	// Sender should not be served for the duration of this session
 	if ( isset( $_SESSION['kill'] ) ) {
 		visitorError( 403, 'Denied' );
-		sendError( 403, \MSG_DENIED );
+		sendError( 403, errorLang( "denied", \MSG_DENIED ) );
 	}
 	
 	$check		= lastVisit();
@@ -2545,7 +2849,7 @@ function sessionThrottle() {
 			visitorError( 429, 'Requests' );
 			shutdown( 'cleanup' );
 			shutdown( 'sleep', 20 );
-			sendError( 429, \MSG_TOOMANY );
+			sendError( 429, errorLang( "toomany", \MSG_TOOMANY ) );
 			
 		// Send Not Modified for the rest
 		case SESSION_STATE_MEDIUM:
@@ -2620,7 +2924,8 @@ function truncate( string $text, int $start, int $size ) {
  *  Friendly datetime stamp
  */
 function dateNice( $stamp = null ) : string {
-	$dn	= config( 'date_nice', \DATE_NICE );
+	$dn	= 
+	langVar( 'date_nice', config( 'date_nice', \DATE_NICE ) );
 	return \gmdate( $dn, tstring( $stamp ) );
 }
 
@@ -3965,9 +4270,10 @@ function sendError( int $code, $body ) {
 		'{home}'	=> homeLink(),
 		'{code}'	=> $code,
 		'{body}'	=> $body 
-	];
-	
-	$page_t	= \strtr( \TPL_ERROR_PAGE ?? '', $params );
+	]; 
+	$page_t	= \strtr( 
+		parseLang( \TPL_ERROR_PAGE ?? '' ), $params 
+	);
 	shutdown( 'cleanup' );
 	send( $code, $page_t );
 }
@@ -4355,7 +4661,7 @@ function checkMethodRoutes( string $verb, array $routes ) {
 	// No method implemented for this route
 	if ( !$mfound ) {
 		logError( \MSG_NOMETHOD . ' ' . $verb );
-		sendError( 501, \MSG_NOMETHOD );
+		sendError( 501, errorLang( "nomethod", \MSG_NOMETHOD ) );
 	}
 }
 
@@ -4419,7 +4725,7 @@ function request( string $event, array $hook, array $params ) : array {
 	// Empty host?
 	if ( empty( getHost() ) ) {
 		visitorError( 400, 'Host' );
-		sendError( 400, \MSG_INVALID );
+		sendError( 400, errorLang( "invalid", \MSG_INVALID ) );
 	}
 	
 	// Sanity checks
@@ -4431,7 +4737,7 @@ function request( string $event, array $hook, array $params ) : array {
 	if ( !\in_array( $verb, $safe ) ) {
 		// Send method not allowed
 		visitorError( 405, 'Method' );
-		sendError( 405, \MSG_BADMETHOD );
+		sendError( 405, errorLang( "badmethod", \MSG_BADMETHOD ) );
 	}
 	
 	// Request path hard limit
@@ -4447,7 +4753,7 @@ function request( string $event, array $hook, array $params ) : array {
 		false !== \strpos( $path, '<' )	
 	) {
 		visitorError( 400, 'Path' );
-		sendError( 400, \MSG_INVALID );
+		sendError( 400, errorLang( "invalid", \MSG_INVALID ) );
 	}
 	
 	// Possible XSS, directory traversal, or file upload detected
@@ -4457,7 +4763,7 @@ function request( string $event, array $hook, array $params ) : array {
 		!empty( $_FILES )
 	) {
 		visitorError( 403, 'Denied' );
-		sendError( 403, \MSG_DENIED );
+		sendError( 403, errorLang( "denied", \MSG_DENIED ) );
 	}
 	
 	// Get routes from route init
@@ -4527,7 +4833,6 @@ function sendRoute( $event, $path, $verb, $params ) {
  *  
  *  @param string	$event		Event to which the route is attached
  *  @param string	$default	Default route if no event is attached
- *  @param string	$first		Only first matching path or entire path
  *  @return string
  */
 function eventRoutePrefix(
@@ -4691,7 +4996,7 @@ function route( string $event, array $hook, array $params ) {
 	if ( empty( $match ) ) {
 		// Nothing else sent
 		visitorError( 404, 'NotFound' );
-		sendError( 404, MSG_NOTFOUND );
+		sendError( 404, errorLang( "notfound", MSG_NOTFOUND ) );
 	}
 	
 	sendRoute( $match[0], $path, $verb, $match[1] );
@@ -5525,7 +5830,8 @@ function formatTags( array $tags ) : string {
 			] 
 		);
 	}
-	return \strtr( \TPL_TAGWRAP, [ '{tags}' => $out ] );
+	$out	= \strtr( \TPL_TAGWRAP, [ '{tags}' => $out ] );
+	return parseLang( $out );
 }
 
 /**
@@ -5569,7 +5875,9 @@ function formatMeta( $title, $type, $pub, $path, $rtime, $tags = [] ) : array {
 	
 	// Format read time, if appropriate
 	$read	= hasReadTime( $type ) ? 
-		\strtr( \TPL_READ_TIME, [ '{time}' => $rtime ] ) : '';
+		\strtr( parseLang( \TPL_READ_TIME ), [ 
+			'{time}' => $rtime 
+		] ) : '';
 	
 	return [
 		'{title}'	=> $title,
@@ -5742,7 +6050,6 @@ function filterRequest( string $event, array $hook, array $params ) {
 	\array_merge( $hook, \filter_var_array( $params, $filter ) );
 }
 
-
 /**
  *  Format index views for archives and tags
  *  
@@ -5786,12 +6093,11 @@ function formatIndex(
 		// Search form
 		'{search_form}'	=> searchForm(),
 		
-		// Footer with home link set
-		'{footer}'	=> 
-		\strtr( 
-			TPL_FOOTER ?? '', 
-			[ '{home}'	=> homeLink() ] 
-		)
+		// Navigation links
+		'{main_links}'	=> 
+		renderNavLinks( \TPL_MAINNAV_WRAP, \DEFAULT_MAIN_LINKS ),
+		
+		'{footer}'	=> pageFooter()
 	];
 	
 	if ( empty( $posts ) ) {
@@ -5811,7 +6117,7 @@ function formatIndex(
 	
 	// Send results
 	shutdown( 'cleanup' );
-	send( 200, \strtr( TPL_PAGE ?? '', $tpl ), $cache );
+	send( 200, parseLang( \strtr( TPL_PAGE ?? '', $tpl ) ), $cache );
 }
 
 
@@ -6140,7 +6446,7 @@ function searchForm() : string {
 	] );
 	
 	return 
-	\strtr( \TPL_SEARCHFORM ?? '', [
+	\strtr( parseLang( \TPL_SEARCHFORM ?? '' ), [
 		'{xsrf}'	=> $xsrf,
 		'{home}'	=> homeLink()
 	] );
@@ -6299,7 +6605,8 @@ function getSiblings( string $path ) : string {
 		);
 	}
 	
-	return \strtr( \TPL_SIBLINGNAV ?? '', [ '{text}' => $out ] );
+	$out = \strtr( \TPL_SIBLINGNAV ?? '', [ '{text}' => $out ] );
+	return parseLang( $out );
 }
 
 /**
@@ -6455,8 +6762,10 @@ function getRelated( string $path ) : string {
 		previewLink( \trim( $p['post_path'] ) );
 	}
 	
-	return 
+	$out	= 
 	\strtr( \TPL_RELATEDNAV, [ '{text}' => \implode( '', $out ) ] );
+	return parseLang( $out );
+	
 }
 
 /**
@@ -6573,7 +6882,7 @@ function showTag( string $event, array $hook, array $params ) {
 	// Tag empty?
 	if ( empty( $params['tag'] ) ) {
 		visitorError( 404, 'NotFound' );
-		sendError( 404, \MSG_NOTFOUND );
+		sendError( 404, errorLang( "notfound", \MSG_NOTFOUND ) );
 	}
 	
 	$tag	= slugify( $params['tag'] );
@@ -6635,17 +6944,17 @@ function showSearch( string $event, array $hook, array $params ) {
 		case FORM_STATUS_INVALID:
 		case FORM_STATUS_EXPIRED:
 			visitorError( 403, 'Expired' );
-			sendError( 403, \MSG_EXPIRED );
+			sendError( 403, errorLang( "expired", \MSG_EXPIRED ) );
 		
 		case FORM_STATUS_FLOOD:
 			visitorError( 429, 'Flood' );
-			sendError( 429, \MSG_TOOMANY );
+			sendError( 429, errorLang( "toomany", \MSG_TOOMANY ) );
 	}
 	
 	$find	= searchData( $params['find'] ?? '' );
 	if ( empty( $find ) ) {
 		visitorError( 404, 'NotFound' );
-		sendError( 404, \MSG_NOTFOUND );
+		sendError( 404, errorLang( "notfound", \MSG_NOTFOUND ) );
 	}
 	
 	$prefix = searchPagePath( $params );
@@ -6709,7 +7018,7 @@ function showFeed( string $event, array $hook, array $params ) {
 	$posts	= loadPosts( 1, '', true, $slvl );
 	if ( empty( $posts ) ) {
 		visitorError( 404, 'NotFound' );
-		sendError( 404, \MSG_NOTFOUND );
+		sendError( 404, errorLang( "notfound", \MSG_NOTFOUND ) );
 	}
 	
 	$ptitle	= config( 'page_title', \PAGE_TITLE );
@@ -6756,14 +7065,14 @@ function showPost( string $event, array $hook, array $params ) {
 	$pub		= getPub( $path );
 	if ( !checkPub( $pub ) ) {
 		visitorError( 404, 'NotFound' );
-		sendError( 404, \MSG_NOTFOUND );
+		sendError( 404, errorLang( "notfound", \MSG_NOTFOUND ) );
 	}
 	
 	$post	= loadPost( $title, $path );
 	
 	if ( empty( $post ) ) {
 		visitorError( 404, 'NotFound' );
-		sendError( 404, \MSG_NOTFOUND );
+		sendError( 404, errorLang( "notfound", \MSG_NOTFOUND ) );
 	}
 	
 	// Related and sibling post settings
@@ -6801,12 +7110,14 @@ function showPost( string $event, array $hook, array $params ) {
 		// Search form
 		'{search_form}'	=> searchForm(),
 		
-		// Footer with home link set
-		'{footer}'	=> 
-		\strtr( 
-			TPL_FOOTER ?? '', 
-			[ '{home}'	=> homeLink() ] 
-		)
+		// Navigation links
+		'{main_links}'	=> 
+		renderNavLinks( \TPL_MAINNAV_WRAP, \DEFAULT_MAIN_LINKS ),
+		
+		'{footer_links}'=> 
+		renderNavLinks( \TPL_FOOTERNAV_WRAP, \DEFAULT_FOOTER_LINKS ),
+		
+		'{footer}'	=> pageFooter()
 	];
 	
 	shutdown( 'cleanup' );
@@ -6824,7 +7135,7 @@ function showAbout( string $event, array $hook, array $params ) {
 	// No about found
 	if ( empty( $post ) ) {
 		visitorError( 404, 'NotFound' );
-		sendError( 404, \MSG_NOTFOUND );
+		sendError( 404, errorLang( "notfound", \MSG_NOTFOUND ) );
 	}
 	
 	$ptitle	= config( 'page_title', \PAGE_TITLE );
@@ -6856,12 +7167,14 @@ function showAbout( string $event, array $hook, array $params ) {
 		// Search form
 		'{search_form}'	=> searchForm(),
 		
-		// Footer with home link set
-		'{footer}'	=> 
-		\strtr( 
-			TPL_FOOTER ?? '', 
-			[ '{home}'	=> homeLink() ] 
-		)
+		// Navigation links
+		'{main_links}'	=> 
+		renderNavLinks( \TPL_MAINNAV_WRAP, \DEFAULT_MAIN_LINKS ),
+		
+		'{footer_links}'=> 
+		renderNavLinks( \TPL_FOOTERNAV_WRAP, \DEFAULT_FOOTER_LINKS ),
+		
+		'{footer}'	=> pageFooter()
 	];
 	
 	shutdown( 'cleanup' );
@@ -6883,7 +7196,7 @@ function runIndex( string $event, array $hook, array $params ) {
 	if ( empty( $posts ) ) {
 		// No more posts
 		visitorError( 404, 'NotFound' );
-		sendError( 404, \MSG_NOTFOUND );
+		sendError( 404, errorLang( "notfound", \MSG_NOTFOUND ) );
 	}
 	
 	$ptitle	= config( 'page_title', \PAGE_TITLE );
@@ -6924,14 +7237,17 @@ function runIndex( string $event, array $hook, array $params ) {
 			'' : paginate( $page, $prefix, $plist ),
 		'{home}'	=> homeLink(),
 		
+		// Search form
 		'{search_form}'	=> searchForm(),
 		
-		// Footer with home link set
-		'{footer}'	=> 
-		\strtr( 
-			TPL_FOOTER ?? '', 
-			[ '{home}'	=> homeLink() ] 
-		)
+		// Navigation links
+		'{main_links}'	=> 
+		renderNavLinks( \TPL_MAINNAV_WRAP, \DEFAULT_MAIN_LINKS ),
+		
+		'{footer_links}'=> 
+		renderNavLinks( \TPL_FOOTERNAV_WRAP, \DEFAULT_FOOTER_LINKS ),
+		
+		'{footer}'	=> pageFooter()
 	];
 	
 	shutdown( 'cleanup' );
