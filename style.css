@@ -91,10 +91,6 @@ header .readtime:before {
 	content: ' | ';
 }
 
-.readtime:after {
-	content: ' min read';
-}
-
 footer {
 	font-size: .875rem;
 	text-align: center;
