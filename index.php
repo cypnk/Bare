@@ -222,12 +222,7 @@ HTML
 define( 'TPL_FOOTER',		<<<HTML
 <footer>
 <div class="content">
-	<nav>
-	<ul>
-		<li><a href="{home}archive">Archive</a></li>
-		<li><a href="{home}feed">Feed</a></li>
-	</ul>
-	</nav>
+	{footer_links}
 </div>
 </footer>
 HTML
@@ -7168,7 +7163,7 @@ function showAbout( string $event, array $hook, array $params ) {
 		'{search_form}'	=> searchForm(),
 		
 		// Navigation links
-		'{main_links}'	=> 
+		'{about_links}'	=> 
 		renderNavLinks( \TPL_MAINNAV_WRAP, \DEFAULT_MAIN_LINKS ),
 		
 		'{footer_links}'=> 
