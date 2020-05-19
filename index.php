@@ -7164,7 +7164,7 @@ function showAbout( string $event, array $hook, array $params ) {
 		
 		// Navigation links
 		'{about_links}'	=> 
-		renderNavLinks( \TPL_MAINNAV_WRAP, \DEFAULT_MAIN_LINKS ),
+		renderNavLinks( \TPL_MAINNAV_WRAP, \DEFAULT_ABOUT_LINKS ),
 		
 		'{footer_links}'=> 
 		renderNavLinks( \TPL_FOOTERNAV_WRAP, \DEFAULT_FOOTER_LINKS ),
