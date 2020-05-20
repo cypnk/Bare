@@ -1999,6 +1999,10 @@ function prefixReplace(
 		if ( !isset( $m[1] ) ) {
 			continue;
 		}
+		
+		if ( !isset( $m[1][$i] ) ) {
+			continue;
+		}
 		$rpl['{' . $prefix . $m[1][$i] . '}']	= 
 			$terms[$m[1][$i]] ?? '';
 	}
