@@ -3,7 +3,6 @@
  *  Bare: A single file directory-to-blog
  */
 
-
 /**
  *  Relative path based on current file location
  */
@@ -172,9 +171,9 @@ LINES
 define( 'DEFAULT_MAIN_LINKS',		<<<JSON
 {
 	"links" : [
-		{ "{url}" : "{home}about", "{text}" : "{lang:nav:about}" },
-		{ "{url}" : "{home}archive", "{text}" : "{lang:nav:archive}" },
-		{ "{url}" : "{home}feed", "{text}" : "{lang:nav:feed}" }
+		{ "url" : "{home}about", "text" : "{lang:nav:about}" },
+		{ "url" : "{home}archive", "text" : "{lang:nav:archive}" },
+		{ "url" : "{feedlink}", "text" : "{lang:nav:feed}" }
 	]
 }
 JSON
@@ -184,8 +183,8 @@ JSON
 define( 'DEFAULT_ABOUT_LINKS',		<<<JSON
 {
 	"links" : [
-		{ "{url}" : "{home}archive", "{text}" : "{lang:nav:archive}" },
-		{ "{url}" : "{home}feed", "{text}" : "{lang:nav:feed}" }
+		{ "url" : "{home}archive", "text" : "{lang:nav:archive}" },
+		{ "url" : "{feedlink}", "text" : "{lang:nav:feed}" }
 	]
 }
 JSON
@@ -195,9 +194,9 @@ JSON
 define( 'DEFAULT_FOOTER_LINKS',		<<<JSON
 {
 	"links" : [
-		{ "{url}" : "{home}about", "{text}" : "{lang:nav:about}" },
-		{ "{url}" : "{home}archive", "{text}" : "{lang:nav:archive}" },
-		{ "{url}" : "{home}feed", "{text}" : "{lang:nav:feed}" }
+		{ "url" : "{home}about", "text" : "{lang:nav:about}" },
+		{ "url" : "{home}archive", "text" : "{lang:nav:archive}" },
+		{ "url" : "{feedlink}", "text" : "{lang:nav:feed}" }
 	]
 }
 JSON
@@ -206,83 +205,95 @@ JSON
 
 
 
-// General page template
-define( 'TPL_PAGE',		<<<HTML
+// HTML full page component
+define( 'TPL_FULL_PAGE',	<<<HTML
 <!DOCTYPE html>
-<html>
+<html lang="{lang}">
 <head>
-<meta charset="utf-8">
+<meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<link rel="alternate" type="application/xml" title="{page_title}" href="{home}feed">
+<link rel="alternate" type="application/xml" title="{page_title}" href="{feedlink}">
 <title>{post_title}</title>
-<link rel="stylesheet" href="{home}style.css">
+{after_title}
+{stylesheets}
+{meta_tags}
 </head>
-<body>
-
-<header>
-<div class="content">
-	<h1><a href="{home}">{page_title}</a></h1>
-	<p>{tagline}</p>
-	{main_links}
-	{search_form}
-</div>
-</header>
-<main>
+<body class="{body_classes}" {extra}>
+{body_before}
 {body}
-<div class="content">
-{paginate}
-</div>
-{footer}
-</main>
+{body_after}
+{body_before_lastjs}
+{body_js}
+{body_after_lastjs}
 </body>
 </html>
 HTML
 );
 
-define( 'TPL_FOOTER',		<<<HTML
-<footer>
-<div class="content">
-	{footer_links}
+define( 'TPL_ABOUT_PAGE',	<<<HTML
+<!DOCTYPE html>
+<html lang="{lang}">
+<head>
+<meta charset="UTF-8">
+<link rel="alternate" type="application/xml" title="{page_title}" href="{feedlink}">
+<title>{post_title}</title>
+{after_title}
+{stylesheets}
+{meta_tags}
+</head>
+<body class="{body_classes}" {extra}>
+{body_before}
+<div class="{about_classes}">
+<article>
+{body}
+</article>
 </div>
+{body_after}
+{body_before_lastjs}
+{body_js}
+{body_after_lastjs}
+</body>
+</html>
+HTML
+);
+
+
+define( 'TPL_PAGE_FOOTER',		<<<HTML
+<footer>
+<div class="{footer_wrap_classes}">{footer_links}</div>
 </footer>
 HTML
 );
 
-// About page template
-define( 'TPL_ABOUT',		<<<HTML
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<link rel="alternate" type="application/xml" title="{page_title}" href="{home}feed">
-<title>{post_title}</title>
-<link rel="stylesheet" href="{home}style.css">
-</head>
-<body>
 
+// General page heading
+define( 'TPL_PAGE_HEADING',	<<<HTML
 <header>
-<div class="content">
-	<h1><a href="{home}">{page_title}</a></h1>
-	<p>{tagline}</p>
-	{about_links}
-	{search_form}
+<div class="{heading_wrap_classes}">
+{heading_before}
+<h1><a href="{home}">{page_title}</a></h1>
+<p>{tagline}</p>
+{main_links}
+{search_form}
+{heading_after}
 </div>
 </header>
-<main>
-<article>
-<div class="content">
-{body}
-</div>
-</article>
-{footer}
-</main>
-</body>
-</html>
 HTML
 );
 
-
+// About page specific heading
+define( 'TPL_ABOUT_HEADING',	<<<HTML
+<header>
+<div class="{heading_wrap_classes}">
+<h1><a href="{home}">{page_title}</a></h1>
+<p>{tagline}</p>
+{about_links}
+{search_form}
+{heading_after}
+</div>
+</header>
+HTML
+);
 
 
 
@@ -295,7 +306,8 @@ HTML
 
 // Search form
 define( 'TPL_SEARCHFORM',	<<<HTML
-<form action="{home}" method="get">
+<form action="{home}" method="get" 
+	class="{form_classes} {search_form_classes}">
 {xsrf}
 <input type="search" name="find" placeholder="{lang:forms:search:placeholder}" required> 
 	<input type="submit" value="{lang:forms:search:button}">
@@ -333,7 +345,7 @@ HTML
 );
 
 define( 'TPL_NOPOSTS',		<<<HTML
-<div class="content">
+<div class="{no_posts_wrap}">
 	<p>{lang:errors:noposts}</p>
 </div>
 HTML
@@ -343,12 +355,12 @@ HTML
 define( 'TPL_POST',		<<<HTML
 <article>
 	<header>
-	<div class="content">
+	<div class="{post_heading_wrap}">
 		<h2><a href="{permalink}">{title}</a></h2>
 		<time datetime="{date_utc}">{date_stamp}</time> {read_time}
 	</div>
 	</header>
-	<div class="content">
+	<div class="{post_body_wrap}">
 		{body}
 		{tags}
 	</div>
@@ -362,7 +374,8 @@ HTML
 );
 
 define( 'TPL_TAGWRAP', <<<HTML
-<nav class="tags">{lang:headings:tags} <ul class="tags">{tags}</ul></nav>
+<nav class="{tag_classes}">{lang:headings:tags} 
+	<ul class="{tag_ul_classes}">{tags}</ul></nav>
 HTML
 );
 
@@ -372,10 +385,11 @@ HTML
 );
 
 define( 'TPL_FOOTERNAV_WRAP', <<<HTML
-<nav><ul>{links}</ul></nav>
+<nav class="{footer_nav_classes}">
+<ul class="{footer_ul_classes}">{links}</ul>
+</nav>
 HTML
 );
-
 
 define( 'TPL_LINK',		<<<HTML
 	<li><a href="{url}">{text}</a></li>
@@ -383,7 +397,9 @@ HTML
 );
 
 define( 'TPL_TAGLINK',		<<<HTML
-	<li><a href="{url}">{text}</a></li>
+<li class="{tag_item_classes}">
+	<a href="{url}" class="{tag_item_classes}">{text}</a>
+</li>
 HTML
 );
 
@@ -402,19 +418,25 @@ define( 'TPL_NEXTLINK',		<<<HTML
 HTML
 );
 
-define( 'TPL_NAV',		<<<HTML
-	<nav><ul>{text}</ul></nav>
+define( 'TPL_PAGE_NEXTPREV',		<<<HTML
+<div class="{nextprev_wrap_classes}">
+	<nav><ul>{links}</ul></nav>
+</div>
 HTML
 );
 
 define( 'TPL_SIBLINGNAV',	<<<HTML
-	<nav class="siblings"><ul>{text}</ul></nav>
+<div class="{sibling_wrap_classes}">
+	<nav class="{sibling_nav_classes}"><ul>{text}</ul></nav>
+</div>
 HTML
 );
 
 define( 'TPL_RELATEDNAV',	<<<HTML
+<div class="{related_wrap_classes}">
 	<h3>{lang:headings:related}</h3>
-	<nav class="related"><ul>{text}</ul></nav>
+	<nav class="{related_nav_classes}"><ul>{text}</ul></nav>
+</div>
 HTML
 );
 
@@ -471,6 +493,7 @@ define( 'DEFAULT_CLASSES', <<<JSON
 	
 	"heading_wrap_classes"		: "content", 
 	"items_wrap_classes"		: "content", 
+	"no_posts_wrap"			: "content",
 	
 	"main_nav_classes"		: "main",
 	"main_ul_classes"		: "", 
@@ -478,6 +501,10 @@ define( 'DEFAULT_CLASSES', <<<JSON
 	"pagination_wrap_classes"	: "content", 
 	"list_wrap_classes"		: "content", 
 	
+	"about_classes"			: "content",
+	
+	"post_heading_wrap"		: "content",
+	"post_body_wrap"		: "content",
 	
 	"footer_wrap_classes"		: "content", 
 	"footer_nav_classes"		: "",
@@ -502,7 +529,15 @@ define( 'DEFAULT_CLASSES', <<<JSON
 	"list_h_classes"		: "",
 	
 	"tag_classes"			: "tags",
-	"tag_ul_classes"		: "",
+	"tag_ul_classes"		: "tags",
+	"tag_item_classes"		: "",
+	"tag_link_classes"		: "",
+	
+	"sibling_wrap_classes"		: "content",
+	"sibling_nav_classes"		: "siblings",
+	
+	"related_wrap_classes"		: "content",
+	"related_nav_classes"		: "related",
 	
 	"nextprev_wrap_classes"		: "content", 
 	"nextprev_classes"		: "siblings",
@@ -532,6 +567,7 @@ define( 'DEFAULT_CLASSES', <<<JSON
 	"nav_last2_a_classes"		: "",
 	
 	"form_classes"			: "",
+	"search_form_classes"		: "",
 	"field_wrap"			: "",
 	"button_wrap"			: "",
 	"label_classes"			: "",
@@ -1190,17 +1226,19 @@ function hookHTML( string $event, string $default = '' ) : string {
  *  @param string	$event		Hook event name
  *  @param string	$default	Fallback template
  *  @param array	$input		Component to apply template to
+ *  @param bool		$full		Render full regions
  *  @return string
  */
 function hookTemplateRender( 
 	string	$event, 
 	string	$default,
-	array	$input
+	array	$input,
+	bool	$full	= false
 ) : string {
 	return 
-	\strtr( 
+	render( 
 		hookArrayResult( $event )['template'] ?? 
-		hookStringResult( $event, $default ), $input
+		hookStringResult( $event, $default ), $input, $full
 	);
 }
 
@@ -1211,6 +1249,7 @@ function hookTemplateRender(
  *  @param string	$after		After template parsing event
  *  @param string	$tpl		Base component template
  *  @param array	$input		Raw component data
+ *  @param bool		$full		Render full regions
  *  
  *  @return string
  */
@@ -1218,20 +1257,24 @@ function hookWrap(
 	string		$before, 
 	string		$after, 
 	string		$tpl		= '', 
-	array		$input		= []
+	array		$input		= [],
+	bool		$full		= false
 ) {
 	// Call "before" event hook
-	hook( [ $before, [ 'data' => $input, 'template' => $tpl ] ] );
+	hook( [ $before, [ 
+		'data' => $input, 'template' => $tpl, 'full' => $full 
+	] ] );
 	
 	// Prepend any HTML output and render the new ( or old ) template
 	$html	= hookHTML( $before ) . 
-			hookTemplateRender( $before, $tpl, $input );
+			hookTemplateRender( $before, $tpl, $input, $full );
 	
 	// Call "after" event hook
 	hook( [ $after, [ 
 		'data'		=> $input,	// Raw component data
 		'before'	=> $before,	// Event called before
 		'html'		=> $html,	// Current HTML
+		'full'		=> $full,	// Full region render
 		'template'	=> $tpl		// New or previously replaced
 	] ] );
 	
@@ -1997,6 +2040,13 @@ function homeLink() : string {
 }
 
 /**
+ *  Syndication feed link
+ */
+function feedLink() : string {
+	return homelink() . eventRoutePrefix( 'feed', 'feed' );
+}
+
+/**
  *  Create home navigation link
  */
 function navHome() : string {
@@ -2073,7 +2123,8 @@ function paginate( int $page, string $prefix, array $posts ) : string {
 		] ); 
 	}
 	
-	$out	= \strtr( \TPL_NAV ?? '', [ '{text}' => $out ] );
+	$out	= 
+	render( \TPL_PAGE_NEXTPREV ?? '', [ 'links' => $out ] );
 	return parseLang( $out );
 }
 
@@ -2091,16 +2142,17 @@ function renderNavLinks(
 	
 	$out	= '';
 	foreach ( $links['links'] ?? [] as $k => $v ) {
-		$out	.= 
-		parseLang( \strtr( \TPL_PAGE_NAV_LINK, $v ) );
+		$out	.= render( \TPL_PAGE_NAV_LINK, $v );
 	}
 	
 	// Replace any home link references
-	$out	= \strtr( $out, [ '{home}' => homeLink() ] );
+	$out	= render( $out, [ 
+		'home'		=> homeLink(),
+		'feedlink'	=> feedLink()
+	] );
 	
 	// Return language replaced
-	return 
-	parseLang( \strtr( $wrap, [ '{links}' => $out ] ) );
+	return render( $wrap, [ 'links' => $out ] );
 }
 
 /**
@@ -2108,14 +2160,16 @@ function renderNavLinks(
  */
 function pageFooter() : string {
 	// Footer with home link set
+	
 	return 
-	\strtr( TPL_FOOTER ?? '', [ 
-		'{footer_links}'=> 
+	render( \TPL_PAGE_FOOTER ?? '', [ 
+		'footer_links'=> 
 			renderNavLinks( 
 				\TPL_FOOTERNAV_WRAP, 
 				\DEFAULT_FOOTER_LINKS 
 			),
-		'{home}'	=> homeLink() 
+		'home'		=> homeLink(),
+		'feedlink'	=> feedLink()
 	] );
 }
 
@@ -2134,9 +2188,9 @@ function loadClasses() {
 /**
  *  Get or override render store pairs
  */ 
-function rsettings( string $area, array $modify = [] ) {
+function rsettings( string $area, array $modify = [] ) : array {
 	static $store = [];
-	
+		
 	if ( !isset( $store[$area] ) ) {
 		switch( $area ) {
 			case 'classes':
@@ -2164,6 +2218,7 @@ function rsettings( string $area, array $modify = [] ) {
 				break;
 			
 			case 'meta':
+				// TODO: Load meta tags
 				$store['meta']		= [];
 				break;
 			
@@ -2263,7 +2318,80 @@ function setRegion( array $region = [] ) {
 	}
 }
 
+/**
+ *  Find template {regions} set in the HTML
+ *  Template regions must consist of letters, underscores, and no spaces
+ *  
+ *  @param string	$tpl	Raw HTML template without content yet
+ *  @return array
+ */
+function findTplRegions( string $tpl ) : array {
+	if ( \preg_match_all( '/(?<=\{)([a-z_]+)(?=\})/i', $tpl, $m ) ) {
+		return $m[0];
+	}
+	return [];
+}
 
+/**
+ *  Apply region preset content to placeolders in the given template
+ *  
+ *  @param string	$tpl	Page template
+ *  @return string
+ */
+function renderRegions( string $tpl ) : string {
+	
+	// Stylesheets, JavaScript, and Meta tags
+	$tpl	= 
+	regionTags( $tpl, '{stylesheets}', \TPL_STYLE_TAG, 'styles' );
+	
+	$tpl	= 
+	regionTags( $tpl, '{body_js}', \TPL_SCRIPT_TAG, 'scripts' );
+	
+	$tpl	= 
+	regionTags( $tpl, '{meta_tags}', \TPL_META_TAG, 'meta' );
+	
+	$sa	= config( 'shared_assets', \SHARED_ASSETS );
+	return \strtr( $tpl, [ '{shared_assets}' => $sa ] );
+}
+
+/**
+ *  Format template with classes, assets, and language parameters
+ */
+function render(
+	string	$tpl,
+	array	$segments	= [],
+	bool	$full		= false 
+) {	
+	// Always set home and feed
+	$segments['home'] = 
+	$segments['home'] ?? homeLink();
+	
+	$segments['feedlink'] = 
+	$segments['feedlink'] ?? feedLink();
+	
+	// Full render?
+	$tpl		= $full ? 
+		parseLang( renderRegions( $tpl ) ) : 
+		parseLang( $tpl );
+	
+	// Apply component classes
+	$tpl		= \strtr( $tpl, rsettings( 'classes' ) );
+	
+	// Find render regions
+	$regions	= findTplRegions( $tpl );
+	$out		= [];
+	
+	// Set content in regions or place empty string
+	foreach( $regions as $k => $v ) {
+		// Set render content or clear it
+		$out['{' . $v .'}'] =  $segments[$v] ?? '';
+	}
+	
+	$tpl		= parseLang( \strtr( $tpl, $out ) );
+	
+	// Finally set classes again
+	return \strtr( $tpl, rsettings( 'classes' ) );
+}
 
 
 /**
@@ -6120,8 +6248,7 @@ function formatTags( array $tags ) : string {
 			] 
 		);
 	}
-	$out	= \strtr( \TPL_TAGWRAP, [ '{tags}' => $out ] );
-	return parseLang( $out );
+	return render( \TPL_TAGWRAP, [ 'tags' => $out ] );
 }
 
 /**
@@ -6170,13 +6297,13 @@ function formatMeta( $title, $type, $pub, $path, $rtime, $tags = [] ) : array {
 		] ) : '';
 	
 	return [
-		'{title}'	=> $title,
-		'{date_utc}'	=> $pub,
-		'{date_rfc}'	=> dateRfc( $pub ),
-		'{date_stamp}'	=> dateNice( $pub ),
-		'{read_time}'	=> $read,
-		'{tags}'	=> formatTags( $tags ),
-		'{permalink}'	=> 
+		'title'		=> $title,
+		'date_utc'	=> $pub,
+		'date_rfc'	=> dateRfc( $pub ),
+		'date_stamp'	=> dateNice( $pub ),
+		'read_time'	=> $read,
+		'tags'		=> formatTags( $tags ),
+		'permalink'	=> 
 		website() . dateSlug( \basename( $path ), $pub )
 	];
 }
@@ -6250,18 +6377,18 @@ function formatPost(
 	
 	switch( $slvl ) {
 		case 1:
-			$data['{body}'] = empty( $summ ) ? $body : $summ;
+			$data['body'] = empty( $summ ) ? $body : $summ;
 			break;
 			
 		case 2:
-			$data['{body}'] = $summ;
+			$data['body'] = $summ;
 			break;
 			
 		default: 
-			$data['{body}'] = $body;
+			$data['body'] = $body;
 	}
 	
-	return \strtr( $tpl, $data );
+	return render( $tpl, $data );
 }
 
 /**
@@ -6374,40 +6501,60 @@ function formatIndex(
 	sendOverride( 'renderindex' );
 	
 	// Default handler
-	$tpl	= [
-		'{page_title}'	=> $ptitle,
-		'{post_title}'	=> $ptitle,
-		'{tagline}'	=> $psub,
-		'{home}'	=> homeLink(),
-		
-		// Search form
-		'{search_form}'	=> searchForm(),
-		
-		// Navigation links
-		'{main_links}'	=> 
-		renderNavLinks( \TPL_MAINNAV_WRAP, \DEFAULT_MAIN_LINKS ),
-		
-		'{footer}'	=> pageFooter()
+	$heading = 
+	hookWrap( 
+		'beforepostindexheading',
+		'afterpostindexheading',
+		\TPL_PAGE_HEADING, [
+			'page_title'	=> $ptitle,
+			'tagline'	=> $psub,
+			
+			// Navigation links
+			'main_links'	=> 
+			renderNavLinks( \TPL_MAINNAV_WRAP, \DEFAULT_MAIN_LINKS ),
+			
+			// Search form
+			'search_form'	=> searchForm()
+		] 
+	);
+	
+	$tpl = [
+		'post_title'	=> $ptitle,
+		'page_title'	=> $ptitle,
+		'lang'		=> config( 'language', \LANGUAGE ),
+		'home'		=> homeLink(),
+		'body_before'	=> $heading
 	];
 	
 	if ( empty( $posts ) ) {
 		// No posts message with home link set
-		$tpl['{body}']		= 
-		\strtr( 
+		$tpl['body']		= 
+		render( 
 			TPL_NOPOSTS ?? '', 
-			[ '{home}'	=> homeLink() ] 
+			[ 'home'	=> homeLink() ] 
 		);
-		$tpl['{paginate}']	= 
-		\strtr( TPL_NAV ?? '', [ '{text}' => navHome() ] );
+		$tpl['body_after']	= 
+		render( TPL_PAGE_NEXTPREV ?? '', [ 'links' => navHome() ] );
 	} else {
-		$tpl['{body}']		= \implode( '', $posts );
-		$tpl['{paginate}']	= 
+		$tpl['body']		= \implode( '', $posts );
+		$tpl['body_after']	= 
 		paginate( $page, $prefix, $posts );
 	}
 	
+	$tpl['body_after']	.= pageFooter();
+	
+	$page_t	= 
+	hookWrap( 
+		'beforepostindex',
+		'afterpostindex',
+		\TPL_FULL_PAGE, 
+		$tpl, 
+		true 
+	);
+	
 	// Send results
 	shutdown( 'cleanup' );
-	send( 200, parseLang( \strtr( TPL_PAGE ?? '', $tpl ) ), $cache );
+	send( 200, $page_t, $cache );
 }
 
 
@@ -6887,16 +7034,9 @@ function getSiblings( string $path ) : string {
 		$out .= previewLink( $p['next_path'], 'next' );	
 	}
 	
-	// Next/previous template from the render plugin available?
-	if ( \defined( 'TPL_PAGE_NEXTPREV' ) ) {
-		return 
-		\strtr( 
-			\TPL_PAGE_NEXTPREV, [ '{links}' => $out ] 
-		);
-	}
-	
-	$out = \strtr( \TPL_SIBLINGNAV ?? '', [ '{text}' => $out ] );
-	return parseLang( $out );
+	return render( 
+		\TPL_PAGE_NEXTPREV, [ 'links' => $out ] 
+	);
 }
 
 /**
@@ -7389,29 +7529,45 @@ function showPost( string $event, array $hook, array $params ) {
 	// Send result if hook returned content
 	sendOverride( 'postrender' );
 	
-	$tpl	= [
-		'{page_title}'	=> $ptitle,
-		'{post_title}'	=> $title . ' - ' . $ptitle,
-		'{tagline}'	=> $psub,
-		'{body}'	=> $post,
-		'{paginate}'	=> $sib . $rel,
-		'{home}'	=> homeLink(),
-		
-		// Search form
-		'{search_form}'	=> searchForm(),
-		
-		// Navigation links
-		'{main_links}'	=> 
-		renderNavLinks( \TPL_MAINNAV_WRAP, \DEFAULT_MAIN_LINKS ),
-		
-		'{footer_links}'=> 
-		renderNavLinks( \TPL_FOOTERNAV_WRAP, \DEFAULT_FOOTER_LINKS ),
-		
-		'{footer}'	=> pageFooter()
-	];
+	// Default post render
+	$heading = 
+	hookWrap( 
+		'beforepostpageheading',
+		'afterpostpageheading',
+		\TPL_PAGE_HEADING, [
+			'page_title'	=> $ptitle,
+			'tagline'	=> $psub,
+			
+			// Navigation links
+			'main_links'	=> 
+			renderNavLinks( 
+				\TPL_MAINNAV_WRAP, 
+				\DEFAULT_MAIN_LINKS 
+			),
+			
+			// Search form
+			'search_form'	=> searchForm()
+		] 
+	);
+	
+	$page_t	= 
+	hookWrap( 
+		'beforepostpage',
+		'afterpostpage',
+		\TPL_FULL_PAGE, [
+			'page_title'	=> $ptitle,
+			'post_title'	=> $title . ' - ' . $ptitle,
+			'lang'		=> config( 'language', \LANGUAGE ),
+			'home'		=> homeLink(),
+			'body_before'	=> $heading,
+			'body'		=> $post,
+			'body_after'	=> $sib . $rel . pageFooter()
+		], 
+		true 
+	);
 	
 	shutdown( 'cleanup' );
-	send( 200, \strtr( TPL_PAGE ?? '', $tpl ), true );
+	send( 200, $page_t, true );
 }
 
 /**
@@ -7447,28 +7603,48 @@ function showAbout( string $event, array $hook, array $params ) {
 	// Send result if hook returned content
 	sendOverride( 'aboutrender' );
 	
-	$tpl	= [
-		'{page_title}'	=> $ptitle,
-		'{post_title}'	=> $title . ' - ' . $ptitle,
-		'{tagline}'	=> $psub,
-		'{body}'	=> $body,
-		'{home}'	=> homeLink(),
-		
-		// Search form
-		'{search_form}'	=> searchForm(),
-		
-		// Navigation links
-		'{about_links}'	=> 
-		renderNavLinks( \TPL_MAINNAV_WRAP, \DEFAULT_ABOUT_LINKS ),
-		
-		'{footer_links}'=> 
-		renderNavLinks( \TPL_FOOTERNAV_WRAP, \DEFAULT_FOOTER_LINKS ),
-		
-		'{footer}'	=> pageFooter()
-	];
+	// Assemble about page components
+	
+	$heading = 
+	hookWrap( 
+		'beforeaboutheading',
+		'afteraboutheading',
+		\TPL_PAGE_HEADING, [
+			'page_title'	=> $title,
+			'tagline'	=> $psub,
+			
+			// Navigation links
+			'main_links'	=> 
+			renderNavLinks( 
+				\TPL_MAINNAV_WRAP, 
+				\DEFAULT_ABOUT_LINKS 
+			),
+			
+			// Search form
+			'search_form'	=> searchForm()
+		] 
+	);
+	
+	$page_t	= 
+	hookWrap( 
+		'beforeaboutpage',
+		'afteraboutpage',
+		\TPL_ABOUT_PAGE, [
+			'page_title'	=> $ptitle,
+			'post_title'	=> $title . ' - ' . $ptitle,
+			'lang'		=> 
+				config( 'language', \LANGUAGE ),
+			'home'		=> homeLink(),
+			'feedlink'	=> feedLink(),
+			'body_before'	=> $heading,
+			'body'		=> $body,
+			'body_after'	=> pageFooter()
+		], 
+		true 
+	);
 	
 	shutdown( 'cleanup' );
-	send( 200, \strtr( TPL_ABOUT ?? '', $tpl ), true );
+	send( 200, $page_t, true );
 }
 
 /**
@@ -7502,6 +7678,9 @@ function runIndex( string $event, array $hook, array $params ) {
 	// Send result if hook returned content
 	sendOverride( 'indexrender' );
 	
+	// Default index render
+	$out	= '';
+	
 	$prefix	= slashPath( homeLink(), true ) . 'archive/'; 
 	$tpl	= TPL_INDEX ?? '';
 	$out	= '';
@@ -7510,38 +7689,67 @@ function runIndex( string $event, array $hook, array $params ) {
 	foreach( $posts as $k => $v ) {
 		if ( is_array( $v ) ) {
 			foreach( $v as $p ) {
-				$pf		= \strtr( $tpl, $p );
+				$pf		= 
+				hookWrap(
+					'beforepostitem', 
+					'afterpostitem', 
+					$tpl, 
+					$p 
+				);
 				$plist[]	= $pf;
 				$out		.= $pf;
 			}
 		}
 	}
 	
-	$out	= \strtr( TPL_INDEX_WRAP, [ '{items}' => $out ] );
-	$tpl	= [
-		'{page_title}'	=> $ptitle,
-		'{post_title}'	=> $ptitle,
-		'{tagline}'	=> $psub,
-		'{body}'	=> $out,
-		'{paginate}'	=> ( count( $plist ) < $ilimit ) ? 
-			'' : paginate( $page, $prefix, $plist ),
-		'{home}'	=> homeLink(),
-		
-		// Search form
-		'{search_form}'	=> searchForm(),
-		
-		// Navigation links
-		'{main_links}'	=> 
-		renderNavLinks( \TPL_MAINNAV_WRAP, \DEFAULT_MAIN_LINKS ),
-		
-		'{footer_links}'=> 
-		renderNavLinks( \TPL_FOOTERNAV_WRAP, \DEFAULT_FOOTER_LINKS ),
-		
-		'{footer}'	=> pageFooter()
-	];
+	$out	= 
+	hookWrap( 
+		'beforepostindex', 
+		'afterpostindex', 
+		\TPL_INDEX_WRAP, 
+		[ 'items' => $out ] 
+	);
+	
+	$heading = 
+	hookWrap( 
+		'beforearchiveheading',
+		'afterarchiveheading',
+		\TPL_PAGE_HEADING, [
+			'page_title'	=> $ptitle,
+			'tagline'	=> $psub,
+			
+			// Navigation links
+			'main_links'	=> 
+			renderNavLinks( 
+				\TPL_MAINNAV_WRAP, \DEFAULT_MAIN_LINKS 
+			),
+			
+			// Search form
+			'search_form'	=> searchForm()
+		]
+	);
+	
+	$pages	= ( count( $plist ) < $ilimit ) ? 
+			'' : paginate( $page, $prefix, $plist );
+	$page_t	= 
+	hookWrap( 
+		'beforearchiveindex',
+		'afterarchiveindex',
+		\TPL_FULL_PAGE, [
+			'page_title'	=> $ptitle,
+			'post_title'	=> $ptitle,
+			'lang'		=> config( 'language', \LANGUAGE ),
+			'home'		=> homeLink(),
+			'feedlink'	=> feedLink(),
+			'body_before'	=> $heading,
+			'body'		=> $out,
+			'body_after'	=> $pages . pageFooter()
+		], 
+		true 
+	);
 	
 	shutdown( 'cleanup' );
-	send( 200, \strtr( TPL_PAGE ?? '', $tpl ), true );
+	send( 200, $page_t, true );
 }
 
 /**
