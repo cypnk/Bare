@@ -139,10 +139,30 @@ define( 'MAX_LOG_SIZE',		5000000 );
 // Maximum number of words allowed for searching posts
 define( 'MAX_SEARCH_WORDS',	10 );
 
+// Maximum number of stylesheets to load, if set
+define( 'STYLE_LIMIT',		20 );
+
+// Maximum mumber of script files to load
+define( 'SCRIPT_LIMIT',		10 );
+
 // Application name
 define( 'APP_NAME',		'Bare' );
 
+// Static resource relative path for JS, CSS, static images etc...
+define( 'SHARED_ASSETS',		'/' );
 
+// List of stylesheets to load from SHARED_ASSETS (one per line)
+define( 'DEFAULT_STYLESHEETS',		<<<LINES
+{shared_assets}style.css
+LINES
+);
+
+// Default JavaScript files
+define( 'DEFAULT_SCRIPTS',		<<<LINES
+
+
+LINES
+);
 
 /**
  *  Navigation links
@@ -442,6 +462,91 @@ XML
 );
 
 
+/**
+ *  Overridable CSS classes on HTML elements and content segments
+ */
+define( 'DEFAULT_CLASSES', <<<JSON
+{
+	"body_classes"			: "",
+	
+	"heading_wrap_classes"		: "content", 
+	"items_wrap_classes"		: "content", 
+	
+	"main_nav_classes"		: "main",
+	"main_ul_classes"		: "", 
+	
+	"pagination_wrap_classes"	: "content", 
+	"list_wrap_classes"		: "content", 
+	
+	
+	"footer_wrap_classes"		: "content", 
+	"footer_nav_classes"		: "",
+	"footer_ul_classes"		: "",
+	
+	"crumb_classes"			: "",
+	"crumb_wrap_classes"		: "",
+	"crumb_sub_classes"		: "",
+	"crumb_sub_wrap_classes"	: "",
+	
+	"crumb_item_classes"		: "",
+	"crumb_link_classes"		: "",
+	"crumb_current_classes"		: "",
+	"crumb_current_item"		: "",
+	"pagination_classes"		: "",
+	"pagination_ul_classes"		: "",
+	
+	"nav_link_classes"		: "",
+	"nav_link_a_classes"		: "",
+	
+	"list_classes"			: "related",
+	"list_h_classes"		: "",
+	
+	"tag_classes"			: "tags",
+	"tag_ul_classes"		: "",
+	
+	"nextprev_wrap_classes"		: "content", 
+	"nextprev_classes"		: "siblings",
+	"nextprev_ul_classes"		: "",
+	
+	"nav_current_classes"		: "",
+	"nav_current_s_classes"		: "",
+	"nav_prev_classes"		: "",
+	"nav_prev_a_classes"		: "",
+	"nav_noprev_classes"		: "",
+	"nav_noprev_s_classes"		: "",
+	"nav_next_classes"		: "",
+	"nav_next_a_classes"		: "",
+	"nav_nonext_classes"		: "",
+	"nav_nonext_s_classes"		: "",
+	
+	"nav_first1_classes"		: "",
+	"nav_first1_a_classes"		: "",
+	"nav_first2_classes"		: "",
+	"nav_first2_a_classes"		: "",
+	"nav_first_s_classes"		: "",
+	
+	"nav_last_s_classes"		: "",
+	"nav_last1_classes"		: "",
+	"nav_last1_a_classes"		: "",
+	"nav_last2_classes"		: "",
+	"nav_last2_a_classes"		: "",
+	
+	"form_classes"			: "",
+	"field_wrap"			: "",
+	"button_wrap"			: "",
+	"label_classes"			: "",
+	"special_classes"		: "",
+	"input_classes"			: "",
+	"desc_classes"			: "",
+	
+	"submit_classes"		: "",
+	"alt_classes"			: "",
+	"warn_classes"			: "",
+	"action_classes"		: ""
+}
+JSON
+);
+
 
 /**
  *  Default language placholders 
@@ -490,6 +595,11 @@ JSON
 );
 
 
+
+// Meta, script, and stylesheet tag templates
+define( 'TPL_META_TAG',	'<meta name="{name}" content="{content}">' );
+define( 'TPL_SCRIPT_TAG', '<script src="{url}"></script>' );
+define( 'TPL_STYLE_TAG', '<link rel="stylesheet" href="{url}">' );
 
 // Whitelist of allowed HTML tags
 define( 'TAG_WHITE',	<<<JSON
@@ -1353,6 +1463,33 @@ function lineSettings( string $text, int $lim ) : array {
 }
 
 /**
+ *  Get presets as lined items (one item per line)
+ *  
+ *  @param string	$label		Preset unique identifier
+ *  @param string	$base		Setting name in config.json
+ *  @param mixed	$default	Defined configuration
+ *  @param string	$data		String block of items
+ */ 
+function linePresets(
+	string		$label,
+	string		$base,
+			$default, 
+	string		$data
+) {
+	static $prs	= [];
+	
+	if ( isset( $prs[$label] ) ) {
+		return $prs[$label];
+	}
+	
+	// Maximum number of items
+	$lim		= config( $base, $default, 'int' );
+	$prs[$label]	= lineSettings( $data, $lim );
+	
+	return $prs[$label];
+}
+
+/**
  *  Create a datestamped backup of the given file before moving or copying it
  *  
  *  @param string	$file	File name path
@@ -1981,6 +2118,151 @@ function pageFooter() : string {
 		'{home}'	=> homeLink() 
 	] );
 }
+
+/**
+ *  Load and change each placeholder into a key
+ */
+function loadClasses() {
+	$cls	= decode( \DEFAULT_CLASSES );
+	$cv	= [];
+	foreach( $cls as $k => $v ) {
+		$cv['{' . $k . '}'] = bland( $v );
+	}
+	return $cv;
+}
+
+/**
+ *  Get or override render store pairs
+ */ 
+function rsettings( string $area, array $modify = [] ) {
+	static $store = [];
+	
+	if ( !isset( $store[$area] ) ) {
+		switch( $area ) {
+			case 'classes':
+				$store['classes']	= loadClasses();
+				break;
+				
+			case 'styles':
+				$store['styles']	= 
+				linePresets( 
+					'stylesheets', 
+					'style_limit', 
+					\STYLE_LIMIT, 
+					\DEFAULT_STYLESHEETS 
+				);
+				break;
+				
+			case 'scripts':
+				$store['scripts']	= 
+				linePresets( 
+					'scripts', 
+					'script_limit', 
+					\SCRIPT_LIMIT,
+					\DEFAULT_SCRIPTS
+				);
+				break;
+			
+			case 'meta':
+				$store['meta']		= [];
+				break;
+			
+			default:
+				$store[$area]	= [];
+		}
+	}
+	
+	if ( empty( $modify ) ) {
+		return $store[$area];
+	}
+	
+	$store[$area] = 
+	\array_unique( \array_merge( $store[$area], $modify ) );
+	
+	return $store[$area];
+}
+
+/**
+ *  Get all the CSS classes of the given render segment
+ */
+function getClasses( string $name ) : array {
+	$cls	= rsettings( 'classes' );
+	$n	= '{' . bland( $name ) . '}';
+	$va	= [];
+	foreach( $cls as $k => $v ) {
+		if ( 0 != \strcmp( $n , $k ) ) {
+			continue;
+		}
+		$va	= uniqueTerms( $v );
+		break;
+	}
+	
+	return $va;
+}
+
+/**
+ *  Overwrite the CSS class(es) of a render segment
+ */
+function setClass( string $name, string $value ) {
+	rsettings( 
+		'classes', 
+		[ '{' . bland( $name ) . '}' => bland( $value ) ] 
+	);
+}
+
+/**
+ *  Add a CSS class to render segment
+ */
+function addClass( string $name, string $value ) {
+	$cls	= getClasses( $name );
+	$cls[]	= $value;
+	
+	setClass( $name, \implode( ' ', \array_unique( $cls ) ) );
+}
+
+/**
+ *  Remove a CSS class from the segment's class list
+ */
+function removeClass( string $name, string $value ) {
+	$cls	= getClasses( $name );
+	$cls	= \array_diff( $cls, [ $value ] );
+	setClass( $name, \implode( ' ', \array_unique( $cls ) ) );
+}
+
+/**
+ *  Special tag rendering helper (scripts, links etc...)
+ */
+function regionTags(
+	string		$tpl,
+	string		$label,
+	string		$tag, 
+	string		$region 
+) {
+	$rg	= rsettings( $region );
+	$rgo	= '';
+	foreach( $rg as $r ) {
+		$rgo .= \strtr( $tag, [ '{url}' => $r ] );
+	}
+	return \strtr( $tpl, [ $label => $rgo ] );
+}
+
+/**
+ *  Append values to placeholder terms used in templates
+ *  
+ *  @param array	$region		Placeholder > value pair
+ */
+function setRegion( array $region = [] ) {
+	static $presets = [];
+	
+	if ( empty( $region ) ) {
+		return $presets;
+	}
+	
+	foreach( $region as $k => $v ) {
+		$presets[$k] = ( $presets[$k] ?? '' ) . $v;
+	}
+}
+
 
 
 
@@ -2955,6 +3237,19 @@ function dateRfcFile( $stamp = null ) : string {
 function unifySpaces( string $text, string $rpl = ' ' ) {
 	return 
 	\preg_replace( '/[[:space:]]+/', $rpl, pacify( $text ) );
+}
+
+/**
+ *  Get a list of tokens separated by spaces
+ */
+function uniqueTerms( string $value ) : array {
+	return 
+	\array_unique( 
+		\preg_split( 
+			'/[[:space:]]+/', trim( $value ), -1, 
+			\PREG_SPLIT_NO_EMPTY 
+		) 
+	);
 }
 
 /**
@@ -7447,6 +7742,30 @@ function checkConfig( string $event, array $hook, array $params ) {
 				'min_range'	=> 0,
 				'max_range'	=> 1,
 				'default'	=> \SHOW_MODIFIED
+			]
+		], 
+		
+		// Templating settings
+		'shared_assets'	=> [
+			'filter'=> \FILTER_VALIDATE_URL,
+			'options' => [
+				'default' => \SHARED_ASSETS
+			],
+		],
+		'style_limit'	=> [
+			'filter'	=> \FILTER_VALIDATE_INT,
+			'options'	=> [
+				'min_range'	=> 1,
+				'max_range'	=> 50,
+				'default'	=> \STYLE_LIMIT
+			]
+		],
+		'script_limit'	=> [
+			'filter'	=> \FILTER_VALIDATE_INT,
+			'options'	=> [
+				'min_range'	=> 1,
+				'max_range'	=> 50,
+				'default'	=> \SCRIPT_LIMIT
 			]
 		]
 	];
