@@ -17,13 +17,22 @@ feed of the most recent ones.
 
 An about page can be created by editing *posts/about/main.md*. Additional  
 about pages can be added to the same directory and again the URL  
-is the filename.
+is the filename. 
 
 Bare understands a rudimentary subset of [Markdown](https://daringfireball.net/projects/markdown/) and will filter HTML  
 for you. 
 
 Optionally, Bare will use the [Parsedown](https://github.com/erusev/parsedown) and the [ParsedownExtra](https://github.com/erusev/parsedown-extra) classes  
 to format Markdown, if these files are present.
+
+Posts are cached in a SQLite database created dynamically, which enables  
+fast browsing and searching for posts by tags, title, or post body. The  
+*cache.db* can be deleted at any time and Bare will rebuild it on the first  
+visit to your blog.
+
+An extensive hook system allows customizing posts, indexes, and other  
+template elements. Hooks also enable completely overriding the default  
+behavior of most rendering functions and some core functions.
 
 Bare's simple installation and minimal set of features make it ideal for  
 hosting blogs on [Hidden Services](https://en.wikipedia.org/wiki/Tor_(anonymity_network)#Onion_services) on the Tor anonymity network.
