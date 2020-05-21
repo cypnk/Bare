@@ -232,7 +232,7 @@ If you're already logged in as root, skip the "[doas](https://man.openbsd.org/do
 directives *do not* end in a semicolon(;) unlike Nginx settings.
 
 The following configuration can be used if Bare is installed as the  
-"example.com" website (tested on OpenBSD 6.6).
+"example.com" website (tested on OpenBSD 6.7).
 ```
 
 # A site called "example.com" 
