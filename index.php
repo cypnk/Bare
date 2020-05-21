@@ -63,6 +63,7 @@ define( 'PAGE_LINK',	'/' );
 define( 'PAGE_LIMIT',	12 );
 
 // Whitelist of allowed server host names
+// Add "localhost" if testing locally
 define( 'SERVER_WHITE',		'kpz62k4pnyh5g5t2efecabkywt2aiwcnqylthqyywilqgxeiipen5xid.onion' );
 
 // Number of posts on archive index page
@@ -176,6 +177,7 @@ LINES
  */
 
 // Main navigation links shown in headers
+// Because this is JSON, remember to escape slashes '/' with '\/'
 define( 'DEFAULT_MAIN_LINKS',		<<<JSON
 {
 	"links" : [
@@ -279,8 +281,10 @@ define( 'TPL_PAGE_HEADING',	<<<HTML
 <header>
 <div class="{heading_wrap_classes}">
 {heading_before}
-<h1><a href="{home}">{page_title}</a></h1>
-<p>{tagline}</p>
+<h1 class="{heading_h_classes}">
+	<a href="{home}" class="{heading_a_classes}">{page_title}</a>
+</h1>
+<p class="{tagline_classes}">{tagline}</p>
 {main_links}
 {search_form}
 {heading_after}
@@ -293,8 +297,10 @@ HTML
 define( 'TPL_ABOUT_HEADING',	<<<HTML
 <header>
 <div class="{heading_wrap_classes}">
-<h1><a href="{home}">{page_title}</a></h1>
-<p>{tagline}</p>
+<h1 class="{heading_h_classes}">
+	<a href="{home}" class="{heading_a_classes}">{page_title}</a>
+</h1>
+<p class="{tagline_classes}">{tagline}</p>
 {about_links}
 {search_form}
 {heading_after}
@@ -362,15 +368,17 @@ HTML
 
 // General post template
 define( 'TPL_POST',		<<<HTML
-<article class="{post_item_wrap}">
-	<header class="{post_heading}">
-	<div class="{post_heading_wrap}">
-		<h2 class="{post_heading_h}"><a href="{permalink}">{title}</a></h2>
+<article class="{post_wrap_classes}">
+	<header class="{post_heading_classes}">
+	<div class="{post_heading_wrap_classes}">
+		<h2 class="{post_heading_h_classes}">
+			<a href="{permalink}" class="{post_heading_a_classes}">{title}</a>
+		</h2>
 		<time datetime="{date_utc}"
-			class="{post_pub}">{date_stamp}</time> {read_time}
+			class="{post_pub_classes}">{date_stamp}</time> {read_time}
 	</div>
 	</header>
-	<div class="{post_body_wrap}">
+	<div class="{post_body_wrap_classes}">
 		{body}
 		{tags}
 	</div>
@@ -523,6 +531,9 @@ define( 'DEFAULT_CLASSES', <<<JSON
 	"body_classes"			: "",
 	
 	"heading_wrap_classes"		: "content", 
+	"heading_h_classes"		: "",
+	"heading_a_classes"		: "",
+	"tagline_classes"		: "",
 	"items_wrap_classes"		: "content", 
 	"no_posts_wrap"			: "content",
 	
@@ -538,12 +549,13 @@ define( 'DEFAULT_CLASSES', <<<JSON
 	"post_index_ul_wrap_classes"	: "index",
 	"post_index_item_classes"	: "",
 	
-	"post_item_wrap"		: "",
-	"post_heading"			: "",
-	"post_heading_h"		: "",
-	"post_heading_wrap"		: "content",
-	"post_body_wrap"		: "content",
-	"post_pub"			: "",
+	"post_wrap_classes"		: "",
+	"post_heading_classes"		: "",
+	"post_heading_h_classes"	: "",
+	"post_heading_a_classes"	: "",
+	"post_heading_wrap_classes"	: "content",
+	"post_body_wrap_classes"	: "content",
+	"post_pub_classes"		: "",
 	
 	"footer_wrap_classes"		: "content", 
 	"footer_nav_classes"		: "",
@@ -2230,6 +2242,15 @@ function pageFooter() : string {
  */
 function loadClasses() {
 	$cls	= decode( \DEFAULT_CLASSES );
+	// Trigger class load hook
+	hook( [ 'loadcssclasses', [ 'classes' => $cls ] ] );
+	
+	// Intercept extra classes and/or existing class replacements
+	$sent	= hookArrayResult( 'loadcssclasses' )['classes'] ?? [];
+	if ( !empty( $sent ) ) {
+		$cls	= \array_merge( $cls, $sent );
+	}
+		
 	$cv	= [];
 	foreach( $cls as $k => $v ) {
 		$cv['{' . $k . '}'] = bland( $v );
@@ -2270,7 +2291,7 @@ function rsettings( string $area, array $modify = [] ) : array {
 				break;
 			
 			case 'meta':
-				// TODO: Load meta tags
+				// TODO: Load custom meta tags
 				$store['meta']		= [];
 				break;
 			
@@ -6550,6 +6571,7 @@ function formatIndex(
 	sendOverride( 'renderindex' );
 	
 	// Default handler
+	$mlinks	= config( 'default_main_links', \DEFAULT_MAIN_LINKS );
 	$heading = 
 	hookWrap( 
 		'beforepostindexheading',
@@ -6560,7 +6582,7 @@ function formatIndex(
 			
 			// Navigation links
 			'main_links'	=> 
-			renderNavLinks( \TPL_MAINNAV_WRAP, \DEFAULT_MAIN_LINKS ),
+			renderNavLinks( \TPL_MAINNAV_WRAP, $mlinks ),
 			
 			// Search form
 			'search_form'	=> searchForm()
@@ -7575,6 +7597,7 @@ function showPost( string $event, array $hook, array $params ) {
 	sendOverride( 'postrender' );
 	
 	// Default post render
+	$mlinks	= config( 'default_main_links', \DEFAULT_MAIN_LINKS );
 	$heading = 
 	hookWrap( 
 		'beforepostpageheading',
@@ -7585,10 +7608,7 @@ function showPost( string $event, array $hook, array $params ) {
 			
 			// Navigation links
 			'main_links'	=> 
-			renderNavLinks( 
-				\TPL_MAINNAV_WRAP, 
-				\DEFAULT_MAIN_LINKS 
-			),
+			renderNavLinks( \TPL_MAINNAV_WRAP, $mlinks ),
 			
 			// Search form
 			'search_form'	=> searchForm()
@@ -7649,7 +7669,7 @@ function showAbout( string $event, array $hook, array $params ) {
 	sendOverride( 'aboutrender' );
 	
 	// Assemble about page components
-	
+	$alinks	= config( 'default_about_links', \DEFAULT_ABOUT_LINKS );
 	$heading = 
 	hookWrap( 
 		'beforeaboutheading',
@@ -7660,10 +7680,7 @@ function showAbout( string $event, array $hook, array $params ) {
 			
 			// Navigation links
 			'main_links'	=> 
-			renderNavLinks( 
-				\TPL_MAINNAV_WRAP, 
-				\DEFAULT_ABOUT_LINKS 
-			),
+			renderNavLinks( \TPL_MAINNAV_WRAP, $alinks ),
 			
 			// Search form
 			'search_form'	=> searchForm()
@@ -7755,6 +7772,7 @@ function runIndex( string $event, array $hook, array $params ) {
 		[ 'items' => $out ] 
 	);
 	
+	$mlinks	= config( 'default_main_links', \DEFAULT_MAIN_LINKS );
 	$heading = 
 	hookWrap( 
 		'beforearchiveheading',
@@ -7765,9 +7783,7 @@ function runIndex( string $event, array $hook, array $params ) {
 			
 			// Navigation links
 			'main_links'	=> 
-			renderNavLinks( 
-				\TPL_MAINNAV_WRAP, \DEFAULT_MAIN_LINKS 
-			),
+			renderNavLinks( \TPL_MAINNAV_WRAP, $mlinks ),
 			
 			// Search form
 			'search_form'	=> searchForm()
