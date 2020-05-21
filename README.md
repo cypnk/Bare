@@ -117,7 +117,7 @@ following example **composer.json**:
 ## Content formatting
 
 HTML is filtered of potentially harmful tags, however embedding videos  
-to YouTube, Vimeo or PeerTube is supported via shortcodes.
+to YouTube, Vimeo, PeerTube, or Archive.org is supported via shortcodes
 ```
 E.G. For Youtube: 
 
@@ -134,8 +134,19 @@ or
 [vimeo 113315619]
 
 
+For Archive.org:
+
+[archive https://archive.org/details/A-Few-Days-In-Winter]
+or
+[archive A-Few-Days-In-Winter]
+
+
 For PeerTube (any instance):
+
 [peertube https://peertube.mastodon.host/videos/watch/56047136-00eb-4296-afc3-dd213fd6bab0]
+
+Note: Remember to add the PeerTube instance URL to the content  
+security policy in DEFAULT_JCSP
 ``` 
 
 To embed a previously uploaded image file, use markdown syntax:
