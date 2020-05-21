@@ -3864,7 +3864,20 @@ function cleanUrl(
 	
 	return entities( $txt, false, false );
 }
-	
+
+/**
+ *  Prepend given prefix to URLs starting with '/'
+ *  
+ *  @param string	$url	Raw URL path
+ *  @param string	$prefix	Prefix to prepend if $url starts with '/'
+ *  @return string
+ */
+function prependPath( string $v, string $prefix ) : string {
+	$v = trim( $v, '"\'' );
+	return \preg_match( '/^\//', $v ) ?
+		cleanUrl( $prefix . $v ) : cleanUrl( $v );
+}
+
 /**
  *  Clean DOM node attribute against whitelist
  *  
@@ -3898,10 +3911,7 @@ function cleanAttributes(
 				case 'data-src':
 				case 'href':
 					// Use prefix for relative paths
-					$v = 
-					( \preg_match( '/^\//', $v ) ) ?
-						cleanUrl( $prefix . $v ) : 
-						cleanUrl( $v );
+					$v = prependPath( $v, $prefix );
 					break;
 					
 				default:
@@ -4285,9 +4295,7 @@ function markdown(
 			$u = \trim( $m[3] );
 			
 			// Use prefix for relative paths
-			$u = ( \preg_match( '/^\//', $u ) ) ?
-				cleanUrl( $prefix . $u ) : 
-				cleanUrl( $u );
+			$u = prependPath( $u, $prefix );
 			
 			// If this is a plain link
 			if ( empty( $i ) ) {
@@ -5787,7 +5795,7 @@ function extractFeature(
  *  Get summary or abstract from post
  */
 function extractSummary( array $find ) : string {
-	return html( $find['all'] ?? '' );
+	return html( $find['all'] ?? '', homeLink() );
 }
 
 /**
