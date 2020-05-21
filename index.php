@@ -458,14 +458,17 @@ HTML
 
 define( 'TPL_PAGE_NEXTPREV',		<<<HTML
 <div class="{nextprev_wrap_classes}">
-	<nav><ul>{links}</ul></nav>
+	<nav class="{nextprev_nav_classes}">
+		<ul class="{nextprev_ul_classes}">{links}</ul>
+	</nav>
 </div>
 HTML
 );
 
 define( 'TPL_SIBLINGNAV',	<<<HTML
 <div class="{sibling_wrap_classes}">
-	<nav class="{sibling_nav_classes}"><ul>{text}</ul></nav>
+	<nav class="{sibling_nav_classes}">
+		<ul class="{sibling_nav_ul_classes}">{links}</ul></nav>
 </div>
 HTML
 );
@@ -586,12 +589,13 @@ define( 'DEFAULT_CLASSES', <<<JSON
 	
 	"sibling_wrap_classes"		: "content",
 	"sibling_nav_classes"		: "siblings",
+	"sibling_nav_ul_classes"	: "",
 	
 	"related_wrap_classes"		: "content",
 	"related_nav_classes"		: "related",
 	
 	"nextprev_wrap_classes"		: "content", 
-	"nextprev_classes"		: "siblings",
+	"nextprev_nav_classes"		: "siblings",
 	"nextprev_ul_classes"		: "",
 	"nextprev_next_classes"		: "",
 	"nextprev_next_a_classes"	: "",
@@ -7102,7 +7106,7 @@ function getSiblings( string $path ) : string {
 	}
 	
 	return render( 
-		\TPL_PAGE_NEXTPREV, [ 'links' => $out ] 
+		\TPL_SIBLINGNAV, [ 'links' => $out ] 
 	);
 }
 
