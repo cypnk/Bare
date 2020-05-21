@@ -104,12 +104,6 @@ define( 'SUMMARY_LEVEL',	0 );
 define( 'SAFE_EXT',	
 	'css, js, ico, txt, html, jpg, jpeg, gif, bmp, png, tif, tiff, ttf, otf' );
 
-// Form nonce size
-define( 'TOKEN_BYTES', 		8 );
-
-// Form token nonce hash
-define( 'NONCE_HASH',		'tiger160,4' );
-
 // Show sibling (next/previous published) posts
 define( 'SHOW_SIBLINGS',	1 );
 
@@ -123,13 +117,20 @@ define( 'RELATED_LIMIT',	5 );
 define( 'SHOW_MODIFIED',	0 );
 
 // Lines from the bottom of each post to search for features I.E. Summary and tags
+// I.E. "Search somewhere in the bottom X lines for features." Up to 10
 define( 'FEATURE_LINES',	5 );
+
+// Form nonce size
+define( 'TOKEN_BYTES', 		8 );
+
+// Form token nonce hash
+define( 'NONCE_HASH',		'tiger160,4' );
 
 // Default post content type
 define( 'POST_TYPE',		'blogpost' );
 
 // Comma delimited content types which have their read times calculated
-// blogpost, news, etc...
+// blogpost, news etc...
 define( 'READTIME_TYPES',	'blogpost' );
 
 // Maximum log file size before rolling over (in bytes)
@@ -148,17 +149,24 @@ define( 'SCRIPT_LIMIT',		10 );
 define( 'APP_NAME',		'Bare' );
 
 // Static resource relative path for JS, CSS, static images etc...
+// When using '/' the default path, Bare will load files from the FILE_PATH
 define( 'SHARED_ASSETS',		'/' );
+
+
+
+/**
+ *  Templates and customization
+ */
 
 // List of stylesheets to load from SHARED_ASSETS (one per line)
 define( 'DEFAULT_STYLESHEETS',		<<<LINES
 {shared_assets}style.css
+
 LINES
 );
 
 // Default JavaScript files
 define( 'DEFAULT_SCRIPTS',		<<<LINES
-
 
 LINES
 );
@@ -309,8 +317,9 @@ define( 'TPL_SEARCHFORM',	<<<HTML
 <form action="{home}" method="get" 
 	class="{form_classes} {search_form_classes}">
 {xsrf}
-<input type="search" name="find" placeholder="{lang:forms:search:placeholder}" required> 
-	<input type="submit" value="{lang:forms:search:button}">
+<input type="search" name="find" placeholder="{lang:forms:search:placeholder}" 
+	class="{input_classes}" required> 
+<input type="submit" class="{submit_classes}" value="{lang:forms:search:button}">
 </form>
 HTML
 );
@@ -353,11 +362,12 @@ HTML
 
 // General post template
 define( 'TPL_POST',		<<<HTML
-<article>
-	<header>
+<article class="{post_item_wrap}">
+	<header class="{post_heading}">
 	<div class="{post_heading_wrap}">
-		<h2><a href="{permalink}">{title}</a></h2>
-		<time datetime="{date_utc}">{date_stamp}</time> {read_time}
+		<h2 class="{post_heading_h}"><a href="{permalink}">{title}</a></h2>
+		<time datetime="{date_utc}"
+			class="{post_pub}">{date_stamp}</time> {read_time}
 	</div>
 	</header>
 	<div class="{post_body_wrap}">
@@ -404,17 +414,37 @@ HTML
 );
 
 define( 'TPL_PAGE_NAV_LINK',	<<<HTML
-	<li><a href="{url}">{text}</a></li>
+<li class="{nav_link_classes}">
+	<a href="{url}" class="{nav_link_a_classes}">{text}</a>
+</li>
+HTML
+);
+
+define( 'TPL_NP_PREVLINK',		<<<HTML
+<li class="{nextprev_prev_classes}">
+	&lt; <a href="{url}" class="{nextprev_prev_a_classes}">{text}</a>
+</li>
+HTML
+);
+
+define( 'TPL_NP_NEXTLINK',		<<<HTML
+<li class="{nextprev_next_classes}">
+	<a href="{url}" class="{nextprev_next_a_classes}">{text}</a> &gt;
+</li>
 HTML
 );
 
 define( 'TPL_PREVLINK',		<<<HTML
-	<li>&lt; <a href="{url}">{text}</a></li>
+<li class="{nav_prev_classes}">
+	&lt; <a href="{url}" class="{nav_prev_a_classes}">{text}</a>
+</li>
 HTML
 );
 
 define( 'TPL_NEXTLINK',		<<<HTML
-	<li><a href="{url}">{text}</a> &gt;</li>
+<li class="{nav_next_classes}">
+	<a href="{url}" class="{nav_next_a_classes}">{text}</a> &gt;
+</li>
 HTML
 );
 
@@ -441,16 +471,17 @@ HTML
 );
 
 define( 'TPL_INDEX_WRAP',	<<<HTML
-<div class="content">
-<ul class="index">{items}</ul>
+<div class="{post_index_wrap_classes}">
+	<ul class="{post_index_ul_wrap_classes}">{items}</ul>
 </div>
 HTML
 );
 
 define( 'TPL_INDEX',		<<<HTML
-	<li><time datetime="{date_utc}">{date_stamp}</time>
-		<a href="{permalink}">{title}</a>
-		{read_time} {tags}</li>
+<li class="{post_index_item_classes}">
+	<time datetime="{date_utc}">{date_stamp}</time> 
+	<a href="{permalink}">{title}</a> {read_time} {tags}
+</li>
 HTML
 );
 
@@ -503,8 +534,16 @@ define( 'DEFAULT_CLASSES', <<<JSON
 	
 	"about_classes"			: "content",
 	
+	"post_index_wrap_classes"	: "content",
+	"post_index_ul_wrap_classes"	: "index",
+	"post_index_item_classes"	: "",
+	
+	"post_item_wrap"		: "",
+	"post_heading"			: "",
+	"post_heading_h"		: "",
 	"post_heading_wrap"		: "content",
 	"post_body_wrap"		: "content",
+	"post_pub"			: "",
 	
 	"footer_wrap_classes"		: "content", 
 	"footer_nav_classes"		: "",
@@ -542,6 +581,10 @@ define( 'DEFAULT_CLASSES', <<<JSON
 	"nextprev_wrap_classes"		: "content", 
 	"nextprev_classes"		: "siblings",
 	"nextprev_ul_classes"		: "",
+	"nextprev_next_classes"		: "",
+	"nextprev_next_a_classes"	: "",
+	"nextprev_prev_classes"		: "",
+	"nextprev_prev_a_classes"	: "",
 	
 	"nav_current_classes"		: "",
 	"nav_current_s_classes"		: "",
@@ -2047,7 +2090,13 @@ function homeLink() : string {
  *  Syndication feed link
  */
 function feedLink() : string {
-	return homelink() . eventRoutePrefix( 'feed', 'feed' );
+	static $feed;
+	if ( isset( $feed ) ) {
+		return $feed;
+	}
+	
+	$feed = homelink() . eventRoutePrefix( 'feed', 'feed' );
+	return $feed;
 }
 
 /**
@@ -2067,10 +2116,10 @@ function navHome() : string {
 		return $html;
 	}
 	
-	$home = 
-	\strtr( TPL_LINK ?? '', [ 
-		'{url}' => $url, 
-		'{text}'=> TPL_HOME ?? ''
+	$home	= 
+	render( TPL_LINK ?? '', [ 
+		'url'	=> $url, 
+		'text'	=> TPL_HOME ?? ''
 	] );
 	
 	return $home;
@@ -2112,18 +2161,17 @@ function paginate( int $page, string $prefix, array $posts ) : string {
 		$p	= ( $pm1 > 1 )? 
 				( $prefix . 'page' . $pm1 ) : $prefix;
 		$out	.= 
-		\strtr( TPL_LINK ?? '', [ 
-			'{url}'		=> $p,
-			'{text}'	=> TPL_PREVIOUS ?? ''
+		render( TPL_PREVLINK ?? '', [ 
+			'url'	=> $p,
+			'text'	=> TPL_PREVIOUS ?? ''
 		] ); 
 	}
 	
 	if ( $c >= $plimit ) {
 		$out	.=
-		\strtr( TPL_LINK ?? '', [ 
-			'{url}'		=> 
-				$prefix . 'page'. ( $page + 1 ),
-			'{text}'	=> TPL_NEXT ?? ''
+		render( TPL_NEXTLINK ?? '', [ 
+			'url'	=> $prefix . 'page'. ( $page + 1 ),
+			'text'	=> TPL_NEXT ?? ''
 		] ); 
 	}
 	
@@ -2363,15 +2411,12 @@ function renderRegions( string $tpl ) : string {
  */
 function render(
 	string	$tpl,
-	array	$segments	= [],
+	array	$input	= [],
 	bool	$full		= false 
 ) {	
 	// Always set home and feed
-	$segments['home'] = 
-	$segments['home'] ?? homeLink();
-	
-	$segments['feedlink'] = 
-	$segments['feedlink'] ?? feedLink();
+	$input['home']		= $input['home']	?? homeLink();
+	$input['feedlink']	= $input['feedlink']	?? feedLink();
 	
 	// Full render?
 	$tpl		= $full ? 
@@ -2388,7 +2433,7 @@ function render(
 	// Set content in regions or place empty string
 	foreach( $regions as $k => $v ) {
 		// Set render content or clear it
-		$out['{' . $v .'}'] =  $segments[$v] ?? '';
+		$out['{' . $v .'}'] =  $input[$v] ?? '';
 	}
 	
 	$tpl		= parseLang( \strtr( $tpl, $out ) );
@@ -6886,11 +6931,7 @@ function searchForm() : string {
 		'{token}'	=> $pair['token']
 	] );
 	
-	return 
-	\strtr( parseLang( \TPL_SEARCHFORM ?? '' ), [
-		'{xsrf}'	=> $xsrf,
-		'{home}'	=> homeLink()
-	] );
+	return render( \TPL_SEARCHFORM ?? '', [ 'xsrf' => $xsrf ] );
 }
 
 /**
@@ -6975,16 +7016,16 @@ function previewLink(
 		case 'prev':
 		case 'previous':
 			return
-			\strtr( \TPL_PREVLINK ?? '', [ 
-				'{url}'		=> $perm,
-				'{text}'	=> $title
+			render( \TPL_NP_PREVLINK ?? '', [ 
+				'url'	=> $perm,
+				'text'	=> $title
 			] ); 
 			
 		case 'next':
 			return
-			\strtr( \TPL_NEXTLINK ?? '', [ 
-				'{url}'		=> $perm,
-				'{text}'	=> $title
+			render( \TPL_NP_NEXTLINK ?? '', [ 
+				'url'	=> $perm,
+				'text'	=> $title
 			] ); 
 			
 		default: 
