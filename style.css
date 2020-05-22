@@ -1,3 +1,5 @@
+@charset "UTF-8"
+
 /**
  *  Bare default theme https://github.com/cypnk/Bare
  */
@@ -12,8 +14,13 @@ html {
 	font-size: 100%;
 }
 
-article, aside, footer, header, nav, section, blockquote {
+article, aside, footer, figure, figcaption, details, header, main, nav, summary, section, blockquote {
 	display: block;
+}
+
+audio:not([controls]) {
+	display: none;
+	height: 0
 }
 
 body {
@@ -91,6 +98,30 @@ header .readtime:before {
 	content: ' | ';
 }
 
+header time:before, header .readtime:after {
+	content: ' ';
+	text-align: center;
+	display: block;
+	clear: both;
+	width: 30%;
+	display: block;
+	vertical-align: middle;
+	padding: .8em 0 0;
+	border-bottom: 1px solid #ddd
+}
+
+header time:before,header .readtime:after {
+	width: 28%
+}
+
+header time:before {
+	float: left
+}
+
+header time:after, header .readtime:after {
+	float: right
+}
+
 footer {
 	font-size: .875rem;
 	text-align: center;
@@ -132,8 +163,8 @@ hr {
 }
 
 code, kbd, pre, samp {
-    font-family: monospace,serif;
-    font-size: 1em
+	font-family: monospace,serif;
+	font-size: 1em
 }
 
 code {
@@ -157,12 +188,12 @@ img, a img {
 }
 
 article img, article figure {
-    display: block;
-    height: auto;
-    width: 100%;
-    padding: .5rem;
-    border: 1px solid #dcdcdc;
-    margin: 1em auto;
+	display: block;
+	height: auto;
+	width: 100%;
+	padding: .5rem;
+	border: 1px solid #dcdcdc;
+	margin: 1em auto;
 }
 
 article figure img {
@@ -179,8 +210,8 @@ figcaption {
 }
 
 .center {
-    display: block;
-    text-align: center
+	display: block;
+	text-align: center
 }
 
 ul, ol {
@@ -303,6 +334,25 @@ input[type="search"] {
 	appearance: textfield;
 	background: #fff;
 	border: 1px solid #dcdcdc;
+}
+
+
+@media screen and ( max-width: 800px ) {
+	header time:before,header time:after {
+		width:30%
+	}
+}
+
+@media screen and ( max-width: 640px ) {
+	header time:before,header .readtime:after {
+		width: 20%
+	}
+}
+
+@media screen and ( max-width: 400px ) {
+	header time:before, header .readtime:after,header {
+		display:none
+	}
 }
 
 
