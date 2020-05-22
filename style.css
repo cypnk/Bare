@@ -98,30 +98,6 @@ header .readtime:before {
 	content: ' | ';
 }
 
-header time:before, header .readtime:after {
-	content: ' ';
-	text-align: center;
-	display: block;
-	clear: both;
-	width: 30%;
-	display: block;
-	vertical-align: middle;
-	padding: .8em 0 0;
-	border-bottom: 1px solid #ddd
-}
-
-header time:before,header .readtime:after {
-	width: 28%
-}
-
-header time:before {
-	float: left
-}
-
-header time:after, header .readtime:after {
-	float: right
-}
-
 footer {
 	font-size: .875rem;
 	text-align: center;
@@ -338,21 +314,15 @@ input[type="search"] {
 
 
 @media screen and ( max-width: 800px ) {
-	header time:before,header time:after {
-		width:30%
-	}
+	
 }
 
 @media screen and ( max-width: 640px ) {
-	header time:before,header .readtime:after {
-		width: 20%
-	}
+	
 }
 
 @media screen and ( max-width: 400px ) {
-	header time:before, header .readtime:after,header {
-		display:none
-	}
+	
 }
 
 
