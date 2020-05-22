@@ -398,7 +398,7 @@ HTML
 );
 
 define( 'TPL_MAINNAV_WRAP', <<<HTML
-<nav class="main"><ul>{links}</ul></nav>
+<nav class="{main_nav_classes}"><ul>{links}</ul></nav>
 HTML
 );
 
