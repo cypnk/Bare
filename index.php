@@ -496,6 +496,13 @@ define( 'TPL_INDEX',		<<<HTML
 HTML
 );
 
+define( 'TPL_INDEX_HEADER',	<<<HTML
+<li class="{post_index_header_classes}">
+	<h3 class="{post_index_header_h_classes}>{title}</h3>
+</li>
+HTML
+);
+
 // Language placeholders
 define( 'TPL_PREVIOUS',		'{lang:nav:previous}' );
 define( 'TPL_NEXT',		'{lang:nav:next}' );
@@ -550,6 +557,8 @@ define( 'DEFAULT_CLASSES', <<<JSON
 	
 	"post_index_wrap_classes"	: "content",
 	"post_index_ul_wrap_classes"	: "index",
+	"post_index_header_classes"	: "",
+	"post_index_header_h_classes"	: "",
 	"post_index_item_classes"	: "",
 	
 	"post_wrap_classes"		: "",
@@ -6224,72 +6233,76 @@ function loadIndex( int $start = 0, int $limit = 0 ) : array {
 			continue;
 		}
 		
-		if ( $file->isDir() ) {
-			$lastDir	= $path;
-			if ( empty( $posts[$lastDir] ) ) {
-				$posts[$lastDir] = [];
-			}
-		} else {
-			// Check if it's a post
-			if ( !isPost( $file ) ) {
-				continue;
-			}
+		// Check if it's a post
+		if ( !isPost( $file ) ) {
+			continue;
+		}
+		
+		// Not in published range?
+		$pub		= getPub( $path );
+		if ( !checkPub( $pub ) ) {
+			continue;
+		}
+		
+		// No post content?
+		$post		= loadText( $raw );
+		if ( empty( $post ) || false == $post ) {
+			continue;
+		}
+		
+		// Create archive directory (by year)
+		$lastDir	= \ltrim( $path, '/' );
+		$lastDir	= 
+		( false === \strpos( $lastDir, '/' ) ) ?
+			$lastDir : \substr( $lastDir, 0, \strpos( $path, '/' ) );
+		
+		if ( !isset( $posts[$lastDir] ) ) {
+			$posts[$lastDir]	= [];
+		}
+		
+		// Updated date
+		$mtime		= \filemtime( $raw );
+		if ( false === $mtime ) {
+			$mtime = time();
+		}
 			
-			$pub		= getPub( $path );
-			if ( !checkPub( $pub ) ) {
-				continue;
-			}
-			
-			$post		= loadText( $raw );
-			if ( empty( $post ) || false == $post ) {
-				continue;
-			}
-			
-			// Updated date
-			$mtime		= \filemtime( $raw );
-			if ( false === $mtime ) {
-				$mtime = time();
-			}
-			
-			$summ		= '';
-			$tags		= [];
-			$type		= '';
-			$rtime		= 0;
-			
-			// Apply metadata
-			metadata( $title, $perm, $pub, $post, $path );
-			
-			// Load formatted and process features
-			$out		= 
-			formatPost( 
-				$title, $tags, $summ, $type, $rtime, $post, 
-				$path, $tpl, 0, $fline
-			);
-			
-			// Arrange index for presentation
-			
-			// Limited index?
-			if ( $limited ) {
-				if ( $i >= $start && $j <= $limit ) {
-					$posts[$lastDir][] = 
-					formatMeta( $title, $type, $pub, $path, 
-						$rtime, $tags );
-					$j++;
-				}
-			
-			// Full index?
-			} else {
+		$summ		= '';
+		$tags		= [];
+		$type		= '';
+		$rtime		= 0;
+		
+		// Apply metadata
+		metadata( $title, $perm, $pub, $post, $path );
+		
+		// Load formatted and process features
+		$out		= 
+		formatPost( 
+			$title, $tags, $summ, $type, $rtime, $post, 
+			$path, $tpl, 0, $fline
+		);
+		
+		// Arrange index for presentation
+		
+		// Limited index?
+		if ( $limited ) {
+			if ( $i >= $start && $j <= $limit ) {
 				$posts[$lastDir][] = 
 				formatMeta( $title, $type, $pub, $path, $rtime, $tags );
+				$j++;
 			}
-			
-			// Create tags and cache page info
-			insertPost( $pstm, $perm, $summ, $type, $out, $pub, $mtime );
-			insertTags( $istm, $tags );
-			applyTags( $sstm, $tstm, $perm, $tags );
-			
-			$i++;
+		
+		// Full index?
+		} else {
+			$posts[$lastDir][] = 
+			formatMeta( $title, $type, $pub, $path, $rtime, $tags );
 		}
+		
+		// Create tags and cache page info
+		insertPost( $pstm, $perm, $summ, $type, $out, $pub, $mtime );
+		insertTags( $istm, $tags );
+		applyTags( $sstm, $tstm, $perm, $tags );
+		
+		$i++;
 	}
 	
 	// Cleanup
@@ -7766,19 +7779,33 @@ function runIndex( string $event, array $hook, array $params ) {
 	// Default index render
 	$out	= '';
 	
-	$prefix	= slashPath( homeLink(), true ) . 'archive/'; 
-	$tpl	= TPL_INDEX ?? '';
+	$prefix	= slashPath( homeLink(), true ) . 'archive/';
 	$out	= '';
 	$pf	= '';
 	$plist	= [];
 	foreach( $posts as $k => $v ) {
+		// Archive year
+		$e = ( string ) $k;
+		$d = '';
+		if ( empty( $d ) && \is_numeric( $e ) ) {
+			$d	= $e;
+			$out	.= 
+			hookWrap(
+				'beforeitempostheading', 
+				'afteritempostheading', 
+				\TPL_INDEX_HEADER, 
+				[ 'title' => $e ]
+			);
+		}
+		
+		// Post render
 		if ( is_array( $v ) ) {
 			foreach( $v as $p ) {
 				$pf		= 
 				hookWrap(
 					'beforepostitem', 
 					'afterpostitem', 
-					$tpl, 
+					\TPL_INDEX, 
 					$p 
 				);
 				$plist[]	= $pf;
