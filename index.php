@@ -498,7 +498,7 @@ HTML
 
 define( 'TPL_INDEX_HEADER',	<<<HTML
 <li class="{post_index_header_classes}">
-	<h3 class="{post_index_header_h_classes}>{title}</h3>
+	<h3 class="{post_index_header_h_classes}">{title}</h3>
 </li>
 HTML
 );
