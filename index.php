@@ -6233,6 +6233,21 @@ function loadIndex( int $start = 0, int $limit = 0 ) : array {
 			continue;
 		}
 		
+		// Skip folders
+		if ( $file->isDir() ) {
+			continue;
+		}
+		
+		// Create archive directory (by year)
+		$lastDir	= \ltrim( $path, '/' );
+		$lastDir	= 
+		( false === \strpos( $lastDir, '/' ) ) ? 
+			$lastDir : \substr( $path, 0, \strpos( $path, '/' ) );
+		
+		if ( !isset( $posts[$lastDir] ) ) {
+			$posts[$lastDir]	= [];
+		}
+		
 		// Check if it's a post
 		if ( !isPost( $file ) ) {
 			continue;
@@ -6248,16 +6263,6 @@ function loadIndex( int $start = 0, int $limit = 0 ) : array {
 		$post		= loadText( $raw );
 		if ( empty( $post ) || false == $post ) {
 			continue;
-		}
-		
-		// Create archive directory (by year)
-		$lastDir	= \ltrim( $path, '/' );
-		$lastDir	= 
-		( false === \strpos( $lastDir, '/' ) ) ?
-			$lastDir : \substr( $lastDir, 0, \strpos( $path, '/' ) );
-		
-		if ( !isset( $posts[$lastDir] ) ) {
-			$posts[$lastDir]	= [];
 		}
 		
 		// Updated date
@@ -6311,7 +6316,7 @@ function loadIndex( int $start = 0, int $limit = 0 ) : array {
 	$sstm	= null;
 	$tstm	= null;
 	
-	internalState( 'indexRun', true );	
+	internalState( 'indexRun', true );
 	return \array_filter( $posts );
 }
 
@@ -7791,10 +7796,10 @@ function runIndex( string $event, array $hook, array $params ) {
 			$d	= $e;
 			$out	.= 
 			hookWrap(
-				'beforeitempostheading', 
-				'afteritempostheading', 
+				'beforepostitemheading',
+				'beforepostitemheading',
 				\TPL_INDEX_HEADER, 
-				[ 'title' => $e ]
+				[ 'title' => $d ]
 			);
 		}
 		
