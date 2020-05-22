@@ -313,6 +313,10 @@ input[type="search"] {
 	border: 1px solid #dcdcdc;
 }
 
+header input[type="search"] {
+	min-width: 50%;
+}
+
 
 @media screen and ( max-width: 800px ) {
 	
