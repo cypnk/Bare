@@ -754,6 +754,13 @@ define( 'TAG_WHITE',	<<<JSON
 	"th"		: [ "style", "class", "scope", 
 				"colspan", "rowspan" ],
 	
+	"caption"	: [ "style", "class" ],
+	"col"		: [ "style", "class" ],
+	"colgroup"	: [ "style", "class" ],
+	
+	"summary"	: [ "style", "class" ],
+	"details"	: [ "style", "class" ],
+	
 	"q"		: [ "style", "class", "cite" ],
 	"cite"		: [ "style", "class" ],
 	"abbr"		: [ "style", "class" ],
@@ -1451,7 +1458,7 @@ function logError( string $err, bool $app = true ) : bool {
 	if ( !file_exists( $file ) ) {
 		// Create header
 		$header =
-		'#Software: ' . labelName( \APP_NAME ) . "\n#Date: $dt\n#Fields: ";
+		'#Software: ' . title( \APP_NAME ) . "\n#Date: $dt\n#Fields: ";
 		
 		// Application errors have simpler headers
 		$header .= $app ? 
@@ -2256,8 +2263,11 @@ function loadClasses() {
 	}
 		
 	$cv	= [];
+	
+	// Add new or appened classes while removing duplicates
 	foreach( $cls as $k => $v ) {
-		$cv['{' . $k . '}'] = bland( $v );
+		$cv['{' . $k . '}'] = 
+			\implode( ' ', uniqueTerms( bland( $v ) ) );
 	}
 	return $cv;
 }
@@ -2908,15 +2918,16 @@ function defaultCookieOptions( array $options = [] ) : array {
  *  @return mixed
  */
 function getCookie( string $name, $default ) {
-	if ( !isset( $_COOKIE[\APP_NAME] ) ) {
+	$app = title( \APP_NAME );
+	if ( !isset( $_COOKIE[$app] ) ) {
 		return $default;
 	}
 	
-	if ( !is_array( $_COOKIE[\APP_NAME]) ) {
+	if ( !is_array( $_COOKIE[$app]) ) {
 		return $default;
 	}
 	
-	return $_COOKIE[\APP_NAME][$name] ?? $default;
+	return $_COOKIE[$app][$name] ?? $default;
 }
 
 /**
@@ -2937,13 +2948,13 @@ function makeCookie( string $name, $data, array $options = [] ) : bool {
 	] ] );
 	if ( newPHP() ) {
 		return 
-		\setcookie( \APP_NAME . "[$name]", $data, $options );
+		\setcookie( title( \APP_NAME ) . "[$name]", $data, $options );
 	}
 	
 	// PHP < 7.3
 	return 
 	\setcookie( 
-		\APP_NAME . "[$name]", 
+		title( \APP_NAME ) . "[$name]", 
 		$data,
 		$options['expires'],
 		$options['path'],
@@ -4168,7 +4179,7 @@ function tidyup( string $text ) : string {
 		'merge-spans'				=> 1,
 		'show-body-only'			=> 1,
 		'new-blocklevel-tags'			=> 
-			'figure, figcaption, picture',
+			'figure, figcaption, picture, summary, details',
 		'wrap'					=> 0
 	];
 	
