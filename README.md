@@ -113,7 +113,12 @@ following example **composer.json**:
 ```
 
 ## Content formatting
-
+To embed a previously uploaded image file, use markdown syntax:
+```
+![alt text](https://example.com/filename.jpg)
+or 
+![alt text](/path/to/filename.jpg)
+```
 HTML is filtered of potentially harmful tags, however embedding videos  
 to YouTube, Vimeo, PeerTube, or Archive.org is supported via shortcodes
 ```
@@ -154,12 +159,7 @@ For PeerTube (any instance):
 
 Note: Remember to add the PeerTube instance URL to the list of  
 URLs in FRAME_WHITELIST (one per line)
-``` 
-
-To embed a previously uploaded image file, use markdown syntax:
 ```
-![alt text](https://example.com/filename.jpg)
-``` 
 
 ## Custom errors (optional)
 
