@@ -153,6 +153,14 @@ define( 'APP_NAME',		'Bare' );
 // When using '/' the default path, Bare will load files from the FILE_PATH
 define( 'SHARED_ASSETS',		'/' );
 
+// Whitelist of approved frame sources for embedding media (one per line)
+define( 'FRAME_WHITELIST',	<<<LINES
+https://www.youtube.com
+https://player.vimeo.com
+https://archive.org
+https://peertube.mastodon.host
+LINES
+);
 
 
 /**
@@ -792,7 +800,7 @@ define( 'DEFAULT_JCSP',		<<<JSON
 	"style-src"		: "'self'",
 	"script-src"		: "'self'",
 	"form-action"		: "'self'",
-	"frame-ancestors"	: "'self' https:\/\/www.youtube.com https:\/\/player.vimeo.com https:\/\/archive.org"
+	"frame-ancestors"	: "'self'"
 }
 JSON
 );
@@ -1594,13 +1602,18 @@ function lines( string $text, int $lim = -1, bool $tr = true ) : array {
  *  
  *  @param string	$text	Lined settings (one per line)
  *  @param int		$lim	Maximum number of items
+ *  @param string	$filter	Optional filter name to apply
  *  @return array
  */
-function lineSettings( string $text, int $lim ) : array {
+function lineSettings( string $text, int $lim, string $filter = '' ) : array {
 	$ln = \array_unique( lines( $text ) );
 	
-	return ( count( $ln ) > $lim ) ? 
+	$rt = ( ( count( $ln ) > $lim ) && $lim > -1 ) ? 
 		\array_slice( $ln, 0, $lim ) : $ln;
+	
+	return 
+	( !empty( $filter ) && \is_callable( $filter ) ) ? 
+		\array_map( $filter, $rt ) : $rt;
 }
 
 /**
@@ -4514,8 +4527,15 @@ function preamble(
 	if ( $send_csp ) {
 		$cjp = decode( DEFAULT_JCSP );
 		$csp = 'Content-Security-Policy: ';
+		
+		// Approved frame ancestors ( for embedding media )
+		$raw = lineSettings( \FRAME_WHITELIST, -1, 'cleanUrl' );
+		$frm = \implode( ' ', $raw );
+		
 		foreach ( $cjp as $k => $v ) {
-			$csp .= "$k $v;";
+			$csp .= 
+			( 0 == \strcmp( $k, 'frame-ancestors' ) ) ? 
+				"$k $v $frm;" : "$k $v;";
 		}
 		\header( \rtrim( $csp, ';' ), true );
 	
