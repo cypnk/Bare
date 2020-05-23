@@ -537,6 +537,60 @@ $templates['tpl_item']		= <<<XML
 XML;
 
 
+// Embeded media templates
+$templates['tpl_audio_embed']	= <<<HTML
+<div class="media"><audio src="{src}" controls></audio></div>
+HTML;
+
+$templates['tpl_video_np_embed'] =<<<HTML
+<div class="media">
+	<video width="560" height="315" src="{src}" controls></video>
+</div>
+HTML;
+
+$templates['tpl_video_embed'] =<<<HTML
+<div class="media">
+	<video width="560" height="315" src="{src}" poster="{preview}" controls></video>
+</div>
+HTML;
+
+
+// Hosted media templates
+$templates['tpl_youtube']	= <<<HTML
+<div class="media">
+	<iframe width="560" height="315" frameborder="0" 
+		sandbox="allow-same-origin allow-scripts" 
+		src="https://www.youtube.com/embed/{src}" 
+		allowfullscreen></iframe>
+</div>
+HTML;
+
+$templates['tpl_vimeo']		= <<<HTML
+<div class="media">
+	<iframe width="500" height="281" frameborder="0" 
+		sandbox="allow-same-origin allow-scripts" 
+		src="https://player.vimeo.com/video/{src}?portrait=0" 
+		allowfullscreen></iframe>
+</div>
+HTML;
+
+$templates['tpl_peertube']	= <<<HTML
+<div class="media">
+	<iframe width="560" height="315" frameborder="0" 
+		sandbox="allow-same-origin allow-scripts" 
+		src="https://{src_host}/videos/embed/{src}" 
+		allowfullscreen></iframe>
+</div>
+HTML;
+
+$templates['tpl_archiveorg']	= <<<HTML
+<div class="media">
+	<iframe width="560" height="315" frameborder="0" 
+		sandbox="allow-same-origin allow-scripts" 
+		src="https://archive.org/embed/{src}" 
+		allowfullscreen></iframe></div>
+HTML;
+
 /**
  *  Overridable CSS classes on HTML elements and content segments
  */
@@ -4206,7 +4260,7 @@ function html( string $value, $prefix = '' ) : string {
 	\libxml_use_internal_errors( $err );
 	
 	// Apply embedded media
-	return embeds( $clean );
+	return embeds( $clean, $prefix );
 }
 
 /**
@@ -4243,52 +4297,87 @@ function tidyup( string $text ) : string {
  *  @param string	$html	Pre-filtered HTML to replace media tags
  *  @return string
  */
-function embeds( string $html ) : string {
-	$filter		= 
-	[
+function embeds( string $html, string $prefix = ''  ) : string {
+	static $hosted;
+	static $media;	// Locally uploaded
+	
+	// First run?
+	if ( !isset( $hosted ) ) {
+		$hosted	= 
+		[
 		// YouTube syntax
 		'/\[youtube http(s)?\:\/\/(www)?\.?youtube\.com\/watch\?v=([0-9a-z_]*)\]/is'
-		=> 
-		'<div class="media"><iframe width="560" height="315" src="https://www.youtube.com/embed/$3" frameborder="0" allowfullscreen></iframe></div>',
+		=> \strtr( template( 'tpl_youtube' ), [ '{src}' => '$3' ] ),
 		
 		'/\[youtube http(s)?\:\/\/(www)?\.?youtu\.be\/([0-9a-z_]*)\]/is'
-		=> 
-		'<div class="media"><iframe width="560" height="315" src="https://www.youtube.com/embed/$3" frameborder="0" allowfullscreen></iframe></div>',
+		=> \strtr( template( 'tpl_youtube' ), [ '{src}' => '$3' ] ),
 		
 		'/\[youtube ([0-9a-z_]*)\]/is'
-		=> 
-		'<div class="media"><iframe width="560" height="315" src="https://www.youtube.com/embed/$1" frameborder="0" allowfullscreen></iframe></div>',
+		=> \strtr( template( 'tpl_youtube' ), [ '{src}' => '$1' ] ),
 		
 		// Vimeo syntax
 		'/\[vimeo ([0-9]*)\]/is'
-		=> 
-		'<div class="media"><iframe src="https://player.vimeo.com/video/$1?portrait=0" width="500" height="281" frameborder="0" allowfullscreen></iframe></div>',
+		=> \strtr( template( 'tpl_vimeo' ), [ '{src}' => '$1' ] ),
 		
 		'/\[vimeo http(s)?\:\/\/(www)?\.?vimeo\.com\/([0-9]*)\]/is'
-		=> 
-		'<div class="media"><iframe src="https://player.vimeo.com/video/$3?portrait=0" width="500" height="281" frameborder="0" allowfullscreen></iframe></div>',
+		=> \strtr( template( 'tpl_vimeo' ), [ '{src}' => '$3' ] ),
 		
-		// Peertube
+		// Peertube (any instance)
 		'/\[peertube http(s)?\:\/\/(.*?)\/videos\/watch\/([0-9\-a-z_]*)\]/is'
-		=>
-		'<div class="media"><iframe width="560" height="315" sandbox="allow-same-origin allow-scripts" src="https://$2/videos/embed/$3" frameborder="0" allowfullscreen></iframe></div>',
+		=> \strtr( template( 'tpl_peertube' ), [ '{src_host}' => '$2', '{src}' => '$3' ] ),
 		
 		// Archive.org
 		'/\[archive http(s)?\:\/\/(www)?\.?archive\.org\/details\/([0-9\-a-z_\/\.]*)\]/is'
-		=>
-		'<div class="media"><iframe width="560" height="315" sandbox="allow-same-origin allow-scripts" src="https://archive.org/embed/$3" frameborder="0" allowfullscreen></iframe></div>',
+		=> \strtr( template( 'tpl_archiveorg' ), [ '{src}' => '$3' ] ),
 		
 		'/\[archive ([0-9a-z_\/\.]*)\]/is'
-		=> 
-		'<div class="media"><iframe width="560" height="315" src="https://archive.org/embed/$1" frameborder="0" allowfullscreen></iframe></div>'
-	];
+		=> \strtr( template( 'tpl_archiveorg' ), [ '{src}' => '$1' ] )
+		];
+	}
+	
+	if ( !isset( $media ) ) {
+		// Uploaded media embedding
+		$media	= [
+		'/\[(audio|video) (?:\((.*?)\))?([^\[]+)\]/s'	=> 
+		function( $m ) use ( $prefix ) {
+			$i = \trim( $m[1] );		// Media type
+			$p = \trim( $m[2] ?? '' );	// Thumbnail or preview
+			
+			// Use prefix for relative paths
+			$u = prependPath( \trim( $m[3] ), $prefix );
+			
+			switch( $i ) {
+				case 'audio':
+					return 
+					\strtr( template( 'tpl_audio_embed' ), [ '{src}' => $u ] );
+				
+				case 'video':
+					return empty( $p ) ? 
+					// No preview
+					\strtr( template( 'tpl_video_np_embed' ), [ '{src}' => $u ] ) : 
+					
+					// With preview
+					\strtr( template( 'tpl_video_embed' ), [ 
+						'{preview}'	=> prependPath( $p, $prefix ),
+						'{src}'		=> $u 
+					] );
+					
+				default:
+					return '';
+			}
+		}
+		];
+	}
 		
-	return 
+	$html	= 
 	\preg_replace( 
-		\array_keys( $filter ), 
-		\array_values( $filter ), 
+		\array_keys( $hosted ), 
+		\array_values( $hosted ), 
 		$html 
 	);
+	
+	return
+	\preg_replace_callback_array( $media, $html );
 }
 
 /**
@@ -4347,8 +4436,11 @@ function markdown(
 		return $parse->text( $html );
 	}
 	
-	$filters	= 
-	[
+	static $filters;
+	
+	if ( !isset( $filters ) ) {
+		$filters	= 
+		[
 		// Links / Images with alt text and titles
 		'/(\!)?\[([^\[]+)\]\(([^\"\)]+)(?:\"(([^\"]|\\\")+)\")?\)/s'	=> 
 		function( $m ) use ( $prefix ) {
@@ -4451,7 +4543,8 @@ function markdown(
 				entities( $m[1], false, false ) 
 			);
 		}
-	];
+		];
+	}
 	
 	return
 	\preg_replace_callback_array( $filters, $html );
