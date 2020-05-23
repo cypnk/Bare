@@ -145,8 +145,8 @@ For PeerTube (any instance):
 
 [peertube https://peertube.mastodon.host/videos/watch/56047136-00eb-4296-afc3-dd213fd6bab0]
 
-Note: Remember to add the PeerTube instance URL to the content  
-security policy in DEFAULT_JCSP
+Note: Remember to add the PeerTube instance URL to the list of  
+URLs in FRAME_WHITELIST (one per line)
 ``` 
 
 To embed a previously uploaded image file, use markdown syntax:
