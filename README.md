@@ -119,7 +119,16 @@ following example **composer.json**:
 HTML is filtered of potentially harmful tags, however embedding videos  
 to YouTube, Vimeo, PeerTube, or Archive.org is supported via shortcodes
 ```
-E.G. For Youtube: 
+E.G. For uploaded video and audio:
+
+[video (/path/to/preview.jpg) /path/to/media.mp4]
+or 
+[video /path/to/media.mp4]
+
+[audio /path/to/file.mp3]
+
+
+For Youtube: 
 
 [youtube https://www.youtube.com/watch?v=RJ0ULhVKwEI]
 or
