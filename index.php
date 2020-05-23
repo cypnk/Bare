@@ -3458,9 +3458,12 @@ function dateNice( $stamp = null ) : string {
  *  Build permalink with page slug with date
  */
 function dateSlug( string $slug, string $stamp ) {
+	$ext = 
+	'.' . \pathinfo( $slug, \PATHINFO_EXTENSION ) ?? 'md';
+	
 	return getRoot() . 
 	\gmdate( 'Y/m/d/', \strtotime( $stamp ) ) . 
-	\ltrim( \basename( $slug, '.md' ), '/' );
+	\ltrim( \basename( $slug, $ext ), '/' );
 }
 
 /**
@@ -5675,19 +5678,25 @@ function refreshPost(
 /**
  *  Get single post data
  *  
- *  @param stirng	$title	Post title (first line)
- *  @param string	$path	Post publication permalink
+ *  @param stirng	$title		Post title (first line)
+ *  @param string	$path		Post publication permalink
+ *  @param bool		$nocache	Don't cache this post
+ *  @param string	$custom		Custom post type extension
  *  @return string
  */
 function loadPost(
 	string	&$title,
-	string	$path
+	string	$path, 
+	bool	$nocache	= false,
+	string	$custom		= ''
 ) {
 	$title	= '';
 	$summ	= '';
 	$type	= '';
 	$rtime	= 0;
-	$ppath	= POSTS . \ltrim( $path, '/' ) . '.md';
+	$ext	= empty( $custom ) ? '.md' : '.' . $custom;
+	$ppath	= POSTS . \ltrim( $path, '/' ) . $ext;
+	
 	$data	= loadText( $ppath );
 	
 	if ( empty( $data ) ) {
@@ -5697,15 +5706,21 @@ function loadPost(
 	$pub	= getPub( $path );
 	$fline	= config( 'feature_lines', \FEATURE_LINES, 'int' );
 	$tpl	= template( 'tpl_post' );
-	hook( [ 'formatpostprep', [ 'feed' => false, 'template' => $tpl ] ] );
+	hook( [ 'formatpostprep', [ 
+		'feed'		=> false, 
+		'template'	=> $tpl,
+		'fline'		=> $fline,
+		'nocache'	=> $nocache,
+		'custom'	=> $custom
+	] ] );
 	
 	$tags	= [];
 	$out	= 
 	formatPost( $title, $tags, $summ, $type, $rtime, $data, $path, $tpl, 0, 
-		$fline );
+		$fline, false, $custom );
 	
 	// If index has not been run before this function was called...
-	if ( !internalState( 'indexRun' ) ) {
+	if ( !internalState( 'indexRun' ) && !$nocache ) {
 		$mtime	= \filemtime( $ppath );
 		
 		// filemtime() failed?
@@ -5985,53 +6000,61 @@ function postFeatures( array &$post, int $flines ) : array {
 /**
  *  Insert formatted tags into cache
  */
-function insertTags( $stm, array $tags ) {
+function insertTags( $stm, array $tags ) : bool {
+	$st = false;
 	foreach( $tags as $pair ) {
+		$st	= 
 		$stm->execute( [ 
 			':slug' => $pair['slug'], 
 			':term' => $pair['term'] 
-		] );
+		] ) || $st;
 	}
+	
+	return $st;
 }
 
 /**
  *  Associate post with given tags
  */
-function applyTags( $sstm, $tstm, string $perm, array $tags ) {
+function applyTags( $sstm, $tstm, string $perm, array $tags ) : bool {
 	$id = 0;
 	
 	if ( $sstm->execute( [ ':perm' => $perm ] ) ) {
 		$res	= $sstm->fetchAll();
 		$id	= ( int ) ( $res[0]['id'] ?? 0 );
 	} else { 
-		return; 
+		return false; 
 	}
 	
 	if ( empty( $id ) ) {
-		return;
+		return false;
 	}
 	
+	$st = false;
 	foreach( $tags as $pair ) {
+		$st	= 
 		$tstm->execute( [
 			':id'	=> $id,
 			':tag'	=> $pair['slug']
-		] );
+		] ) || $st;
 	}
+	
+	return $st;
 }
 
 
 /**
  *  Check if this is a post file (ends in ".md")
  */
-function isPost( $file ) : bool {
+function isPost( $file, string $custom = '' ) : bool {
 	// Skip directories
 	if ( $file->isDir() ) {
 		return false;
 	}
 	if ( $ext = $file->getExtension() ) {
-		if ( 0 == \strcasecmp( $ext, 'md' ) ) {
-			return true;
-		}
+		return empty( $custom ) ? 
+			( 0 == \strcasecmp( $ext, 'md' ) ) : 
+			( 0 == \strcasecmp( $ext, $custom ) );
 	}
 	return false;	
 }
@@ -6043,13 +6066,17 @@ function isPost( $file ) : bool {
  *  @param string	$prefix	Link prefix
  *  @param bool		$feed	Specify if this is a syndication feed
  *  @param int		$slvl	Summary display level
+ *  @param bool		$igpub	Ignore published date check
+ *  @param string	$custom	Custom post type
  *  @return array
  */
 function loadPosts(
 	int	$page	= 1,
 	string	$prefix	= '',
 	bool	$feed	= false,
-	int	$slvl	= 0
+	int	$slvl	= 0,
+	bool	$igpub	= false, 
+	string	$custom	= ''
 ) : array {
 	$it	= getPosts( $prefix );
 	if ( empty( $it ) ) {
@@ -6079,7 +6106,7 @@ function loadPosts(
 	foreach( $it as $file ) {
 		
 		// Check if it's a post
-		if ( !isPost( $file ) ) {
+		if ( !isPost( $file, $custom ) ) {
 			continue;
 		}
 		
@@ -6100,7 +6127,7 @@ function loadPosts(
 		
 		$pub		= getPub( $path );
 		// We're below offset
-		if ( $i >= $start && checkPub( $pub ) ) {
+		if ( $i >= $start && ( checkPub( $pub ) || $igpub ) ) {
 			$data		= loadText( $raw );
 			if ( empty( $data ) || false === $data ) {
 				continue;
@@ -6113,12 +6140,12 @@ function loadPosts(
 			$posts[$path]	= 
 			formatPost( 
 				$title, $tags, $summ, $type, $rtime, $data, 
-				$path, $tpl, $slvl, $fline
+				$path, $tpl, $slvl, $fline, false, $custom
 			);
 		}
 		
 		// Increment number of entries if published
-		if ( checkPub( $pub ) ) {
+		if ( checkPub( $pub ) || $igpub ) {
 			$i++;
 		}
 	}
@@ -6134,6 +6161,7 @@ function loadPosts(
  *  @param string	$out		Formatted post data
  *  @param string	$pub		Post publication date
  *  @param int		$mtime		File modified time
+ *  @return bool			True on success
  */
 function insertPost(
 			$pstm, 
@@ -6143,7 +6171,7 @@ function insertPost(
 	string		$out, 
 	string		$pub, 
 	int		$mtime 
-) {
+) : bool {
 	$params = [
 		':path'		=> slashPath( $path ), 
 		':pview'	=> $out, 
@@ -6153,7 +6181,12 @@ function insertPost(
 		':updated'	=> utc( $mtime ), 
 		':pub'		=> $pub
 	];
-	$pstm->execute( $params );
+	
+	if ( $pstm->execute( $params ) ) {
+		return true;
+	}
+	logError( 'Error inserting post ' . $path );
+	return false;
 }
 
 /**
@@ -6182,11 +6215,18 @@ function formatPostPrep( string $event, array $hook, array $params ) {
 /**
  *  Load all published posts into database cache
  *  
- *  @param int	$start	Return starting page index
- *  @param int	$limit	Maximum number of posts to return
+ *  @param int		$start	Return starting page index
+ *  @param int		$limit	Maximum number of posts to return
+ *  @param bool		$igpub	Ignore publish date
+ *  @param string	$custom	Custom post type
  *  @return array
  */
-function loadIndex( int $start = 0, int $limit = 0 ) : array {
+function loadIndex(
+	int	$start	= 0, 
+	int	$limit	= 0,
+	bool	$igpub	= false, 
+	string	$custom	= ''
+) : array {
 	$it	= getPosts();
 	if ( empty( $it ) ) {
 		return [];
@@ -6238,6 +6278,14 @@ function loadIndex( int $start = 0, int $limit = 0 ) : array {
 	// Find the about view path to skip
 	$about	= '/' . eventRoutePrefix( 'aboutview', 'about' ) .'/';
 	
+	
+	if ( $db->beginTransaction() ) {
+		// Success
+	} else {
+		logError( 'Error starting DB transaction in loadIndex()' );
+		die();
+	}
+	
 	foreach( $it as $file ) {
 		$raw	= $file->getRealPath();
 		$path	= filterDir( $raw );
@@ -6256,13 +6304,13 @@ function loadIndex( int $start = 0, int $limit = 0 ) : array {
 		}
 		
 		// Check if it's a post
-		if ( !isPost( $file ) ) {
+		if ( !isPost( $file, $custom ) ) {
 			continue;
 		}
 		
 		// Not in published range?
 		$pub		= getPub( $path );
-		if ( !checkPub( $pub ) ) {
+		if ( !checkPub( $pub ) && !$igpub ) {
 			continue;
 		}
 		
@@ -6300,7 +6348,7 @@ function loadIndex( int $start = 0, int $limit = 0 ) : array {
 		$out		= 
 		formatPost( 
 			$title, $tags, $summ, $type, $rtime, $post, 
-			$path, $tpl, 0, $fline, true
+			$path, $tpl, 0, $fline, true, $custom
 		);
 		
 		// Arrange index for presentation
@@ -6309,14 +6357,16 @@ function loadIndex( int $start = 0, int $limit = 0 ) : array {
 		if ( $limited ) {
 			if ( $i >= $start && $j <= $limit ) {
 				$posts[$lastDir][] = 
-				formatMeta( $title, $type, $pub, $path, $rtime, $tags );
+				formatMeta( $title, $type, $pub, $path, $rtime, $tags, 
+					true, $custom );
 				$j++;
 			}
 		
 		// Full index?
 		} else {
 			$posts[$lastDir][] = 
-			formatMeta( $title, $type, $pub, $path, $rtime, $tags );
+			formatMeta( $title, $type, $pub, $path, $rtime, $tags, 
+				true, $custom );
 		}
 		
 		// Create tags and cache page info
@@ -6326,6 +6376,9 @@ function loadIndex( int $start = 0, int $limit = 0 ) : array {
 		
 		$i++;
 	}
+	
+	// Commit new posts, new tags, or post-tag relationships
+	$db->commit();
 	
 	// Cleanup
 	$istm	= null;
@@ -6409,14 +6462,39 @@ function hasReadTime( string $type ) : bool {
 /**
  *  Apply post data to template placeholders
  */
-function formatMeta( $title, $type, $pub, $path, $rtime, $tags = [], $index = false ) : array {
+
+/**
+ *  Apply post data to template placeholders
+ *  
+ *  @param string	$title		Formatted post title
+ *  @param string	$type		Post content type, defaults to POST_TYPE
+ *  @param string	$pub		Publication datetime stamp
+ *  @param string	$path		Post permalink and URL slug
+ *  @param int		rtime		Reading time in minutes
+ *  @param bool		$index		Post formatting should match an index listing if true
+ *  @param string	$custom		Custom post type extension (without .)
+ *  @return array
+ *  
+ */
+function formatMeta( 
+	string	$title,
+	string	$type,
+	string	$pub, 
+	string	$path, 
+	int	$rtime, 
+	array	$tags		= [], 
+	bool	$index		= false, 
+	string	$custom		= '' 
+) : array {
 	hook( [ 'formatmeta', [ 
 		'type'		=> $type, 
 		'title'		=> $title, 
 		'published'	=> $pub, 
 		'path'		=> $path, 
 		'readtime'	=> $rtime,
-		'tags'		=> $tags
+		'tags'		=> $tags,
+		'index'		=> $index,
+		'custom'	=> $custom
 	] ] );
 	
 	$sent	= hookArrayResult( 'formatmeta' );
@@ -6443,6 +6521,22 @@ function formatMeta( $title, $type, $pub, $path, $rtime, $tags = [], $index = fa
 
 /**
  *  Apply post template, if post exists and published
+ *  
+ *  @param string	$title		Formatted post title to send back
+ *  @param array	$tags		Filtered category tags
+ *  @param string	$summ		Post summary as HTML
+ *  @param string	$type		Post content type, defaults to POST_TYPE
+ *  @param int		$rtime		Reading time in minutes
+ *  @param array	$post		Post content, after features extracted, as an array of lines
+ *  @param string	$path		Post permalink including page slug
+ *  @param string	$tpl		Display template used to format this post
+ *  @param int		$slvl		Summary and post body display level
+ *  @param int		$fline		Number of lines to search for features in this post
+ *  @param bool		$index		This post is formatted for display on an index if true
+ *  @param string	$custom		Custom post type which will be used as its extension
+ *  @return string
+ *  
+ *  @details More details
  */
 function formatPost(
 	string	&$title,
@@ -6455,8 +6549,9 @@ function formatPost(
 	string	$tpl,
 	int	$slvl,
 	int	$fline,
-	bool	$index	= false
-) {	
+	bool	$index		= false,
+	string	$custom		= ''
+) : string {	
 	// Check for post validity
 	if ( count( $post ) < 3 ) {
 		return '';
@@ -6496,7 +6591,8 @@ function formatPost(
 		'fline'		=> $fline,	// Feature search lines
 		'meta'		=> $meta,	// Custom metadata
 		'index'		=> $index,	// Post being rendered on archive index
-		'template'	=> $tpl		// Given template
+		'template'	=> $tpl,	// Given template
+		'custom'	=> $custom	// Custom post type
 	] ] ) ;
 	
 	$html	= hookHTML( 'formatpost' );
@@ -6508,7 +6604,7 @@ function formatPost(
 	
 	// Format metadata
 	$data		= 
-	formatMeta( $title, $type, $pub, $perm, $rtime, $tags, $index );
+	formatMeta( $title, $type, $pub, $perm, $rtime, $tags, $index, $custom );
 	
 	switch( $slvl ) {
 		case 1:
