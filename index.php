@@ -101,9 +101,10 @@ define( 'TAG_LIMIT',	5 );
 define( 'SUMMARY_LEVEL',	0 );
 // 0 = Full post view. 1 = Summary, if available, or full post. 2 = Summary view
 
-// Extensions generally safe to send as-is
+// Allowed extensions to send as-is
 define( 'SAFE_EXT',	
-	'css, js, ico, txt, html, jpg, jpeg, gif, bmp, png, tif, tiff, ttf, otf' );
+	'css, js, ico, txt, html, jpg, jpeg, gif, bmp, png, tif, tiff, ttf, otf, ' . 
+	'avi, mp4, mkv, mov, ogg, mpa, mp3, wav' );
 
 // Show sibling (next/previous published) posts
 define( 'SHOW_SIBLINGS',	1 );
