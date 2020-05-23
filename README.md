@@ -68,8 +68,6 @@ And then, follow the conventions in the example post:
 An optional **config.json** file can be created in the */cache* folder to  
 override some configuration defaults.
 
-There is also a [plugin](https://github.com/cypnk/Bare-Plugins) project for Bare.
-
 ### Requirements
 * Webserver capable of handling URL rewrites (Apache, Nginx etc...)
 * PHP Version 7.3+ (7.2 is supported, but not recommended)
