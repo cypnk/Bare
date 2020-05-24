@@ -2548,30 +2548,39 @@ function render(
 	string	$tpl,
 	array	$input	= [],
 	bool	$full		= false 
-) {	
+) {
+	static $cache	= [];
+	static $regions	= [];
+	$key		= hash( 'sha1', ( string ) $full . $tpl );
+	
+	// Check cache
+	if ( !isset( $cache[$key] ) ) {
+		// Full render?
+		$tpl		= $full ? 
+			parseLang( renderRegions( $tpl ) ) : 
+			parseLang( $tpl );
+		
+		// Apply component classes
+		$cache[$key]	= 
+		\strtr( $tpl, rsettings( 'classes' ) );
+		
+		// Find render regions
+		$regions[$key]	= findTplRegions( $cache[$key] );
+	}
+	
 	// Always set home and feed
 	$input['home']		= $input['home']	?? homeLink();
 	$input['feedlink']	= $input['feedlink']	?? feedLink();
-	
-	// Full render?
-	$tpl		= $full ? 
-		parseLang( renderRegions( $tpl ) ) : 
-		parseLang( $tpl );
-	
-	// Apply component classes
-	$tpl		= \strtr( $tpl, rsettings( 'classes' ) );
-	
-	// Find render regions
-	$regions	= findTplRegions( $tpl );
 	$out		= [];
 	
 	// Set content in regions or place empty string
-	foreach( $regions as $k => $v ) {
+	foreach( $regions[$key] as $k => $v ) {
 		// Set render content or clear it
 		$out['{' . $v .'}'] =  $input[$v] ?? '';
 	}
 	
-	$tpl		= parseLang( \strtr( $tpl, $out ) );
+	// Parse appended
+	$tpl		= parseLang( \strtr( $cache[$key], $out ) );
 	
 	// Finally set classes again
 	return \strtr( $tpl, rsettings( 'classes' ) );
@@ -2891,7 +2900,7 @@ function loadPlugins( string $event, array $hook, array $params ) {
 	}
 	
 	if ( !empty( $msg ) ) {
-		$err = 'Error loading plugis(s): ' . \implode( ', ', $msg ) . 
+		$err = 'Error loading plugins(s): ' . \implode( ', ', $msg ) . 
 			' From directory: ' . \PLUGINS;
 		logError( $err );
 	}
