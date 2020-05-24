@@ -101,10 +101,17 @@ define( 'TAG_LIMIT',	5 );
 define( 'SUMMARY_LEVEL',	0 );
 // 0 = Full post view. 1 = Summary, if available, or full post. 2 = Summary view
 
-// Allowed extensions to send as-is
-define( 'SAFE_EXT',	
-	'css, js, ico, txt, html, jpg, jpeg, gif, bmp, png, tif, tiff, ttf, otf, ' . 
-	'avi, mp4, mkv, mov, ogg, mpa, mp3, wav' );
+// Allowed extensions
+define( 'EXT_WHITELIST',	<<<JSON
+{
+	"text"		: "css, js, txt, html",
+	"images"	: "ico, jpg, jpeg, gif, bmp, png, tif, tiff", 
+	"fonts"		: "ttf, otf, woff, woff2",
+	"audio"		: "ogg, mpa, mp3, wav, flac",
+	"video"		: "avi, mp4, mkv, mov, ogv"
+}
+JSON
+);
 
 // Show sibling (next/previous published) posts
 define( 'SHOW_SIBLINGS',	1 );
@@ -3631,6 +3638,24 @@ function labelName( string $text ) : string {
 }
 
 /**
+ *  Process multiple comma delimited whitelists and filter label names
+ *  
+ *  @param array	$groups		Raw key-value pairs
+ *  @param bool		$lower		Values should be lowercase lists
+ *  @return array
+ */ 
+function whiteLists( array $groups, bool $lower = false ) : array {
+	$ext = [];
+	
+	foreach ( $groups as $k => $v ) { 
+		$ext[labelName( $k )] = 
+		\implode( ',', trimmedList( $v, $lower ) );
+	}
+	
+	return $ext;
+}
+
+/**
  *  Convert to unicode lowercase
  *  
  *  @param string	$text	Raw mixed/uppercase text
@@ -4358,10 +4383,17 @@ function embeds( string $html, string $prefix = ''  ) : string {
 			
 			switch( $i ) {
 				case 'audio':
-					return 
-					\strtr( template( 'tpl_audio_embed' ), [ '{src}' => $u ] );
+					return isSafeExt( $u, 'audio' ) ?
+					\strtr( 
+						template( 'tpl_audio_embed' ), 
+						[ '{src}' => $u ] 
+					) : '';
 				
 				case 'video':
+					if ( !isSafeExt( $u, 'video' ) ) {
+						return '';
+					}
+					
 					return empty( $p ) ? 
 					// No preview
 					\strtr( template( 'tpl_video_np_embed' ), [ '{src}' => $u ] ) : 
@@ -5453,29 +5485,60 @@ function request( string $event, array $hook, array $params ) : array {
 }
 
 /**
+ *  Get all whitelisted extensions
+ */
+function extGroups( string $group = '' ) : array {
+	static $ext;
+	static $all	= [];
+	
+	if ( !isset( $ext ) ) {
+		// Default whitelist
+		$cs	= 
+		config( 'ext_whitelist', \decode( \EXT_WHITELIST ) );
+		
+		// Extend whitelist via hooks
+		hook( [ 'extwhitelist', [ 'whitelist' => $cs ] ] );
+		$sent	= hookArrayResult( 'extwhitelist', [] );
+		
+		// Filtered whitelist
+		$ext	= 
+			empty( $sent ) ? $cs : 
+			\array_merge( $cs, $sent['whitelist'] ?? [] );
+		
+		$all	= \implode( ',', $ext );
+	}
+	
+	return empty( $group ) ? 
+		trimmedList( $all, true ) : 
+		trimmedList( $ext[$group] ?? '', true );
+}
+
+/**
  *  Check if the requested path has a whitelisted extension
  *  
  *  @param string	$path		Requested URI
+ *  @param string	$group		Specific type I.E. "images"
  */
-function isSafeExt( string $path ) {
-	static $safe;
+function isSafeExt( string $path, string $group = '' ) : bool {
+	static $safe	= [];
 	static $checked	= [];
+	$key		= $group . $path;
 	
-	if ( isset( $checked[$path] ) ) {
-		return $checked[$path];
+	if ( isset( $checked[$key] ) ) {
+		return $checked[$key];
 	}
 	
-	if ( !isset( $safe ) ) {
-		$safe	= 
-		trimmedList( config( 'safe_ext', \SAFE_EXT ), true );
+	if ( !isset( $safe[$group] ) ) {
+		$safe[$group]	= extGroups( $group );
 	}
 	
 	$ext		= 
 	\pathinfo( $path, \PATHINFO_EXTENSION ) ?? '';
 	
-	$checked[$path] = \in_array( \strtolower( $ext ), $safe );
+	$checked[$key] = 
+	\in_array( \strtolower( $ext ), $safe[$group] );
 	
-	return $checked[$path];
+	return $checked[$key];
 }
 
 /**
@@ -8181,7 +8244,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 		],
 		
 		// Safe file extensions
-		'safe_ext'	=> [
+		'ext_whitelist'	=> [
 			'filter'	=> \FILTER_SANITIZE_SPECIAL_CHARS,
 			'flags'		=> 
 				\FILTER_FLAG_STRIP_LOW	| 
@@ -8346,11 +8409,15 @@ function checkConfig( string $event, array $hook, array $params ) {
 	$data['page_link']	= 
 	\strip_tags( $data['page_link'] ?? \PAGE_LINK );
 	
-	if ( isset( $data['safe_ext'] ) ) { 
-		$data['safe_ext']	= 
-		\implode( ',', trimmedList( 
-			( string ) $data['safe_ext'], true 
-		) );
+	if ( isset( $data['ext_whitelist'] ) ) { 
+		$data['ext_whitelist']	= 
+		is_array( $data['ext_whitelist'] ) ? 
+			whiteLists( $data['ext_whitelist'] , true ) : 
+			whiteLists( 
+				( string ) decode( $data['safe_ext'] ), 
+				true 
+			);
+			
 	}
 	
 	if ( isset( $data['nonce_hash'] ) ) {
