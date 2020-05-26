@@ -154,6 +154,9 @@ define( 'STYLE_LIMIT',		20 );
 // Maximum mumber of script files to load
 define( 'SCRIPT_LIMIT',		10 );
 
+// Maximum mumber of meta tags to load
+define( 'META_LIMIT',		15 );
+
 // Application name
 define( 'APP_NAME',		'Bare' );
 
@@ -186,6 +189,17 @@ LINES
 define( 'DEFAULT_SCRIPTS',		<<<LINES
 
 LINES
+);
+
+// Default meta tags
+define( 'DEFAULT_META',			<<<JSON
+{
+	"meta" : [
+		{ "name" : "generator", "content" : 
+			"Bare; https:\/\/github.com\/cypnk\/Bare" }
+	]
+}
+JSON
 );
 
 /**
@@ -2412,8 +2426,9 @@ function rsettings( string $area, array $modify = [] ) : array {
 				break;
 			
 			case 'meta':
-				// TODO: Load custom meta tags
-				$store['meta']		= [];
+				// Load custom meta tags
+				$store['meta']		= 
+					decode( \DEFAULT_META );
 				break;
 			
 			default:
@@ -2489,9 +2504,28 @@ function regionTags(
 ) {
 	$rg	= rsettings( $region );
 	$rgo	= '';
-	foreach( $rg as $r ) {
-		$rgo .= \strtr( $tag, [ '{url}' => $r ] );
+	
+	switch( $region ) {
+		// Render meta tags
+		case 'meta':
+			$i = config( 'meta_limit', \META_LIMIT, 'int' );
+			foreach ( $rg['meta'] ?? [] as $k => $v ) {
+				if ( $i < 0 ) {
+					break;
+				}
+				$rgo .= render( $tag, $v );
+				$i--;
+			}
+			break;
+		
+		default:
+			foreach( $rg as $r ) {
+				$rgo .= 
+				render( $tag, [ 'url' => $r ] );
+			}
+	
 	}
+	
 	return \strtr( $tpl, [ $label => $rgo ] );
 }
 
@@ -2575,9 +2609,12 @@ function render(
 		$regions[$key]	= findTplRegions( $cache[$key] );
 	}
 	
-	// Always set home and feed
+	// Always set defaults
 	$input['home']		= $input['home']	?? homeLink();
 	$input['feedlink']	= $input['feedlink']	?? feedLink();
+	// TODO: Plugin resource path
+	// $input['plugins']
+	
 	$out		= [];
 	
 	// Set content in regions or place empty string
@@ -3131,6 +3168,7 @@ function sessionCreateID() {
 	}
 	
 	// Something went wrong with the database
+	logError( 'Error writing to session ID to database' );
 	die();
 }
 
@@ -5253,6 +5291,7 @@ function redirect(
 	"<meta http-equiv=\"refresh\" content=\"0;url=\" . $path . \">".
 	"</head><body><a href=\" . $path . \">continue</a></body></html>";
 	
+	logError( 'Headers already sent with code ' . $code . ' at  URL ' . $path );
 	die( $html );
 }
 
@@ -6288,6 +6327,7 @@ function loadPosts(
 	
 	// Find the about view path to skip
 	$about	= '/' . eventRoutePrefix( 'aboutview', 'about' ) .'/';
+	$pbc	= false;
 	
 	foreach( $it as $file ) {
 		
@@ -6312,8 +6352,10 @@ function loadPosts(
 		}
 		
 		$pub		= getPub( $path );
+		$pbc		= checkPub( $pub ) || $igpub;
+		
 		// We're below offset
-		if ( $i >= $start && ( checkPub( $pub ) || $igpub ) ) {
+		if ( $i >= $start && $pbc ) {
 			$data		= loadText( $raw );
 			if ( empty( $data ) || false === $data ) {
 				continue;
@@ -6331,7 +6373,7 @@ function loadPosts(
 		}
 		
 		// Increment number of entries if published
-		if ( checkPub( $pub ) || $igpub ) {
+		if ( $pbc ) {
 			$i++;
 		}
 	}
@@ -8398,6 +8440,14 @@ function checkConfig( string $event, array $hook, array $params ) {
 				'min_range'	=> 1,
 				'max_range'	=> 50,
 				'default'	=> \SCRIPT_LIMIT
+			]
+		],
+		'meta_limit'	=> [
+			'filter'	=> \FILTER_VALIDATE_INT,
+			'options'	=> [
+				'min_range'	=> 1,
+				'max_range'	=> 50,
+				'default'	=> \META_LIMIT
 			]
 		]
 	];
