@@ -44,6 +44,9 @@ define( 'PLUGINS',	PATH . 'plugins/' );
 // Use this if you keep plugins outside the web root
 // define( 'PLUGINS',		\realpath( \dirname( __FILE__, 2 ) ) . '/plugins/' );
 
+// Relative path of assets (JS, CSS etc... ) within the folders of each plugin
+define( 'PLUGIN_ASSETS',	'assets/' );
+
 // Whitelisted plugins as comma separated list
 define( 'PLUGINS_ENABLED', '' );
 
@@ -105,7 +108,7 @@ define( 'SUMMARY_LEVEL',	0 );
 define( 'EXT_WHITELIST',	<<<JSON
 {
 	"text"		: "css, js, txt, html",
-	"images"	: "ico, jpg, jpeg, gif, bmp, png, tif, tiff", 
+	"images"	: "ico, jpg, jpeg, gif, bmp, png, tif, tiff, svg", 
 	"fonts"		: "ttf, otf, woff, woff2",
 	"audio"		: "ogg, mpa, mp3, wav, flac",
 	"video"		: "avi, mp4, mkv, mov, ogv"
@@ -2933,15 +2936,20 @@ function loadPlugins( string $event, array $hook, array $params ) {
 	
 	$plugins	= trimmedList( \PLUGINS_ENABLED, true );
 	$msg		= [];
+	$loaded		= [];
 	
 	foreach ( $plugins as $p ) {
 		$path = \PLUGINS . $p . DIRECTORY_SEPARATOR . $p . '.php';
 		if ( \file_exists( $path ) ) {
 			require( $path );
+			$loaded[]	= $p;
 		} else {
 			$msg[] = $p;
 		}
 	}
+	
+	// Set plugin list
+	internalState( 'loadedPlugins', $loaded );
 	
 	if ( !empty( $msg ) ) {
 		$err = 'Error loading plugins(s): ' . \implode( ', ', $msg ) . 
@@ -5105,6 +5113,9 @@ function adjustMime( $mime, $path, $ext = null ) : string {
 				
 			case 'js':
 				return 'text/javascript';
+				
+			case 'svg':
+				return 'image/svg+xml';
 		}
 	}
 	
@@ -5699,11 +5710,55 @@ function routeMatch(
 	return [];
 }
 
+/**
+ *  Send file with ETag data
+ *  
+ *  @param string	$path	File path after confirming it exists
+ */
+function sendWithEtag( $path ) : bool {
+	$tags	= genEtag( $path );
+	
+	// Couldn't generate ETag?
+	// Either filesize() or filemtime() failed
+	if ( empty( $tags['etag'] ) ) {
+		return false;
+	}
+	
+	// Create return code based on returned ETag
+	$code	= ifModified( $tags['etag'] )? 200 : 304;
+	
+	// Send on success
+	return sendFile( $path, false, true, $code );
+}
+
+
+/**
+ *  Get resource from plugin directory(ies)
+ *  
+ *  @param bool		$dosend	Send the file if found
+ */
+function sendPluginFile( $path,	bool $dosend	= false ) : bool {
+	$loaded	= internalState( 'loadedPlugins' );
+	if ( empty( $loaded ) || false === $loaded ) {
+		return false;
+	}
+	
+	foreach ( $loaded as $p ) {
+		// Send first occurence of file within the assets of each plugin
+		$fpath = 
+		\PLUGINS . $p . DIRECTORY_SEPARATOR . \PLUGIN_ASSETS . $path;
+		if ( \file_exists( $fpath ) ) {
+			return $dosend ? sendWithEtag( $fpath ) : true;
+		}
+	}
+	
+	return false;
+}
 
 /**
  *  Check path for file request
  *  
- *  @param string	$verb	Request method should be ged
+ *  @param string	$verb	Request method should be get
  *  @param string	$path	Relative path from client
  *  @param bool		$dosend	Send the file if found
  */
@@ -5717,28 +5772,15 @@ function fileRequest(
 	}
 	
 	// Trim leading slash and append static file path
-	$path	= \FILE_PATH . \preg_replace( '/^\//', '', $path );
-	if ( !\file_exists( $path ) ) {
-		return false;
+	$path	= \preg_replace( '/^\//', '', $path );
+	$fpath	= \FILE_PATH . $path;
+	
+	if ( \file_exists( $fpath ) ) {
+		return $dosend ? sendWithEtag( $fpath ) : true;
 	}
 	
-	if ( $dosend ) {
-		$tags	= genEtag( $path );
-		
-		// Couldn't generate ETag?
-		// Either filesize() or filemtime() failed
-		if ( empty( $tags['etag'] ) ) {
-			return false;
-		}
-		
-		// Create return code based on returned ETag
-		$code	= ifModified( $tags['etag'] )? 200 : 304;
-		
-		// Send on success
-		return sendFile( $path, false, true, $code );
-	}
-	
-	return true;
+	// If direct path doesn't exist, try to send it via plugin asset path
+	return sendPluginFile( $path, $dosend );
 }
 
 /**
