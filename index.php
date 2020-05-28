@@ -14,8 +14,10 @@ define( 'PATH',		\realpath( \dirname( __FILE__ ) ) . '/' );
 // Post directory
 define( 'POSTS',	PATH . 'posts/' );
 
-// Cache directory
+// Cache directory. Must be writable (chmod -R 0755 on *nix)
 define( 'CACHE',	PATH . 'cache/' );
+// Use this instead if you keep the cache outside the web root
+// define( 'CACHE',	\realpath( \dirname( __FILE__, 2 ) ) . '/cache/' );
 
 // Cached index timeout
 define( 'CACHE_TTL',	3200 );
@@ -46,6 +48,9 @@ define( 'PLUGINS',	PATH . 'plugins/' );
 
 // Relative path of assets (JS, CSS etc... ) within the folders of each plugin
 define( 'PLUGIN_ASSETS',	'assets/' );
+
+// Writable directory inside cache for plugin data (not directly browsable by visitors)
+define( 'PLUGIN_DATA',	CACHE . 'plugins/' );
 
 // Whitelisted plugins as comma separated list
 define( 'PLUGINS_ENABLED', '' );
@@ -110,8 +115,8 @@ define( 'EXT_WHITELIST',	<<<JSON
 	"text"		: "css, js, txt, html",
 	"images"	: "ico, jpg, jpeg, gif, bmp, png, tif, tiff, svg", 
 	"fonts"		: "ttf, otf, woff, woff2",
-	"audio"		: "ogg, mpa, mp3, wav, flac",
-	"video"		: "avi, mp4, mkv, mov, ogv"
+	"audio"		: "ogg, oga, mpa, mp3, m4a, wav, wma, flac",
+	"video"		: "avi, mp4, mkv, mov, ogg, ogv"
 }
 JSON
 );
@@ -2615,8 +2620,8 @@ function render(
 	// Always set defaults
 	$input['home']		= $input['home']	?? homeLink();
 	$input['feedlink']	= $input['feedlink']	?? feedLink();
-	// TODO: Plugin resource path
-	// $input['plugins']
+	$input['plugin_assets']	= 
+		$input['plugin_assets'] ?? \PLUGIN_ASSETS;
 	
 	$out		= [];
 	
@@ -5538,29 +5543,23 @@ function request( string $event, array $hook, array $params ) : array {
  *  Get all whitelisted extensions
  */
 function extGroups( string $group = '' ) : array {
-	static $ext;
-	static $all	= [];
+	// Default whitelist
+	$cs	= 
+	config( 'ext_whitelist', \decode( \EXT_WHITELIST ) );
 	
-	if ( !isset( $ext ) ) {
-		// Default whitelist
-		$cs	= 
-		config( 'ext_whitelist', \decode( \EXT_WHITELIST ) );
-		
-		// Extend whitelist via hooks
-		hook( [ 'extwhitelist', [ 'whitelist' => $cs ] ] );
-		$sent	= hookArrayResult( 'extwhitelist', [] );
-		
-		// Filtered whitelist
-		$ext	= 
-			empty( $sent ) ? $cs : 
-			\array_merge( $cs, $sent['whitelist'] ?? [] );
-		
-		$all	= \implode( ',', $ext );
-	}
+	// Extend whitelist via hooks
+	hook( [ 'extwhitelist', [ 'whitelist' => $cs ] ] );
+	$sent	= hookArrayResult( 'extwhitelist', [] );
+	
+	// Filtered whitelist
+	$ext	= empty( $sent ) ? $cs : 
+		\array_merge( $cs, $sent['whitelist'] ?? [] );
+	
+	$all	= \implode( ',', $ext );
 	
 	return empty( $group ) ? 
-		trimmedList( $all, true ) : 
-		trimmedList( $ext[$group] ?? '', true );
+		\array_unique( trimmedList( $all, true ) ) : 
+		\array_unique( trimmedList( $ext[$group] ?? '', true ) );
 }
 
 /**
@@ -5711,6 +5710,19 @@ function routeMatch(
 }
 
 /**
+ *  Get list of loaded plugins
+ *  
+ *  @return array
+ */
+function loadedPlugins() : array {
+	$loaded	= internalState( 'loadedPlugins' );
+	if ( empty( $loaded ) || false === $loaded ) {
+		return [];
+	}
+	return \is_array( $loaded ) ? $loaded : [];
+}
+
+/**
  *  Send file with ETag data
  *  
  *  @param string	$path	File path after confirming it exists
@@ -5738,8 +5750,8 @@ function sendWithEtag( $path ) : bool {
  *  @param bool		$dosend	Send the file if found
  */
 function sendPluginFile( $path,	bool $dosend	= false ) : bool {
-	$loaded	= internalState( 'loadedPlugins' );
-	if ( empty( $loaded ) || false === $loaded ) {
+	$loaded	= loadedPlugins();
+	if ( empty( $loaded ) ) {
 		return false;
 	}
 	
@@ -5747,6 +5759,13 @@ function sendPluginFile( $path,	bool $dosend	= false ) : bool {
 		// Send first occurence of file within the assets of each plugin
 		$fpath = 
 		\PLUGINS . $p . DIRECTORY_SEPARATOR . \PLUGIN_ASSETS . $path;
+		if ( \file_exists( $fpath ) ) {
+			return $dosend ? sendWithEtag( $fpath ) : true;
+		}
+		
+		// File written by plugin?
+		$fpath = 
+		\PLUGIN_DATA . $p . DIRECTORY_SEPARATOR . $path;
 		if ( \file_exists( $fpath ) ) {
 			return $dosend ? sendWithEtag( $fpath ) : true;
 		}
