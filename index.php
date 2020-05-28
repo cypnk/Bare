@@ -5872,17 +5872,135 @@ function getPosts( string $root = '' ) {
 	}
 }
 
-function filterDir( $path ) {
-	$lp	= \strlen( POSTS );
+function filterDir( $path, string $root = \POSTS ) {
+	if ( \strpos( $path, '..' ) ) {
+		return '';
+	}
+	
+	$lp	= \strlen( $root );
 	if ( \strlen( $path ) < $lp ) { 
 		return ''; 
 	}
-	$pos	= \strpos( $path, POSTS );
+	$pos	= \strpos( $path, $root );
 	if ( false === $pos ) {
 		return '';
 	}
 	$path	= \substr( $path, $pos + $lp );
 	return \trim( $path ?? '' );
+}
+
+/**
+ *  Rename if a file by that name already exists in destination
+ */
+function dupRename( string $path ) : string {
+	$info	= \pathinfo( $path );
+	$ext	= $info['extension'];
+	$name	= $info['filename'];
+	$dir	= $info['dirname'];
+	$file	= $path;
+	$i	= 0;
+	
+	while ( \file_exists( $file ) ) {
+		$file = $dir . \DIRECTORY_SEPARATOR . 
+			$name . '_' . $i++ . '.' . $ext;
+	}
+	
+	return $file;
+}
+
+/**
+ *  Given a compelete file path, prefix a term to the filename and 
+ *  return a unique file name path
+ */
+function prefixPath(
+	string	$path, 
+	string	$prefix, 
+	bool	$overwrite	= false 
+) : string {
+	$fname	= 
+	rtrim( \dirname( $path ), \DIRECTORY_SEPARATOR ) . 
+		\DIRECTORY_SEPARATOR . 
+		$prefix . \basename( $path );
+	
+	// Avoid duplicates?
+	return $overwrite ? $fname : dupRename( $fname );
+}
+
+/**
+ *  Check if path exists in the given plugin writable directory
+ *  
+ *  @param string	$name	Plugin name to search writable directory
+ *  @param string	$prefix	File name prefix
+ *  @param string	$path	File path
+ *  @return bool
+ *  
+ *  @details More details
+ */
+function pluginFileExists(
+	string	$name, 
+	string	$path, 
+	string	$prefix		= '' 
+) : bool {
+	$ld = loadedPlugins();
+	
+	// Only check currently loaded plugins
+	if ( !\in_array( $name, $ld ) ) {
+		logError( 'Attempt to search unloaded plugin directory: ' . $name );
+		return false;
+	}
+	
+	$root	= \PLUGIN_DATA . $name;
+	$fpath	= prefixPath( $root . $path, $prefix );
+	if ( empty( filterDir( $fpath, $root ) ) ) {
+		logError( 'Invalid file path search: ' . $path );
+		return false;
+	}
+	
+	return \file_exists( $fpath );
+}
+
+/**
+ *  Prepare writable file path directory for specified plugin
+ *  
+ *  @param string	$name		Plugin name to find writable directory
+ *  @param string	$path		Relative path within plugin writable directory
+ *  @param string	$prefix		File name prefix
+ *  @param bool		$create		Create subfolders if they don't exist
+ *  @param bool		$overwrite	Rename path if given file name already exists
+ */
+function pluginWritePath( 
+	string	$name, 
+	string	$path, 
+	string	$prefix		= '',
+	bool	$create		= false, 
+	bool	$overwrite	= false 
+) {
+	$ld = loadedPlugins();
+	
+	// Only write to currently loaded plugins;
+	if ( !\in_array( $name, $ld ) ) {
+		logError( 'Attempt to write to unloaded plugin directory: ' . $name );
+		return null;
+	}
+	
+	// Prepare plugin write path
+	$root	= \PLUGIN_DATA . $name;
+	$fpath	= prefixPath( $root . $path, $prefix, $overwrite );
+	
+	if ( empty( filterDir( $fpath, $root ) ) ) {
+		logError( 'Invalid file path search: ' . $path );
+		return null;
+	}
+	
+	// Create plugin writable directory in cache
+	$dir = \dirname( $fpath );
+	
+	if ( $create && !\is_dir( $dir ) ) {
+		\mkdir( $dir, 0755, true );
+		\chmod( $dir, 0755 );
+	}
+	
+	return $fpath;
 }
 
 /**
