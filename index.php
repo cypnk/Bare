@@ -6525,7 +6525,10 @@ function loadPosts(
 	] ] );
 	
 	// Find the about view path to skip
-	$about	= '/' . eventRoutePrefix( 'aboutview', 'about' ) .'/';
+	$about	= '/' . eventRoutePrefix( 'aboutview', 'about' ) . '/';
+	
+	// Find home path to skip
+	$home	= \rtrim( \POSTS, '/' ) . '/home.md';
 	$pbc	= false;
 	
 	foreach( $it as $file ) {
@@ -6542,6 +6545,11 @@ function loadPosts(
 		$raw		= $file->getRealPath();
 		$path		= filterDir( $raw );
 		if ( empty( $path ) ) {
+			continue;
+		}
+		
+		// Skip homepage
+		if ( false !== strpos( $raw, $home ) ) {
 			continue;
 		}
 		
@@ -7894,6 +7902,13 @@ function collectBody( array $res ) : array {
 /**
  *  Route actions
  */
+
+/**
+ *  Show homepage or archive depending on whether home.md page is in POSTS
+ */
+function showHome( string $event, array $hook, array $params ) {
+	// TODO: Show dedicated homepage
+}
 
 /**
  *  Archived posts by date
