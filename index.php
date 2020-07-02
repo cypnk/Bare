@@ -2675,17 +2675,37 @@ function genSeqId() : string {
 }
 
 /**
- *  Generate a random, alphanumeric, string
+ *  Generate an alphanumeric string with 32 bytes of random data
+ *  
+ *  @return string
+ */
+function genAlphaNum() : string {
+	return 
+	\preg_replace( 
+		'/[^[:alnum:]]/u', 
+		'', 
+		\base64_encode( \random_bytes( 32 ) ) 
+	);
+}
+
+/**
+ *  Generate a fixed length string in ASCII space, no special chars
+ *  This is primarily a plugin helper
  *  
  *  @param int	$size	Code size between 1 and 24, inclusive
  *  @return string
  */
-function genAlphaNum( int $size = 18 ) : string {
-	$code	= \base64_encode( \random_bytes( 32 ) );
-	$code	= \preg_replace( '/[^[:alnum:]]/u', '', $code );
+function genCodeKey( int $size = 24 ) : string {
+	$size	= intRange( $size, 1, 24 );
+	$code	= '';
+	while ( strsize( $code ) < $size ) {
+		$code .= genAlphaNum( $size );
+	}
 	
-	return truncate( $code, 0, intRange( $size, 1, 24 ) );
+	return truncate( $code, 0, $size );
 }
+
+
 
 
 /**
