@@ -281,6 +281,33 @@ $templates['tpl_full_page']	= <<<HTML
 </html>
 HTML;
 
+// Full static home page component
+$templates['tpl_home_page']	= <<<HTML
+<!DOCTYPE html>
+<html lang="{lang}">
+<head>
+<meta charset="UTF-8">
+<link rel="alternate" type="application/xml" title="{page_title}" href="{feedlink}">
+<title>{post_title}</title>
+{after_title}
+{stylesheets}
+{meta_tags}
+</head>
+<body class="{body_classes}" {extra}>
+{body_before}
+<div class="{home_classes}">
+<article>
+{body}
+</article>
+</div>
+{body_after}
+{body_before_lastjs}
+{body_js}
+{body_after_lastjs}
+</body>
+</html>
+HTML;
+
 // Full about page component
 $templates['tpl_about_page']	= <<<HTML
 <!DOCTYPE html>
@@ -325,6 +352,21 @@ $templates['tpl_page_heading']	= <<<HTML
 </h1>
 <p class="{tagline_classes}">{tagline}</p>
 {main_links}
+{search_form}
+{heading_after}
+</div>
+</header>
+HTML;
+
+// Home page specific heading
+$templates['tpl_home_heading']	= <<<HTML
+<header>
+<div class="{heading_wrap_classes}">
+<h1 class="{heading_h_classes}">
+	<a href="{home}" class="{heading_a_classes}">{page_title}</a>
+</h1>
+<p class="{tagline_classes}">{tagline}</p>
+{home_links}
 {search_form}
 {heading_after}
 </div>
@@ -641,6 +683,7 @@ define( 'DEFAULT_CLASSES', <<<JSON
 	"pagination_wrap_classes"	: "content", 
 	"list_wrap_classes"		: "content", 
 	
+	"home_classes"			: "content",
 	"about_classes"			: "content",
 	
 	"post_index_wrap_classes"	: "content",
@@ -7904,16 +7947,98 @@ function collectBody( array $res ) : array {
  */
 
 /**
+ *  Static page display helper. E.G. for homepage or about
+ */
+function staticPage( 
+	string	$label,
+	string	$path,
+	string	$links,
+	array	$post 
+) {
+	$ptitle	= config( 'page_title', \PAGE_TITLE );
+	$psub	= config( 'page_sub', \PAGE_SUB );
+	
+	// First line is the title, everything else is the body
+	$title	= title( \array_shift( $post ) );
+	$body	= html( \implode( "\n", $post ), homeLink() );
+	
+	// Send to render hook
+	hook( [ $label . 'render', [ 
+		'title'		=> $title,
+		'posttitle'	=> $ptitle,
+		'subtitle'	=> $psub,
+		'body'		=> $body,
+		'path'		=> $path
+	] ] );
+	
+	// Send result if hook returned content
+	sendOverride( $label . 'render' );
+	
+	// Assemble page components
+	$slinks	= config( 'default_' . $label . '_links', $links );
+	$heading = 
+	hookWrap( 
+		'before' . $label . 'heading',
+		'after' . $label . 'heading',
+		template( 'tpl_' . $label . '_heading' ), [
+			'page_title'	=> $title,
+			'tagline'	=> $psub,
+			
+			// Navigation links
+			$label . '_links'	=> 
+			renderNavLinks( template( 'tpl_mainnav_wrap' ), $slinks ),
+			
+			// Search form
+			'search_form'	=> searchForm()
+		] 
+	);
+	
+	$page_t	= 
+	hookWrap( 
+		'before' . $label . 'page',
+		'after' . $label . 'page',
+		template( 'tpl_' . $label . '_page' ) , [
+			'page_title'	=> $ptitle,
+			'post_title'	=> $title . ' - ' . $ptitle,
+			'lang'		=> 
+				config( 'language', \LANGUAGE ),
+			'home'		=> homeLink(),
+			'feedlink'	=> feedLink(),
+			'body_before'	=> $heading,
+			'body'		=> $body,
+			'body_after'	=> pageFooter()
+		], 
+		true 
+	);
+	
+	shutdown( 'cleanup' );
+	send( 200, $page_t, true );
+}
+
+/**
  *  Show homepage or archive depending on whether home.md page is in POSTS
  */
 function showHome( string $event, array $hook, array $params ) {
-	// TODO: Show dedicated homepage
+	$path	= \rtrim( POSTS, '/' ) . '/home.md';
+	$post	= loadText( $path );
+	
+	if ( empty( $post ) ) {
+		// Passthrough to showArchive
+		return;
+	}
+	
+	internalState( 'homeFound', true );
+	staticPage( 'home', $path, \DEFAULT_MAIN_LINKS, $post );
 }
 
 /**
  *  Archived posts by date
  */
 function showArchive( string $event, array $hook, array $params ) {
+	if ( internalState( 'homeFound' ) ) {
+		return;
+	}
+	
 	// If full index needs to be reloaded
 	if ( internalState( 'prepareIndex' ) ) {
 		shutdown( 'loadIndex' );
@@ -8245,7 +8370,7 @@ function showPost( string $event, array $hook, array $params ) {
  */
 function showAbout( string $event, array $hook, array $params ) {
 	$path	= $params['slug'] ?? 'main'; // Sub about page or main
-	$apath	= POSTS . 'about/' . $path . '.md';
+	$apath	= \rtrim( POSTS, '/' )  . '/about/' . $path . '.md';
 	$post	= loadText( $apath );
 	
 	// No about found
@@ -8254,64 +8379,7 @@ function showAbout( string $event, array $hook, array $params ) {
 		sendError( 404, errorLang( "notfound", \MSG_NOTFOUND ) );
 	}
 	
-	$ptitle	= config( 'page_title', \PAGE_TITLE );
-	$psub	= config( 'page_sub', \PAGE_SUB );
-	
-	// First line is the about title, everything else is the body
-	$title	= title( \array_shift( $post ) );
-	$body	= html( \implode( "\n", $post ), homeLink() );
-	
-	// Send to render hook
-	hook( [ 'aboutrender', [ 
-		'title'		=> $title,
-		'posttitle'	=> $ptitle,
-		'subtitle'	=> $psub,
-		'body'		=> $body,
-		'path'		=> $path
-	] ] );
-	
-	// Send result if hook returned content
-	sendOverride( 'aboutrender' );
-	
-	// Assemble about page components
-	$alinks	= config( 'default_about_links', \DEFAULT_ABOUT_LINKS );
-	$heading = 
-	hookWrap( 
-		'beforeaboutheading',
-		'afteraboutheading',
-		template( 'tpl_about_heading' ), [
-			'page_title'	=> $title,
-			'tagline'	=> $psub,
-			
-			// Navigation links
-			'about_links'	=> 
-			renderNavLinks( template( 'tpl_mainnav_wrap' ), $alinks ),
-			
-			// Search form
-			'search_form'	=> searchForm()
-		] 
-	);
-	
-	$page_t	= 
-	hookWrap( 
-		'beforeaboutpage',
-		'afteraboutpage',
-		template( 'tpl_about_page' ) , [
-			'page_title'	=> $ptitle,
-			'post_title'	=> $title . ' - ' . $ptitle,
-			'lang'		=> 
-				config( 'language', \LANGUAGE ),
-			'home'		=> homeLink(),
-			'feedlink'	=> feedLink(),
-			'body_before'	=> $heading,
-			'body'		=> $body,
-			'body_after'	=> pageFooter()
-		], 
-		true 
-	);
-	
-	shutdown( 'cleanup' );
-	send( 200, $page_t, true );
+	staticPage( 'about', $path, \DEFAULT_ABOUT_LINKS, $post );
 }
 
 /**
@@ -8753,6 +8821,7 @@ hook( [ 'checkconfig',	'checkConfig' ] );
 hook( [ 'configmodified','configModified' ] );
 
 // Home and archive event handlers
+hook( [ 'home',		'showHome' ] );
 hook( [ 'home',		'showArchive' ] );
 hook( [ 'homepaginate',	'showArchive' ] );
 hook( [ 'archive',	'showArchive' ] );
