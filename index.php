@@ -959,6 +959,7 @@ define( 'ROUTE_MARK',	<<<JSON
 	":month": "(?<month>[0-3][0-9]{1})",
 	":day"	: "(?<day>[0-9][0-9]{1})",
 	":slug"	: "(?<slug>[\\\\pL\\\\-\\\\d]{1,100})",
+	":tree"	: "(?<tree>[\\\\pL\\\\/\\\\-\\\\d]{1,255})",
 	":file"	: "(?<file>[\\\\pL_\\\\-\\\\d\\\\.\\\\s]{1,120})",
 	":find"	: "(?<find>[\\\\pL\\\\pN\\\\s\\\\-_,\\\\.\\\\:\\\\+]{2,255})",
 	":redir": "(?<redir>[a-z_\\\\:\\\\/\\\\-\\\\d\\\\.\\\\s]{1,120})"
@@ -8369,7 +8370,7 @@ function showPost( string $event, array $hook, array $params ) {
  *  View about page and other custom content
  */
 function showAbout( string $event, array $hook, array $params ) {
-	$path	= $params['slug'] ?? 'main'; // Sub about page or main
+	$path	= $params['tree'] ?? 'main'; // Sub about page or main
 	$apath	= \rtrim( POSTS, '/' )  . '/about/' . $path . '.md';
 	$post	= loadText( $apath );
 	
@@ -8801,7 +8802,7 @@ function addBlogRoutes( string $event, array $hook, array $params ) {
 	 *  Remember to rename your about directory in POSTS if these are changed
 	 */
 	[ 'get', 'about',				'aboutview' ],
-	[ 'get', 'about/:slug',				'aboutview' ],
+	[ 'get', 'about/:tree',				'aboutview' ],
 	
 	/**
 	 *  Searching
