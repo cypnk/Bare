@@ -17,7 +17,10 @@ feed of the most recent ones.
 
 An about page can be created by editing *posts/about/main.md*. Additional  
 about pages can be added to the same directory and again the URL  
-is the filename. 
+is the filename. About sub directories can also be added.
+
+A static homepage can be shown instead of the lastest posts by creating  
+a *posts/home.md* page. Bare will show this similar to an about page.
 
 Bare understands a rudimentary subset of [Markdown](https://daringfireball.net/projects/markdown/) and will filter HTML  
 for you. 
