@@ -6215,7 +6215,33 @@ function loadPost(
 }
 
 /**
+ *  Get timezone offset from currently configured timezone 
+ *  or default to 'America/New_York'
+ *  
+ *  @link https://www.php.net/manual/en/timezones.php
+ *  
+ *  @return int
+ */
+function timeZoneOffset() : int {
+	// Timezone from configuration
+	$tz = config( 'timezone', \TIMEZONE );
+	$dt = new \DateTime( 'now', new \DateTimeZone( 'UTC' ) );
+	try {
+		$dz = new \DateTimeZone( $tz );
+		$ot = $dz->getOffset( $dt );
+		
+	} catch( \Exception $e ) { // Default fallback
+		$dz = new \DateTimeZone( 'America/New_York' );
+		$ot = $dz->getOffset( $dt );
+	}
+	
+	return ( false == $ot ) ? 0 : $ot;
+}
+
+/**
  *  Get published date from path
+ *  
+ *  @return string
  */
 function getPub( $path ) : string {
 	$path = \ltrim( $path, '/' );
@@ -6224,9 +6250,17 @@ function getPub( $path ) : string {
 
 /**
  *  Check if publication time is before current time
+ *  This function relies on date_default_timezone_set being 'UTC'
+ *  
+ *  @return bool
  */
 function checkPub( $pub ) : bool {
-	if ( \strtotime( $pub ) <= time() ) {
+	static $t;
+	if ( !isset( $t ) ) {
+		$t = time() + timeZoneOffset();
+	}
+	
+	if ( \strtotime( $pub ) <= $t ) {
 		return true;
 	}
 	
@@ -6235,8 +6269,10 @@ function checkPub( $pub ) : bool {
 
 /**
  *  Check if post was modified after its publish time
+ *  
+ *  @return bool
  */
-function postModified( $path, $mtime ) {
+function postModified( $path, $mtime ) : bool {
 	$res = 
 	getResults( 
 		"SELECT updated FROM posts 
