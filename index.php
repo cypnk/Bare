@@ -6235,7 +6235,7 @@ function timeZoneOffset() : int {
 		$ot = $dz->getOffset( $dt );
 	}
 	
-	return ( false == $ot ) ? 0 : $ot;
+	return ( false === $ot ) ? 0 : $ot;
 }
 
 /**
