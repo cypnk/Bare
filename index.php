@@ -2173,8 +2173,8 @@ function language() {
 	$data	= empty( $terms ) ? [] : $terms;
 	// Trigger language load hook
 	hook( [ 'loadlanguage', [ 
-		'lang'	=> \LANGUAGE, 
-		'zone'	=> \TIMEZONE,
+		'lang'	=> $lang, 
+		'zone'	=> config( 'timezone', \TIMEZONE ),
 		'terms' => $data
 	] ] );
 	
@@ -4885,7 +4885,7 @@ function getHost() : string {
 	static $host;
 	if ( isset( $host ) ) { return $host; }
 	
-	$sw	= trimmedList( \SERVER_WHITE );
+	$sw	= trimmedList( config( 'server_white', \SERVER_WHITE ) );
 	$sh	= [ 'HTTP_HOST', 'SERVER_NAME', 'SERVER_ADDR' ];
 	
 	foreach ( $sh as $h ) {
@@ -4896,11 +4896,18 @@ function getHost() : string {
 			\in_array( $_SERVER[$h], $sw ) ? 
 				$_SERVER[$h] : '';
 			
-			return $host;
+			break;
 		}
 	}
 	
-	$host	= '';
+	// Call host hook
+	hook( [ 'gethost', [
+		'host'	=> $host ?? '',
+		'white'	=> $sw,
+		'sets'	=> $sh
+	] ] );
+	
+	$host	= hookStringResult( 'gethost', $host ?? '' );
 	return $host;
 }
 
