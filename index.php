@@ -5203,17 +5203,24 @@ function adjustMime( $mime, $path, $ext = null ) : string {
  *  
  *  @param string	$path		File path to send
  *  @param int		$code		HTTP Status code
+ *  @param bool		$verify		Verify mime content type
  */
-function sendFilePrep( $path, $code = 200 ) {
-	$mime	= \mime_content_type( $path );
-	$mime	= adjustMime( $mime, $path );
-	
+function sendFilePrep( 
+	string		$path, 
+	int		$code		= 200, 
+	bool		$verify		= true 
+) {
 	scrubOutput();
 	httpCode( $code );
 	
 	// Setup content security
 	preamble( '', false, false );
-	\header( "Content-Type: {$mime}", true );
+	
+	// Set content type if mime is found
+	if ( $verify ) {
+		$mime	= adjustMime( \mime_content_type( $path ), $path );
+		\header( "Content-Type: {$mime}", true );
+	}
 	\header( "Content-Security-Policy: default-src 'self'", true );	
 }
 
@@ -5295,6 +5302,26 @@ function sendFileHeaders( string $dsp, string $fname, bool $cache ) {
 	\header( 'Cache-Control: must-revalidate', true );
 	\header( 'Expires: 0', true );
 	\header( 'Pragma: no-cache', true );
+}
+
+/**
+ *  Prepare to send back a dynamically generated file (E.G. Captcha)
+ *  This function is a plugin helper
+ *  
+ *  @param string	$mime		Generated file's mime content-type
+ *  @param string	$fname		File name
+ *  @param int		$code		HTTP Status code
+ *  @param bool		$cache		Cache generated file if true
+ */
+function sendGenFilePrep( 
+	string		$mime, 
+	string		$fname, 
+	int		$code		= 200, 
+	bool		$cache		= false 
+) {
+	sendFilePrep( $fname, $code, false );
+	\header( "Content-Type: {$mime}", true );
+	sendFileHeaders( 'inline', $fname, $cache );
 }
 
 /**
