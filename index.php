@@ -2178,6 +2178,12 @@ function language() {
 		'terms' => $data
 	] ] );
 	
+	// Append new language info, if any
+	$sent	= hookArrayResult( 'loadlanguage' )['terms'] ?? [];
+	if ( !empty( $sent ) ) {
+		$data	= \array_merge( $data, $sent );
+	}
+	
 	return $data;
 }
 
