@@ -5873,7 +5873,7 @@ function sendPluginFile(
 	
 	foreach ( $loaded as $p ) {
 		// Check if first path fragment is the same as the plugin name
-		if ( 0 !== \strcasecmp( $p, $plugin ) ) ) {
+		if ( 0 !== \strcasecmp( $p, $plugin ) ) {
 			continue;
 		}
 		
