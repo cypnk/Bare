@@ -165,6 +165,9 @@ define( 'SCRIPT_LIMIT',		10 );
 // Maximum mumber of meta tags to load
 define( 'META_LIMIT',		15 );
 
+// Maximum depth when searching for files (E.G. Plugin folders)
+define( 'FOLDER_LIMIT',		15 );
+
 // Application name
 define( 'APP_NAME',		'Bare' );
 
@@ -5853,13 +5856,27 @@ function sendWithEtag( $path ) : bool {
  *  
  *  @param bool		$dosend	Send the file if found
  */
-function sendPluginFile( $path,	bool $dosend	= false ) : bool {
+function sendPluginFile( 
+	string		$plugin, 
+	string		$path, 
+	bool		$dosend		= false 
+) : bool {
 	$loaded	= loadedPlugins();
+	
+	// Nothing loaded to search?
 	if ( empty( $loaded ) ) {
 		return false;
 	}
 	
+	// Clip plugin name from path to prepare for asset searching
+	$path	= truncate( $path, strsize( $plugin ) - 1, strsize( $path ) );
+	
 	foreach ( $loaded as $p ) {
+		// Check if first path fragment is the same as the plugin name
+		if ( 0 !== \strcasecmp( $p, $plugin ) ) ) {
+			continue;
+		}
+		
 		// Send first occurence of file within the assets of each plugin
 		$fpath = 
 		\PLUGINS . $p . DIRECTORY_SEPARATOR . \PLUGIN_ASSETS . $path;
@@ -5896,14 +5913,31 @@ function fileRequest(
 	
 	// Trim leading slash and append static file path
 	$path	= \preg_replace( '/^\//', '', $path );
+	
+	// Break path to count folders and search plugins
+	$segs	= explode( '/', $path );
+	
+	// Check folder limits
+	$climit	= config( 'folder_limit', \FOLDER_LIMIT, 'int' );
+	$c	= count( $segs );
+	if ( $c > $climit ) {
+		return false;
+	}
+	
+	// Static file path
 	$fpath	= \FILE_PATH . $path;
 	
 	if ( \file_exists( $fpath ) ) {
 		return $dosend ? sendWithEtag( $fpath ) : true;
 	}
 	
+	// If there's no prefix, there's no plugin folder to check 
+	if ( $c < 2 ) {
+		return false;
+	}
+	
 	// If direct path doesn't exist, try to send it via plugin asset path
-	return sendPluginFile( $path, $dosend );
+	return sendPluginFile( $segs[0], $path, $dosend );
 }
 
 /**
