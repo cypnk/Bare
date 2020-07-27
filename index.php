@@ -1567,6 +1567,58 @@ function isSecure() : bool {
 }
 
 /**
+ *  Browser User Agent
+ *  
+ *  @return string
+ */
+function getUA() : string {
+	static $ua;
+	if ( isset( $ua ) ) {
+		return $ua;
+	}
+	$ua	= trim( $_SERVER['HTTP_USER_AGENT'] ?? '' );
+	return $ua;
+}
+
+/**
+ *  Get or guess current server protocol
+ *  
+ *  @return string
+ */
+function getProtocol() : string {
+	static $pr;
+	if ( isset( $pr ) ) {
+		return $pr;
+	}
+	$pr = $_SERVER['SERVER_PROTOCOL'] ?? 'HTTP/1.1';
+	return $pr;
+}
+
+/**
+ *  Current querystring, if present
+ *  
+ *  @return string
+ */
+function getQS() {
+	static $qs;
+	if ( isset( $qs ) ) {
+		return $qs;
+	}
+	$qs	= $_SERVER['QUERY_STRING'] ?? '';
+	return $qs;
+}
+
+function getMethod() {
+	static $method;
+	if ( isset( $method ) ) {
+		return $method;
+	}
+	$method = 
+	\strtolower( trim( $_SERVER['REQUEST_METHOD'] ?? '' ) );
+	return $method;
+}
+
+/**
  *  Filter number within min and max range, inclusive
  *  
  *  @param mixed	$val		Given default value
@@ -3651,6 +3703,68 @@ function truncate( string $text, int $start, int $size ) {
 }
 
 /**
+ *  Try to detect if a string contains ASCII-only text
+ *  
+ *  @param string	$text		Text to test
+ *  @return bool
+ */
+function isASCII( string $text ) : bool {
+	return missing( 'mb_check_encoding' ) ? 
+		( bool ) !\preg_match( '/[^\x20-\x7e]/' , $text ) : 
+		\mb_check_encoding( $text, 'ASCII' );
+}
+
+/**
+ *  Check if a string contains a fragment
+ *  
+ *  @param string	$source		Original text
+ *  @param strin	$term		Search term
+ */
+function textHas( string $source, string $term ) {
+	return 
+	( empty( $source ) || empty( $term ) ) ? 
+		false : ( false !== \strpos( $source, $term ) );
+}
+
+/**
+ *  Check if string starts with a fragment
+ *  
+ *  @param string	$find		Needle to search
+ *  @param array	$collection	Haystack to search partials for
+ *  @param bool		$ca		Case insensitive if true (default)
+ *  @return bool
+ */
+function textStartsWith( string $find, array $collection, bool $ca = true ) {
+	if ( $ca ) {
+		foreach ( $collection as $c ) {
+			if ( 0 === \strncasecmp( $find, $c, strsize( $c ) ) ) {
+				return true;
+			}
+		} 
+	} else {
+		foreach ( $collection as $c ) {
+			if ( 0 === \strncmp( $find, $c, strsize( $c ) ) ) {
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+/**
+ * Search string for a fragment in an array
+ */
+function textNeedleSearch( $find, $collection ) {
+	foreach ( $collection as $c ) {
+		if ( textHas( $find, $c ) ) {
+			return true;
+		}
+	}
+	
+	return false;
+}
+
+/**
  *  Friendly datetime stamp
  */
 function dateNice( $stamp = null ) : string {
@@ -3928,14 +4042,26 @@ function getIP() : string {
 
 /**
  *  Process HTTP_* variables
+ *  
+ *  @param bool		$lower		Get array keys in lowercase
+ *  @return array
  */
-function httpHeaders() {
+function httpHeaders( bool $lower = false ) : array {
 	static $val;
-	if ( isset( $val ) ) {
-		return $val;
+	static $lval;
+	
+	if ( $lower ) {
+		if ( isset( $lval ) ) {
+			return $lval;
+		}
+	} else {
+		if ( isset( $val ) ) {
+			return $val;
+		}
 	}
 	
-	$val = [];
+	$val	= [];
+	$lval	= [];
 	foreach ( $_SERVER as $k => $v ) {
 		if ( 0 === strncasecmp( $k, 'HTTP_', 5 ) ) {
 			$a = explode( '_' ,$k );
@@ -3944,9 +4070,10 @@ function httpHeaders() {
 				$r = ucfirst( strtolower( $r ) );
 			} );
 			$val[ implode( '-', $a ) ] = $v;
+			$lval[ \strtolower( \implode( '-', $a ) ) ] = $v;
 		}
 	}
-	return $val;
+	return $lower ? $lval : $val;
 }
 
 /**
@@ -4857,8 +4984,7 @@ function httpCode( int $code ) {
 		return;
 	}
 	
-	$prot	= isset( $_SERVER['SERVER_PROTOCOL'] ) ? 
-			$_SERVER['SERVER_PROTOCOL'] : 'HTTP/1.1';
+	$prot	= getProtocol();
 	
 	// Special cases
 	switch( $code ) {
@@ -5592,7 +5718,7 @@ function request( string $event, array $hook, array $params ) : array {
 	
 	// Sanity checks
 	$path	= $_SERVER['REQUEST_URI'];
-	$verb	= \strtolower( $_SERVER['REQUEST_METHOD'] );
+	$verb	= getMethod();
 	$safe	= getAllowedMethods( true );
 	
 	// Unrecognized method?
@@ -8974,28 +9100,13 @@ hook( [ 'routemarker',	'routeMarkers' ] );
 // Register blog routes during 'addroutes' event ( called in request() )
 hook( [ 'initroutes',	'addBlogRoutes' ] );
 
-
 /**
  *  Register default templates before plugins are loaded
  */
 template( '', $templates );
 
-
-/***
- *  Add any plugin files here
- */
-
-
-
-/**
- *  End plugin files
- */
-
 /**
  *  Run page routes ( 'begin' event should run first )
  */
 hook( [ 'begin', [] ] );
-
-
-
 
