@@ -1310,7 +1310,6 @@ function template( string $label, array $reg = [] ) : string {
 	static $tpl	= [];
 	if ( !empty( $reg ) ) {
 		$tpl = \array_merge( $tpl, $reg );
-		return '';
 	}
 	
 	return $tpl[$label] ?? '';
@@ -3068,13 +3067,19 @@ function loadPlugins( string $event, array $hook, array $params ) {
 	$msg		= [];
 	$loaded		= [];
 	
+	// Preload templates
+	$templates	= $params['templates'] ?? [];
+	
 	foreach ( $plugins as $p ) {
 		$path = \PLUGINS . $p . DIRECTORY_SEPARATOR . $p . '.php';
 		if ( \file_exists( $path ) ) {
 			require( $path );
 			$loaded[]	= $p;
+			
+			// Register new templates or overwrite existing
+			template( '', $templates );
 		} else {
-			$msg[] = $p;
+			$msg[]		= $p;
 		}
 	}
 	
@@ -3720,7 +3725,7 @@ function isASCII( string $text ) : bool {
  *  @param string	$source		Original text
  *  @param strin	$term		Search term
  */
-function textHas( string $source, string $term ) {
+function textHas( string $source, string $term ) : bool {
 	return 
 	( empty( $source ) || empty( $term ) ) ? 
 		false : ( false !== \strpos( $source, $term ) );
@@ -9101,12 +9106,10 @@ hook( [ 'routemarker',	'routeMarkers' ] );
 hook( [ 'initroutes',	'addBlogRoutes' ] );
 
 /**
- *  Register default templates before plugins are loaded
+ *  Begin Bare
+ *  Start by registering templates
  */
-template( '', $templates );
+hook( [ 'begin', [ 'templates' => $templates ] ] );
 
-/**
- *  Run page routes ( 'begin' event should run first )
- */
-hook( [ 'begin', [] ] );
+
 
