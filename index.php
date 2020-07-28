@@ -3075,9 +3075,6 @@ function loadPlugins( string $event, array $hook, array $params ) {
 		if ( \file_exists( $path ) ) {
 			require( $path );
 			$loaded[]	= $p;
-			
-			// Register new templates or overwrite existing
-			template( '', $templates );
 		} else {
 			$msg[]		= $p;
 		}
@@ -3085,6 +3082,9 @@ function loadPlugins( string $event, array $hook, array $params ) {
 	
 	// Set plugin list
 	internalState( 'loadedPlugins', $loaded );
+	
+	// Register new templates or overwrite existing
+	template( '', $templates );
 	
 	if ( !empty( $msg ) ) {
 		$err = 'Error loading plugins(s): ' . \implode( ', ', $msg ) . 
@@ -3722,13 +3722,13 @@ function isASCII( string $text ) : bool {
 /**
  *  Check if a string contains a fragment
  *  
- *  @param string	$source		Original text
+ *  @param mixed	$source		Original text
  *  @param strin	$term		Search term
  */
-function textHas( string $source, string $term ) : bool {
+function textHas( $source, string $term ) : bool {
 	return 
 	( empty( $source ) || empty( $term ) ) ? 
-		false : ( false !== \strpos( $source, $term ) );
+		false : ( false !== \strpos( ( string ) $source, $term ) );
 }
 
 /**
