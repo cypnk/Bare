@@ -43,6 +43,9 @@ hosting blogs on [Hidden Services](https://en.wikipedia.org/wiki/Tor_(anonymity_
 The author's [personal blog](http://kpz62k4pnyh5g5t2efecabkywt2aiwcnqylthqyywilqgxeiipen5xid.onion) is using Bare.  
 Use the [Tor Browser Bundle](https://www.torproject.org/) to visit.
 
+![Bare](https://raw.githubusercontent.com/cypnk/Bare/master/88x15-button1.jpg) 
+![Bare Powered](https://raw.githubusercontent.com/cypnk/Bare/master/88x15-button2.jpg)
+
 ## Installation
 
 Upload the following to your web root:
