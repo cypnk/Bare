@@ -299,7 +299,7 @@ $templates['tpl_home_page']	= <<<HTML
 <body class="{body_classes}" {extra}>
 {body_before}
 <div class="{home_classes}">
-<article>
+<article class="{home_wrap_classes}">
 {body}
 </article>
 </div>
@@ -326,7 +326,7 @@ $templates['tpl_about_page']	= <<<HTML
 <body class="{body_classes}" {extra}>
 {body_before}
 <div class="{about_classes}">
-<article>
+<article class="{about_wrap_classes}">
 {body}
 </article>
 </div>
@@ -340,14 +340,14 @@ HTML;
 
 // Page footer component
 $templates['tpl_page_footer']	= <<<HTML
-<footer>
+<footer class="{footer_classes}">
 <div class="{footer_wrap_classes}">{footer_links}</div>
 </footer>
 HTML;
 
 // General page heading
 $templates['tpl_page_heading']	= <<<HTML
-<header>
+<header class="{heading_classes}">
 <div class="{heading_wrap_classes}">
 {heading_before}
 <h1 class="{heading_h_classes}">
@@ -355,7 +355,7 @@ $templates['tpl_page_heading']	= <<<HTML
 </h1>
 <p class="{tagline_classes}">{tagline}</p>
 {main_links}
-{search_form}
+<div class="{search_form_wrap_classes}">{search_form}</div>
 {heading_after}
 </div>
 </header>
@@ -363,14 +363,14 @@ HTML;
 
 // Home page specific heading
 $templates['tpl_home_heading']	= <<<HTML
-<header>
+<header class="{heading_classes}">
 <div class="{heading_wrap_classes}">
 <h1 class="{heading_h_classes}">
 	<a href="{home}" class="{heading_a_classes}">{page_title}</a>
 </h1>
 <p class="{tagline_classes}">{tagline}</p>
 {home_links}
-{search_form}
+<div class="{search_form_wrap_classes}">{search_form}</div>
 {heading_after}
 </div>
 </header>
@@ -378,14 +378,14 @@ HTML;
 
 // About page specific heading
 $templates['tpl_about_heading']	= <<<HTML
-<header>
+<header class="{heading_classes}">
 <div class="{heading_wrap_classes}">
 <h1 class="{heading_h_classes}">
 	<a href="{home}" class="{heading_a_classes}">{page_title}</a>
 </h1>
 <p class="{tagline_classes}">{tagline}</p>
 {about_links}
-{search_form}
+<div class="{search_form_wrap_classes}">{search_form}</div>
 {heading_after}
 </div>
 </header>
@@ -401,10 +401,13 @@ HTML;
 $templates['tpl_searchform']	= <<<HTML
 <form action="{home}" method="get" 
 	class="{form_classes} {search_form_classes}">
+	<fieldset class="{search_fieldset_classes}">
 {xsrf}
 <input type="search" name="find" placeholder="{lang:forms:search:placeholder}" 
-	class="{input_classes}" required> 
-<input type="submit" class="{submit_classes}" value="{lang:forms:search:button}">
+	class="{input_classes} {search_input_classes}" required> 
+<input type="submit" class="{submit_classes} {search_button_classes}" 
+	value="{lang:forms:search:button}">
+	</fieldset>
 </form>
 HTML;
 
@@ -445,7 +448,8 @@ HTML;
 
 // General post template
 $templates['tpl_post']		= <<<HTML
-<article class="{post_wrap_classes}">
+<article class="{post_classes}">
+	<div class="{post_wrap_classes}">
 	<header class="{post_heading_classes}">
 	<div class="{post_heading_wrap_classes}">
 		<h2 class="{post_heading_h_classes}">
@@ -456,8 +460,29 @@ $templates['tpl_post']		= <<<HTML
 	</div>
 	</header>
 	<div class="{post_body_wrap_classes}">
-		{body}
-		{tags}
+		<div class="{post_body_content_classes">{body}</div>
+		<div class="{post_body_tag_classes}">{tags}</div>
+	</div>
+	</div>
+</article>
+HTML;
+
+$templates['tpl_index_post']		= <<<HTML
+<article class="{post_idx_wrap_classes}">
+	<div class="{post_idx_wrap_classes}">
+	<header class="{post_idx_heading_classes}">
+	<div class="{post_idx_heading_wrap_classes}">
+		<h2 class="{post_idx_heading_h_classes}">
+			<a href="{permalink}" class="{post_idx_heading_a_classes}">{title}</a>
+		</h2>
+		<time datetime="{date_utc}"
+			class="{post_idx_pub_classes}">{date_stamp}</time> {read_time}
+	</div>
+	</header>
+	<div class="{post_idx_body_wrap_classes}">
+		<div class="{post_idx_body_content_classes">{body}</div>
+		<div class="{post_idx_body_tag_classes}">{tags}</div>
+	</div>
 	</div>
 </article>
 HTML;
@@ -673,6 +698,7 @@ define( 'DEFAULT_CLASSES', <<<JSON
 {
 	"body_classes"			: "",
 	
+	"heading_classes"		: "",
 	"heading_wrap_classes"		: "content", 
 	"heading_h_classes"		: "",
 	"heading_a_classes"		: "",
@@ -687,7 +713,9 @@ define( 'DEFAULT_CLASSES', <<<JSON
 	"list_wrap_classes"		: "content", 
 	
 	"home_classes"			: "content",
+	"home_wrap_classes"			: "",
 	"about_classes"			: "content",
+	"about_wrap_classes"		: "",
 	
 	"post_index_wrap_classes"	: "content",
 	"post_index_ul_wrap_classes"	: "index",
@@ -695,14 +723,29 @@ define( 'DEFAULT_CLASSES', <<<JSON
 	"post_index_header_h_classes"	: "",
 	"post_index_item_classes"	: "",
 	
+	"post_classes"			: "",
 	"post_wrap_classes"		: "",
 	"post_heading_classes"		: "",
 	"post_heading_h_classes"	: "",
 	"post_heading_a_classes"	: "",
 	"post_heading_wrap_classes"	: "content",
 	"post_body_wrap_classes"	: "content",
+	"post_body_content_classes"	: "",
+	"post_body_tag_classes"		: "",
 	"post_pub_classes"		: "",
 	
+	"post_idx_classes"		: "",
+	"post_idx_wrap_classes"		: "",
+	"post_idx_heading_classes"	: "",
+	"post_idx_heading_h_classes"	: "",
+	"post_idx_heading_a_classes"	: "",
+	"post_idx_heading_wrap_classes"	: "content",
+	"post_idx_body_wrap_classes"	: "content",
+	"post_idx_body_content_classes"	: "",
+	"post_idx_body_tag_classes"	: "",
+	"post_idx_pub_classes"		: "",
+	
+	"footer_classes"		: "",
 	"footer_wrap_classes"		: "content", 
 	"footer_nav_classes"		: "",
 	"footer_ul_classes"		: "",
@@ -780,12 +823,16 @@ define( 'DEFAULT_CLASSES', <<<JSON
 	
 	"form_classes"			: "",
 	"search_form_classes"		: "",
+	"search_form_wrap_classes"	: "",
+	"search_fieldset_classes"	: "",
 	"field_wrap"			: "",
 	"button_wrap"			: "",
 	"label_classes"			: "",
 	"special_classes"		: "",
 	"input_classes"			: "",
 	"desc_classes"			: "",
+	"search_input_classes"		: "",
+	"search_button_classes"		: "",
 	
 	"submit_classes"		: "",
 	"alt_classes"			: "",
@@ -6801,7 +6848,7 @@ function loadPosts(
 	$end	= $start + $plimit;
 	
 	$title	= '';
-	$tpl	= $feed ? template( 'tpl_item' ) : template( 'tpl_post' );
+	$tpl	= $feed ? template( 'tpl_item' ) : template( 'tpl_index_post' );
 	$fline	= config( 'feature_lines', \FEATURE_LINES, 'int' );
 	
 	hook( [ 'formatpostprep', [ 
