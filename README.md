@@ -3,7 +3,7 @@ A single file directory-to-blog
 
 Bare has no usernames, passwords, editors, file uploaders, or other  
 mechanisms that get in the way of writing your thoughts. Simply put your  
-posts in *year/month/day/slug.md* format, and Bare will publish it. 
+posts in *year/month/day/slug.md* format, and Bare will publish it.
 
 The first line in each post is the title. The URL slug is the filename.  
 Posts can be tagged by adding the last line in the following format:  
@@ -59,6 +59,9 @@ Change the default settings in *index.php* E.G. SITE_NAME etc...
 
 Add your site's domain name, E.G. *example.com*, to the comma-delimited  
 whitelist in SERVER_WHITE.
+
+Bare is multi-site capable. After adding your domain to the whitelist,  
+publish your posts in */posts/example.com/* following the above format.
 
 Bare supports caching of formatted posts. Simply enable write  
 permissions to the cache directory. On \*nix systems:
