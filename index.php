@@ -11,8 +11,9 @@ define( 'PATH',		\realpath( \dirname( __FILE__ ) ) . '/' );
 // define( 'PATH',	\realpath( \dirname( __FILE__, 2 ) ) . '/htdocs/' );
 
 
-// Post directory
+// Global post directory
 define( 'POSTS',	PATH . 'posts/' );
+// Add posts to "posts/example.com/" to blog separately on multiple domains
 
 // Cache directory. Must be writable (chmod -R 0755 on *nix)
 define( 'CACHE',	PATH . 'cache/' );
@@ -26,6 +27,7 @@ define( 'CACHE_TTL',	3200 );
 define( 'FILE_PATH',	POSTS );
 // Use this instead if you keep uploaded files outside the web root
 // define( 'FILE_PATH',	\realpath( \dirname( __FILE__, 2 ) ) . '/uploads/' );
+// Add files to a relative path E.G. 'example.com/' to keep multi-site content separate
 
 // Configuration filename (optional, overrides some constants here)
 define( 'CONFIG',	'config.json' );
@@ -2850,7 +2852,7 @@ function genCodeKey( int $size = 24 ) : string {
 	$size	= intRange( $size, 1, 24 );
 	$code	= '';
 	while ( strsize( $code ) < $size ) {
-		$code .= genAlphaNum( $size );
+		$code .= genAlphaNum();
 	}
 	
 	return truncate( $code, 0, $size );
@@ -2945,10 +2947,7 @@ function getDb( string $dsn, string $mode = 'get' ) {
 	}
 	
 	// First time? SQLite database will be created
-	$first_run	= false;
-	if ( !\file_exists( $dsn ) ) {
-		$first_run = true;
-	}
+	$first_run	= !\file_exists( $dsn );
 	
 	$opts	= [
 		\PDO::ATTR_TIMEOUT		=> \DATA_TIMEOUT,
@@ -5544,6 +5543,52 @@ function sendFile(
 	return true;
 }
 
+/**
+ *  Source directory helper for host/domain specific folders
+ *  
+ *  @return string
+ */
+function getHostDirectory( string $path ) : string {
+	$dr = $path . slashPath( getHost(), true );
+	return \is_dir( $dr ) ? $dr : $path;
+}
+
+/**
+ *  Get the relative post directory or host-specific plugin file path, or 
+ *  global plugin file storage path if there's a subfolder with current hostname
+ *  
+ *  @param string	$src	Source type post, plugin, file
+ *  @return string
+ */
+function getPostFileDir( string $src = 'none' ) : string {
+	static $pd	= [];
+	
+	if ( isset( $pd[$src] ) ) {
+		return $pd[$src];
+	}
+	
+	switch( $src ) {
+		case 'file':
+			$pd[$src] = getHostDirectory( \FILE_PATH );
+			break;
+			
+		case 'plugin':
+			$pd[$src] = getHostDirectory( \PLUGIN_DATA );
+			break;
+		
+		case 'posts':
+			$pd[$src] = getHostDirectory( \POSTS );
+			break;
+			
+		default:
+			$pd[$src] = \POSTS;
+	}
+	
+	return $pd[$src];
+}
+
+
+
 
 /**
  *  Routing and redirection
@@ -6064,7 +6109,7 @@ function sendPluginFile(
 		
 		// File written by plugin?
 		$fpath = 
-		\PLUGIN_DATA . $p . DIRECTORY_SEPARATOR . $path;
+		getPostFileDir( 'plugin' ) . $p . DIRECTORY_SEPARATOR . $path;
 		if ( \file_exists( $fpath ) ) {
 			return $dosend ? sendWithEtag( $fpath ) : true;
 		}
@@ -6103,7 +6148,7 @@ function fileRequest(
 	}
 	
 	// Static file path
-	$fpath	= \FILE_PATH . $path;
+	$fpath	= getPostFileDir( 'file' ) . $path;
 	
 	if ( \file_exists( $fpath ) ) {
 		return $dosend ? sendWithEtag( $fpath ) : true;
@@ -6152,16 +6197,26 @@ function route( string $event, array $hook, array $params ) {
 /**
  *  Application
  */
+
+/**
+ *  Get all files in relative post path
+ *  
+ *  @param string	$root Post relative root
+ *  @return mixed
+ */
 function getPosts( string $root = '' ) {
 	static $st =	[];
 	if ( isset( $st[$root] ) ) {
 		return $st[$root];
 	}
 	
+	// Get relative root
+	$pd	= getPostFileDir( 'posts' ) . $root;
+	
 	try {
 		$dir		= 
 		new \RecursiveDirectoryIterator( 
-			POSTS . $root, 
+			$pd, 
 			\FilesystemIterator::FOLLOW_SYMLINKS | 
 			\FilesystemIterator::KEY_AS_FILENAME
 		);
@@ -6183,7 +6238,7 @@ function getPosts( string $root = '' ) {
 		
 	} catch( \Exception $e ) {
 		logError( 'Error retrieving posts from ' . 
-			POSTS . $root . ' ' . $e->getMessage() );
+			$pd . ' ' . $e->getMessage() );
 		return null;
 	}
 }
@@ -6242,6 +6297,7 @@ function prefixPath(
 	return $overwrite ? $fname : dupRename( $fname );
 }
 
+
 /**
  *  Check if path exists in the given plugin writable directory
  *  
@@ -6265,7 +6321,7 @@ function pluginFileExists(
 		return false;
 	}
 	
-	$root	= \PLUGIN_DATA . $name;
+	$root	= getPostFileDir( 'plugin' ) . $name;
 	$fpath	= prefixPath( $root . $path, $prefix );
 	if ( empty( filterDir( $fpath, $root ) ) ) {
 		logError( 'Invalid file path search: ' . $path );
@@ -6300,7 +6356,7 @@ function pluginWritePath(
 	}
 	
 	// Prepare plugin write path
-	$root	= \PLUGIN_DATA . $name;
+	$root	= getPostFileDir( 'plugin' ) . $name;
 	$fpath	= prefixPath( $root . $path, $prefix, $overwrite );
 	
 	if ( empty( filterDir( $fpath, $root ) ) ) {
@@ -6415,7 +6471,7 @@ function loadPost(
 	$type	= '';
 	$rtime	= 0;
 	$ext	= empty( $custom ) ? '.md' : '.' . $custom;
-	$ppath	= POSTS . \ltrim( $path, '/' ) . $ext;
+	$ppath	= getPostFileDir( 'posts' ) . \ltrim( $path, '/' ) . $ext;
 	
 	$data	= loadText( $ppath );
 	
@@ -7927,7 +7983,7 @@ function previewLink(
 	string		$mode	= '', 
 	bool		$nr	= false 
 ) {
-	$ppath	= POSTS . $path. '.md';
+	$ppath	= getPostFileDir( 'posts' ) . $path. '.md';
 	$data	= loadText( $ppath );
 	if ( empty( $data ) ) {
 		return '';
