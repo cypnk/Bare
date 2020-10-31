@@ -57,11 +57,32 @@ Upload the following to your web root:
 Change the default settings in *index.php* E.G. SITE_NAME etc...  
 *index.php* Also has the default theme so there are no other files to edit.
 
-Add your site's domain name, E.G. *example.com*, to the comma-delimited  
-whitelist in SERVER_WHITE.
+Then add your site's domain name, E.G. *example.com*, to the whitelist in  
+SITE_WHITE (currently, the author's Tor blog is in this place):
+```
+{
+	"example.com" : [ "\/" ]
+}
+```
+And if testing for both *example.com* and locally on localhost:
+```
+{
+	"example.com" : [ "\/" ],
+	"localhost" : [ "\/" ]
+}
+```
+Alternatively, if you already have other content on "example.com", use a 
+subfolder to host your blog:
+```
+{
+	"example.com" : [ "\/myblog" ]
+}
+```
+As above, remember to escape forward slashes.
 
-Bare is multi-site capable. After adding your domain to the whitelist,  
-publish your posts in */posts/example.com/* following the above format.
+Bare is multi-site capable. If you want to host different posts for  
+different domains, publish your posts in */posts/example.com/* following  
+the above format after adding yout domain to the whitelist.
 
 Bare supports caching of formatted posts. Simply enable write  
 permissions to the cache directory. On \*nix systems:
