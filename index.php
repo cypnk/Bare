@@ -66,9 +66,6 @@ define( 'PAGE_TITLE',	'Rustic Cyberpunk' );
 // Site subtitle/tagline
 define( 'PAGE_SUB',	'Coffee. Code. Cabins.' );
 
-// Site link
-define( 'PAGE_LINK',	'/' );
-
 // Number of posts per page
 define( 'PAGE_LIMIT',	12 );
 
@@ -4934,8 +4931,9 @@ function getRoot( bool $err = false ) : string {
 		return $errors;
 	}
 	
-	$link		= config( 'page_link', \PAGE_LINK );
-	$root		= slashPath( $link, true );
+	// Shortest root directory for this host
+	$hp		= getHostPaths( getHost() );
+	$root		= slashPath( $hp[0], true );
 	return $root;
 }
 
@@ -5130,16 +5128,44 @@ function getHost() : string {
  */
 function getHostPaths( string $host ) : array {
 	static $paths	= [];
-	if ( isset( $paths[$host] ) ) {
+	if ( !empty( $paths[$host] ) ) {
 		return $paths[$host];
 	}
 	$sp		= getSiteWhite();
-	$sa		= $sp[$host] ?? [ '\/' ];
+	$sa		= $sp[$host] ?? [ '/' ];
 	\natcasesort( $sa );
 	
-	$paths[$host]	= $sa;
+	$paths[$host]	= 
+	\array_map( 'slashPath', \array_unique( $sa, \SORT_STRING ) );
 	
 	return $paths[$host];
+}
+
+/**
+ *  Check if the current host and path are in the whitelist
+ *  
+ *  @param string	$host		Server host name
+ *  @param string	$path		Current URI
+ *  @return bool
+ */
+function hostPathMatch( string $host, string $path ) : bool {
+	$pm	= getHostPaths( $host );
+	
+	// Root folder is allowed?
+	if ( \in_array( '/', $pm, true ) ) {
+		return true;
+	}
+	
+	// Shortest matching allowed subfolder
+	$pe	= explode( '/', $path );
+	$px	= '';
+	foreach ( $pe as $k => $v ) {
+		$px .= slashPath( $v );
+		if ( \in_array( $px, $pm, true ) ) {
+			return true;
+		}
+	}
+	return false;
 }
 
 /**
@@ -5852,8 +5878,10 @@ function request( string $event, array $hook, array $params ) : array {
 	// Check throttling
 	sessionThrottle();
 	
+	$host	= getHost();
+	
 	// Empty host?
-	if ( empty( getHost() ) ) {
+	if ( empty( $host ) ) {
 		visitorError( 400, 'Host' );
 		sendError( 400, errorLang( "invalid", \MSG_INVALID ) );
 	}
@@ -5892,6 +5920,12 @@ function request( string $event, array $hook, array $params ) : array {
 		\preg_match( RX_XSS4, $path ) || 
 		!empty( $_FILES )
 	) {
+		visitorError( 403, 'Denied' );
+		sendError( 403, errorLang( "denied", \MSG_DENIED ) );
+	}
+	
+	// Match whitelisted host and root path
+	if ( !hostPathMatch( $host, $path ) ) {
 		visitorError( 403, 'Denied' );
 		sendError( 403, errorLang( "denied", \MSG_DENIED ) );
 	}
@@ -8901,12 +8935,6 @@ function checkConfig( string $event, array $hook, array $params ) {
 	$filter	= [
 		'page_title'	=> \FILTER_SANITIZE_STRING,
 		'page_sub'	=> \FILTER_SANITIZE_STRING,
-		'page_link'	=> [
-			'filter'=> \FILTER_VALIDATE_URL,
-			'options' => [
-				'default' => \PAGE_LINK
-			],
-		],
 		'page_limit'	=> [
 			'filter'	=> \FILTER_VALIDATE_INT,
 			'options'	=> [
@@ -9127,9 +9155,6 @@ function checkConfig( string $event, array $hook, array $params ) {
 	// Filter passed params, leaving out unset ones
 	$data			= 
 	\filter_var_array( $params, $filter, false );
-	
-	$data['page_link']	= 
-	\strip_tags( $data['page_link'] ?? \PAGE_LINK );
 	
 	if ( isset( $data['ext_whitelist'] ) ) { 
 		$data['ext_whitelist']	= 
