@@ -3818,11 +3818,11 @@ function textNeedleSearch( $find, $collection ) {
 /**
  *  Friendly datetime stamp
  */
-function dateNice( $stamp = null ) : string {
+function dateNice( $stamp = null, string $fmt = \DATE_NICE ) : string {
 	static $dn;
 	if ( !isset( $dn ) ) {
 		$dn	= 
-		langVar( 'date_nice', config( 'date_nice', \DATE_NICE ) );
+		langVar( 'date_nice', config( 'date_nice', $fmt ) );
 	}
 	return \gmdate( $dn, tstring( $stamp ) );
 }
