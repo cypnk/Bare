@@ -72,9 +72,19 @@ define( 'PAGE_LINK',	'/' );
 // Number of posts per page
 define( 'PAGE_LIMIT',	12 );
 
-// Whitelist of allowed server host names
+/**
+ *  Important
+ */
+// Whitelist of allowed sites and primary paths
 // Add "localhost" if testing locally
-define( 'SERVER_WHITE',		'kpz62k4pnyh5g5t2efecabkywt2aiwcnqylthqyywilqgxeiipen5xid.onion' );
+define( 'SITE_WHITE',		<<<JSON
+{
+	"kpz62k4pnyh5g5t2efecabkywt2aiwcnqylthqyywilqgxeiipen5xid.onion" : [
+		"\/"
+	]
+}
+JSON
+);
 
 // Number of posts on archive index page
 define( 'INDEX_LIMIT',	60 );
@@ -5064,6 +5074,20 @@ function httpCode( int $code ) {
 }
 
 /**
+ *  Get whitelisted sites and associated paths
+ *  
+ *  @return array
+ */
+function getSiteWhite() : array {
+	static $sw;
+	if ( isset( $sw ) ) {
+		return $sw;
+	}
+	$sw	= decode( \SITE_WHITE );
+	return $sw;
+}
+
+/**
  *  Host server name
  *  @return string
  */
@@ -5071,7 +5095,8 @@ function getHost() : string {
 	static $host;
 	if ( isset( $host ) ) { return $host; }
 	
-	$sw	= trimmedList( config( 'server_white', \SERVER_WHITE ) );
+	$sk	= getSiteWhite();
+	$sw	= trimmedList( implode( ',', array_keys( $sk ) ) );
 	$sh	= [ 'HTTP_HOST', 'SERVER_NAME', 'SERVER_ADDR' ];
 	
 	foreach ( $sh as $h ) {
@@ -5095,6 +5120,26 @@ function getHost() : string {
 	
 	$host	= hookStringResult( 'gethost', $host ?? '' );
 	return $host;
+}
+
+/**
+ *  Get whitelisted paths for current host
+ *  
+ *  @param string	$host	Current server host
+ *  @return array
+ */
+function getHostPaths( string $host ) : array {
+	static $paths	= [];
+	if ( isset( $paths[$host] ) ) {
+		return $paths[$host];
+	}
+	$sp		= getSiteWhite();
+	$sa		= $sp[$host] ?? [ '\/' ];
+	\natcasesort( $sa );
+	
+	$paths[$host]	= $sa;
+	
+	return $paths[$host];
 }
 
 /**
