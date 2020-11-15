@@ -61,21 +61,44 @@ Then add your site's domain name, E.G. *example.com*, to the whitelist in
 SITE_WHITE (currently, the author's Tor blog is in this place):
 ```
 {
-	"example.com" : [ "\/" ]
+	"example.com" : []
 }
 ```
 And if testing for both *example.com* and locally on localhost:
 ```
 {
-	"example.com" : [ "\/" ],
-	"localhost" : [ "\/" ]
+	"example.com" : [],
+	"localhost" : []
 }
 ```
 Alternatively, if you already have other content on "example.com", use a 
 subfolder to host your blog:
 ```
 {
-	"example.com" : [ "\/myblog" ]
+	"example.com" : [ 
+		{
+			"basepath" : "\/myblog",
+			"is_active" : 1,
+			"is_maintenance" : 0
+		} 
+	]
+}
+```
+Or multiple blogs on the same domain
+```
+{
+	"example.com" : [ 
+		{
+			"basepath" : "\/",
+			"is_active" : 1,
+			"is_maintenance" : 0
+		}, 
+		{
+			"basepath" : "\/secondblog",
+			"is_active" : 1,
+			"is_maintenance" : 0
+		} 
+	]
 }
 ```
 As above, remember to escape forward slashes.
