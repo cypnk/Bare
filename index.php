@@ -70,18 +70,32 @@ define( 'PAGE_SUB',	'Coffee. Code. Cabins.' );
 define( 'PAGE_LIMIT',	12 );
 
 /**
- *  Important
- */
-// Whitelist of allowed sites and primary paths
-// Add "localhost" if testing locally
+ *  Important:
+ *
+ *  Whitelist of allowed sites and primary paths
+ *  Add "localhost" if testing locally
+ *  'is_active' Lets Bare know to allow serving blog posts
+ *  'is_maintenance' Lets a plugin send an "under construction" placeholder
+ *  'settings' Are for any plugins/helpers
+ **/
 define( 'SITE_WHITE',		<<<JSON
 {
-	"kpz62k4pnyh5g5t2efecabkywt2aiwcnqylthqyywilqgxeiipen5xid.onion" : [
-		"\/"
-	]
+	"kpz62k4pnyh5g5t2efecabkywt2aiwcnqylthqyywilqgxeiipen5xid.onion" : []
 }
 JSON
 );
+
+// Default path parameters if any sites in the whitelist above didn't have any
+define( 'DEFAULT_BASEPATH',	<<<JSON
+{
+	"basepath"		: "\/",
+	"is_active"		: 1,
+	"is_maintenance"	: 0,
+	"settings"		: []
+}
+JSON
+);
+
 
 // Number of posts on archive index page
 define( 'INDEX_LIMIT',	60 );
@@ -190,6 +204,7 @@ https://www.youtube.com
 https://player.vimeo.com
 https://archive.org
 https://peertube.mastodon.host
+
 LINES
 );
 
@@ -5132,12 +5147,29 @@ function getHostPaths( string $host ) : array {
 		return $paths[$host];
 	}
 	$sp		= getSiteWhite();
-	$sa		= $sp[$host] ?? [ '/' ];
+	
+	// Add filler if empty
+	if ( empty( $sp[$host] ) ) {
+		$sp[$host]	= [ decode( DEFAULT_BASEPATH ) ];
+	}
+		
+	$sa	= [];
+	foreach( $sp[$host] as $s ) {
+		// This is an active site
+		if ( $s['is_active'] ) {
+			$sa[] = slashPath( $s['basepath'] );
+		}
+	}
+	
 	\natcasesort( $sa );
+	$sa	= \array_unique( $sa, \SORT_STRING );
 	
-	$paths[$host]	= 
-	\array_map( 'slashPath', \array_unique( $sa, \SORT_STRING ) );
+	hook( [ 'gethostpaths', [
+		'allpaths'	=> $sp,
+		'current'	=> $sa
+	] ] );
 	
+	$paths[$host]	= $sa;
 	return $paths[$host];
 }
 
