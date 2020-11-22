@@ -2991,16 +2991,25 @@ function getDb( string $dsn, string $mode = 'get' ) {
 		die();
 	}
 	
+	// Preemptive defense
+	$db[$dsn]->exec( 'PRAGMA quick_check;' );
+	$db[$dsn]->exec( 'PRAGMA trusted_schema = OFF;' );
+	$db[$dsn]->exec( 'PRAGMA cell_size_check = ON;' );
+	
 	// Prepare defaults if first run
 	if ( $first_run ) {
 		$db[$dsn]->exec( 'PRAGMA encoding = "UTF-8";' );
 		$db[$dsn]->exec( 'PRAGMA page_size = "16384";' );
 		$db[$dsn]->exec( 'PRAGMA auto_vacuum = "2";' );
 		$db[$dsn]->exec( 'PRAGMA temp_store = "2";' );
-		$db[$dsn]->exec( 'PRAGMA secure_delete = "1"' );
+		$db[$dsn]->exec( 'PRAGMA secure_delete = "1";' );
 		
 		// Load and process SQL
 		installSQL( $db[$dsn], $dsn );
+		
+		// Instalation check
+		$db[$dsn]->exec( 'PRAGMA integrity_check;' );
+		$db[$dsn]->exec( 'PRAGMA foreign_key_check;' );
 	}
 	
 	$db[$dsn]->exec( 'PRAGMA journal_mode = WAL;' );
