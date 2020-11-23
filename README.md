@@ -71,8 +71,11 @@ And if testing for both *example.com* and locally on localhost:
 	"localhost" : []
 }
 ```
-Alternatively, if you already have other content on "example.com", use a 
-subfolder to host your blog:
+Bare is multi-site capable. If you want to host different posts for  
+different domains, publish your posts in */posts/example.com/* 
+
+## Multiple blogs or shared content
+Hosting a blog in a subfolder instead of the main domain:
 ```
 {
 	"example.com" : [ 
@@ -84,7 +87,7 @@ subfolder to host your blog:
 	]
 }
 ```
-Or multiple blogs on the same domain
+Or multiple blogs on the same domain:
 ```
 {
 	"example.com" : [ 
@@ -102,10 +105,6 @@ Or multiple blogs on the same domain
 }
 ```
 As above, remember to escape forward slashes.
-
-Bare is multi-site capable. If you want to host different posts for  
-different domains, publish your posts in */posts/example.com/* following  
-the above format after adding yout domain to the whitelist.
 
 Bare supports caching of formatted posts. Simply enable write  
 permissions to the cache directory. On \*nix systems:
