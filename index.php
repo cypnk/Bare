@@ -1733,6 +1733,25 @@ function logRollover( string $file ) {
 }
 
 /**
+ *  Currently set application name in configuration or default app name
+ *  
+ *  @return string
+ */
+function appName() : string {
+	static $app;
+	if ( isset( $app ) ) {
+		return $app;
+	}
+	
+	$app = labelName( config( 'app_name', \APP_NAME ) );
+	if ( empty( $app ) ) {
+		$app = labelName( \APP_NAME );
+	}
+	return $app;
+}
+
+
+/**
  *  Error logging
  *  
  *  @param string	$err	Error message to store
@@ -1751,7 +1770,7 @@ function logError( string $err, bool $app = true ) : bool {
 	if ( !file_exists( $file ) ) {
 		// Create header
 		$header =
-		'#Software: ' . title( \APP_NAME ) . "\n#Date: $dt\n#Fields: ";
+		'#Software: ' . appName() . "\n#Date: $dt\n#Fields: ";
 		
 		// Application errors have simpler headers
 		$header .= $app ? 
@@ -1971,6 +1990,11 @@ function loadFile( string $name ) : string {
 	
 	if ( false !== \strpos( $data, '<?php' ) ) {
 		shutdown( 'cleanup' );
+		
+		// Prevent circular failure if config file contained the error
+		if ( 0 == \strcasecmp( $name, CONFIG ) ) ) {
+			die( \MSG_CODEDETECT );
+		}
 		send( 500, \MSG_CODEDETECT );
 	}
 	
@@ -3135,12 +3159,13 @@ function loadPlugins( string $event, array $hook, array $params ) {
 		die();
 	}
 	
-	if ( empty( \PLUGINS_ENABLED ) ) {
+	$pl = config( 'plugins_enabled', \PLUGINS_ENABLED );
+	if ( empty( $pl ) ) {
 		// Nothing to load
 		return;
 	}
 	
-	$plugins	= trimmedList( \PLUGINS_ENABLED, true );
+	$plugins	= trimmedList( $pl, true );
 	$msg		= [];
 	$loaded		= [];
 	
@@ -3291,7 +3316,7 @@ function defaultCookieOptions( array $options = [] ) : array {
  *  @return mixed
  */
 function getCookie( string $name, $default ) {
-	$app = title( \APP_NAME );
+	$app = appName();
 	if ( !isset( $_COOKIE[$app] ) ) {
 		return $default;
 	}
@@ -3321,13 +3346,13 @@ function makeCookie( string $name, $data, array $options = [] ) : bool {
 	] ] );
 	if ( newPHP() ) {
 		return 
-		\setcookie( title( \APP_NAME ) . "[$name]", $data, $options );
+		\setcookie( appName() . "[$name]", $data, $options );
 	}
 	
 	// PHP < 7.3
 	return 
 	\setcookie( 
-		title( \APP_NAME ) . "[$name]", 
+		appName() . "[$name]", 
 		$data,
 		$options['expires'],
 		$options['path'],
