@@ -1992,7 +1992,7 @@ function loadFile( string $name ) : string {
 		shutdown( 'cleanup' );
 		
 		// Prevent circular failure if config file contained the error
-		if ( 0 == \strcasecmp( $name, CONFIG ) ) ) {
+		if ( 0 == \strcasecmp( $name, CONFIG ) ) {
 			die( \MSG_CODEDETECT );
 		}
 		send( 500, \MSG_CODEDETECT );
