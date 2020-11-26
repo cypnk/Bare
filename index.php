@@ -3157,13 +3157,12 @@ function loadPlugins( string $event, array $hook, array $params ) {
 		die();
 	}
 	
-	$pl = config( 'plugins_enabled', \PLUGINS_ENABLED );
-	if ( empty( $pl ) ) {
+	if ( empty( \PLUGINS_ENABLED ) ) {
 		// Nothing to load
 		return;
 	}
 	
-	$plugins	= trimmedList( $pl, true );
+	$plugins	= trimmedList( \PLUGINS_ENABLED, true );
 	$msg		= [];
 	$loaded		= [];
 	
