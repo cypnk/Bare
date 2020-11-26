@@ -1991,7 +1991,7 @@ function loadFile( string $name ) : string {
 		
 		// Prevent circular failure if config file contained the error
 		if ( 0 == \strcasecmp( $name, CONFIG ) ) {
-			die( \MSG_CODEDETECT );
+			shutdown();
 		}
 		send( 500, \MSG_CODEDETECT );
 	}
@@ -2195,8 +2195,14 @@ function saveFile(
  *  @param array	$params		Configuration settings
  *  @return bool
  */
-function saveConfig( array $params ) : bool {
-	$data = encode( $params );
+function saveConfig() : bool {
+	if ( !internalState( 'configModified' ) ) {
+		return false;
+	}
+	
+	// Load new config from 
+	$params	= hook( [ 'configmodified', '' ] );
+	$data	= encode( $params );
 	if ( empty( $data ) ) {
 		return false;
 	}
@@ -3140,10 +3146,7 @@ function cleanup() {
 	}
 	
 	getDb( '', 'closeall' );
-	
-	if ( internalState( 'configModified' ) ) {
-		saveConfig( loadConfig( \CONFIG ) );
-	}
+	saveConfig();
 }
 
 /**
