@@ -2538,13 +2538,14 @@ function paginate( int $page, string $prefix, array $posts ) : string {
  *  Navigation link formatter
  *  
  *  @param string	$wrap		Link wrapper template
- *  @param string	$def		Link JSON definition
+ *  @param mixed	$def		Link JSON definition
  */
 function renderNavLinks(
 	string		$wrap,
-	string		$def
+			$def
 ) {
-	$links	= decode( $def );
+	$links	= \is_string( $def ) ? 
+			decode( $def ) : [ 'links' => $def ];
 	
 	$out	= '';
 	$tpl	= template( 'tpl_page_nav_link' );
@@ -2568,12 +2569,13 @@ function renderNavLinks(
 function pageFooter() : string {
 	// Footer with home link set
 	
+	$flinks	= config( 'default_footer_links', \DEFAULT_FOOTER_LINKS );
 	return 
 	render( template( 'tpl_page_footer' ), [ 
 		'footer_links'=> 
 			renderNavLinks( 
 				template( 'tpl_footernav_wrap' ), 
-				\DEFAULT_FOOTER_LINKS 
+				$flinks
 			),
 		'home'		=> homeLink(),
 		'feedlink'	=> feedLink()
@@ -2638,8 +2640,10 @@ function rsettings( string $area, array $modify = [] ) : array {
 			
 			case 'meta':
 				// Load custom meta tags
+				$meta = config( 'default_meta', \DEFAULT_META );
+				
 				$store['meta']		= 
-					decode( \DEFAULT_META );
+					\is_string( $meta ) ? decode( $meta ) : $meta;
 				break;
 			
 			default:
