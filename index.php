@@ -1742,14 +1742,12 @@ function appName() : string {
 	if ( isset( $app ) ) {
 		return $app;
 	}
-	
-	$app = labelName( config( 'app_name', \APP_NAME ) );
+	$app = title( config( 'app_name', \APP_NAME ) );
 	if ( empty( $app ) ) {
-		$app = labelName( \APP_NAME );
+		$app = title( \APP_NAME );
 	}
 	return $app;
 }
-
 
 /**
  *  Error logging
@@ -3769,7 +3767,13 @@ function tstring( $stamp ) {
 	if ( \is_numeric( $stamp ) ) {
 		return ( int ) $stamp;
 	}
-	return \strtotime( $stamp );
+	
+	$st =  \ltrim( 
+		\preg_replace( '/[^0-9\/]+/', '', $stamp ), 
+		'/' 
+	);
+	
+	return \strtotime( empty( $st ) ? 'now' : $st );
 }
 
 /**
@@ -6697,8 +6701,10 @@ function timeZoneOffset() : int {
  *  @return string
  */
 function getPub( $path ) : string {
-	$path = \ltrim( $path, '/' );
-	return utc( \substr( $path, 0, \strrpos( $path, '/' ) ) );	
+	$path	= \ltrim( $path, '/' );
+	$fr	= ( string ) \substr( $path, 0, \strrpos( $path, '/' ) );
+	
+	return utc( empty( $fr ) ? 'now' : $fr );
 }
 
 /**
