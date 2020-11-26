@@ -124,7 +124,7 @@ There is also a [plugin](https://github.com/cypnk/Bare-Plugins) project for Bare
 
 ### Requirements
 * Webserver capable of handling URL rewrites (Apache, Nginx etc...)
-* PHP Version 7.3+ (7.2 is supported, but not recommended)
+* PHP Version 7.3+
 
 The following PHP extensions may need to be installed or enabled  
 in **php.ini**:
