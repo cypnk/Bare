@@ -2578,7 +2578,7 @@ function pageFooter() : string {
  *  Load and change each placeholder into a key
  */
 function loadClasses() {
-	$cls	= decode( \DEFAULT_CLASSES );
+	$cls	= config( 'default_classes', decode( \DEFAULT_CLASSES ) );
 	// Trigger class load hook
 	hook( [ 'loadcssclasses', [ 'classes' => $cls ] ] );
 	
@@ -2611,22 +2611,24 @@ function rsettings( string $area, array $modify = [] ) : array {
 				break;
 				
 			case 'styles':
-				$store['styles']	= 
+				$s = config( 'stylesheets', \DEFAULT_STYLESHEETS );
+				$store['styles']	= \is_array( $s ) ? $s : 
 				linePresets( 
 					'stylesheets', 
 					'style_limit', 
 					\STYLE_LIMIT, 
-					\DEFAULT_STYLESHEETS 
+					$s
 				);
 				break;
 				
 			case 'scripts':
-				$store['scripts']	= 
+				$s = config( 'stylesheets', \DEFAULT_SCRIPTS );
+				$store['scripts']	= \is_array( $s ) ? $s : 
 				linePresets( 
 					'scripts', 
 					'script_limit', 
 					\SCRIPT_LIMIT,
-					\DEFAULT_SCRIPTS
+					$s
 				);
 				break;
 			
