@@ -2611,7 +2611,7 @@ function rsettings( string $area, array $modify = [] ) : array {
 				break;
 				
 			case 'styles':
-				$s = config( 'stylesheets', \DEFAULT_STYLESHEETS );
+				$s = config( 'default_stylesheets', \DEFAULT_STYLESHEETS );
 				$store['styles']	= \is_array( $s ) ? $s : 
 				linePresets( 
 					'stylesheets', 
@@ -2622,7 +2622,7 @@ function rsettings( string $area, array $modify = [] ) : array {
 				break;
 				
 			case 'scripts':
-				$s = config( 'stylesheets', \DEFAULT_SCRIPTS );
+				$s = config( 'default_scripts', \DEFAULT_SCRIPTS );
 				$store['scripts']	= \is_array( $s ) ? $s : 
 				linePresets( 
 					'scripts', 
