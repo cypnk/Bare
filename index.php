@@ -2145,10 +2145,17 @@ function loadConfig( string $file, array $modify = [] ) : array {
 	}
 	
 	$data	= loadFile( $file );
+	if ( empty( $data ) ) {
+		$params = [];
+		return $params;
+	}
+	
 	$params	= decode( $data );
 	
 	// Check for any modifications and run events/filters
-	$params = modifiedConfig( $params, $modify );
+	if ( !empty( $modify ) ) {
+		$params = modifiedConfig( $params, $modify );
+	}
 	
 	return $params;
 }
@@ -2238,31 +2245,19 @@ function configModified( string $event, array $hook, array $params ) {
  *  @return mixed
  */
 function config( string $name, $default, string $type = 'string' ) {
-	static	$data = [];
-	
-	$name	= \strtolower( $name );
-	if ( isset( $data[$name] ) ) {
-		return $data[$name];
-	}
-	
 	$config = loadConfig( \CONFIG );
 	switch( $type ) {
 		case 'int':
 		case 'integer':
-			$data[$name] = ( int )
-				( $config[$name] ?? $default );
-			break;
+			return ( int ) ( $config[$name] ?? $default );
 			
 		case 'bool':
 		case 'boolean':
-			$data[$name] = ( bool )
-				( $config[$name] ?? $default );
-			break;
+			return ( bool ) ( $config[$name] ?? $default );
 			
 		default:
-			$data[$name] = $config[$name] ?? $default;
+			return $config[$name] ?? $default;
 	}
-	return $data[$name];
 }
 
 /**
@@ -2542,7 +2537,7 @@ function renderNavLinks(
 			$def
 ) {
 	$links	= \is_array( $def ) ? $def : 
-			decode( $def )['links'] ?? [];
+			decode( $def )[ 'links'] ?? [];
 	
 	$out	= '';
 	$tpl	= template( 'tpl_page_nav_link' );
@@ -2638,9 +2633,10 @@ function rsettings( string $area, array $modify = [] ) : array {
 			case 'meta':
 				// Load custom meta tags
 				$meta = config( 'default_meta', \DEFAULT_META );
+				
 				$store['meta']		= 
-					\is_string( $meta ) ? 
-						decode( $meta ) : [ 'meta' => $meta ];
+					\is_string( $meta ) ? decode( $meta ) : 
+						[ 'meta' => $meta ];
 				break;
 			
 			default:
