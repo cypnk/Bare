@@ -2542,11 +2542,11 @@ function renderNavLinks(
 			$def
 ) {
 	$links	= \is_array( $def ) ? $def : 
-			decode( $def )[ 'links'] ?? [];
+			decode( $def )['links'] ?? [];
 	
 	$out	= '';
 	$tpl	= template( 'tpl_page_nav_link' );
-	foreach ( $links as $k => $v ) {
+	foreach ( $links as $v ) {
 		$out	.= render( $tpl, $v );
 	}
 	
@@ -2638,9 +2638,9 @@ function rsettings( string $area, array $modify = [] ) : array {
 			case 'meta':
 				// Load custom meta tags
 				$meta = config( 'default_meta', \DEFAULT_META );
-				
 				$store['meta']		= 
-					\is_string( $meta ) ? decode( $meta ) : $meta;
+					\is_string( $meta ) ? 
+						decode( $meta ) : [ 'meta' => $meta ];
 				break;
 			
 			default:
