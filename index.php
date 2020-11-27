@@ -1085,9 +1085,6 @@ define( 'SESSION_EXP',		300 );
 // ID random bytes
 define( 'SESSION_BYTES',	12 );
 
-// Session name
-define( 'SESSION_TITLE',	'Bare' );
-
 // Session throttling levels
 define( 'SESSION_STATE_FRESH',	0 );
 define( 'SESSION_STATE_LIGHT',	1 );
@@ -2544,12 +2541,12 @@ function renderNavLinks(
 	string		$wrap,
 			$def
 ) {
-	$links	= \is_string( $def ) ? 
-			decode( $def ) : [ 'links' => $def ];
+	$links	= \is_array( $def ) ? $def : 
+			decode( $def )[ 'links'] ?? [];
 	
 	$out	= '';
 	$tpl	= template( 'tpl_page_nav_link' );
-	foreach ( $links['links'] ?? [] as $k => $v ) {
+	foreach ( $links as $k => $v ) {
 		$out	.= render( $tpl, $v );
 	}
 	
@@ -3593,7 +3590,7 @@ function session( $reset = false ) {
 	
 	if ( \session_status() !== \PHP_SESSION_ACTIVE ) {
 		sessionCookieParams();
-		\session_name( \SESSION_TITLE );
+		\session_name( appName() );
 		\session_start();
 		
 		hook( [ 'sessioncreated', [ 'id' => \session_id() ] ] );
