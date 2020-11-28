@@ -2928,8 +2928,19 @@ function loadSQL( string $dsn ) {
 	// E.G. "CACHE" from "CACHE_DATA"
 	$def	= \explode( '_', $my[$dsn] )[0];
 	
+	// E.G. CACHE_SQL definition
+	$src	= \constant( $def . '_SQL' ) ?? '';
+	
+	// If SQL isn't defined, try to load SQL file with the lowercase DSN
+	if ( empty( $src ) ) {
+		$src = loadFile( lowercase( $dsn ) . '.sql' );
+		if ( empty( $src ) ) {
+			return [];
+		}
+	}
+	
 	// SQL Lines from defined component + "_SQL"
-	return lines( \constant( $def . '_SQL' ) ?? '', -1, false );
+	return lines( $src, -1, false );
 }
 
 /**
@@ -2942,6 +2953,9 @@ function installSQL( \PDO $db, string $dsn ) {
 	$parse	= [];
 	
 	$lines	= loadSQL( $dsn );
+	if ( empty( $lines ) ) {
+		return;
+	}
 	
 	// Filter SQL comments and lines starting PRAGMA
 	foreach( $lines as $l ) {
@@ -3174,6 +3188,11 @@ function loadPlugins( string $event, array $hook, array $params ) {
 	
 	foreach ( $plugins as $p ) {
 		$path = \PLUGINS . $p . DIRECTORY_SEPARATOR . $p . '.php';
+		if ( empty( filterDir( $path, \PLUGINS ) ) ) {
+			$msg[]		= $p;
+			continue;
+		}
+		
 		if ( \file_exists( $path ) ) {
 			require( $path );
 			$loaded[]	= $p;
