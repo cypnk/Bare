@@ -17,7 +17,11 @@ a { color: #415b76 }
 a:active { color: #e74c3c }
 a:hover{ color: #2c81ba }
 
-main { 
+header {
+	display: none;
+}
+
+main {
 	position: absolute; 
 	width: 80%; 
 	top: 50%; 
