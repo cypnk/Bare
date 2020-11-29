@@ -1,0 +1,26 @@
+* {
+	box-sizing: border-box
+}
+
+body {
+	font: 400 1rem sans-serif; 
+	line-height: 1.6; 
+	color: #34495E; 
+	background: #efefef 
+}
+
+h1 { 
+	font-weight: 400; margin: 0; 
+}
+
+a { color: #415b76 }
+a:active { color: #e74c3c }
+a:hover{ color: #2c81ba }
+
+main { 
+	position: absolute; 
+	width: 80%; 
+	top: 50%; 
+	left: 50%; 
+	transform: translate( -50%, -50% ) 
+}
