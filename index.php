@@ -994,6 +994,25 @@ define( 'TAG_WHITE',	<<<JSON
 JSON
 );
 
+// Whitelist of limited form HTML tags for plugins
+// It is strongly recommended that this list be kept small
+define( 'FORM_WHITE',	<<<JSON
+{
+	"form"		: [ "id", "method", "action", "enctype", "style", "class" ], 
+	"input"		: [ "id", "type", "name", "required", , "max", "min", 
+				"value", "size", "maxlength", "checked", 
+				"disabled", "style", "class" ],
+	"label"		: [ "id", "for", "style", "class" ], 
+	"textarea"	: [ "id", "name", "required", "rows", "cols",  
+				"style", "class" ],
+	"select"	: [ "id", "name", "required", "multiple", "size", 
+				"disabled", "style", "class" ],
+	"option"	: [ "id", "value", "disabled", "style", "class" ],
+	"optgroup"	: [ "id", "label", "style", "class" ]
+}
+JSON
+);
+
 // Default content security policy
 define( 'DEFAULT_JCSP',		<<<JSON
 {
@@ -4413,6 +4432,43 @@ function prependPath( string $v, string $prefix ) : string {
 }
 
 /**
+ *  Form encoding type helper, defaults to application/x-www-form-urlencoded
+ *  
+ *  @param string	$v	Raw encoding type
+ *  @return string
+ */
+function cleanFormEnctype( string $v ) : string {
+	$v = trim( $v );
+	if (
+		0 == \strcasecmp( $v, 'application/x-www-form-urlencoded' )	|| 
+		0 == \strcasecmp( $v, 'multipart/form-data' )			|| 
+		0 == \strcasecmp( $v, 'text/plain' )
+	) {
+		return $v;
+	}
+	
+	return 'application/x-www-form-urlencoded';
+}
+
+/**
+ *  Filter form sending method type, defaults to get or post
+ *  
+ *  @param string	$v	Raw form method
+ *  @return string
+ */
+function cleanFormMethodType( string $v ) : string {
+	$v = trim( $v );
+	if (
+		0 == \strcasecmp( $v, 'GET' )	|| 
+		0 == \strcasecmp( $v, 'POST' )
+	) {
+		return $v;
+	}
+	
+	return 'get';
+}
+
+/**
  *  Clean DOM node attribute against whitelist
  *  
  *  @param DOMNode	$node	Object DOM Node
@@ -4444,8 +4500,26 @@ function cleanAttributes(
 				case 'src':
 				case 'data-src':
 				case 'href':
+				case 'action':
 					// Use prefix for relative paths
 					$v = prependPath( $v, $prefix );
+					break;
+				
+				// Form-specific extras
+				case 'method':
+					$v = cleanFormMethodType( $v );
+					break;
+				
+				case 'enctype':
+					$v = cleanFormEnctype( $v );
+					break;
+				
+				case 'pattern':
+					$v = 
+					\preg_replace( 
+						'/[^[:alnum:]_\-\{\}\[\]\/\+\.\s]/', 
+						'', $v
+					);
 					break;
 					
 				default:
@@ -4595,11 +4669,21 @@ function formatHTML( string $html, string $prefix ) {
 /**
  *  HTML filter
  */
-function html( string $value, $prefix = '' ) : string {
-	static $white;
+function html( 
+	string	$value, 
+	string	$prefix	= '', 
+	bool	$form	= false 
+) : string {
+	static $white	= [];
 	
-	if ( !isset( $white ) ) {
-		$white = decode( TAG_WHITE );
+	if ( !isset( $white['html'] ) ) {
+		$white['html'] = decode( TAG_WHITE );
+		
+		// Include form tags
+		$white['form'] = 
+		\array_merge_recursive( 
+			$white['html'], decode( FORM_WHITE ) 
+		);
 	}
 	
 	// Remove preceding/trailing slashes
@@ -4646,8 +4730,10 @@ function html( string $value, $prefix = '' ) : string {
 	
 	// Iterate through every HTML element 
 	if ( !empty( $domBody->childNodes ) ) {
+		// Use form inclusive tags if this is a form page
+		$wtags	= $form ? $white['form'] : $white['html'];
 		foreach ( $domBody->childNodes as $node ) {
-			scrub( $node, $white, $prefix, $flush );
+			scrub( $node, $wtags, $prefix, $flush );
 		}
 	}
 	
@@ -8470,14 +8556,16 @@ function staticPage(
 	string	$label,
 	string	$path,
 	string	$links,
-	array	$post 
+	array	$post,
+	bool	$filter		= true,
+	bool	$cache		= true
 ) {
 	$ptitle	= config( 'page_title', \PAGE_TITLE );
 	$psub	= config( 'page_sub', \PAGE_SUB );
 	
 	// First line is the title, everything else is the body
 	$title	= title( \array_shift( $post ) );
-	$body	= html( \implode( "\n", $post ), homeLink() );
+	$body	= html( \implode( "\n", $post ), homeLink(), $filter );
 	
 	// Send to render hook
 	hook( [ $label . 'render', [ 
@@ -8529,7 +8617,7 @@ function staticPage(
 	);
 	
 	shutdown( 'cleanup' );
-	send( 200, $page_t, true );
+	send( 200, $page_t, $cache );
 }
 
 /**
