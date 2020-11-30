@@ -6803,13 +6803,21 @@ function timeZoneOffset() : int {
 }
 
 /**
+ *  Cut off path from the last index of '/', removing the page slug
+ */
+function cutSlug( string $path ) : string {
+	return 
+	( string ) \substr( $path, 0, \strrpos( $path, '/' ) );
+}
+
+/**
  *  Get published date from path
  *  
  *  @return string
  */
 function getPub( $path ) : string {
 	$path	= \ltrim( $path, '/' );
-	$fr	= ( string ) \substr( $path, 0, \strrpos( $path, '/' ) );
+	$fr	= cutSlug( $path );
 	
 	return utc( empty( $fr ) ? 'now' : $fr );
 }
