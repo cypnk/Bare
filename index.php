@@ -3121,7 +3121,7 @@ function dataExec(
 			
 			// Single column value
 			case 'column':
-				$res = $ok ? $db->fetchColumn() : '';
+				$res = $ok ? $stm->fetchColumn() : '';
 				break;
 			
 			// Success status
@@ -3154,7 +3154,7 @@ function getResults(
 ) : array {
 	$res = dataExec( $sql, $params, 'results', $dsn );
 	return 
-	empty( $res ) ? [] : ( \is_array( $res ) $res : [] );
+	empty( $res ) ? [] : ( \is_array( $res ) ? $res : [] );
 }
 
 /**
@@ -3482,7 +3482,7 @@ function sessionCreateID() {
 	"INSERT OR IGNORE INTO sessions ( session_id )
 		VALUES ( :id );";
 	if ( dataExec( $sql, [ ':id' => $id ], 'success', \SESSION_DATA ) ) {
-		return;
+		return $id;
 	}
 	
 	// Something went wrong with the database
