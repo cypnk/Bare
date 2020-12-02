@@ -3084,26 +3084,77 @@ function getDb( string $dsn, string $mode = 'get' ) {
 }
 
 /**
+ *  Shared data execution routine
+ *  
+ *  @param string	$sql	Database SQL
+ *  @param array	$params	Parameters 
+ *  @param string	$rtype	Return type
+ *  @param string	$dsn	Database string
+ *  @return mixed
+ */
+function dataExec(
+	string		$sql,
+	array		$params,
+	string		$rtype,
+	string		$dsn
+) {
+	$db	= getDb( $dsn );
+	$res	= null;
+	
+	try {
+		$stm	= $db->prepare( $sql );
+		$ok	= 
+		empty( $params ) ? 
+			$stm->execute() : 
+			$stm->execute( $params );
+		
+		switch ( $rtype ) {
+			// Query with array return
+			case 'results':
+				$res = $ok ? $stm->fetchAll() : [];
+				break;
+			
+			// Insert with ID return
+			case 'insert':
+				$res = $ok ? $db->lastInsertId() : 0;
+				break;
+			
+			// Single column value
+			case 'column':
+				$res = $ok ? $db->fetchColumn() : '';
+				break;
+			
+			// Success status
+			default:
+				$res = $ok ? true : false;
+		}
+		
+	} catch( \PDOException $e ) {
+		$stm	= null;
+		logError( $e->getMessage() );
+		return null;
+	}
+	
+	$stm	= null;
+	return $res;
+}
+
+/**
  *  Get parameter result from database
  *  
  *  @param string	$sql	Database SQL query
- *  @param array	$params	Query parameters (required)
+ *  @param array	$params	Query parameters
  *  @param string	$dsn	Database string
  *  @return array		Query results
  */
 function getResults(
 	string		$sql, 
-	array		$params,
+	array		$params		= [],
 	string		$dsn		= \DATA
 ) : array {
-	$db	= getDb( $dsn );
-	$stm	= $db->prepare( $sql );
-	$res	= [];
-	if ( $stm->execute( $params ) ) {
-		$res = $stm->fetchAll();
-	}
-	$stm	= null;
-	return $res;
+	$res = dataExec( $sql, $params, 'results', $dsn );
+	return 
+	empty( $res ) ? [] : ( \is_array( $res ) $res : [] );
 }
 
 /**
@@ -3119,15 +3170,8 @@ function setUpdate(
 	array		$params,
 	string		$dsn		= \DATA
 ) : bool {
-	$db	= getDb( $dsn );
-	$stm	= $db->prepare( $sql );
-	$res	= false;
-	
-	if ( $stm->execute( $params ) ) {
-		$res = true;
-	}
-	$stm	= null;
-	return $res;
+	$res = dataExec( $sql, $params, 'success', $dsn );
+	return empty( $res ) ? false : true;
 }
 
 /**
@@ -3143,14 +3187,9 @@ function setInsert(
 	array		$params,
 	string		$dsn		= \DATA
 ) : int {
-	$db	= getDb( $dsn );
-	$stm	= $db->prepare( $sql );
-	$res	= 0;
-	if ( $stm->execute( $params ) ) {
-		$res	= ( int ) $db->lastInsertId();
-	}
-	$stm	= null;
-	return $res;
+	$res = dataExec( $sql, $params, 'insert', $dsn );
+	return 
+	empty( $res ) ? 0 : ( \is_numeric( $res ) ? ( int ) $res : 0 );
 }
 
 /**
@@ -3442,12 +3481,8 @@ function sessionCreateID() {
 	$sql	= 
 	"INSERT OR IGNORE INTO sessions ( session_id )
 		VALUES ( :id );";
-	
-	$db	= getDb( \SESSION_DATA );
-	$stm	= $db->prepare( $sql );
-	
-	if ( $stm->execute( [ ':id' => $id ] ) ) {
-		return $id;
+	if ( dataExec( $sql, [ ':id' => $id ], 'success', \SESSION_DATA ) ) {
+		return;
 	}
 	
 	// Something went wrong with the database
@@ -3461,13 +3496,8 @@ function sessionCreateID() {
  *  @return bool
  */
 function sessionDestroy( $id ) {
-	$sql	= 
-	"DELETE FROM sessions WHERE session_id = :id;";
-		
-	$db	= getDb( SESSION_DATA );
-	$stm	= $db->prepare( $sql );
-	
-	if ( $stm->execute( [ ':id' => $id ] ) ) {
+	$sql	= "DELETE FROM sessions WHERE session_id = :id;";
+	if ( dataExec( $sql, [ ':id' => $id ], 'success', \SESSION_DATA ) ) {
 		return true;
 	}
 	return false;
@@ -3483,11 +3513,7 @@ function sessionGC( $max ) {
 	"DELETE FROM sessions WHERE (
 		strftime( '%s', 'now' ) - 
 		strftime( '%s', updated ) ) > :gc;";
-	
-	$db	= getDb( SESSION_DATA );
-	$stm	= $db->prepare( $sql );
-	
-	if ( $stm->execute( [ ':gc' => $max ] ) ) {
+	if ( dataExec( $sql, [ ':gc' => $max ], 'success', \SESSION_DATA ) ) {
 		return true;
 	}
 	return false;
@@ -3502,16 +3528,11 @@ function sessionRead( $id ) {
 	$sql	= 
 	"SELECT session_data FROM sessions 
 		WHERE session_id = :id LIMIT 1;";
-	$db	= getDb( SESSION_DATA );
-	$stm	= $db->prepare( $sql );
 	
-	if ( $stm->execute( [ ':id' => $id ] ) ) {
-		$data = $stm->fetchColumn();
-		hook( [ 'sessionread', [ 'id' => $id, 'data' => $data ] ] );
-		return empty( $data ) ? '' : $data;
-	}
+	$data	= dataExec( $sql, [ 'id' => $id ], 'column', \SESSION_DATA );
 	
-	return '';
+	hook( [ 'sessionread', [ 'id' => $id, 'data' => $data ] ] );
+	return empty( $data ) ? '' : ( string ) $data;
 }
 
 /**
@@ -3520,18 +3541,11 @@ function sessionRead( $id ) {
  *  @return bool
  */
 function sessionWrite( $id, $data ) {
-	$sql	= 
-	"REPLACE INTO sessions 
-		( session_id, session_data )
-		VALUES( :id, :data );";
-	
-	$db	= getDb( SESSION_DATA );
-	$stm	= $db->prepare( $sql );
-	
-	if ( $stm->execute( [ 
-		':id'		=> $id, 
-		':data'		=> $data
-	] ) ) {
+	$sql	= "REPLACE INTO sessions ( session_id, session_data )
+			VALUES( :id, :data );";
+	if ( dataExec( 
+		$sql, [ ':id' => $id, ':data' => $data ], 'success', \SESSION_DATA 
+	) ) {
 		hook( [ 'sessionwrite', [ 'id' => $id, 'data' => $data ] ] );
 		return true;
 	}
