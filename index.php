@@ -6803,6 +6803,11 @@ function loadPost(
  *  @return int
  */
 function timeZoneOffset() : int {
+	static $ot;
+	if ( isset( $ot ) ) {
+		return $ot;
+	}
+	
 	// Timezone from configuration
 	$tz = config( 'timezone', \TIMEZONE );
 	$dt = new \DateTime( 'now', new \DateTimeZone( 'UTC' ) );
@@ -6815,7 +6820,8 @@ function timeZoneOffset() : int {
 		$ot = $dz->getOffset( $dt );
 	}
 	
-	return ( false === $ot ) ? 0 : $ot;
+	$ot = ( false === $ot ) ? 0 : $ot;
+	return $ot;
 }
 
 /**
@@ -7546,13 +7552,14 @@ function formatTags( array $tags, bool $index = false ) : string {
 /**
  *  Checks if the given post type will have its read time calculated
  *  
- *  @param string	$type	Post content type, default should be POST_TYPE
+ *  @param string	$type	Post content type, default should be READTIME_TYPES
  *  @return bool
  */
 function hasReadTime( string $type ) : bool {
 	static $rtypes;
 	if ( !isset( $rtypes ) ) {
-		$default	= trimmedList( \READTIME_TYPES, true );
+		$rtt		= config( 'readtime_types', \READTIME_TYPES );
+		$default	= trimmedList( $rtt, true );
 		
 		// Send to hook for additional types
 		hook( [ 'hasreadtime', [ 'types' => $default ] ] );
@@ -9180,6 +9187,16 @@ function checkConfig( string $event, array $hook, array $params ) {
 				'default'	=> \FEATURE_LINES
 			]
 		],
+		'timezone'	=> [
+			'filter'	=> \FILTER_SANITIZE_SPECIAL_CHARS,
+			'flags'		=> 
+				\FILTER_FLAG_STRIP_LOW	| 
+				\FILTER_FLAG_STRIP_HIGH	| 
+				\FILTER_FLAG_STRIP_BACKTICK,
+			'options' => [
+				'default' => \TIMEZONE
+			]
+		],
 		
 		// Date formatting
 		'date_nice'	=> [
@@ -9262,6 +9279,16 @@ function checkConfig( string $event, array $hook, array $params ) {
 				'min_range'	=> 0,
 				'max_range'	=> 1,
 				'default'	=> \SHOW_RELATED
+			]
+		],
+		'readtime_types'=> [
+			'filter'	=> \FILTER_SANITIZE_SPECIAL_CHARS,
+			'flags'		=> 
+				\FILTER_FLAG_STRIP_LOW	| 
+				\FILTER_FLAG_STRIP_HIGH	| 
+				\FILTER_FLAG_STRIP_BACKTICK,
+			'options' => [
+				'default' => \READTIME_TYPES
 			]
 		],
 		
