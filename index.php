@@ -5148,7 +5148,9 @@ function preamble(
 		$csp = 'Content-Security-Policy: ';
 		
 		// Approved frame ancestors ( for embedding media )
-		$raw = lineSettings( \FRAME_WHITELIST, -1, 'cleanUrl' );
+		$frl = config( 'frame_whitelist', \FRAME_WHITELIST );
+		$raw = \is_array( $frl ) ? 
+				$frl : lineSettings( $frl, -1, 'cleanUrl' );
 		$frm = \implode( ' ', $raw );
 		
 		foreach ( $cjp as $k => $v ) {
@@ -6145,7 +6147,7 @@ function request( string $event, array $hook, array $params ) : array {
 function extGroups( string $group = '' ) : array {
 	// Default whitelist
 	$cs	= 
-	config( 'ext_whitelist', \decode( \EXT_WHITELIST ) );
+	config( 'ext_whitelist', whiteLists( decode( \EXT_WHITELIST ), true ) );
 	
 	// Extend whitelist via hooks
 	hook( [ 'extwhitelist', [ 'whitelist' => $cs ] ] );
@@ -9194,7 +9196,8 @@ function checkConfig( string $event, array $hook, array $params ) {
 			'flags'		=> 
 				\FILTER_FLAG_STRIP_LOW	| 
 				\FILTER_FLAG_STRIP_HIGH	| 
-				\FILTER_FLAG_STRIP_BACKTICK 
+				\FILTER_FLAG_STRIP_BACKTICK | 
+				\FILTER_REQUIRE_ARRAY
 		],
 		
 		// Post tagging
@@ -9321,6 +9324,11 @@ function checkConfig( string $event, array $hook, array $params ) {
 				'default'	=> \SHOW_MODIFIED
 			]
 		], 
+		'frame_whitelist'=> [
+			'filter'	=> \FILTER_CALLBACK,
+			'flags'		=> \FILTER_REQUIRE_ARRAY,
+			'options'	=> 'cleanUrl'
+		], 
 		
 		// Templating settings
 		'shared_assets'	=> [
@@ -9359,15 +9367,9 @@ function checkConfig( string $event, array $hook, array $params ) {
 	$data			= 
 	\filter_var_array( $params, $filter, false );
 	
-	if ( isset( $data['ext_whitelist'] ) ) { 
+	if ( !empty( $data['ext_whitelist'] ) ) {
 		$data['ext_whitelist']	= 
-		is_array( $data['ext_whitelist'] ) ? 
-			whiteLists( $data['ext_whitelist'] , true ) : 
-			whiteLists( 
-				( string ) decode( $data['safe_ext'] ), 
-				true 
-			);
-			
+			whiteLists( $data['ext_whitelist'], true );
 	}
 	
 	if ( isset( $data['nonce_hash'] ) ) {
