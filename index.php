@@ -3270,6 +3270,7 @@ function loadPlugins( string $event, array $hook, array $params ) {
 			' From directory: ' . \PLUGINS;
 		logError( $err );
 	}
+	hook( [ 'pluginsLoaded', [ 'plugins' => $p ] ] );
 }
 
 
