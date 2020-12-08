@@ -3091,7 +3091,7 @@ function getDb( string $dsn, string $mode = 'get' ) {
  *  @param PDOStatement	$stm	PDO prepared statement
  *  @return mixed
  */
-function getDataResult( string $rtype, array $params, \PDOStatement $stm ) {
+function getDataResult( array $params, string $rtype, \PDOStatement $stm ) {
 	$ok	= empty( $params ) ? 
 			$stm->execute() : 
 			$stm->execute( $params );
