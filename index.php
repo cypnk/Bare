@@ -3084,6 +3084,38 @@ function getDb( string $dsn, string $mode = 'get' ) {
 }
 
 /**
+ *  Helper to get the result from a successful statement execution
+ *  
+ *  @param string	$rtype	Return type
+ *  @param array	$params	Parameters 
+ *  @param PDOStatement	$stm	PDO prepared statement
+ *  @return mixed
+ */
+function getDataResult( string $rtype, array $params, \PDOStatement $stm ) {
+	$ok	= empty( $params ) ? 
+			$stm->execute() : 
+			$stm->execute( $params );
+	
+	switch ( $rtype ) {
+		// Query with array return
+		case 'results':
+			return $ok ? $stm->fetchAll() : [];
+		
+		// Insert with ID return
+		case 'insert':
+			return $ok ? $db->lastInsertId() : 0;
+		
+		// Single column value
+		case 'column':
+			return $ok ? $stm->fetchColumn() : '';
+		
+		// Success status
+		default:
+			return $ok ? true : false;
+	}
+}
+
+/**
  *  Shared data execution routine
  *  
  *  @param string	$sql	Database SQL
@@ -3103,31 +3135,7 @@ function dataExec(
 	
 	try {
 		$stm	= $db->prepare( $sql );
-		$ok	= 
-		empty( $params ) ? 
-			$stm->execute() : 
-			$stm->execute( $params );
-		
-		switch ( $rtype ) {
-			// Query with array return
-			case 'results':
-				$res = $ok ? $stm->fetchAll() : [];
-				break;
-			
-			// Insert with ID return
-			case 'insert':
-				$res = $ok ? $db->lastInsertId() : 0;
-				break;
-			
-			// Single column value
-			case 'column':
-				$res = $ok ? $stm->fetchColumn() : '';
-				break;
-			
-			// Success status
-			default:
-				$res = $ok ? true : false;
-		}
+		$res	= getDataResult( $params, $rtype, $stm );
 		
 	} catch( \PDOException $e ) {
 		$stm	= null;
@@ -3136,6 +3144,42 @@ function dataExec(
 	}
 	
 	$stm	= null;
+	return $res;
+}
+
+/**
+ *  Update or insert multiple database rows at once with single SQL
+ *  
+ *  @param string	$sql	Database SQL update query
+ *  @param array	$params	Collection of query parameters
+ *  @param string	$rtype	Return type
+ *  @param string	$dsn	Database string
+ *  @return array		Result status
+ */
+function dataBatchExec (
+	string		$sql,
+	array		$params,
+	string		$rtype,
+	string		$dsn		= \DATA
+) : array {
+	$db	= getDb( $dsn );
+	$res	= [];
+	
+	try {
+		if ( !$db->beginTransaction() ) {
+			return false;
+		}
+		
+		$stm	= $db->prepare( $sql );
+		foreach ( $params as $p ) {
+			$res[]	= getDataResult( $params, $rtype, $stm );
+		}
+		$db->commit();
+		
+	} catch( \PDOException $e ) {
+		logError( $e->getMessage() );
+	}
+	
 	return $res;
 }
 
