@@ -289,13 +289,37 @@ doas pkg_add php-intl
 ```
 If you're already logged in as root, skip the "[doas](https://man.openbsd.org/doas)" before each command.
 
+Edit **/etc/php-7.x.ini** (or the version of PHP you're running) and  
+make sure the following extensions are enabled.
+```
+extension=fileinfo
+extension=intl
+extension=mbstring
+extension=pdo_sqlite
+extension=sqlite3
+extension=tidy
+```
+
+Now enable and start PHP.  
+This is assuming 7.4, but other versions follow the same convention:
+```
+doas rcctl enable php74_fpm
+doas rcctl start php74_fpm
+```
+
 **Note:** Although it shares the same comment style, httpd(8) [configuration](https://man.openbsd.org/httpd.conf.5)  
 directives *do not* end in a semicolon(;) unlike Nginx settings.
 
 The following configuration can be used if Bare is installed as the  
-"example.com" website (tested on OpenBSD 6.7).
+"example.com" website (tested on OpenBSD 6.8).
+
+Edit **/etc/httpd.conf** to add a custom server setting file:
+```
+include "/etc/httpd.conf.local"
 ```
 
+Create **/etc/httpd.conf.local** and add the following:
+```
 # A site called "example.com" 
 server "www.example.com" {
 	alias "example.com"
@@ -336,5 +360,195 @@ server "www.example.com" {
 		fastcgi socket "/run/php-fpm.sock"
 	}
 }
-
 ``` 
+Check your configuration by running: 
+```
+httpd -n
+```
+
+If there are no errors, run the following to load the changes:
+```
+doas rcctl reload httpd
+```
+
+Your new Bare blog is ready to be served.
+
+### Running a TLS-enabled Bare blog on OpenBSD
+
+This assumes you're already logged in as root and skips "doas".
+
+The procedure is similar at first to the above steps.  
+Edit **/etc/httpd.conf** to include your custom server settings:
+```
+include "/etc/httpd.conf.local"
+```
+
+Create or edit **/etc/httpd.conf.local** same as above, but add  
+this instead:
+```
+# A site called "example.com" 
+server "www.example.com" {
+	alias "example.com"
+	
+	# Default directory
+	directory index "index.html"
+	
+	# Change this to your web root, if it's different
+	root "/htdocs"
+	
+	# acme-client needs this
+	location "/.well-known/acme-challenge/*" {
+		root "/acme"
+		request strip 2
+	}
+}
+```
+OpenBSD comes with acme-client and this creates a basic website to use it.
+
+Create or edit **/etc/acme-client.conf** to make sure it contains this:
+```
+authority letsencryt {
+	api url "https://acme-v02.api.letsencrypt.org/directory"
+	account key "/etc/ssl/private/letsencrypt.key"
+}
+
+# Substitute example.com for your own domain
+domain example.com {
+	alternative names { www.example.com }
+	domain key "/etc/ssl/private/example.com.key"
+	domain certificate "/etc/ssl/example.com.crt"
+	domain full chain certificate "/etc/ssl/example.com.pem"
+	sign with letsencrypt
+}
+
+# And so on for your other domains...
+```
+
+Create these folders with appropriate permissions:
+```
+mkdir -p -m 700 /etc/ssl/private
+mkdir -p -m 755 /var/www/acme
+```
+
+Check your configurations: 
+```
+httpd -n
+acme-client -n
+```
+
+If there are no errors, reload httpd(8) so it can recognize changes:  
+```
+rcctl reload httpd
+```
+
+Then, run acme client to get your new certificate:
+```
+acme-client example.com
+```
+
+Your new certificate should be created and ready to be used.
+
+Now, go back to **/etc/httpd.conf.local** to add the new settings.  
+This is an example of a TLS enabled site with full logging:
+```
+# A site called "example.com" 
+
+# Redirect all non-TLS requests to TLS enabled site
+server "www.example.com" {
+	alias "example.com"
+	
+	# listening on external addresses on port 80
+	listen on egress port 80
+	block return 301 "https://example.com$REQUEST_URI"
+}
+
+server "www.example.com" {
+	alias "example.com"
+  
+	# listening on external addresses on TLS port
+	listen on egress tls port 443
+	
+	# Default directory
+	directory index "index.html"
+	
+	# Logging for access and errors 
+	# Note: this is for request errors, which are different from blog errors
+	log access "/example.com/access.log"
+	log error "/example.com/error.log"
+  
+	# Change this to your web root, if it's different
+	root "/htdocs"
+	
+	# Create your certificates first
+	hsts
+	tls {
+		certificate "/etc/ssl/example.com.pem"
+		key "/etc/ssl/private/example.com.key"
+	}
+	
+	# This is specific to acme-client
+	location "/.well-known/acme-challenge/*" {
+		root "/acme"
+		request strip 2
+	}
+	
+	# Rest is the same as before 
+	
+	# Prevent access to special files
+	location "/*.hta*"		{ block }
+	location "/*.htp*"              { block }
+	location "/*.md*"		{ block }
+	location "/*.conf*"		{ block }
+	location "/*.db*"		{ block }
+	location "/*.sql*"		{ block }
+	location "/*.json*"		{ block }
+	location "/*.sh*"		{ block }
+	
+	# Prevent access to data folder
+	location "/cache/*"		{ block }
+	
+	# Remember to put static files (I.E. .css, .js etc...)
+	# In the same directory you set in FILE_PATH
+	
+	# Let index.php handle all other requests
+	location "/*" {
+		directory index "index.php"
+		
+		# Change this to your web root, if it's different
+		root { "/htdocs/index.php" }
+		
+		# Enable FastCGI handling of PHP
+		fastcgi socket "/run/php-fpm.sock"
+	}
+}
+```
+
+It's a good idea to create a subfolder for each domain for logging
+```
+mkdir -p -m 755 /var/www/logs/example.com
+```
+
+The TLS settings have been made. Check the configuration again:
+```
+httpd -n
+```
+
+If there are no errors, reload httpd(8) to launch the site:
+```
+rcctl reload httpd
+```
+
+To make sure your certificate renews automatically, create or edit  
+**/etc/weekly.local** with:
+```
+acme-client example.com
+```
+Now, every week, your domain's certificates are renewed when it's  
+getting close to expiration.
+
+Your Bare blog will now be served over a secure connection.  
+
+
+
+
+
