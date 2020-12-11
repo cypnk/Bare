@@ -3339,7 +3339,7 @@ function loadPlugins( string $event, array $hook, array $params ) {
 			' From directory: ' . \PLUGINS;
 		logError( $err );
 	}
-	hook( [ 'pluginsLoaded', [ 'plugins' => $p ] ] );
+	hook( [ 'pluginsLoaded', [ 'plugins' => $p, 'failed' => $msg ] ] );
 }
 
 
@@ -3570,7 +3570,7 @@ function sessionClose() { return true; }
  */
 function sessionCreateID() {
 	$bt	= config( 'session_bytes', \SESSION_BYTES, 'int' );
-	$id	= \genId( intRange( $bt, 12, 36 ) );
+	$id	= \genId( $bt );
 	$sql	= 
 	"INSERT OR IGNORE INTO sessions ( session_id )
 		VALUES ( :id );";
@@ -3658,11 +3658,13 @@ function sessionWrite( $id, $data ) {
  */
 function sessionCanary( string $visit = '' ) {
 	$bt	= config( 'session_bytes', \SESSION_BYTES, 'int' );
+	$exp	= config( 'session_exp', \SESSION_EXP, 'int' );
+	
 	$_SESSION['canary'] = 
 	[
-		'exp'		=> time() + \SESSION_EXP,
+		'exp'		=> time() + $exp,
 		'visit'		=> 
-		empty( $visit ) ? \genId( intRange( $bt, 12, 36 ) ) : $visit
+		empty( $visit ) ? \genId( $bt ) : $visit
 	];
 }
 	
@@ -3798,9 +3800,11 @@ function lastVisit() : int {
 	$q	= ( int ) ( $last[1] ?? 0 );
 	
 	// Rapid query limit exceeded?
-	if ( $q >= \SESSION_LIMIT_COUNT ) {
+	$slc = config( 'session_limit_count', \SESSION_LIMIT_COUNT, 'int' );
+	if ( $q >= $slc ) {
+		$exp	= config( 'session_exp', \SESSION_EXP, 'int' );
 		// Delay has timed out? Reset
-		if ( ( $t + \SESSION_EXP ) > $now ) {
+		if ( ( $t + $exp ) > $now ) {
 			$last			= [ $now, 0 ];
 			$_SESSION['last']	= $last;
 		
@@ -3823,6 +3827,8 @@ function lastVisit() : int {
 			$check			= \SESSION_STATE_LIGHT;
 		}
 	} else {
+		$slh = config( 'session_limit_heavy', \SESSION_LIMIT_HEAVY, 'int' );
+		$slm = config( 'session_limit_medium', \SESSION_LIMIT_MEDIUM, 'int' );
 		// Generally safe extension?
 		if ( $nice ) {
 			hook( [ 'lastvisit', [ 
@@ -3835,14 +3841,14 @@ function lastVisit() : int {
 		
 		// Last request less than heavy throttle limit?
 		// Probably abuse
-		} elseif ( \abs( $now - $t ) < \SESSION_LIMIT_HEAVY ) {
+		} elseif ( \abs( $now - $t ) < $slh ) {
 			$last			= [ $now, $q++ ];
 			$_SESSION['last']	= $last;
 			$check			= \SESSION_STATE_HEAVY;
 			
 		// Less than medium throttle limit?
 		// Probably just impatient
-		} elseif ( \abs( $now - $t ) < \SESSION_LIMIT_MEDIUM ) {
+		} elseif ( \abs( $now - $t ) < $slm ) {
 			$last			= [ $now, $q ];
 			$_SESSION['last']	= $last;
 			$check			= \SESSION_STATE_MEDIUM;
@@ -9423,6 +9429,48 @@ function checkConfig( string $event, array $hook, array $params ) {
 				\FILTER_FLAG_STRIP_BACKTICK,
 			'options' => [
 				'default' => \READTIME_TYPES
+			]
+		],
+		
+		// Session settings
+		'session_bytes'	=> [
+			'filter'	=> \FILTER_VALIDATE_INT,
+			'options'	=> [
+				'min_range'	=> 12,
+				'max_range'	=> 36,
+				'default'	=> \SESSION_BYTES
+			]
+		],
+		'session_exp' => [
+			'filter'	=> \FILTER_VALIDATE_INT,
+			'options'	=> [
+				'min_range'	=> 300,
+				'max_range'	=> 3600,
+				'default'	=> \SESSION_LIMIT_EXP
+			]
+		],
+		'session_limit_count' => [
+			'filter'	=> \FILTER_VALIDATE_INT,
+			'options'	=> [
+				'min_range'	=> 5,
+				'max_range'	=> 20,
+				'default'	=> \SESSION_LIMIT_COUNT
+			]
+		],
+		'session_limit_medium' => [
+			'filter'	=> \FILTER_VALIDATE_INT,
+			'options'	=> [
+				'min_range'	=> 2,
+				'max_range'	=> 15,
+				'default'	=> \SESSION_LIMIT_MEDIUM
+			]
+		],
+		'session_limit_heavy' => [
+			'filter'	=> \FILTER_VALIDATE_INT,
+			'options'	=> [
+				'min_range'	=> 1,
+				'max_range'	=> 10,
+				'default'	=> \SESSION_LIMIT_HEAVY
 			]
 		],
 		
