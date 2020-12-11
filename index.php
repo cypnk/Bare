@@ -376,7 +376,7 @@ HTML;
 
 // General page heading
 $templates['tpl_page_heading']	= <<<HTML
-<header class="{heading_classes}">
+{before_page_heading}<header class="{heading_classes}">
 <div class="{heading_wrap_classes}">
 {heading_before}
 <h1 class="{heading_h_classes}">
@@ -387,12 +387,12 @@ $templates['tpl_page_heading']	= <<<HTML
 <div class="{search_form_wrap_classes}">{search_form}</div>
 {heading_after}
 </div>
-</header>
+</header>{after_page_heading}
 HTML;
 
 // Home page specific heading
 $templates['tpl_home_heading']	= <<<HTML
-<header class="{heading_classes}">
+{before_home_heading}<header class="{heading_classes}">
 <div class="{heading_wrap_classes}">
 <h1 class="{heading_h_classes}">
 	<a href="{home}" class="{heading_a_classes}">{page_title}</a>
@@ -402,42 +402,47 @@ $templates['tpl_home_heading']	= <<<HTML
 <div class="{search_form_wrap_classes}">{search_form}</div>
 {heading_after}
 </div>
-</header>
+</header>{after_home_heading}
 HTML;
 
 // About page specific heading
 $templates['tpl_about_heading']	= <<<HTML
-<header class="{heading_classes}">
-<div class="{heading_wrap_classes}">
+{before_about_heading}<header class="{heading_classes}">
+<div class="{heading_wrap_classes}">{before_heading_h}
 <h1 class="{heading_h_classes}">
 	<a href="{home}" class="{heading_a_classes}">{page_title}</a>
-</h1>
+</h1>{after_heading_h}
 <p class="{tagline_classes}">{tagline}</p>
 {about_links}
 <div class="{search_form_wrap_classes}">{search_form}</div>
 {heading_after}
 </div>
-</header>
+</header>{after_about_heading}
 HTML;
 
 // Form anti-XSRF hidden inputs (required on all forms)
 $templates['tpl_input_xsrf']	= <<<HTML
+{before_input_xsrf}
 <input type="hidden" name="nonce" value="{nonce}">
 <input type="hidden" name="token" value="{token}">
+{after_input_xsrf}
 HTML;
 
 // Search form
 $templates['tpl_searchform']	= <<<HTML
-<form action="{home}" method="get" 
+{before_search_form}<form action="{home}" method="get" 
 	class="{form_classes} {search_form_classes}">
 	<fieldset class="{search_fieldset_classes}">
 {xsrf}
-<input type="search" name="find" placeholder="{lang:forms:search:placeholder}" 
-	class="{input_classes} {search_input_classes}" required> 
+{before_search_input}<input type="search" name="find" 
+	placeholder="{lang:forms:search:placeholder}" 
+	class="{input_classes} {search_input_classes}" 
+	required>{after_search_input} 
+{before_search_button}
 <input type="submit" class="{submit_classes} {search_button_classes}" 
-	value="{lang:forms:search:button}">
+	value="{lang:forms:search:button}">{after_search_button}
 	</fieldset>
-</form>
+</form>{after_search_form}
 HTML;
 
 
@@ -477,8 +482,9 @@ HTML;
 
 // General post template
 $templates['tpl_post']		= <<<HTML
-<article class="{post_classes}">
-	<div class="{post_wrap_classes}">
+{before_post}
+<article class="{post_classes}">{before_full_post}
+	<div class="{post_wrap_classes}">{before_post_heading}
 	<header class="{post_heading_classes}">
 	<div class="{post_heading_wrap_classes}">
 		<h2 class="{post_heading_h_classes}">
@@ -487,18 +493,19 @@ $templates['tpl_post']		= <<<HTML
 		<time datetime="{date_utc}"
 			class="{post_pub_classes}">{date_stamp}</time> {read_time}
 	</div>
-	</header>
+	</header>{before_post_body}
 	<div class="{post_body_wrap_classes}">
 		<div class="{post_body_content_classes">{body}</div>
 		<div class="{post_body_tag_classes}">{tags}</div>
-	</div>
-	</div>
-</article>
+	</div>{after_post_body}
+	</div>{after_full_post}
+</article>{after_post}
 HTML;
 
 $templates['tpl_index_post']		= <<<HTML
-<article class="{post_idx_wrap_classes}">
-	<div class="{post_idx_wrap_classes}">
+{before_index_post}
+<article class="{post_idx_wrap_classes}">{before_item_post}
+	<div class="{post_idx_wrap_classes}">{before_index_post_heading}
 	<header class="{post_idx_heading_classes}">
 	<div class="{post_idx_heading_wrap_classes}">
 		<h2 class="{post_idx_heading_h_classes}">
@@ -507,13 +514,13 @@ $templates['tpl_index_post']		= <<<HTML
 		<time datetime="{date_utc}"
 			class="{post_idx_pub_classes}">{date_stamp}</time> {read_time}
 	</div>
-	</header>
+	</header>{after_index_post_heading}
 	<div class="{post_idx_body_wrap_classes}">
 		<div class="{post_idx_body_content_classes">{body}</div>
 		<div class="{post_idx_body_tag_classes}">{tags}</div>
 	</div>
 	</div>
-</article>
+{after_item_post}</article>{after_index_post}
 HTML;
 
 $templates['tpl_read_time']	= <<<HTML
@@ -8218,7 +8225,6 @@ function readingTime( string $text ) : int {
 		
 		// Send to hook for additional sets
 		hook( [ 'readingtime', [ 'sets' => $default ] ] );
-		
 		$sets	= hookArrayResult( 'readingtime' )['sets'] ?? $default;
 	}
 	
@@ -8333,14 +8339,23 @@ function searchForm() : string {
 	// Search form hidden fields
 	$pair	= genNoncePair( 'searchform' );
 	
+	// Send to xsrf hooks
 	$xsrf	= 
-	render( template( 'tpl_input_xsrf' ), [
-		'nonce'	=> $pair['nonce'],
-		'token'	=> $pair['token']
-	] );
+	hookWrap( 
+		'beforesearchxsrf',
+		'afterearchxsrf',
+		template( 'tpl_input_xsrf' ), 
+		[ 'nonce' => $pair['nonce'], 'token' => $pair['token'] ]
+	);
 	
-	return 
-	render( template( 'tpl_searchform' ), [ 'xsrf' => $xsrf ] );
+	// Send search form hook output
+	return
+	hookWrap( 
+		'beforesearchform',
+		'afterearchform',
+		template( 'tpl_searchform' ), 
+		[ 'xsrf' => $xsrf ]
+	);
 }
 
 /**
@@ -8541,9 +8556,15 @@ function getCommonWords( array $lines, bool $as_array = true ) {
 	
 	// Preset stop words
 	if ( !isset( $stop ) ) {
+		// Configured stop words
 		$cstop	= config( 'stop_words', [], 'array' );
 		$stop	= ( \is_array( $cstop ) && !empty( $cstop ) ) ?
 				\array_merge( $default, $cstop ) : $default;
+		
+		// Send to hook for additional stop words
+		hook( [ 'stopwords', [ 'words' => $stop ] ] );
+		$stop	= hookArrayResult( 'stopwords' )['words'] ?? $stop;
+		
 	}
 	
 	// Make lines into a continous series of words
