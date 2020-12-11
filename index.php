@@ -3342,14 +3342,34 @@ function loadPlugins( string $event, array $hook, array $params ) {
  */
 
 /**
+ *  Generate cache key for the given URI
+ *  This function lets caches be invalidated if config.json has been modified
+ *  
+ *  @param string	$uri		Original, URI as cache key
+ *  @return string
+ */
+function genCacheKey( string $uri ) : string {
+	static $fm;
+	
+	if ( !isset( $fm ) ) {
+		$cf	= \CACHE . \CONFIG;
+		$fm	= \file_exists( $cf ) ? \filemtime( $cf ) : false;
+	}
+	
+	return 
+	\hash( 'sha256', ( false === $fm ) ? $uri : $uri . ( string ) $fm );
+}
+
+/**
  *  Get cached data (if any) by URI key
  *  
- *  @param string	$uri		Pre-hashed, original, URI as cache key
+ *  @param string	$uri		Original URI to check
  *  @return string
  */
 function getCache( string $uri ) : string {
-	hook( [ 'getcache', [ 'uri' => $uri ] ] );
-	$key	= \hash( 'sha256', $uri );
+	$key	= genCacheKey( $uri );
+	hook( [ 'getcache', [ 'uri' => $uri, 'key' => $key ] ] );
+	
 	$find	= 
 	getResults( 
 		"SELECT cache_id, content, expires 
@@ -3386,8 +3406,9 @@ function getCache( string $uri ) : string {
  *  @param string	$content	Cache data
  */
 function saveCache( string $uri, string $content ) {
-	hook( [ 'savecache', [ 'uri' => $uri, 'content' => $content ] ] );
-	$key	= \hash( 'sha256', $uri );
+	$key	= genCacheKey( $uri );
+	hook( [ 'savecache', [ 'uri' => $uri, 'key' => $key, 'content' => $content ] ] );
+	
 	$sql	= 
 	"REPLACE INTO caches ( cache_id, ttl, content )
 		VALUES ( :id, :ttl, :content );";
