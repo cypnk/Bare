@@ -373,11 +373,12 @@ doas rcctl reload httpd
 
 Your new Bare blog is ready to be served.
 
-### Running a TLS-enabled Bare blog on OpenBSD
+## Running a TLS-enabled Bare blog on OpenBSD
 
-This assumes you're already logged in as root and skips "doas".
+This assumes you're already logged in as root and skips "doas".  
+PHP installation is the same as above.
 
-The procedure is similar at first to the above steps.  
+The server configuration is similar at first to the above steps.  
 Edit **/etc/httpd.conf** to include your custom server settings:
 ```
 include "/etc/httpd.conf.local"
