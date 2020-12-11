@@ -10,7 +10,6 @@ define( 'PATH',		\realpath( \dirname( __FILE__ ) ) . '/' );
 // Use this instead if you keep scripts outside the web root
 // define( 'PATH',	\realpath( \dirname( __FILE__, 2 ) ) . '/htdocs/' );
 
-
 // Global post directory
 define( 'POSTS',	PATH . 'posts/' );
 // Add posts to "posts/example.com/" to blog separately on multiple domains
@@ -207,6 +206,12 @@ https://peertube.mastodon.host
 
 LINES
 );
+
+/**
+ *  Comma delimited list of supported PHP versions
+ *  Offically, Bare supports 7.3 and above
+ */
+define( 'SUPPORTED_PHP', '7.2, 7.3, 7.4, 8.0' );
 
 
 /**
@@ -846,6 +851,7 @@ define( 'DEFAULT_CLASSES', <<<JSON
 	"nav_last2_a_classes"		: "",
 	
 	"form_classes"			: "",
+	"fieldset_classes"		: "",
 	"search_form_classes"		: "",
 	"search_form_wrap_classes"	: "",
 	"search_fieldset_classes"	: "",
@@ -1405,18 +1411,30 @@ function template( string $label, array $reg = [] ) : string {
 /**
  *  Check if script is running with the latest supported PHP version
  *  
+ *  @param string	$spec		Last supported PHP version
  *  @return bool
  */
-function newPHP() : bool {
-	static $is_new;
-	if ( isset ( $is_new ) ) {
-		return $is_new;
+function newPHP( string $spec = '7.3' ) : bool {
+	static $v;
+	
+	if ( !isset( $v ) ) {
+		// Default supported list or overridden list in config.json
+		$v	= 
+		trimmedList( config( 'supported_php', \SUPPORTED_PHP ) );
+		
+		// Fix for 7.4.0 etc... appearing higher than 7.4
+		$v	= 
+		\array_map( function( $r ) {
+			return rtrim( $r, '.0' );
+		}, $v );
 	}
 	
-	$is_new = 
-	\version_compare( \PHP_VERSION, '7.3', '>=' ) ? true : false;
+	if ( \in_array( $spec, $v ) ) {
+		return 
+		\version_compare( \PHP_VERSION, $spec, '>=' ) ? true : false;
+	}
 	
-	return $is_new;
+	return false;
 }
 
 /**
@@ -2883,12 +2901,12 @@ function genId( int $bytes = 16 ) : string {
  *  @return string
  */
 function genSeqId() : string {
-	if ( missing( 'hrtime' ) ) {
+	if ( newPHP( '7.3' ) ) {
+		$t = ( string ) \hrtime( true );
+	} else {
 		list( $us, $se ) = 
 			\explode( ' ', \microtime() );
 		$t = $se . $us;
-	} else {
-		$t = ( string ) \hrtime( true );
 	}
 	
 	return 
@@ -3086,8 +3104,8 @@ function getDb( string $dsn, string $mode = 'get' ) {
 /**
  *  Helper to get the result from a successful statement execution
  *  
- *  @param string	$rtype	Return type
  *  @param array	$params	Parameters 
+ *  @param string	$rtype	Return type
  *  @param PDOStatement	$stm	PDO prepared statement
  *  @return mixed
  */
@@ -3326,6 +3344,7 @@ function loadPlugins( string $event, array $hook, array $params ) {
 /**
  *  Get cached data (if any) by URI key
  *  
+ *  @param string	$uri		Pre-hashed, original, URI as cache key
  *  @return string
  */
 function getCache( string $uri ) : string {
@@ -3466,7 +3485,7 @@ function makeCookie( string $name, $data, array $options = [] ) : bool {
 		'data'		=> $data, 
 		'options'	=> $options 
 	] ] );
-	if ( newPHP() ) {
+	if ( newPHP( '7.3' ) ) {
 		return 
 		\setcookie( appName() . "[$name]", $data, $options );
 	}
@@ -3522,7 +3541,8 @@ function sessionClose() { return true; }
  *  @return string
  */
 function sessionCreateID() {
-	$id	= \genId( \SESSION_BYTES );
+	$bt	= config( 'session_bytes', \SESSION_BYTES, 'int' );
+	$id	= \genId( intRange( $bt, 12, 36 ) );
 	$sql	= 
 	"INSERT OR IGNORE INTO sessions ( session_id )
 		VALUES ( :id );";
@@ -3609,11 +3629,12 @@ function sessionWrite( $id, $data ) {
  *  @link https://paragonie.com/blog/2015/04/fast-track-safe-and-secure-php-sessions
  */
 function sessionCanary( string $visit = '' ) {
+	$bt	= config( 'session_bytes', \SESSION_BYTES, 'int' );
 	$_SESSION['canary'] = 
 	[
 		'exp'		=> time() + \SESSION_EXP,
 		'visit'		=> 
-		empty( $visit ) ? \genId( \SESSION_BYTES ) : $visit
+		empty( $visit ) ? \genId( intRange( $bt, 12, 36 ) ) : $visit
 	];
 }
 	
@@ -3657,7 +3678,7 @@ function sessionCookieParams() : bool {
 	unset( $options['expires'] );
 	
 	hook( [ 'sessioncookieparams', $options ] );
-	if ( newPHP() ) {
+	if ( newPHP( '7.3' ) ) {
 		return \session_set_cookie_params( $options );
 	}
 	
@@ -3962,9 +3983,13 @@ function textStartsWith( string $find, array $collection, bool $ca = true ) {
 }
 
 /**
- * Search string for a fragment in an array
+ *  Search string for a fragment in an array
+ *  
+ *  @param string	$find		Needle to search
+ *  @param array	$collection	Haystack to search contained string
+ *  @return bool
  */
-function textNeedleSearch( $find, $collection ) {
+function textNeedleSearch( string $find, array $collection ) : bool {
 	foreach ( $collection as $c ) {
 		if ( textHas( $find, $c ) ) {
 			return true;
@@ -3976,6 +4001,10 @@ function textNeedleSearch( $find, $collection ) {
 
 /**
  *  Friendly datetime stamp
+ *  
+ *  @param mixed	$stamp		Raw datetime stamp, defaults to now
+ *  @param string	$fmt		Format from config.json or [lang].json
+ *  @return string
  */
 function dateNice( $stamp = null, string $fmt = \DATE_NICE ) : string {
 	static $dn;
@@ -3988,8 +4017,12 @@ function dateNice( $stamp = null, string $fmt = \DATE_NICE ) : string {
 
 /**
  *  Build permalink with page slug with date
- */
-function dateSlug( string $slug, string $stamp ) {
+ *  
+ *  @param string	$slug		Full page URI including date and slug
+ *  @param string	$stamp		Converted timestamp in year, month, and day
+ *  @return string
+*/
+function dateSlug( string $slug, string $stamp ) : string {
 	$ext = 
 	'.' . \pathinfo( $slug, \PATHINFO_EXTENSION ) ?? 'md';
 	
@@ -4000,6 +4033,9 @@ function dateSlug( string $slug, string $stamp ) {
 
 /**
  *  Feed timestamp
+ *  
+ *  @param mixed	$stamp		Optional timestamp, defaults to 'now'
+ *  @return string
  */
 function dateRfc( $stamp = null ) : string {
 	return 
@@ -4008,6 +4044,9 @@ function dateRfc( $stamp = null ) : string {
 
 /**
  *  File modified timestamp
+ *  
+ *  @param mixed	$stamp		Optional timestamp, defaults to 'now'
+ *  @return string
  */
 function dateRfcFile( $stamp = null ) : string {
 	return 
@@ -4016,14 +4055,21 @@ function dateRfcFile( $stamp = null ) : string {
 
 /**
  *  Convert all spaces to single character
+ *  
+ *  @param string	$text		Raw text containting mixed space types
+ *  @param string	$rpl		Replacement space, defaults to ' '
+ *  @return string
  */
-function unifySpaces( string $text, string $rpl = ' ' ) {
+function unifySpaces( string $text, string $rpl = ' ' ) : string {
 	return 
 	\preg_replace( '/[[:space:]]+/', $rpl, pacify( $text ) );
 }
 
 /**
  *  Get a list of tokens separated by spaces
+ *  
+ *  @param string	$text		Raw text containing repeated words
+ *  @return array
  */
 function uniqueTerms( string $value ) : array {
 	return 
@@ -4057,7 +4103,8 @@ function title( string $text, int $max = 255 ) : string {
  *  but needs to be enabled in php.ini
  *  @link https://www.php.net/manual/en/intl.installation.php
  *  
- *  @param string	$text		
+ *  @param string	$text
+ *  @return string 
  */
 function normal( string $text ) : string {
 	if ( missing( 'normalizer_normalize' ) ) {
