@@ -7740,17 +7740,27 @@ function formatMeta(
 		return $sent;
 	}
 	
+	// Individual customization hooks
+	hook( [ 'formattitle',		[ 'title'	=> $title ] ] );
+	hook( [ 'formatpublished',	[ 'pub'		=> $pub ] ] );
+	
 	// Format read time, if appropriate
 	$read	= 
 	hasReadTime( $type ) ? 
-		render( template( 'tpl_read_time' ), [ 'time' => $rtime ] ) : '';
+		hookWrap( 
+			'beforereadtime',
+			'afterreadtime',
+			template( 'tpl_read_time' ), 
+			[ 'time' => $rtime ]
+		) : '';
+	hook( [ 'formatreadtime',	[ 'read'	=> $read ] ] );
 	
 	return [
-		'title'		=> $title,
+		'title'		=> hookStringResult( 'formattitle', $title ),
 		'date_utc'	=> $pub,
 		'date_rfc'	=> dateRfc( $pub ),
-		'date_stamp'	=> dateNice( $pub ),
-		'read_time'	=> $read,
+		'date_stamp'	=> hookStringResult( 'formatpublished', dateNice( $pub ) ),
+		'read_time'	=> hookStringResult( 'formatreadtime', $read ),
 		'tags'		=> formatTags( $tags, $index ),
 		'permalink'	=> 
 		website() . dateSlug( \basename( $path ), $pub )
