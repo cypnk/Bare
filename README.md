@@ -373,6 +373,76 @@ doas rcctl reload httpd
 
 Your new Bare blog is ready to be served.
 
+If you have already enabled firewall access to your site, you may skip this part.
+
+The OpenBSD [firewall is pf](https://man.openbsd.org/pf), which requires its  
+own set of directives to enable serving websites. There is an example pf  
+configuration which will let external web traffic through. Study the manual for  
+a more detailed explanation what each of these directives do.
+
+Make a backup of **/etc/pf.conf** first and include these directives:
+```
+# This may be adjusted for an e-commerce site, with shopping carts etc.., but this is fine for a Blog
+set limit { states 500000, frags 2000 }
+
+# A table to store flooding clients
+table <flooders> persist counters
+
+# You can also create permanent tables and add IP addresses to them
+# E.G. A blocklist called "blocked" in a folder called "pftables"
+# table <blocklist> persist file "/etc/pftables/blocked"
+
+# Web traffic serving with maximum connection rate and throttling
+websrv="(max 500, source-track rule, max-src-states 50, max-src-conn-rate 500/5, \
+	max-src-conn 50, overload <flooders> flush global)"
+
+# Note the slash at the end of the first line indicates the directive wraps
+# DO NOT add a space after that slash
+
+# Block policy is to just drop the connection by default
+set block-policy drop
+
+# Ignore loopback (localhost)
+set skip on lo
+
+# Accomodate slow clients (E.G. when hosting over Tor)
+set optimization high-latency
+set ruleset-optimization profile
+set timeout { frag 30 }
+
+# Set syn cookies
+set syncookies adaptive (start 25%, end 12%)
+
+# Safety scrub
+match in all scrub (no-df random-id max-mss 1440)
+match out all scrub (no-df random-id reassemble tcp max-mss 1440)
+
+# This *mostly* works, but a dedicated blocklist, like Spamhaus, is strongly recommended
+antispoof quick for { egress lo0 }
+block quick from { <flooders> }
+
+# You can add more comma delimited tables to that list
+# E.G. <flooders>, <abuse>, <spamhaus> etc...
+
+# Deny access in both directions by default
+block all
+block return
+
+# Spoof protection
+block in quick from urpf-failed to any
+block in quick from no-route to any
+
+# Allow access to web ports (email is similar, but outside the scope of this)
+pass in on egress inet proto tcp from any to (egress) port { 80 443 } keep state $websrv
+
+# Pass TCP, UDP, ICMP
+pass out on egress proto { tcp, udp, icmp } all modulate state
+
+# The pf.conf that comes with OpenBSD has some other settings, which should be left as-is
+# Only modify what's needed to get your site up and running, but learn more about what these do
+
+```
+
 ## Running a TLS-enabled Bare blog on OpenBSD
 
 This assumes you're already logged in as root and skips "doas".  
