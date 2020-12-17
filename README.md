@@ -408,7 +408,7 @@ OpenBSD comes with acme-client and this creates a basic website to use it.
 
 Create or edit **/etc/acme-client.conf** to make sure it contains this:
 ```
-authority letsencryt {
+authority letsencrypt {
 	api url "https://acme-v02.api.letsencrypt.org/directory"
 	account key "/etc/ssl/private/letsencrypt.key"
 }
