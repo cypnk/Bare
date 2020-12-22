@@ -8359,7 +8359,7 @@ function searchForm() : string {
 	$xsrf	= 
 	hookWrap( 
 		'beforesearchxsrf',
-		'afterearchxsrf',
+		'aftersearchxsrf',
 		template( 'tpl_input_xsrf' ), 
 		[ 'nonce' => $pair['nonce'], 'token' => $pair['token'] ]
 	);
