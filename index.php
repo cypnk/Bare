@@ -2877,6 +2877,15 @@ function render(
 		$out['{' . $v .'}'] =  $input[$v] ?? '';
 	}
 	
+	// Template render  event
+	hook( [ 'templaterender', [ 
+		'template'	=> $tpl,
+		'input'		=> $input,
+		'placeholders'	=> $out 
+	] ] );
+	
+	$out	= hookArrayResult( 'templaterender', $out );
+	
 	// Parse appended
 	$tpl		= parseLang( \strtr( $cache[$key], $out ) );
 	
