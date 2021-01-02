@@ -5712,6 +5712,29 @@ function sendOverride( string $event, bool $feed = false ) {
 }
 
 /**
+ *  Multi-page redirect helper
+ *  
+ *  @param string	$page		Relative path to redirect
+ *  @param int		$code		HTTP Status code
+ */
+function sendPage( 
+	string		$page		= '',
+	int		$code		= 200
+) {
+	// Pre-redirect hooks
+	hook( [ 'sendpage', [
+		'home'	=> homeLink(),
+		'host'	=> getHost(),
+		'root'	=> getRoot(),
+		'code'	=> $code,
+		'page'	=> $page 
+	] ] );
+	
+	// Send redirect with requested code
+	redirect( $code, homeLink() . $page );
+}
+
+/**
  *  Generate ETag from file path
  */
 function genEtag( $path ) {
