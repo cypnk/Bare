@@ -4923,8 +4923,18 @@ function html(
  *  @return string
  */
 function tidyup( string $text ) : string {
+	static $newtags;
 	if ( missing( 'tidy_repair_string' ) ) {
 		return $text;
+	}
+	
+	if ( !isset( $newtags ) ) {
+		$newtags = 'figure, figcaption, picture, summary, details';
+		
+		// Append custom tags
+		hook( [ 'tidynewtags', [ 'tags' => $newtags ] ] );
+		$newtags = 
+		hookArrayResult( 'tidynewtags', [] )['tags'] ?? $newtags;
 	}
 	
 	$opt = [
@@ -4936,8 +4946,7 @@ function tidyup( string $text ) : string {
 		'output-xhtml'				=> 1,
 		'merge-spans'				=> 1,
 		'show-body-only'			=> 1,
-		'new-blocklevel-tags'			=> 
-			'figure, figcaption, picture, summary, details',
+		'new-blocklevel-tags'			=> $newtags,
 		'wrap'					=> 0
 	];
 	
@@ -4986,6 +4995,11 @@ function embeds( string $html, string $prefix = ''  ) : string {
 		'/\[archive ([0-9a-z_\/\.]*)\]/is'
 		=> \strtr( template( 'tpl_archiveorg' ), [ '{src}' => '$1' ] )
 		];
+		
+		// Append custom embeds
+		hook( [ 'hostedembeds', [ 'hosted' => $hosted ] ] );
+		$hosted = 
+		hookArrayResult( 'hostedembeds', [] )['hosted'] ?? $hosted;
 	}
 	
 	if ( !isset( $media ) ) {
