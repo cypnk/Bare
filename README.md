@@ -1,44 +1,29 @@
 # Bare
 A single file directory-to-blog
 
-Bare has no usernames, passwords, editors, file uploaders, or other  
-mechanisms that get in the way of writing your thoughts. Simply put your  
-posts in *year/month/day/slug.md* format, and Bare will publish it.
+Bare has no usernames, passwords, editors, file uploaders, or other mechanisms that get in the way of writing your thoughts. Simply put your posts in *year/month/day/slug.md* format, and Bare will publish it.
 
-The first line in each post is the title. The URL slug is the filename.  
-Posts can be tagged by adding the last line in the following format:  
+The first line in each post is the title. The URL slug is the filename. Posts can be tagged by adding the last line in the following format:  
 `tags: cabin, diy`
 
-You can also schedule posts to be published at a future date as bare will  
-only show posts from the current date and into the past.
+You can also schedule posts to be published at a future date as bare will only show posts from the current date and into the past.
 
-Bare will also create an archive of all posts and create a syndication  
-feed of the most recent ones.
+Bare will also create an archive of all posts and create a syndication feed of the most recent ones.
 
-An about page can be created by editing *posts/about/main.md*. Additional  
-about pages can be added to the same directory and again the URL  
-is the filename. About sub directories can also be added.
+An about page can be created by editing *posts/about/main.md*. Additional about pages can be added to the same directory and again the URL is the filename. About sub directories can also be added.
 
-A static homepage can be shown instead of the lastest posts by creating  
-a *posts/home.md* page. Bare will show this similar to an about page.
+A static homepage can be shown instead of the lastest posts by creating a *posts/home.md* page. Bare will show this similar to an about page.
 
-Bare understands a rudimentary subset of [Markdown](https://daringfireball.net/projects/markdown/) and will filter HTML  
-for you. 
+Bare understands a rudimentary subset of [Markdown](https://daringfireball.net/projects/markdown/) and will filter HTML for you. 
 
-Optionally, Bare will use the [Parsedown](https://github.com/erusev/parsedown) and the [ParsedownExtra](https://github.com/erusev/parsedown-extra) classes  
-to format Markdown, if these files are present.
+Optionally, Bare will use the [Parsedown](https://github.com/erusev/parsedown) and the [ParsedownExtra](https://github.com/erusev/parsedown-extra) classes to format Markdown, if these files are present.
 
-Posts are cached in a SQLite database created dynamically, which enables  
-fast browsing and searching for posts by tags, title, or post body. The  
-*cache.db* can be deleted at any time and Bare will rebuild it on the first  
-visit to your blog.
+Posts are cached in a SQLite database created dynamically, which enables fast browsing and searching for posts by tags, title, or post body. The  
+*cache.db* can be deleted at any time and Bare will rebuild it on the first visit to your blog.
 
-An extensive hook system allows customizing posts, indexes, and other  
-template elements. Hooks also enable completely overriding the default  
-behavior of most rendering functions and some core functions.
+An extensive hook system allows customizing posts, indexes, and other template elements. Hooks also enable completely overriding the default behavior of most rendering functions and some core functions.
 
-Bare's simple installation and minimal set of features make it ideal for  
-hosting blogs on [Hidden Services](https://en.wikipedia.org/wiki/Tor_(anonymity_network)#Onion_services) on the Tor anonymity network.
+Bare's simple installation and minimal set of features make it ideal for hosting blogs on [Hidden Services](https://en.wikipedia.org/wiki/Tor_(anonymity_network)#Onion_services) on the Tor anonymity network.
 
 The author's [personal blog](http://kpz62k4pnyh5g5t2efecabkywt2aiwcnqylthqyywilqgxeiipen5xid.onion) is using Bare.  
 Use the [Tor Browser Bundle](https://www.torproject.org/) to visit.
@@ -67,11 +52,9 @@ Upload the following to your web root:
 * /posts folder - Contains your posts (use your favorite editor)
 * /cache folder - Formatted cache
 
-Change the default settings in *index.php* E.G. SITE_NAME etc...  
-*index.php* Also has the default theme so there are no other files to edit.
+Change the default settings in *index.php* E.G. SITE_NAME etc... *index.php* Also has the default theme so there are no other files to edit.
 
-Then add your site's domain name, E.G. *example.com*, to the whitelist in  
-SITE_WHITE (currently, the author's Tor blog is in this place):
+Then add your site's domain name, E.G. *example.com*, to the whitelist in SITE_WHITE (currently, the author's Tor blog is in this place):
 ```
 {
 	"example.com" : []
@@ -84,8 +67,7 @@ And if testing for both *example.com* and locally on localhost:
 	"localhost" : []
 }
 ```
-Bare is multi-site capable. If you want to host different posts for  
-different domains, publish your posts in */posts/example.com/* 
+Bare is multi-site capable. If you want to host different posts for different domains, publish your posts in */posts/example.com/* 
 
 ### Multiple blogs or shared content
 Hosting a blog in a subfolder instead of the main domain:
@@ -119,8 +101,7 @@ Or multiple blogs on the same domain:
 ```
 As above, remember to escape forward slashes.
 
-Bare supports caching of formatted posts. Simply enable write  
-permissions to the cache directory. On \*nix systems:
+Bare supports caching of formatted posts. Simply enable write permissions to the cache directory. On \*nix systems:
 ```
 chmod -R 755 /your-web-root/cache
 ```
@@ -130,8 +111,7 @@ And then, follow the conventions in the example post:
 /posts/2018/09/22/a-new-post.md
 ```
 
-An optional **config.json** file can be created in the */cache* folder to  
-override some configuration defaults.
+An optional **config.json** file can be created in the */cache* folder to override some configuration defaults.
 
 There is also a [plugin](https://github.com/cypnk/Bare-Plugins) project for Bare.
 
@@ -148,18 +128,14 @@ in **php.ini**:
 * intl
 * tidy
 
-Note: Various Windows and Unix-like platforms have differing  
-locations for [php.ini](https://www.php.net/manual/en/configuration.file.php). Check your installation or contact your  
-administrator to gain access to this file.
+Note: Various Windows and Unix-like platforms have differing locations for [php.ini](https://www.php.net/manual/en/configuration.file.php). Check your installation or contact your administrator to gain access to this file.
 
 Remember to backup **php.ini** before making changes to it.
 
-The GD extension (gd2) is suggested as future plugins may use it  
-however it is not required for core functionality.
+The GD extension (gd2) is suggested as future plugins may use it however it is not required for core functionality.
 
 ### Composer
-If you prefer to use [Composer](https://getcomposer.org/) to handle your environment, use the   
-following example **composer.json**:
+If you prefer to use [Composer](https://getcomposer.org/) to handle your environment, use the following example **composer.json**:
 ```
 {
 	"require": {
@@ -186,8 +162,7 @@ To embed a previously uploaded image file, use markdown syntax:
 or 
 ![alt text](/path/to/filename.jpg)
 ```
-HTML is filtered of potentially harmful tags, however embedding videos  
-to YouTube, Vimeo, PeerTube, or Archive.org is supported via shortcodes
+HTML is filtered of potentially harmful tags, however embedding videos to YouTube, Vimeo, PeerTube, or Archive.org is supported via shortcodes
 ```
 E.G. For uploaded video and audio:
 
@@ -230,12 +205,9 @@ URLs in FRAME_WHITELIST (one per line)
 
 ## Custom errors (optional)
 
-A separate */errors* folder can be used to create custom error pages  
-for each HTTP status code. The location of the */errors* folder is  
-configurable via the ERROR_ROOT setting.
+A separate */errors* folder can be used to create custom error pages for each HTTP status code. The location of the */errors* folder is configurable via the ERROR_ROOT setting.
 
-E.G. Create an */errors/404.html* file and put your custom Not Found  
-content. The following status codes are supported for custom errors:  
+E.G. Create an */errors/404.html* file and put your custom Not Found content. The following status codes are supported for custom errors:  
 `400, 401, 403, 404, 405, 429, 500, 501, 503`
 
 
@@ -243,8 +215,7 @@ content. The following status codes are supported for custom errors:
 
 ### Nginx
 
-The Nginx web server supports URL rewriting and file filtering. The  
-following is a simple configuration for a site named example.com.  
+The Nginx web server supports URL rewriting and file filtering. The following is a simple configuration for a site named example.com.  
 Note: The pound sign(#) denotes comments.
 
 The following is an example server block tested on Arch linux.
@@ -289,11 +260,9 @@ server {
 
 ### OpenBSD's httpd(8) web server
 
-The OpenBSD operating system comes with its own web server in the base  
-installation. Previously, this was the Apache web server and then Nginx.
+The OpenBSD operating system comes with its own web server in the base installation. Previously, this was the Apache web server and then Nginx.
 
-OpenBSD does not come with PHP and needs to be installed separately.  
-Select the highest version after each command:
+OpenBSD does not come with PHP and needs to be installed separately. Select the highest version after each command:
 ```
 doas pkg_add php_fpm
 doas pkg_add php-pdo_sqlite
@@ -302,8 +271,7 @@ doas pkg_add php-intl
 ```
 If you're already logged in as root, skip the "[doas](https://man.openbsd.org/doas)" before each command.
 
-Edit **/etc/php-7.x.ini** (or the version of PHP you're running) and  
-make sure the following extensions are enabled.
+Edit **/etc/php-7.x.ini** (or the version of PHP you're running) and make sure the following extensions are enabled.
 ```
 extension=fileinfo
 extension=intl
@@ -320,11 +288,9 @@ doas rcctl enable php74_fpm
 doas rcctl start php74_fpm
 ```
 
-**Note:** Although it shares the same comment style, httpd(8) [configuration](https://man.openbsd.org/httpd.conf.5)  
-directives *do not* end in a semicolon(;) unlike Nginx settings.
+**Note:** Although it shares the same comment style, httpd(8) [configuration](https://man.openbsd.org/httpd.conf.5) directives *do not* end in a semicolon(;) unlike Nginx settings.
 
-The following configuration can be used if Bare is installed as the  
-"example.com" website (tested on OpenBSD 6.8).
+The following configuration can be used if Bare is installed as the "example.com" website (tested on OpenBSD 6.8).
 
 Edit **/etc/httpd.conf** to add a custom server setting file:
 ```
@@ -388,10 +354,8 @@ Your new Bare blog is ready to be served.
 
 If you have already enabled firewall access to your site, you may skip this part.
 
-The OpenBSD [firewall is pf](https://man.openbsd.org/pf), which requires its  
-own set of directives to enable serving websites. There is an example pf  
-configuration which will let external web traffic through. Study the manual for  
-a more detailed explanation what each of these directives do.
+The OpenBSD [firewall is pf](https://man.openbsd.org/pf), which requires its own set of directives to enable serving websites. There is an example pf  
+configuration which will let external web traffic through. Study the manual for a more detailed explanation what each of these directives do.
 
 Make a backup of **/etc/pf.conf** first and include these directives:
 ```
@@ -458,8 +422,7 @@ pass out on egress proto { tcp, udp, icmp } all modulate state
 
 ## Running a TLS-enabled Bare blog on OpenBSD
 
-This assumes you're already logged in as root and skips "doas".  
-PHP installation is the same as above.
+This assumes you're already logged in as root and skips "doas". PHP installation is the same as above.
 
 The server configuration is similar at first to the above steps.  
 Edit **/etc/httpd.conf** to include your custom server settings:
@@ -467,8 +430,7 @@ Edit **/etc/httpd.conf** to include your custom server settings:
 include "/etc/httpd.conf.local"
 ```
 
-Create or edit **/etc/httpd.conf.local** same as above, but add  
-this instead:
+Create or edit **/etc/httpd.conf.local** same as above, but add this instead:
 ```
 # A site called "example.com" 
 server "www.example.com" {
@@ -532,8 +494,7 @@ acme-client example.com
 
 Your new certificate should be created and ready to be used.
 
-Now, go back to **/etc/httpd.conf.local** to add the new settings.  
-This is an example of a TLS enabled site with full logging:
+Now, go back to **/etc/httpd.conf.local** to add the new settings. This is an example of a TLS enabled site with full logging:
 ```
 # A site called "example.com" 
 
@@ -627,8 +588,7 @@ To make sure your certificate renews automatically, create or edit
 ```
 acme-client example.com
 ```
-Now, every week, your domain's certificates are renewed when it's  
-getting close to expiration.
+Now, every week, your domain's certificates are renewed when it's getting close to expiration.
 
 Your Bare blog will now be served over a secure connection.  
 
