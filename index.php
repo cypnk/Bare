@@ -4824,15 +4824,42 @@ function html(
 	bool	$form	= false 
 ) : string {
 	static $white	= [];
+	static $sanity;
+	
+	if ( !isset( $sanity ) ) {
+		if ( missing( 'libxml_clear_errors' ) ) {
+			$sanity = false;
+			logError( 'Error: Bare requires the libxml extension be enabled.' );
+			return '';
+		} else {
+			$sanity = true;
+		}
+	}
+	
+	if ( !$sanity ) {
+		return '';
+	}
 	
 	if ( !isset( $white['html'] ) ) {
-		$white['html'] = decode( TAG_WHITE );
+		$default_tags = decode( TAG_WHITE );
 		
 		// Include form tags
-		$white['form'] = 
+		$default_form = 
 		\array_merge_recursive( 
-			$white['html'], decode( FORM_WHITE ) 
+			$default_tags, decode( FORM_WHITE ) 
 		);
+		
+		// Tag loader hook
+		hook( [ 'htmltags', [ 
+			'html'	=> $default_tags,
+			'form'	=> $default_form
+		] ] );
+		
+		$htags		= hookArrayResult( 'htmltags' );
+		
+		// Set custom tags or default tags
+		$white['html']	= $htags['html'] ?? $default_tags;
+		$white['form']	= $htags['form'] ?? $default_form;
 	}
 	
 	// Remove preceding/trailing slashes
@@ -4865,6 +4892,7 @@ function html(
 	
 	// HTML tag filter
 	$dom		= new \DOMDocument();
+	$lstate		= 
 	$dom->loadHTML( 
 		$html, 
 		\LIBXML_HTML_NOIMPLIED | \LIBXML_HTML_NODEFDTD | 
@@ -4872,6 +4900,19 @@ function html(
 		\LIBXML_NOXMLDECL | \LIBXML_COMPACT | 
 		\LIBXML_NOCDATA | \LIBXML_NONET
 	);
+	
+	// Loading failed?
+	if ( !$lstate ) {
+		// Log last error if possible and return
+		$e = \libxml_get_last_error();
+		if ( false !== $e ) {
+			logError( $e->message ?? 'Error loading DOMDocument' );
+		}
+		
+		\libxml_clear_errors();
+		\libxml_use_internal_errors( $err );
+		return '';
+	}
 	
 	$domBody	= $dom->getElementsByTagName( 'body' );
 	
@@ -4934,7 +4975,7 @@ function tidyup( string $text ) : string {
 		// Append custom tags
 		hook( [ 'tidynewtags', [ 'tags' => $newtags ] ] );
 		$newtags = 
-		hookArrayResult( 'tidynewtags', [] )['tags'] ?? $newtags;
+		hookArrayResult( 'tidynewtags' )['tags'] ?? $newtags;
 	}
 	
 	$opt = [
