@@ -46,6 +46,19 @@ Use the [Tor Browser Bundle](https://www.torproject.org/) to visit.
 ![Bare](https://raw.githubusercontent.com/cypnk/Bare/master/88x15-button1.jpg) 
 ![Bare Powered](https://raw.githubusercontent.com/cypnk/Bare/master/88x15-button2.jpg)
 
+## Table of contents
+* [Installation](#installation)
+	* [Multiple blogs or shared content](#multiple-blogs-or-shared-content)
+* [Requirements](#requirements)
+	* [Composer](#composer) (Only for PHP settings and this is optional)
+* [Formatting](#content-formatting)
+* [Custom errors (optional)](#custom-errors-optional)
+* [Installing on other web servers](#installing-on-other-web-servers)
+	* [Nginx](#nginx)
+	* [OpenBSD's httpd(8) web server](#openbsds-httpd8-web-server)
+* [Running a TLS-enabled Bare blog on OpenBSD](#running-a-tls-enabled-bare-blog-on-openbsd)
+* [Troubleshooting](#troubleshooting)
+
 ## Installation
 
 Upload the following to your web root:
@@ -74,7 +87,7 @@ And if testing for both *example.com* and locally on localhost:
 Bare is multi-site capable. If you want to host different posts for  
 different domains, publish your posts in */posts/example.com/* 
 
-## Multiple blogs or shared content
+### Multiple blogs or shared content
 Hosting a blog in a subfolder instead of the main domain:
 ```
 {
@@ -122,7 +135,7 @@ override some configuration defaults.
 
 There is also a [plugin](https://github.com/cypnk/Bare-Plugins) project for Bare.
 
-### Requirements
+## Requirements
 * Webserver capable of handling URL rewrites (Apache, Nginx etc...)
 * PHP Version 7.3+ (may work on 7.2 and older, but no longer tested on these)
 
@@ -619,7 +632,69 @@ getting close to expiration.
 
 Your Bare blog will now be served over a secure connection.  
 
+## Troubleshooting
 
+Always remember to backup *index.php* before making modifications to it. Remember that some plugins may cause errors. Disabling any newly added plugins (by taking them off the "plugins_enabled" list in *config.json* or removing them from the PLUGINS_ENABLED setting in *index.php*) may fix a problem. 
 
+These are possible problems you may encounter and potential solutions to them. If Bare was able to run at least once, check the *error.log* file in the CACHE folder to see if something was written there. Most of the time, if Bare was succssfully installed, this will give you some useful information.
 
+* **Problem: I don't see anything**
+	* Check if you have set all the required definitions in *index.php* such as PATH, CACHE, and POSTS. If you only have the demo post and no plugins installed yet, Bare should run with just the default settings for the rest.  
+
+	* Check if you have uploaded the posts folder with at least one post and cache folder along with *index.php*. For the Apache webserver, the .htaccess file is also required.  
+
+	* Check if you have any JSON errors in *config.json* if you're using a custom configuration like this. Bare doesn't need a *config.json*, but having one makes upgrading easier.  
+
+	* Check if your webserver is configured to host your site, have set permissions (chmod -R 0755 on \*nix systems) on the CACHE folder, and PHP has permission to run following the [installation instructions](#installation).  
+
+	* At a minimum, check if you have PHP enabled and, as a test, create a plain *index.php* file with just `<?php echo 1;` in it and see if it prints "1". If you still don't see anything, then PHP is not installed or not configured correctly for your webserver.
+	
+
+* **Problem: I see a 404 error on the homepage, or 400 error or "Invalid request" error**  
+	
+	* Check if your domain name is added to the host whitelist. This is SITE_WHITE in *index.php*. Bare should also work with your server's IP address if you don't yet have a domain name.  
+	
+	* If you're hosting multiple blogs or your Bare blog is on a subfolder or different domain, follow the [multiple blog instructions](#multiple-blogs-or-shared-content).
+
+	* If Bare was running before and you made any recent changes, check if Bare runs with the restored *index.php*. Add the same changes one-by-one until you can narrow down which change caused the problem.
+
+* **Problem: I see a message in errors.log in the CACHE folder**
+	* **Error retrieving posts from...**
+		* Check if the POSTS definition in *index.php* is set to the same location where you keep your blog posts. If you uploaded the demo post as-is, check if PHP has read permissions to this folder. You may also need to set ownership permissions for the webserver user (E.G. `chown -R www posts` on some platforms).
+		
+	* **Method not implemented**
+		* One or more custom routes have a method other than "get", "head", or "post" that Bare doesn't yet support. If you made any recent changes to *index.php* to add a custom route or added a new plugin, revert the changes to see if the error returns.
+		
+	* **Database or SQLite errors**
+		* "Error connecting to database": Bare requires SQLite be enabled for caching and searching posts. Make sure this is done in *php.ini* in the [installation instructions](#installation) above. Bare also needs PDO to be enabled.  
+		
+		* "Error writing to session ID to database": See if your CACHE folder has the correct write permissions. Try moving *session.db* to *session.db.bkp* so a new Session database can be created. If permissions are set and the problem is intermittent, this may be caused by too many connections at the same time and PHP not closing the database correctly.
+		
+		* "Error starting DB transaction in refreshPost()" or "Error starting DB transaction in loadIndex()": Something happened to the *cache.db* file in the CACHE folder between the site caching the post and trying to save any changes made to the post since. Try to move *cache.db* to *cache.db.bkp* and see if the problem persists when you refresh the page. A new *cache.db* should be created by Bare.
+		
+		* "Error inserting post...": This may be caused by *cache.db* being modified by a plugin. Bare depends on a specific database schema to cache posts and tags and if the *posts*, *tags*, and *post_tags* tables have been changed, caching won't work correctly. Disable any recently added plugins and as above, move the file to *cache.db.bkp* and see if the problem persists.
+
+		* Other PDO error: If you're using any custom SQL queries, check if they have any syntax errors. These kinds of problems are likely caused by a plugin. Disable any new plugins and see if the error goes away.
+	
+	* **Formatting**
+		* "Bare requires the libxml extension be enabled.": The libxml extension is usually enabled by default on PHP installations unless it was compiled with *--disable-libxml* set. Make sure your PHP installation comes with this extension and you're not using a custom compiled variant of PHP without it.
+		
+		* "Error loading DOMDocument" or another libxml error: This is usually caused by an unusual string sent to the html() function. Bare will filter out most harmful texts sent to it, but not everything is foolproof. If you're not using a plugin for commenting or other user input, check if your post text contains any invalid Unicode strings. Bare should handle virtually every Unicode string that PHP is also able to handle.
+
+	* **Plugin errors**
+		* "Error loading plugins(s)...": The PLUGINS directory must be correctly set in *index.php* (this cannot be set in *config.json* and PHP needs access to it).  
+		
+		* "Out of order call. Check hooks.": A plugin tried to run before the "loadPlugins" function under the "begin" event. This is caused by a misbehaving plugin. Disable your most recently added plugin and see if the error persists.
+
+		* "Invalid file path search" or "Attempt to write to unloaded plugin directory": A plugin tried to write to another plugin's folder without that other plugin being loaded. Make sure your plugins have all their dependencies added first to "plugins_enabled" in *config.json* or PLUGINS_ENABLED in *index.php*  
+		
+		* "Unknown status code...": A attempt to send a page to a visitor or redirect a visitor using an HTTP status code that Bare doesn't support. Check for any redirects or send() function calls in any recently added plugins. Bare can respond with the following HTTP status codes:  
+200, 201, 202, 204, 205, 206, 300, 301, 302, 303, 304, 400, 401, 403, 404, 405, 406, 407, 409, 410, 411, 412, 413, 414, 415, 425, 429, 431, 500, 501, 503  
+
+		* "Invalid URL...": A redirect attempt was made to a different host, domain name, or IP address other than the one currently serving the visitor. Bare only supports redirecting to URLs on the same host using the built-in redirect() function.
+		
+		* "Headers already sent with code...": Some content (or just whitespace) was sent to the visitor before redirecting. Check for "echo" or send() function calls before the redirect() function call in the plugin.
+		
+		* "No route defined*: Bare requires at least one path, even if it's "" (I.E. empty path) to be defined to function. The addBlogRoutes() function adds the default Bare routes, but a plugin may overwrite these without adding any of its own, leading to this error.
+		
 
