@@ -3886,8 +3886,7 @@ function sessionThrottle() {
 	
 	// Sender should not be served for the duration of this session
 	if ( isset( $_SESSION['kill'] ) ) {
-		visitorError( 403, 'Denied' );
-		sendError( 403, errorLang( "denied", \MSG_DENIED ) );
+		sendDenied();
 	}
 	
 	$check		= lastVisit();
@@ -5790,6 +5789,38 @@ function sendPage(
 }
 
 /**
+ *  Send access denied page and log the visit
+ *  
+ *  @param string	$vlog		Logged error message
+ *  @param string	$msg		Language error sent to visitor
+ *  @param string	$default	Fallback language error message
+ */
+function sendDenied(
+	string	$vlog		= 'Denied', 
+	string	$msg		= 'denied', 
+	string	$default	= \MSG_DENIED 
+) {
+	visitorError( 403, $vlog );
+	sendError( 403, errorLang( $msg, $default ) );
+}
+
+/**
+ *  Send not found page and log the visit
+ *  
+ *  @param string	$vlog		Logged error message
+ *  @param string	$msg		Language error sent to visitor
+ *  @param string	$default	Fallback language error message
+ */
+function sendNotFound(
+	string	$vlog		= 'NotFound', 
+	string	$msg		= 'notfound', 
+	string	$default	= \MSG_NOTFOUND 
+) {
+	visitorError( 404, $vlog );
+	sendError( 404, errorLang( $msg, $default ) );
+}
+
+/**
  *  Generate ETag from file path
  */
 function genEtag( $path ) {
@@ -6326,14 +6357,12 @@ function request( string $event, array $hook, array $params ) : array {
 		\preg_match( RX_XSS4, $path ) || 
 		!empty( $_FILES )
 	) {
-		visitorError( 403, 'Denied' );
-		sendError( 403, errorLang( "denied", \MSG_DENIED ) );
+		sendDenied();
 	}
 	
 	// Match whitelisted host and root path
 	if ( !hostPathMatch( $host, $path ) ) {
-		visitorError( 403, 'Denied' );
-		sendError( 403, errorLang( "denied", \MSG_DENIED ) );
+		sendDenied();
 	}
 	
 	// Get routes from route init
@@ -6672,8 +6701,7 @@ function route( string $event, array $hook, array $params ) {
 	// No handler for this route?
 	if ( empty( $match ) ) {
 		// Nothing else sent
-		visitorError( 404, 'NotFound' );
-		sendError( 404, errorLang( "notfound", MSG_NOTFOUND ) );
+		sendNotFound();
 	}
 	
 	sendRoute( $match[0], $path, $verb, $match[1] );
@@ -8981,8 +9009,7 @@ function showTag( string $event, array $hook, array $params ) {
 	
 	// Tag empty?
 	if ( empty( $params['tag'] ) ) {
-		visitorError( 404, 'NotFound' );
-		sendError( 404, errorLang( "notfound", \MSG_NOTFOUND ) );
+		sendNotFound();
 	}
 	
 	$tag	= slugify( $params['tag'] );
@@ -9043,8 +9070,7 @@ function showSearch( string $event, array $hook, array $params ) {
 	switch( $status ) {
 		case FORM_STATUS_INVALID:
 		case FORM_STATUS_EXPIRED:
-			visitorError( 403, 'Expired' );
-			sendError( 403, errorLang( "expired", \MSG_EXPIRED ) );
+			sendDenied( 'Expired', 'expired', \MSG_EXPIRED );
 		
 		case FORM_STATUS_FLOOD:
 			visitorError( 429, 'Flood' );
@@ -9053,8 +9079,7 @@ function showSearch( string $event, array $hook, array $params ) {
 	
 	$find	= searchData( $params['find'] ?? '' );
 	if ( empty( $find ) ) {
-		visitorError( 404, 'NotFound' );
-		sendError( 404, errorLang( "notfound", \MSG_NOTFOUND ) );
+		sendNotFound();
 	}
 	
 	$prefix = searchPagePath( $params );
@@ -9117,8 +9142,7 @@ function showFeed( string $event, array $hook, array $params ) {
 	$slvl	= config( 'summary_level', \SUMMARY_LEVEL, 'int' );
 	$posts	= loadPosts( 1, '', true, $slvl );
 	if ( empty( $posts ) ) {
-		visitorError( 404, 'NotFound' );
-		sendError( 404, errorLang( "notfound", \MSG_NOTFOUND ) );
+		sendNotFound();
 	}
 	
 	$ptitle	= config( 'page_title', \PAGE_TITLE );
@@ -9164,15 +9188,13 @@ function showPost( string $event, array $hook, array $params ) {
 	// Check publication date
 	$pub		= getPub( $path );
 	if ( !checkPub( $pub ) ) {
-		visitorError( 404, 'NotFound' );
-		sendError( 404, errorLang( "notfound", \MSG_NOTFOUND ) );
+		sendNotFound();
 	}
 	
 	$post	= loadPost( $title, $path );
 	
 	if ( empty( $post ) ) {
-		visitorError( 404, 'NotFound' );
-		sendError( 404, errorLang( "notfound", \MSG_NOTFOUND ) );
+		sendNotFound();
 	}
 	
 	// Related and sibling post settings
@@ -9248,8 +9270,7 @@ function showAbout( string $event, array $hook, array $params ) {
 	
 	// No about found
 	if ( empty( $post ) ) {
-		visitorError( 404, 'NotFound' );
-		sendError( 404, errorLang( "notfound", \MSG_NOTFOUND ) );
+		sendNotFound();
 	}
 	
 	staticPage( 'about', $path, \DEFAULT_ABOUT_LINKS, $post );
@@ -9269,8 +9290,7 @@ function runIndex( string $event, array $hook, array $params ) {
 	
 	if ( empty( $posts ) ) {
 		// No more posts
-		visitorError( 404, 'NotFound' );
-		sendError( 404, errorLang( "notfound", \MSG_NOTFOUND ) );
+		sendNotFound();
 	}
 	
 	$ptitle	= config( 'page_title', \PAGE_TITLE );
