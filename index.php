@@ -105,6 +105,9 @@ define( 'SKIP_LOCAL', 	1 );
 // Maximum page index
 define( 'MAX_PAGE',	500 );
 
+// Maximum URL length (making this too small may affect searching)
+define( 'MAX_URL_SIZE',	512 );
+
 // Starting date for post archive
 define( 'YEAR_START',	2015 );
 
@@ -425,6 +428,7 @@ $templates['tpl_input_xsrf']	= <<<HTML
 {before_input_xsrf}
 <input type="hidden" name="nonce" value="{nonce}">
 <input type="hidden" name="token" value="{token}">
+<input type="hidden" name="meta" value="{meta}">
 {after_input_xsrf}
 HTML;
 
@@ -1059,6 +1063,7 @@ define( 'ROUTE_MARK',	<<<JSON
 	":label": "(?<label>[\\\\pL\\\\pN\\\\s_\\\\-]{1,30})",
 	":nonce": "(?<nonce>[a-z0-9]{10,30})",
 	":token": "(?<token>[a-z0-9\\\\+\\\\=\\\\-\\\\%]{10,255})",
+	":meta"	: "(?<meta>[a-z0-9\\\\+\\\\=\\\\-\\\\%]{7,255})",
 	":tag"	: "(?<tag>[\\\\pL\\\\pN\\\\s_\\\\,\\\\-]{1,30})",
 	":tags"	: "(?<tags>[\\\\pL\\\\pN\\\\s_\\\\,\\\\-]{1,255})",
 	":year"	: "(?<year>[2][0-9]{3})",
@@ -6336,7 +6341,8 @@ function request( string $event, array $hook, array $params ) : array {
 	}
 	
 	// Request path hard limit
-	if ( strsize( $path ) > 255 ) {
+	$lurl	= config( 'max_url_size', \MAX_URL_SIZE, 'int' );
+	if ( strsize( $path ) > $lurl ) {
 		visitorError( 414, 'Path' );
 		shutdown( 'cleanup' );
 		send( 414 );
@@ -8054,7 +8060,8 @@ function filterRequest( string $event, array $hook, array $params ) {
 			'options'	=> 'unifySpaces'
 		],
 		'token'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
-		'nonce'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS
+		'nonce'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
+		'meta'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS
 	];
 	
 	return 
@@ -8175,6 +8182,11 @@ function tokenKey( bool $reset = false ) : string {
 /**
  *  Generate a hash for meta data sent to HTML forms
  *  
+ *  This function helps prevent tampering of metadata sent separately
+ *  to the user via other hidden fields
+ *  
+ *  @example genMetaKey( [ 'id=12','name=DoNotChange' ] ); 
+ *  
  *  @param array	$args	Form field names sent to generate key
  *  @param bool		$reset	Reset any prior token key if true
  *  @return string
@@ -8204,6 +8216,10 @@ function genMetaKey( array $args, bool $reset = false ) : string {
  *  @return bool True if token matched
  */
 function verifyMetaKey( string $key, array $args ) : bool {
+	if ( empty( $key ) ) {
+		return false;
+	}
+	
 	$info	= \base64_decode( $key, true );
 	if ( false === $info ) {
 		return false;
@@ -8217,7 +8233,7 @@ function verifyMetaKey( string $key, array $args ) : bool {
 }
 
 /**
- *  Create a unique nonce and token pair for form validation
+ *  Create a unique nonce and token pair for form validation and meta key
  *  
  *  @param string	$name	Form label for this pair
  *  @param array	$fields	If set, append form anti-tampering token
@@ -8234,12 +8250,13 @@ function genNoncePair(
 	
 	$nonce	= genId( intRange( $tb, 8, 64 ) );
 	$time	= time();
-	$meta	= empty( $fields ) ? '' : genMetaKey( $fields, $reset );
-	$data	= $name . $meta . getIP() . $time;
+	$data	= $name . $time;
 	$token	= "$time:" . \hash( $ha, $data . $nonce );
 	return [ 
 		'token' => \base64_encode( $token ), 
-		'nonce' => $nonce 
+		'nonce' => $nonce,
+		'meta'	=> 
+			empty( $fields ) ? '' : genMetaKey( $fields, $reset );
 	];
 }
 
@@ -8250,15 +8267,13 @@ function genNoncePair(
  *  @params string	$token	Sent token
  *  @params string	$nonce	Sent nonce
  *  @param bool		$chk	Check for form expiration if true
- *  @param array	$fields	If set, verify form anti-tampering token
  *  @return int
  */
 function verifyNoncePair(
 	string		$name, 
 	string		$token, 
 	string		$nonce,
-	bool		$chk, 
-	array		$fields		= []
+	bool		$chk
 ) : int {
 	
 	$ln	= \strlen( $nonce );
@@ -8307,8 +8322,7 @@ function verifyNoncePair(
 	}
 	
 	$ha	= hashAlgo( 'nonce_hash', \NONCE_HASH );
-	$meta	= empty( $fields ) ? '' : genMetaKey( $fields );
-	$data	= $name . $meta . getIP() . $parts[0];
+	$data	= $name . $parts[0];
 	$check	= \hash( $ha, $data . $nonce );
 	
 	return \hash_equals( $parts[1], $check ) ? 
@@ -8321,16 +8335,19 @@ function verifyNoncePair(
  *  @param string	$name	Form label to validate
  *  @param bool		$get	Validate get request if true
  *  @param bool		$chk	Check for form expiration if true
+ *  @param array	$fields	If set, verify form anti-tampering token
  *  @return int
  */
 function validateForm(
-	string	$name, 
-	bool	$get	= true,
-	bool	$chk	= true 
+	string		$name, 
+	bool		$get		= true,
+	bool		$chk		= true,
+	array		$fields		= []
 ) : int {
 	$filter = [
 		'token'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
-		'nonce'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS
+		'nonce'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
+		'meta'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS
 	];
 	
 	$data	= $get ? 
@@ -8338,6 +8355,17 @@ function validateForm(
 	\filter_input_array( \INPUT_POST, $filter );
 	
 	if ( empty( $data['token'] ) || empty( $data['nonce'] ) ) {
+		return \FORM_STATUS_INVALID;
+	}
+	
+	if ( empty( $fields ) ) {
+		return 
+		verifyNoncePair( $name, $data['token'], $data['nonce'], $chk );
+	}
+	
+	// If fields were set, meta key was generated
+	// Check if it's still there
+	if ( !verifyMetaKey( $data['meta'] ?? '', $fields ) ) {
 		return \FORM_STATUS_INVALID;
 	}
 	
@@ -8539,7 +8567,11 @@ function searchForm() : string {
 		'beforesearchxsrf',
 		'aftersearchxsrf',
 		template( 'tpl_input_xsrf' ), 
-		[ 'nonce' => $pair['nonce'], 'token' => $pair['token'] ]
+		[ 
+			'nonce'	=> $pair['nonce'], 
+			'token'	=> $pair['token'],
+			'meta'	=> '', // Search forms are cached
+		]
 	);
 	
 	// Send search form hook output
@@ -8559,6 +8591,7 @@ function searchPagePath( array $data ) {
 	return homeLink() . 
 		'?nonce=' . $data['nonce'] . 
 		'&token=' . $data['token'] . 
+		'&meta=' . $data['meta'] . 
 		'&find=' . $data['find'] . '/';
 }
 
@@ -9491,6 +9524,14 @@ function checkConfig( string $event, array $hook, array $params ) {
 				'default'	=> \MAX_PAGE
 			]
 		],
+		'max_url_size' => [
+			'filter'	=> \FILTER_VALIDATE_INT,
+			'options'	=> [
+				'min_range'	=> 255,
+				'max_range'	=> 2048,
+				'default'	=> \MAX_URL_SIZE
+			]
+		],
 		'summary_level'	=> [
 			'filter'	=> \FILTER_VALIDATE_INT,
 			'options'	=> [
@@ -9815,8 +9856,9 @@ function addBlogRoutes( string $event, array $hook, array $params ) {
 	/**
 	 *  Searching
 	 */
-	[ 'get', '\\?nonce=:nonce&token=:token&find=:find','search' ],
-	[ 'get', '\\?nonce=:nonce&token=:token&find=:find/page:page',	
+	[ 'get', '\\?nonce=:nonce&token=:token&meta=&find=:find',
+						'search' ],
+	[ 'get', '\\?nonce=:nonce&token=:token&meta=&find=:find/page:page',	
 						'searchpaginate' ]
 	];
 }
