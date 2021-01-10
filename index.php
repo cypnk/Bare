@@ -8159,23 +8159,83 @@ function formatIndex(
  */
 
 /**
+ *  Initiate field token or reset existing
+ *  
+ *  @return string
+ */ 
+function tokenKey( bool $reset = false ) : string {
+	sessionCheck();
+	if ( empty( $_SESSION['TOKEN_KEY'] ) || $reset ) {
+		$_SESSION['TOKEN_KEY'] = genId( 16 );
+	}
+	
+	return $_SESSION['TOKEN_KEY'];
+}
+
+/**
+ *  Generate a hash for meta data sent to HTML forms
+ *  
+ *  @param array	$args	Form field names sent to generate key
+ *  @param bool		$reset	Reset any prior token key if true
+ *  @return string
+ */
+function genMetaKey( array $args, bool $reset = false ) : string {
+	static $gen	= [];
+	$data		= \implode( ',', $args );
+	
+	if ( \array_key_exists( $data, $gen ) && !$reset ) {
+		return $gen[$data];
+	}
+	
+	$ha		= hashAlgo( 'nonce_hash', \NONCE_HASH );
+	$gen[$data]	= 
+	\base64_encode( 
+		\hash( $ha, $data . tokenKey( $reset ), true ) 
+	);
+	
+	return $gen[$data];
+}
+
+/**
+ *  Verify meta data key
+ *  
+ *  @param string	$key	Token key name
+ *  @param array	$args	Original form field names sent to generate key
+ *  @return bool True if token matched
+ */
+function verifyMetaKey( string $key, array $args ) : bool {
+	$info	= \base64_decode( $key, true );
+	if ( false === $info ) {
+		return false;
+	}
+	
+	$data	= \implode( ',', $args );
+	$ha	= hashAlgo( 'nonce_hash', \NONCE_HASH );
+	
+	return 
+	\hash_equals( $info, \hash( $ha, $data . tokenKey(), true ) );
+}
+
+/**
  *  Create a unique nonce and token pair for form validation
  *  
  *  @param string	$name	Form label for this pair
+ *  @param array	$fields	If set, append form anti-tampering token
+ *  @param bool		$reset	Reset any prior anti-tampering token key if true
  *  @return array
  */
-function genNoncePair( string $name ) : array {
+function genNoncePair( 
+	string		$name, 
+	array		$fields		= [], 
+	bool		$reset		= false 
+) : array {
 	$tb	= config( 'token_bytes', \TOKEN_BYTES, 'int' );
 	$ha	= hashAlgo( 'nonce_hash', \NONCE_HASH );
-	if ( $tb < 8 ) {
-		$tb = 8;
-	} elseif( $tb > 64 ) {
-		$tb = 64;
-	}
 	
-	$nonce	= genId( $tb );
+	$nonce	= genId( intRange( $tb, 8, 64 ) );
 	$time	= time();
-	$data	= $name . getIP() . $time;
+	$meta	= empty( $fields ) ? '' : genMetaKey( $fields, $reset );
+	$data	= $name . $meta . getIP() . $time;
 	$token	= "$time:" . \hash( $ha, $data . $nonce );
 	return [ 
 		'token' => \base64_encode( $token ), 
@@ -8190,13 +8250,15 @@ function genNoncePair( string $name ) : array {
  *  @params string	$token	Sent token
  *  @params string	$nonce	Sent nonce
  *  @param bool		$chk	Check for form expiration if true
+ *  @param array	$fields	If set, verify form anti-tampering token
  *  @return int
  */
 function verifyNoncePair(
 	string		$name, 
 	string		$token, 
 	string		$nonce,
-	bool		$chk
+	bool		$chk, 
+	array		$fields		= []
 ) : int {
 	
 	$ln	= \strlen( $nonce );
@@ -8245,7 +8307,8 @@ function verifyNoncePair(
 	}
 	
 	$ha	= hashAlgo( 'nonce_hash', \NONCE_HASH );
-	$data	= $name . getIP() . $parts[0];
+	$meta	= empty( $fields ) ? '' : genMetaKey( $fields );
+	$data	= $name . $meta . getIP() . $parts[0];
 	$check	= \hash( $ha, $data . $nonce );
 	
 	return \hash_equals( $parts[1], $check ) ? 
