@@ -8238,7 +8238,7 @@ function genMetaKey( array $args, bool $reset = false ) : string {
 	$ha		= hashAlgo( 'nonce_hash', \NONCE_HASH );
 	$gen[$data]	= 
 	\base64_encode( 
-		\hash( $ha, $data . tokenKey( $reset ), true ) 
+		\hash( $ha, $data . tokenKey( $reset ) . getIP(), true ) 
 	);
 	
 	return $gen[$data];
@@ -8265,7 +8265,10 @@ function verifyMetaKey( string $key, array $args ) : bool {
 	$ha	= hashAlgo( 'nonce_hash', \NONCE_HASH );
 	
 	return 
-	\hash_equals( $info, \hash( $ha, $data . tokenKey(), true ) );
+	\hash_equals( 
+		$info, 
+		\hash( $ha, $data . tokenKey() . getIP(), true ) 
+	);
 }
 
 /**
