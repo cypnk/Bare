@@ -18,8 +18,7 @@ Bare understands a rudimentary subset of [Markdown](https://daringfireball.net/p
 
 Optionally, Bare will use the [Parsedown](https://github.com/erusev/parsedown) and the [ParsedownExtra](https://github.com/erusev/parsedown-extra) classes to format Markdown, if these files are present.
 
-Posts are cached in a SQLite database created dynamically, which enables fast browsing and searching for posts by tags, title, or post body. The  
-*cache.db* can be deleted at any time and Bare will rebuild it on the first visit to your blog.
+Posts are cached in a SQLite database created dynamically, which enables fast browsing and searching for posts by tags, title, or post body. The *cache.db* can be deleted at any time and Bare will rebuild it on the first visit to your blog.
 
 An extensive hook system allows customizing posts, indexes, and other template elements. Hooks also enable completely overriding the default behavior of most rendering functions and some core functions.
 
@@ -608,16 +607,23 @@ These are possible problems you may encounter and potential solutions to them. I
 	* Check if your webserver is configured to host your site, have set permissions (chmod -R 0755 on \*nix systems) on the CACHE folder, and PHP has permission to run following the [installation instructions](#installation).  
 
 	* At a minimum, check if you have PHP enabled and, as a test, create a plain *index.php* file with just `<?php echo 1;` in it and see if it prints "1". If you still don't see anything, then PHP is not installed or not configured correctly for your webserver.
-	
 
 * **Problem: I see a 404 error on the homepage, or 400 error or "Invalid request" error**  
-	
 	* Check if your domain name is added to the host whitelist. This is SITE_WHITE in *index.php*. Bare should also work with your server's IP address if you don't yet have a domain name.  
 	
 	* If you're hosting multiple blogs or your Bare blog is on a subfolder or different domain, follow the [multiple blog instructions](#multiple-blogs-or-shared-content).
 
 	* If Bare was running before and you made any recent changes, check if Bare runs with the restored *index.php*. Add the same changes one-by-one until you can narrow down which change caused the problem.
 
+* **Problem: I see my post doesn't look the way I want it to look** 
+	* Bare understands a limited subset of [Markdown](https://daringfireball.net/projects/markdown/) formatting, but this may not be enough to express what you're trying to show. Bare will accept plain HTML tags as well, provided they're within the whitelist of allowed tags (either in the base installation or expanded via plugins). Try simple HTML, if Markdown formatting didn't work the way you expect.
+
+	* If you're using any custom templates added to *index.php* or by using the [templates plugin](https://github.com/cypnk/Bare-Plugins/tree/master/templates), see if the post looks correctly without these changes.
+
+	* If you're using custom CSS classes by adding them to "default_classes" in *config.json* or by adding them to DEFAULT_CLASSES in *index.php*, try changing or removing these to see if it makes a difference.
+
+	* If you're using [Parsedown](https://github.com/erusev/parsedown) with or without [Parsedown Extra](https://github.com/erusev/parsedown-extra), make sure these files are in the same folder as *index.php*. If your post did look the way you want before adding these files, rename them to *Parsedown.bak* and *ParsedownExtra.bak* and see if that made a difference. If you downloaded these from the web or copied them via USB drive, the files may need execute permission for your webserver or PHP to be able to use them.
+	
 * **Problem: I see a message in errors.log in the CACHE folder**
 	* **Error retrieving posts from...**
 		* Check if the POSTS definition in *index.php* is set to the same location where you keep your blog posts. If you uploaded the demo post as-is, check if PHP has read permissions to this folder. You may also need to set ownership permissions for the webserver user (E.G. `chown -R www posts` on some platforms).
