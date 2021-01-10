@@ -4821,6 +4821,11 @@ function formatHTML( string $html, string $prefix ) {
 
 /**
  *  HTML filter
+ *  
+ *  @param string	$value		Unformatted content
+ *  @param string	$prefix		URL path prefix
+ *  @param bool		$form		Include form field tags if true
+ *  @return string
  */
 function html( 
 	string	$value, 
@@ -6168,10 +6173,14 @@ function cleanRoute( array $markers, string $route ) {
 
 /**
  *  Filter path parameters to get rid of numeric indexes
+ *  
+ *  @param array	$params		URL placholders
  */
-function filterParams( array $params ) {
+function filterParams( array $params ) : array {
 	\array_shift( $params );
-	return \array_filter( 
+	
+	return 
+	\array_filter( 
 		$params, 
 		function( $k ) {
 			return \is_string( $k );
@@ -6181,6 +6190,9 @@ function filterParams( array $params ) {
 
 /**
  *  Handle HEAD HTTP request method
+ *  
+ *  @param string	$path		Request URL
+ *  @param array	$routes		Currently loaded routes
  */
 function handleHead( string $path, array $routes ) {
 	// Find any 'get' handlers for this route
@@ -6244,6 +6256,9 @@ function handleCache( string $path ) {
 
 /**
  *  Check if method is listed in routes
+ *  
+ *  @param string	$verb		Lowercase request method
+ *  @param array	$routes		Loaded URL paths and handlers
  */
 function checkMethodRoutes( string $verb, array $routes ) {
 	$mfound	= false;
@@ -6265,6 +6280,10 @@ function checkMethodRoutes( string $verb, array $routes ) {
 
 /**
  *  Find methods and paths that can be handled before routing
+ *  
+ *  @param string	$verb		Lowercase request method
+ *  @param string	$path		Requested URL path
+ *  @param array	$routes		Currently loaded routes and handlers
  */
 function methodPreParse( string $verb, string $path, array $routes ) {
 	
@@ -6443,7 +6462,7 @@ function isSafeExt( string $path, string $group = '' ) : bool {
 /**
  *  Send route to registered event
  */
-function sendRoute( $event, $path, $verb, $params ) {
+function sendRoute( string $event, string $path, string $verb, array $params ) {
 	// Call request url event with filtered params
 	hook( [ 'requesturl', filterParams( $params ) ] );
 	
@@ -6762,6 +6781,13 @@ function getPosts( string $root = '' ) {
 	}
 }
 
+/**
+ *  Verify if given directory path is a subfolder of root
+ *  
+ *  @param string	$path	Folder path to check
+ *  @param string	$root	Full parent folder path
+ *  @return string Empty if directory traversal or other issue found
+ */
 function filterDir( $path, string $root = \POSTS ) {
 	if ( \strpos( $path, '..' ) ) {
 		return '';
@@ -6781,6 +6807,8 @@ function filterDir( $path, string $root = \POSTS ) {
 
 /**
  *  Rename if a file by that name already exists in destination
+ *  
+ *  @param string	$path	Original file name
  */
 function dupRename( string $path ) : string {
 	$info	= \pathinfo( $path );
@@ -6801,6 +6829,11 @@ function dupRename( string $path ) : string {
 /**
  *  Given a compelete file path, prefix a term to the filename and 
  *  return a unique file name path
+ *  
+ *  @param string	$path		Original file path
+ *  @param string	$prefix		Path prepend fragment
+ *  @param bool		$overwrite	Prevent duplicates by overwriting file path
+ *  @return string
  */
 function prefixPath(
 	string	$path, 
@@ -6824,8 +6857,6 @@ function prefixPath(
  *  @param string	$prefix	File name prefix
  *  @param string	$path	File path
  *  @return bool
- *  
- *  @details More details
  */
 function pluginFileExists(
 	string	$name, 
@@ -6858,6 +6889,7 @@ function pluginFileExists(
  *  @param string	$prefix		File name prefix
  *  @param bool		$create		Create subfolders if they don't exist
  *  @param bool		$overwrite	Rename path if given file name already exists
+ *  @return mixed
  */
 function pluginWritePath( 
 	string	$name, 
@@ -7138,7 +7170,7 @@ function postModified( $path, $mtime ) : bool {
 /**
  *  Check if post exists in cache
  */
-function postCached( $path ) {
+function postCached( $path ) : bool {
 	$res = 
 	getResults( 
 		"SELECT id FROM posts WHERE post_path = :path
@@ -7347,7 +7379,7 @@ function postFeatures( array &$post, int $flines ) : array {
 /**
  *  Insert formatted tags into cache
  */
-function insertTags( $stm, array $tags ) : bool {
+function insertTags( \PDOStatement $stm, array $tags ) : bool {
 	$st = false;
 	foreach( $tags as $pair ) {
 		$st	= 
@@ -7363,7 +7395,12 @@ function insertTags( $stm, array $tags ) : bool {
 /**
  *  Associate post with given tags
  */
-function applyTags( $sstm, $tstm, string $perm, array $tags ) : bool {
+function applyTags( 
+	\PDOStatement	$sstm, 
+	\PDOStatement	$tstm, 
+	string		$perm, 
+	array		$tags 
+) : bool {
 	$id = 0;
 	
 	if ( $sstm->execute( [ ':perm' => $perm ] ) ) {
@@ -7513,6 +7550,7 @@ function loadPosts(
 /**
  *  Insert post data into cache database using given statement 
  *  
+ *  @param PDOStatement $pstm		PDO SQLite statement
  *  @param string	$path		Post permalink
  *  @param string	$summ		Summary or abstract
  *  @param string	$type		Post render type
@@ -7522,7 +7560,7 @@ function loadPosts(
  *  @return bool			True on success
  */
 function insertPost(
-			$pstm, 
+	\PDOStatement	$pstm, 
 	string		$path, 
 	string		$summ,
 	string		$type, 
@@ -7904,8 +7942,6 @@ function formatMeta(
  *  @param bool		$index		This post is formatted for display on an index if true
  *  @param string	$custom		Custom post type which will be used as its extension
  *  @return string
- *  
- *  @details More details
  */
 function formatPost(
 	string	&$title,
@@ -8256,7 +8292,7 @@ function genNoncePair(
 		'token' => \base64_encode( $token ), 
 		'nonce' => $nonce,
 		'meta'	=> 
-			empty( $fields ) ? '' : genMetaKey( $fields, $reset );
+			empty( $fields ) ? '' : genMetaKey( $fields, $reset )
 	];
 }
 
@@ -8527,8 +8563,6 @@ function searchData( string $find ) : string {
 		$fdata = \array_slice( $fdata, 0, $sc );
 	}
 	
-	//\array_unshift( $fdata, "\"$find\"" );
-	
 	// Insert ' OR ' for multiple terms
 	$find	= \implode( ' OR ', $fdata );
 	
@@ -8570,7 +8604,7 @@ function searchForm() : string {
 		[ 
 			'nonce'	=> $pair['nonce'], 
 			'token'	=> $pair['token'],
-			'meta'	=> '', // Search forms are cached
+			'meta'	=> '' // Search forms are cached
 		]
 	);
 	
