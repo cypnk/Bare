@@ -4131,13 +4131,20 @@ function uniqueTerms( string $value ) : array {
 /**
  *  Clean entry title
  *  
- *  @param string	$title	Raw title entered by the user
+ *  @param mixed	$title	Raw title entered by the user
  *  @param int		$max	Maximum string length
  *  @return string
  */
-function title( string $text, int $max = 255 ) : string {
+function title( $text, int $max = 255 ) : string {
+	if ( \is_array( $text ) ) {
+		return '';
+	}
+	
 	// Unify spaces, tabs, returns etc...
-	$text	= unifySpaces( $text );
+	$text	= 
+	unifySpaces( 
+		\is_string( $text ) ? $text : ( string ) $text 
+	);
 	
 	return 
 	smartTrim( \preg_replace( '/\s+/', ' ', $text ), $max );
