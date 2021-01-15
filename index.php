@@ -37,6 +37,9 @@ define( 'ERROR',	'errors.log' );
 // Visitor error log (will be created if if doesn't exist)
 define( 'ERROR_VISIT',	'visitor_errors.log' );
 
+// Special notices and other messages that aren't errors but should be recorded
+define( 'NOTICE',	'notices.log' );
+
 // Custom error file folder (optional)
 define( 'ERROR_ROOT',	PATH . 'errors/' );
 // Use this if error files are outside web root
@@ -1370,8 +1373,8 @@ function trimmedList( string $text, bool $lower = false ) : array {
 /**
  *  Suhosin aware checking for function availability
  *  
- *  @param string	$func Function name
- *  @return bool	true If the function isn't available 
+ *  @param string	$func	Function name
+ *  @return bool		True If the function isn't available 
  */
 function missing( $func ) : bool {
 	static $exts;
@@ -1796,6 +1799,46 @@ function appName() : string {
 }
 
 /**
+ *  Generic message logging helper for notices and errors
+ *  
+ *  @param string	$dest		Log storage destination
+ *  @param string	$fields		Header fields
+ *  @param string	$msg		Logging message
+ *  @param string	$stype		Message logging type
+ *  @return bool			True if successful
+ */
+function logMessage(
+	string		$dest,
+	string		$fields, 
+	string		$msg,
+	string		$stype		= 'file' 
+) : bool {
+	// TODO: Combine email and file logging. Only file logging for now.
+	if ( 0 !== \strcasecmp( $stype, 'file' ) ) {
+		return false;
+	}
+	
+	// Log friendly date and time format
+	$dt	= \gmdate( 'Y-m-d H:i:s' );
+	
+	logRollover( $dest );
+	
+	// Prepare line with date and time
+	if ( file_exists( $dest ) ) {
+		$msg	= $dt . ' '. $msg;
+	// New file? Prepare line with header fields, date and time
+	} else {
+		$msg	= '#Software: ' . appName() . "\n#Date: $dt\n#Fields: " . 
+			$fields . "\n\n" . $dt . ' '. $msg;
+	}
+	
+	\touch( $dest );
+	
+	// PHP's built-in logger
+	return \error_log( $msg . "\n", 3, $dest );
+}
+
+/**
  *  Error logging
  *  
  *  @param string	$err	Error message to store
@@ -1804,33 +1847,28 @@ function appName() : string {
  */
 function logError( string $err, bool $app = true ) : bool {
 	$file	= \CACHE . ( $app ? \ERROR : \ERROR_VISIT );
-	logRollover( $file );
-	
-	// Log friendly date and time format
-	$dt	= \gmdate( 'Y-m-d H:i:s' );
 	$err	= $app ? unifySpaces( $err ) : truncate( $err, 0, 2048 );
 	
-	// New file? Prepare log header
-	if ( !file_exists( $file ) ) {
-		// Create header
-		$header =
-		'#Software: ' . appName() . "\n#Date: $dt\n#Fields: ";
-		
-		// Application errors have simpler headers
-		$header .= $app ? 
+	// Visitor errors have more header fields
+	$fields = $app ? 
 		"date, time, s-comment\n\n" : 
 		"date, time, sc-status, c-ip, cs-method, s-comment, cs-useragent, cs-uri\n\n";
-		
-		// Prepare line with header + date and time
-		$err	= $header . $dt . ' '. $err;
-		
-	// Prepare line with date and time
-	} else {
-		$err	= $dt . ' '. $err;
-	}
-	
-	\touch( $file );
-	return \error_log( $err . "\n", 3, $file );
+	return logMessage( $file, $fields, $err );
+}
+
+/**
+ *  Message logging
+ *  
+ *  @param string	$msg	Notification message
+ *  @return bool		True if successful
+ */
+function logNotice( string $msg ) : bool {
+	return 
+	logMessage( 
+		\CACHE . \NOTICE, 
+		'date, time, s-comment',
+		truncate( unifySpaces( $msg ), 0, 2048 ) 
+	);
 }
 
 /**
@@ -4434,6 +4472,25 @@ function signature() {
 	}
 	
 	return $sig;
+}
+
+/**
+ *  Simple division helper for mixed content type numbers
+ *  
+ *  @param mixed	$n	Numerator value
+ *  @param mixed	$d	Denominator value
+ *  @param int		$prec	Decimal precision
+ *  @return float
+ */
+function division( $n, $d, int $prec = 4 ) : float {
+	
+	if ( \is_numeric( $n ) && \is_numeric( $d ) ) {
+		$fn = ( float ) $n;
+		$fd = ( float ) $d;
+		
+		return ( $fd != 0 ) ? round( ( $fn / $fd ), $prec ) : 0.0;
+	}
+	return 0.0;
 }
 
 
@@ -8256,7 +8313,7 @@ function genMetaKey( array $args, bool $reset = false ) : string {
  *  
  *  @param string	$key	Token key name
  *  @param array	$args	Original form field names sent to generate key
- *  @return bool True if token matched
+ *  @return bool		True if token matched
  */
 function verifyMetaKey( string $key, array $args ) : bool {
 	if ( empty( $key ) ) {
