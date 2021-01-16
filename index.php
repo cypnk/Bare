@@ -1811,8 +1811,8 @@ function appName() : string {
  *  Email sending message helper
  *  
  *  @param array	$rec		List of recipients (must match whitelist)
- *  @param string	$subject	Description for $subject
- *  @param string	$msg		Description for $msg
+ *  @param string	$subject	Message heading
+ *  @param string	$msg		Mail body
  *  @param bool		$html		Format email as HTML if true
  *  @return bool
  */
@@ -1833,15 +1833,19 @@ function mailMessage(
 		'Content-Type: text/plain; charset="UTF-8"'
 	];
 	
+	
 	$msg	 = trim( $msg );
 	if ( empty( $msg ) ) {
-		logError( 'Email: Message cannot be empty.' );
+		shutdown( 'logError', 'Email: Message cannot be empty.' );
 		return false;
 	}
 	
 	$mfr	= cleanEmail( config( 'mail_from', \MAIL_FROM ) );
 	if ( empty( $mfr ) ) {
-		logError( 'Email: Sender address is invalid. Check mail_form config setting.' );
+		shutdown( 
+			'logError', 
+			'Email: Sender address is invalid. Check mail_form config setting.' 
+		);
 		return false;
 	}
 	
@@ -1875,7 +1879,10 @@ function mailMessage(
 	// Nothing in whitelist?
 	$mwhite = \array_filter( $mwhite );
 	if ( empty( $mwhite ) ) {
-		logError( 'Email: No valid recipients found. Check whitelist.' );
+		shutdown( 
+			'logError',
+			'Email: No valid recipients found. Check whitelist.'
+		);
 		return false;
 	}
 	
@@ -1892,7 +1899,10 @@ function mailMessage(
 	}
 	
 	if ( empty( $names ) ) {
-		logError( 'Email: No matching recipients in whiltelist.' );
+		shutdown( 
+			'logError', 
+			'Email: No matching recipients in whiltelist.'
+		);
 		return false;
 	}
 	
@@ -1910,11 +1920,16 @@ function mailMessage(
 	);
 	
 	if ( $ok ) {
-		logNotice( 'Email: Sent from ' . getIP() . ' Subject: ' . $subj );
+		shutdown( 
+			'logNotice', 
+			'Email: Sent from ' . getIP() . ' Subject: ' . $subj
+		);
 		return true;
 	}
-	
-	logError( \error_get_last()['message'] ?? 'Email: Error sending message' );	
+	shutdown( 
+		'logError', 
+		\error_get_last()['message'] ?? 'Email: Error sending message'
+	);
 	return false;
 }
 
@@ -3243,7 +3258,7 @@ function getDb( string $dsn, string $mode = 'get' ) {
 	} catch ( \PDOException $e ) {
 		logError( 
 			'Error connecting to database ' . $dsn . 
-			' Messsage: ' . $e->getMessage()
+			' Messsage: ' . $e->getMessage() ?? 'PDO Exception'
 		);
 		die();
 	}
@@ -3336,7 +3351,7 @@ function dataExec(
 		
 	} catch( \PDOException $e ) {
 		$stm	= null;
-		logError( $e->getMessage() );
+		shutdown( 'logError', $e->getMessage() ?? 'PDO Exception' );
 		return null;
 	}
 	
@@ -3374,7 +3389,7 @@ function dataBatchExec (
 		$db->commit();
 		
 	} catch( \PDOException $e ) {
-		logError( $e->getMessage() );
+		shutdown( 'logError', $e->getMessage() ?? 'PDO Exception' );
 	}
 	
 	return $res;
@@ -3507,9 +3522,12 @@ function loadPlugins( string $event, array $hook, array $params ) {
 	template( '', $templates );
 	
 	if ( !empty( $msg ) ) {
-		$err = 'Error loading plugins(s): ' . \implode( ', ', $msg ) . 
-			' From directory: ' . \PLUGINS;
-		logError( $err );
+		shutdown( 
+			'logError', 
+			'Error loading plugins(s): ' . 
+				\implode( ', ', $msg ) . 
+				' From directory: ' . \PLUGINS
+		);
 	}
 	hook( [ 'pluginsLoaded', [ 'plugins' => $p, 'failed' => $msg ] ] );
 }
@@ -5042,7 +5060,10 @@ function html(
 	if ( !isset( $sanity ) ) {
 		if ( missing( 'libxml_clear_errors' ) ) {
 			$sanity = false;
-			logError( 'Error: Bare requires the libxml extension be enabled.' );
+			shutdown( 
+				'logError', 
+				'Error: Bare requires the libxml extension be enabled.' 
+			);
 			return '';
 		} else {
 			$sanity = true;
@@ -5119,7 +5140,10 @@ function html(
 		// Log last error if possible and return
 		$e = \libxml_get_last_error();
 		if ( false !== $e ) {
-			logError( $e->message ?? 'Error loading DOMDocument' );
+			shutdown( 
+				'logError', 
+				[ $e->message ?? 'Error loading DOMDocument' ]
+			);
 		}
 		
 		\libxml_clear_errors();
@@ -6484,7 +6508,7 @@ function checkMethodRoutes( string $verb, array $routes ) {
 	
 	// No method implemented for this route
 	if ( !$mfound ) {
-		logError( \MSG_NOMETHOD . ' ' . $verb );
+		shutdown( 'logError', \MSG_NOMETHOD . ' ' . $verb );
 		sendError( 501, errorLang( "nomethod", \MSG_NOMETHOD ) );
 	}
 }
@@ -6986,8 +7010,11 @@ function getPosts( string $root = '' ) {
 		return $tmp;
 		
 	} catch( \Exception $e ) {
-		logError( 'Error retrieving posts from ' . 
-			$pd . ' ' . $e->getMessage() );
+		shutdown( 
+			'logError', 
+			'Error retrieving posts from ' . $pd . ' ' . 
+			$e->getMessage() ?? 'Directory search exception'
+		);
 		return null;
 	}
 }
@@ -7078,14 +7105,20 @@ function pluginFileExists(
 	
 	// Only check currently loaded plugins
 	if ( !\in_array( $name, $ld ) ) {
-		logError( 'Attempt to search unloaded plugin directory: ' . $name );
+		shutdown( 
+			'logError', 
+			'Attempt to search unloaded plugin directory: ' . $name 
+		);
 		return false;
 	}
 	
 	$root	= getPostFileDir( 'plugin' ) . $name;
 	$fpath	= prefixPath( $root . $path, $prefix );
 	if ( empty( filterDir( $fpath, $root ) ) ) {
-		logError( 'Invalid file path search: ' . $path );
+		shutdown(
+			'logError',
+			'Invalid file path search: ' . $path
+		);
 		return false;
 	}
 	
@@ -7113,7 +7146,10 @@ function pluginWritePath(
 	
 	// Only write to currently loaded plugins;
 	if ( !\in_array( $name, $ld ) ) {
-		logError( 'Attempt to write to unloaded plugin directory: ' . $name );
+		shutdown( 
+			'logError', 
+			'Attempt to write to unloaded plugin directory: ' . $name 
+		);
 		return null;
 	}
 	
@@ -7122,7 +7158,10 @@ function pluginWritePath(
 	$fpath	= prefixPath( $root . $path, $prefix, $overwrite );
 	
 	if ( empty( filterDir( $fpath, $root ) ) ) {
-		logError( 'Invalid file path search: ' . $path );
+		shutdown(
+			'logError',
+			'Invalid file path search: ' . $path
+		);
 		return null;
 	}
 	
@@ -7202,7 +7241,10 @@ function refreshPost(
 		
 		$db->commit();
 	} else {
-		logError( 'Error starting DB transaction in refreshPost()' );
+		shutdown(
+			'logError',
+			'Error starting DB transaction in refreshPost()'
+		);
 	}
 	
 	// Cleanup
@@ -7792,7 +7834,7 @@ function insertPost(
 	if ( $pstm->execute( $params ) ) {
 		return true;
 	}
-	logError( 'Error inserting post ' . $path );
+	shutdown( 'logError', 'Error inserting post ' . $path );
 	return false;
 }
 
