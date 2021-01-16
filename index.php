@@ -98,6 +98,15 @@ define( 'DEFAULT_BASEPATH',	<<<JSON
 JSON
 );
 
+// Whitelist of recipient addresses that Bare can email (one per line)
+define( 'MAIL_WHITELIST',	<<<LINES
+
+LINES
+);
+
+// Sender email used by Bare (from: address)
+define( 'MAIL_FROM',		'domain@localhost' );
+
 
 // Number of posts on archive index page
 define( 'INDEX_LIMIT',	60 );
@@ -1796,6 +1805,117 @@ function appName() : string {
 		$app = title( \APP_NAME );
 	}
 	return $app;
+}
+
+/**
+ *  Email sending message helper
+ *  
+ *  @param array	$rec		List of recipients (must match whitelist)
+ *  @param string	$subject	Description for $subject
+ *  @param string	$msg		Description for $msg
+ *  @param bool		$html		Format email as HTML if true
+ *  @return bool
+ */
+function mailMessage(
+	array	$rec,
+	string	$subject,
+	string	$msg,
+	bool	$html		= false
+) : bool {
+	static $hheaders = [
+		'MIME-Version: 1.0',
+		'Content-Type: text/html; charset="UTF-8"',
+		'Content-Transfer-Encoding: base64'
+	];
+	
+	static $theaders = [
+		'MIME-Version: 1.0',
+		'Content-Type: text/plain; charset="UTF-8"'
+	];
+	
+	$msg	 = trim( $msg );
+	if ( empty( $msg ) ) {
+		logError( 'Email: Message cannot be empty.' );
+		return false;
+	}
+	
+	$mfr	= cleanEmail( config( 'mail_from', \MAIL_FROM ) );
+	if ( empty( $mfr ) ) {
+		logError( 'Email: Sender address is invalid. Check mail_form config setting.' );
+		return false;
+	}
+	
+	// HTML or plain text headers
+	$headers 	= $html ? $hheaders : $theaders;
+	$headers[]	= 'From: ' . $mfr;
+	
+	// Mailer hook
+	hook( [ 'mailmessage', [ 
+		'headers'	=> $headers,
+		'html'		=> $html,
+		'recipients'	=> $rec,
+		'subject'	=> $subject,
+		'message'	=> $msg,
+		'senderip'	=> getIP(),
+		'senderua'	=> getUA()
+	] ] );
+	
+	// Load mail hook replacements
+	$res	= hookArrayResult( 'mailmessage' );
+	
+	// Override with hook results if any
+	$rcpt	= $res['recipients'] ?? $rec;
+	
+	// Check sender whitelist
+	$mrl	= config( 'mail_whitelist', \MAIL_WHITELIST );
+	$mwhite	= \is_array( $mrl ) ? 
+			\array_map( 'cleanEmail', $mrl ) : 
+			lineSettings( $mrl, -1, 'cleanEmail' );
+	
+	// Nothing in whitelist?
+	$mwhite = \array_filter( $mwhite );
+	if ( empty( $mwhite ) ) {
+		logError( 'Email: No valid recipients found. Check whitelist.' );
+		return false;
+	}
+	
+	// Consistent addresses
+	$mwhite	= \array_unique( \array_map( 'lowercase', $mwhite ) );
+	$rcpt	= \array_unique( \array_map( 'lowercase', $rcpt ) );
+	
+	// Check recipient whitelist
+	$names	= [];
+	foreach( $rcpt as $r ) {
+		if ( \in_array( $r, $mwhite, true ) ) {
+			$names[] = $r;
+		}
+	}
+	
+	if ( empty( $names ) ) {
+		logError( 'Email: No matching recipients in whiltelist.' );
+		return false;
+	}
+	
+	// Format user input
+	$subj	= entities( unifySpaces( $res['subject'] ?? $subject ) );
+	$msg	.= "\r\n\r\nReceived from: " . getIP() . "  \r\n" . getUA();
+	$msg	= html( $res['message'] ?? $msg, '', false, true );
+	
+	$ok	= 
+	mail( 
+		\implode( ',', $names ), 
+		$subj, 
+		$html ? \base64_encode( $msg ) : \strip_tags( $msg ), 
+		\array_map( 'unifySpaces', $headers ) 
+	);
+	
+	if ( $ok ) {
+		logNotice( 'Email: Sent from ' . getIP() . ' Subject: ' . $subj );
+		return true;
+	}
+	
+	logError( \error_get_last()['message'] ?? 'Email: Error sending message' );	
+	return false;
 }
 
 /**
@@ -4143,11 +4263,15 @@ function dateRfcFile( $stamp = null ) : string {
  *  
  *  @param string	$text		Raw text containting mixed space types
  *  @param string	$rpl		Replacement space, defaults to ' '
+ *  @param string	$br		Preserve line breaks
  *  @return string
  */
-function unifySpaces( string $text, string $rpl = ' ' ) : string {
-	return 
-	\preg_replace( '/[[:space:]]+/', $rpl, pacify( $text ) );
+function unifySpaces( string $text, string $rpl = ' ', bool $br = false ) : string {
+	return $br ?
+		\preg_replace( 
+			'/[ \t\v\f]+/', $rpl, pacify( $text ) 
+		) : 
+		\preg_replace( '/[[:space:]]+/', $rpl, pacify( $text ) );
 }
 
 /**
@@ -4636,6 +4760,20 @@ function cleanUrl(
 }
 
 /**
+ *  Simple email address filter helper
+ *  
+ *  @param string	$email	Raw email (currently doesn't support Unicode domains)
+ *  @return string
+ */
+function cleanEmail( string $email ) : string {
+	if ( \filter_var( $email, \FILTER_VALIDATE_EMAIL ) ) {
+		return $email;
+	}
+	
+	return '';
+}
+
+/**
  *  Prepend given prefix to URLs starting with '/'
  *  
  *  @param string	$url	Raw URL path
@@ -4889,12 +5027,14 @@ function formatHTML( string $html, string $prefix ) {
  *  @param string	$value		Unformatted content
  *  @param string	$prefix		URL path prefix
  *  @param bool		$form		Include form field tags if true
+ *  @param bool		$sembed		Skip embedded media shortcodes if true
  *  @return string
  */
 function html( 
 	string	$value, 
 	string	$prefix	= '', 
-	bool	$form	= false 
+	bool	$form	= false,
+	bool	$sembed	= false
 ) : string {
 	static $white	= [];
 	static $sanity;
@@ -5025,6 +5165,10 @@ function html(
 	
 	\libxml_clear_errors();
 	\libxml_use_internal_errors( $err );
+	
+	if ( $sembed ) {
+		return $clean;
+	}
 	
 	// Apply embedded media
 	return embeds( $clean, $prefix );
@@ -5413,7 +5557,10 @@ function preamble(
 		// Approved frame ancestors ( for embedding media )
 		$frl = config( 'frame_whitelist', \FRAME_WHITELIST );
 		$raw = \is_array( $frl ) ? 
-				$frl : lineSettings( $frl, -1, 'cleanUrl' );
+				\array_map( 'cleanUrl', $frl ) : 
+				lineSettings( $frl, -1, 'cleanUrl' );
+		
+		$raw = \array_unique( \array_filter( $raw ) );
 		$frm = \implode( ' ', $raw );
 		
 		foreach ( $cjp as $k => $v ) {
