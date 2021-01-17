@@ -3396,6 +3396,39 @@ function dataBatchExec (
 }
 
 /**
+ *  Helper to turn a range of input values into an IN() parameter
+ *  
+ *  @example Parameters for [value1, value2] become "IN (:paramIn_0, :paramIn_1)"
+ *  
+ *  @param array	$values		Raw parameter values
+ *  @param array	$params		PDO Named parameters sent back
+ *  @param string	$prefix		SQL Prepended fragment prefix
+ *  @param string	$prefix		SQL Appended fragment suffix
+ *  @return string
+ */
+function getInParam(
+	array		$values, 
+	array		&$params, 
+	string		$prefix		= 'IN (', 
+	string		$suffix		= ')'
+) : string {
+	$sql	= '';
+	$p	= '';
+	$i	= 0;
+	
+	foreach ( $values as $v ) {
+		$p		= ':paramIn_' . $i;
+		$sql		.= $p .',';
+		$params[$p]	= $v;
+		
+		$i++;
+	}
+	
+	// Remove last comma and close parenthesis
+	return $prefix . rtrim( $sql, ',' ) . $suffix;
+}
+
+/**
  *  Get parameter result from database
  *  
  *  @param string	$sql	Database SQL query
