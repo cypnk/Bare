@@ -1682,16 +1682,21 @@ function shutdown() {
  */
 function isSecure() : bool {
 	$ssl	= $_SERVER['HTTPS'] ?? '0';
-	if ( $ssl == 'on' || $ssl == '1' ) {
+	$frd	= 
+		$_SERVER['HTTP_X_FORWARDED_PROTO'] ?? 
+		$_SERVER['HTTP_X_FORWARDED_PROTOCOL'] ?? 
+		$_SERVER['HTTP_X_URL_SCHEME'] ?? 'http';
+	
+	if ( 
+		0 === \strcasecmp( $ssl, 'on' )		|| 
+		0 === \strcasecmp( $ssl, '1' )		|| 
+		0 === \strcasecmp( $frd, 'https' )
+	) {
 		return true;
 	}
 	
-	$port	= ( int ) ( $_SERVER['SERVER_PORT'] ?? 80 );
-	if ( $port == 443 ) {
-		return true;
-	}
-	
-	return false;
+	return 
+	( 443 == ( int ) ( $_SERVER['SERVER_PORT'] ?? 80 ) );
 }
 
 /**
