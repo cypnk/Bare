@@ -4564,7 +4564,7 @@ function getForwarded() : array {
 		return [];
 	}
 	
-	$pt	= explode( ';' $terms );
+	$pt	= explode( ';', $terms );
 	
 	// Gather forwarded values
 	foreach ( $pt as $p ) {
