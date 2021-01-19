@@ -4543,6 +4543,90 @@ function enforceDates( array $args ) : array {
 }
 
 /**
+ *  Forwarded HTTP header chain from load balancer
+ *  
+ *  @return array
+ */
+function getForwarded() : array {
+	static $fwd;
+	if ( isset( $fwd ) ) {
+		return $fwd;
+	}
+	
+	$fwd	= [];
+	$terms	= 
+		$_SERVER['HTTP_FORWARDED'] ??
+		$_SERVER['FORWARDED'] ?? 
+		$_SERVER['HTTP_X_FORWARDED'] ?? '';
+	
+	// No headers forwarded
+	if ( empty( $terms ) ) {
+		return [];
+	}
+	
+	$pt	= explode( ';' $terms );
+	
+	// Gather forwarded values
+	foreach ( $pt as $p ) {
+		// Break into comma delimited list, if any
+		$chain = trimmedList( $p );
+		if ( empty( $chain ) ) {
+			continue;
+		}
+		
+		foreach ( $chain as $c ) {
+			$k = explode( '=', $c );
+			// Skip empty or odd values
+			if ( count( $k ) != 2 ) {
+				continue;
+			}
+			
+			// Existing key?
+			if ( isset( $fwd[$k[0]] ) ) {
+				// Existing array? Append
+				if ( \is_array( $fwd[$k[0]] ) ) {
+					$fwd[$k[0]][] = $k[1];
+				
+				// Multiple values? 
+				// Convert to array and then append new
+				} else {
+					$tmp		= $fwd[$k[0]];
+					$fwd[$k[0]]	= [];
+					$fwd[$k[0]][]	= $tmp;
+					$fwd[$k[0]][]	= $k[1];
+ 				}
+			// Fresh value
+			} else {
+				$fwd[$k[0]] = $k[1];
+			}
+		}
+	}
+	return $fwd;
+}
+
+/**
+ *  Get the current IP address connection chain including given proxies
+ *  
+ *  @return array
+ */
+function getProxyChain() : array {
+	static $chain;
+	
+	if ( isset( $chain ) ) {
+		return $chain;
+	}
+	
+	$chain = 
+	trimmedList( 
+		$_SERVER['HTTP_X_FORWARDED_FOR'] ?? 
+		$_SERVER['HTTP_CLIENT_IP'] ?? 
+		$_SERVER['REMOTE_ADDR'] ?? '' 
+	);
+	
+	return $chain;
+}
+
+/**
  *  Get IP address (best guess)
  */
 function getIP() : string {
@@ -4551,8 +4635,14 @@ function getIP() : string {
 	if ( isset( $ip ) ) {
 		return $ip;
 	}
+	
+	$raw = getProxyChain();
+	if ( empty( $raw ) ) {
+		$ip = '';
+		return '';
+	}
 		
-	$ip	= $_SERVER['REMOTE_ADDR'];
+	$ip	= \array_shift( $raw );
 	$skip	= config( 'skip_local', \SKIP_LOCAL, 'int' );
 	$va	=
 	( $skip ) ?
