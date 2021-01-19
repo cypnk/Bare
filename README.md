@@ -615,6 +615,8 @@ These are possible problems you may encounter and potential solutions to them. I
 
 	* If Bare was running before and you made any recent changes, check if Bare runs with the restored *index.php*. Add the same changes one-by-one until you can narrow down which change caused the problem.
 
+	* If you're running Bare behind [HAProxy](https://www.haproxy.org/), [relayd](https://man.openbsd.org/relayd.8), or another load balancer or gateway, update to the latest version of Bare and make sure the load balancer or gateway is correctly forwarding the host name and IP address from the client request to the web server.
+
 * **Problem: I see my post doesn't look the way I want it to look** 
 	* Bare understands a limited subset of [Markdown](https://daringfireball.net/projects/markdown/) formatting, but this may not be enough to express what you're trying to show. Bare will accept plain HTML tags as well, provided they're within the whitelist of allowed tags (either in the base installation or expanded via plugins). Try simple HTML, if Markdown formatting didn't work the way you expect.
 
@@ -654,7 +656,7 @@ These are possible problems you may encounter and potential solutions to them. I
 
 		* "Invalid file path search" or "Attempt to write to unloaded plugin directory": A plugin tried to write to another plugin's folder without that other plugin being loaded. Make sure your plugins have all their dependencies added first to "plugins_enabled" in *config.json* or PLUGINS_ENABLED in *index.php*  
 		
-		* "Unknown status code...": A attempt to send a page to a visitor or redirect a visitor using an HTTP status code that Bare doesn't support. Check for any redirects or send() function calls in any recently added plugins. Bare can respond with the following HTTP status codes:  
+		* "Unknown status code...": An attempt to send a page to a visitor or redirect a visitor using an HTTP status code that Bare doesn't support. Check for any redirects or send() function calls in any recently added plugins. Bare can respond with the following HTTP status codes:  
 200, 201, 202, 204, 205, 206, 300, 301, 302, 303, 304, 400, 401, 403, 404, 405, 406, 407, 409, 410, 411, 412, 413, 414, 415, 425, 429, 431, 500, 501, 503  
 
 		* "Invalid URL...": A redirect attempt was made to a different host, domain name, or IP address other than the one currently serving the visitor. Bare only supports redirecting to URLs on the same host using the built-in redirect() function.
