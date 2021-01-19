@@ -4543,6 +4543,37 @@ function enforceDates( array $args ) : array {
 }
 
 /**
+ *  Get the first non-empty server parameter value if set
+ *  
+ *  @param array	$headers	Server parameters
+ *  @param array	$terms		Searching terms
+ *  @param bool		$case		Search only in lowercase if true
+ *  @return mixed
+ */
+function serverParamWhite( array $headers, array $terms, bool $case = false ) {
+	$found	= null;
+	
+	foreach ( $headers as $h ) {
+		// Skip unset or empty keys
+		if ( empty( $_SERVER[$h] ) ) {
+			continue;
+		}
+		
+		// Search in lowercase
+		if ( $case ) {
+			$lc	= \array_map( 'lowercase', $terms );
+			$sh	= \lowercase( $_SERVER[$h] );
+			$found	= \in_array( $sh, $lc ) ? $sh : '';
+		} else {
+			$found	= 
+			\in_array( $_SERVER[$h], $terms ) ? $_SERVER[$h] : '';
+		}
+		break;
+	}
+	return $found;
+}
+
+/**
  *  Forwarded HTTP header chain from load balancer
  *  
  *  @return array
@@ -4636,13 +4667,26 @@ function getIP() : string {
 		return $ip;
 	}
 	
-	$raw = getProxyChain();
-	if ( empty( $raw ) ) {
-		$ip = '';
-		return '';
+	$fwd = getForwarded();
+	
+	// Get IP from reverse proxy, if set
+	if ( \array_key_exists( 'for', $fwd ) ) {
+		$ip = 
+		\is_array( $fwd['for'] ) ? 
+			\array_shift( $fwd['for'] ) : 
+			( string ) $fwd['for'];
+	
+	// Get from sent headers
+	} else {
+		$raw = getProxyChain();
+		if ( empty( $raw ) ) {
+			$ip = '';
+			return '';
+		}
+		
+		$ip	= \array_shift( $raw );
 	}
 		
-	$ip	= \array_shift( $raw );
 	$skip	= config( 'skip_local', \SKIP_LOCAL, 'int' );
 	$va	=
 	( $skip ) ?
@@ -5832,29 +5876,34 @@ function getHost() : string {
 	if ( isset( $host ) ) { return $host; }
 	
 	$sk	= getSiteWhite();
-	$sw	= trimmedList( implode( ',', array_keys( $sk ) ) );
+	$sw	= trimmedList( implode( ',', array_keys( $sk ) ), true );
+	
+	// Base host headers
 	$sh	= [ 'HTTP_HOST', 'SERVER_NAME', 'SERVER_ADDR' ];
 	
-	foreach ( $sh as $h ) {
-		if ( isset( $_SERVER[$h] ) ) {
-			if ( empty( $_SERVER[$h] ) ) { continue; }
-			
-			$host	= 
-			\in_array( $_SERVER[$h], $sw ) ? 
-				$_SERVER[$h] : '';
-			
-			break;
-		}
+	// Get forwarded host info from reverse proxy
+	$fd	= getForwarded();
+	
+	// Check reverse proxy host name in whitelist
+	if ( \array_key_exists( 'host', $fd ) ) {
+		$lc	= lowercase( ( string ) $fd['host'] );
+		$host	= \in_array( $lc, $sw ) ? $lc : '';
+		
+	// Check base host headers
+	} else {
+		$host	= serverParamWhite( $sh, $sw, true ) ?? '';
 	}
 	
 	// Call host hook
 	hook( [ 'gethost', [
-		'host'	=> $host ?? '',
-		'white'	=> $sw,
-		'sets'	=> $sh
+		'host'		=> $host,
+		'white'		=> $sw,
+		'sets'		=> $sh,
+		'forward'	=> $fd
 	] ] );
 	
-	$host	= hookStringResult( 'gethost', $host ?? '' );
+	// Override if sent by plugin
+	$host	= hookStringResult( 'gethost', $host );
 	return $host;
 }
 
@@ -8619,7 +8668,7 @@ function genMetaKey( array $args, bool $reset = false ) : string {
 	$ha		= hashAlgo( 'nonce_hash', \NONCE_HASH );
 	$gen[$data]	= 
 	\base64_encode( 
-		\hash( $ha, $data . tokenKey( $reset ) . getIP(), true ) 
+		\hash( $ha, $data . tokenKey( $reset ), true ) 
 	);
 	
 	return $gen[$data];
@@ -8648,7 +8697,7 @@ function verifyMetaKey( string $key, array $args ) : bool {
 	return 
 	\hash_equals( 
 		$info, 
-		\hash( $ha, $data . tokenKey() . getIP(), true ) 
+		\hash( $ha, $data . tokenKey(), true ) 
 	);
 }
 
