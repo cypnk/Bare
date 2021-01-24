@@ -2324,7 +2324,7 @@ function loadText( $raw, bool $fl = true, bool $skip = false ) {
 	
 	// Get content from files
 	if ( $fl ) {
-		if ( !\file_exists( $raw ) ) {
+		if ( \file_exists( $raw ) ) {
 			$data	= $skip ? 
 			\file( $raw, 
 				\FILE_IGNORE_NEW_LINES | \FILE_SKIP_EMPTY_LINES 
