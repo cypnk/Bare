@@ -9612,7 +9612,7 @@ function showHome( string $event, array $hook, array $params ) {
 function showAbout( string $event, array $hook, array $params ) {
 	$path	= $params['tree'] ?? 'main'; // Sub about page or main
 	$apath	= 'about/' . $path . '.md';
-	$post	= loadStaticPage( $apath )
+	$post	= loadStaticPage( $apath );
 	
 	// No about found
 	if ( empty( $post ) ) {
