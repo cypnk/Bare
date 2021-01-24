@@ -518,6 +518,7 @@ $templates['tpl_post']		= <<<HTML
 </article>{after_post}
 HTML;
 
+// Post on full listing indexes
 $templates['tpl_index_post']		= <<<HTML
 {before_index_post}
 <article class="{post_idx_wrap_classes}">{before_item_post}
@@ -539,84 +540,99 @@ $templates['tpl_index_post']		= <<<HTML
 {after_item_post}</article>{after_index_post}
 HTML;
 
+// Reading time for each post
 $templates['tpl_read_time']	= <<<HTML
 <span class="readtime">{lang:headings:readtime}</span>
 HTML;
 
+// Post tag container on index pages
 $templates['tpl_index_tagwrap']	= <<<HTML
 <nav class="{tag_index_wrap_classes}">
 	<span class="{tag_index_heading_classes}">{lang:headings:tags}</span> 
 	<ul class="{tag_index_ul_classes}">{tags}</ul></nav>
 HTML;
 
+// Single post page tag container
 $templates['tpl_tagwrap']	= <<<HTML
 <nav class="{tag_wrap_classes}">
 	<span class="{tag_heading_classes}">{lang:headings:tags}</span> 
 	<ul class="{tag_ul_classes}">{tags}</ul></nav>
 HTML;
 
+// Main navigation menu link container
 $templates['tpl_mainnav_wrap']	= <<<HTML
 <nav class="{main_nav_classes}"><ul>{links}</ul></nav>
 HTML;
 
+// Footer link container
 $templates['tpl_footernav_wrap']= <<<HTML
 <nav class="{footer_nav_classes}">
 <ul class="{footer_ul_classes}">{links}</ul>
 </nav>
 HTML;
 
+// Link for main homepage link on navigation menues
 $templates['tpl_home_link']	= <<<HTML
 <li class="{nav_home_link_classes}">
 	<a href="{url}" class="{nav_home_link_a_classes}">{text}</a>
 </li>
 HTML;
 
+// Standard link on navigation menus
 $templates['tpl_link']		= <<<HTML
 	<li><a href="{url}">{text}</a></li>
 HTML;
 
+// Individual post link wrapper on archive indexes
 $templates['tpl_index_taglink']	= <<<HTML
 <li class="{tag_index_item_classes}">
 	<a href="{url}" class="{tag_index_item_a_classes}">{text}</a>
 </li>
 HTML;
 
+// Individual tag link wrapper
 $templates['tpl_taglink']	= <<<HTML
 <li class="{tag_item_classes}">
 	<a href="{url}" class="{tag_item_a_classes}">{text}</a>
 </li>
 HTML;
 
+// Pagination link navigation wrapper
 $templates['tpl_page_nav_link']	= <<<HTML
 <li class="{nav_link_classes}">
 	<a href="{url}" class="{nav_link_a_classes}">{text}</a>
 </li>
 HTML;
 
+// Preview page previous link
 $templates['tpl_np_prevlink']	= <<<HTML
 <li class="{nextprev_prev_classes}">
 	&lt; <a href="{url}" class="{nextprev_prev_a_classes}">{text}</a>
 </li>
 HTML;
 
+// Preview page next link
 $templates['tpl_np_nextlink']	= <<<HTML
 <li class="{nextprev_next_classes}">
 	<a href="{url}" class="{nextprev_next_a_classes}">{text}</a> &gt;
 </li>
 HTML;
 
+// Pagination Previous page link
 $templates['tpl_prevlink']	= <<<HTML
 <li class="{nav_prev_classes}">
 	&lt; <a href="{url}" class="{nav_prev_a_classes}">{text}</a>
 </li>
 HTML;
 
+// Pagination Next page link
 $templates['tpl_nextlink']	= <<<HTML
 <li class="{nav_next_classes}">
 	<a href="{url}" class="{nav_next_a_classes}">{text}</a> &gt;
 </li>
 HTML;
 
+// Next/Previous pagination wrapper
 $templates['tpl_page_nextprev']	= <<<HTML
 <div class="{nextprev_wrap_classes}">
 	<nav class="{nextprev_nav_classes}">
@@ -625,6 +641,7 @@ $templates['tpl_page_nextprev']	= <<<HTML
 </div>
 HTML;
 
+// Previously published and next, chronological page preview wrapper
 $templates['tpl_siblingnav']	= <<<HTML
 <div class="{sibling_wrap_classes}">
 	<nav class="{sibling_nav_classes}">
@@ -633,6 +650,7 @@ $templates['tpl_siblingnav']	= <<<HTML
 </div>
 HTML;
 
+// Related posts wrapper on single post views
 $templates['tpl_relatednav']	= <<<HTML
 <div class="{related_wrap_classes}">
 	<h3 class="{related_h_classes}">{lang:headings:related}</h3>
@@ -642,12 +660,14 @@ $templates['tpl_relatednav']	= <<<HTML
 </div>
 HTML;
 
+// Index page post listing wrapper
 $templates['tpl_index_wrap']	= <<<HTML
 <div class="{post_index_wrap_classes}">
 	<ul class="{post_index_ul_wrap_classes}">{items}</ul>
 </div>
 HTML;
 
+// Index page post link wrapper
 $templates['tpl_index']		= <<<HTML
 <li class="{post_index_item_classes}">
 	<time datetime="{date_utc}">{date_stamp}</time> 
@@ -655,6 +675,7 @@ $templates['tpl_index']		= <<<HTML
 </li>
 HTML;
 
+// Index page separation header (I.E. Archive Year)
 $templates['tpl_index_header']	= <<<HTML
 <li class="{post_index_header_classes}">
 	<h3 class="{post_index_header_h_classes}">{title}</h3>
@@ -689,11 +710,16 @@ $templates['tpl_item']		= <<<XML
 XML;
 
 
-// Embeded media templates
+/**
+ *  Embeded media templates
+ */
+
+// Embedded video with preview
 $templates['tpl_audio_embed']	= <<<HTML
 <div class="media"><audio src="{src}" controls></audio></div>
 HTML;
 
+// Embedded video without preview
 $templates['tpl_video_np_embed'] =<<<HTML
 <div class="media">
 	<video width="560" height="315" src="{src}" controls></video>
@@ -707,7 +733,11 @@ $templates['tpl_video_embed'] =<<<HTML
 HTML;
 
 
-// Hosted media templates
+/**
+ *  Hosted media templates
+ */
+ 
+// YouTube video wrapper
 $templates['tpl_youtube']	= <<<HTML
 <div class="media">
 	<iframe width="560" height="315" frameborder="0" 
@@ -717,6 +747,7 @@ $templates['tpl_youtube']	= <<<HTML
 </div>
 HTML;
 
+// Vimeo video wrapper
 $templates['tpl_vimeo']		= <<<HTML
 <div class="media">
 	<iframe width="500" height="281" frameborder="0" 
@@ -726,6 +757,7 @@ $templates['tpl_vimeo']		= <<<HTML
 </div>
 HTML;
 
+// Peertube video wrapper (requires 'src_host' to be added to frame_whitelist)
 $templates['tpl_peertube']	= <<<HTML
 <div class="media">
 	<iframe width="560" height="315" frameborder="0" 
@@ -735,6 +767,7 @@ $templates['tpl_peertube']	= <<<HTML
 </div>
 HTML;
 
+// Internet Archive video wrapper
 $templates['tpl_archiveorg']	= <<<HTML
 <div class="media">
 	<iframe width="560" height="315" frameborder="0" 
@@ -1373,9 +1406,13 @@ SQL
 
 /**
  *  String to list helper
+ *  
+ *  @param string	$text	Input text to break into items
+ *  @param bool		$lower	Convert Mixed/Uppercase text to lowercase if true
+ *  @param string	$sep	String delimiter, defaults to comma
  */
-function trimmedList( string $text, bool $lower = false ) : array {
-	$map = \array_map( 'trim', \explode( ',', $text ) );
+function trimmedList( string $text, bool $lower = false, string $sep = ',' ) : array {
+	$map = \array_map( 'trim', \explode( $sep, $text ) );
 	return $lower ? \array_map( 'strtolower', $map ) : $map;
 }
 
@@ -1425,6 +1462,8 @@ function missing( $func ) : bool {
  */
 function template( string $label, array $reg = [] ) : string {
 	static $tpl	= [];
+	
+	// New templates? Append to current store
 	if ( !empty( $reg ) ) {
 		$tpl = \array_merge( $tpl, $reg );
 	}
@@ -1615,7 +1654,6 @@ function hookTemplateRender(
  *  @param string	$tpl		Base component template
  *  @param array	$input		Raw component data
  *  @param bool		$full		Render full regions
- *  
  *  @return string
  */
 function hookWrap( 
@@ -1699,6 +1737,11 @@ function isSecure() : bool {
 	( 443 == ( int ) ( $_SERVER['SERVER_PORT'] ?? 80 ) );
 }
 
+
+/**
+ *  Standard request parameter helpers
+ */
+
 /**
  *  Browser User Agent
  *  
@@ -1714,16 +1757,31 @@ function getUA() : string {
 }
 
 /**
- *  Get or guess current server protocol
+ *  Get full request URI
  *  
  *  @return string
  */
-function getProtocol() : string {
+function getURI() : string {
+	static $uri;
+	if ( isset( $uri ) ) {
+		return $uri;
+	}
+	$uri	= $_SERVER['REQUEST_URI'] ?? '';
+	return $uri;
+}
+
+/**
+ *  Get or guess current server protocol
+ *  
+ *  @param string	$assume		Default protocol to assume if not given
+ *  @return string
+ */
+function getProtocol( string $assume = 'HTTP/1.1' ) : string {
 	static $pr;
 	if ( isset( $pr ) ) {
 		return $pr;
 	}
-	$pr = $_SERVER['SERVER_PROTOCOL'] ?? 'HTTP/1.1';
+	$pr = $_SERVER['SERVER_PROTOCOL'] ?? $assume;
 	return $pr;
 }
 
@@ -1732,7 +1790,7 @@ function getProtocol() : string {
  *  
  *  @return string
  */
-function getQS() {
+function getQS() : string {
 	static $qs;
 	if ( isset( $qs ) ) {
 		return $qs;
@@ -1741,7 +1799,12 @@ function getQS() {
 	return $qs;
 }
 
-function getMethod() {
+/**
+ *  Current client request method
+ *  
+ *  @return string
+ */
+function getMethod() : string {
 	static $method;
 	if ( isset( $method ) ) {
 		return $method;
@@ -1750,6 +1813,11 @@ function getMethod() {
 	\strtolower( trim( $_SERVER['REQUEST_METHOD'] ?? '' ) );
 	return $method;
 }
+
+
+/**
+ *  Parameter filter helpers
+ */
 
 /**
  *  Filter number within min and max range, inclusive
@@ -1769,7 +1837,7 @@ function intRange( $val, int $min, int $max ) : int {
 /**
  *  Logging safe string
  */
-function logStr( $text, int $len = 255 ) {
+function logStr( $text, int $len = 255 ) : string {
 	return truncate( pacify( ( string ) ( $text ?? '' ) ), 0, $len );
 }
 
@@ -1780,11 +1848,12 @@ function logStr( $text, int $len = 255 ) {
  */
 function logRollover( string $file ) {
 	// Nothing to rollover
-	if ( !file_exists( $file ) ) {
+	if ( !\file_exists( $file ) ) {
 		return;
 	}
 	
 	$fs	= \filesize( $file );
+	// Empty file
 	if ( false === $fs ) {
 		return;
 	}
@@ -1964,7 +2033,7 @@ function logMessage(
 	logRollover( $dest );
 	
 	// Prepare line with date and time
-	if ( file_exists( $dest ) ) {
+	if ( \file_exists( $dest ) ) {
 		$msg	= $dt . ' '. $msg;
 	// New file? Prepare line with header fields, date and time
 	} else {
@@ -2019,9 +2088,11 @@ function logNotice( string $msg ) : bool {
  *  @return bool
  */
 function visitorError( int $code = 0, string $msg = '-' ) {
+	$mt	= getMethod();
+	
 	$ua	= logStr( $_SERVER['HTTP_USER_AGENT'] ?? '-' );
-	$me	= logStr( $_SERVER['REQUEST_METHOD'] );
-	$uri	= logStr( $_SERVER['REQUEST_URI'] );
+	$me	= logStr( empty( $mt ) ? 'unknown' : $mt );
+	$uri	= logStr( getURI() );
 	
 	$err	= $code . ' ' . getIP() . ' ' . $me . ' ' . $msg . ' ' . 
 			$ua . ' ' . $uri;
@@ -2031,9 +2102,15 @@ function visitorError( int $code = 0, string $msg = '-' ) {
 
 
 /**
- *  Safely encode to JSON
+ *  Safely encode array to JSON
+ *  
+ *  @return string
  */
-function encode( array $data ) : string {
+function encode( array $data = [] ) : string {
+	if ( empty( $data ) ) {
+		return '';
+	}
+	
 	$out = 
 	\json_encode( 
 		$data, 
@@ -2047,8 +2124,13 @@ function encode( array $data ) : string {
 
 /**
  *  Safely decode JSON to array
+ *  
+ *  @return array
  */
-function decode( string $data, int $depth = 10 ) : array {
+function decode( string $data = '', int $depth = 10 ) : array {
+	if ( empty( $data ) ) {
+		return [];
+	}
 	$depth	= intRange( $depth, 1, 50 );
 	$out	= 
 	\json_decode( 
@@ -2242,7 +2324,7 @@ function loadText( $raw, bool $fl = true, bool $skip = false ) {
 	
 	// Get content from files
 	if ( $fl ) {
-		if ( \file_exists( $raw ) ) {
+		if ( !\file_exists( $raw ) ) {
 			$data	= $skip ? 
 			\file( $raw, 
 				\FILE_IGNORE_NEW_LINES | \FILE_SKIP_EMPTY_LINES 
@@ -3993,7 +4075,7 @@ function lastVisit() : int {
 	$check 	= \SESSION_STATE_FRESH;
 	
 	// Check for generally safe extensions requested 
-	$nice	= isSafeExt( $_SERVER['REQUEST_URI'] );
+	$nice	= isSafeExt( getURI() );
 	
 	// First visit?
 	$last	= $_SESSION['last'] ?? [];
@@ -5825,8 +5907,6 @@ function httpCode( int $code ) {
 		return;
 	}
 	
-	$prot	= getProtocol();
-	
 	// Special cases
 	switch( $code ) {
 		case 425:
@@ -5922,14 +6002,24 @@ function getHostPaths( string $host ) : array {
 	
 	// Add filler if empty
 	if ( empty( $sp[$host] ) ) {
-		$sp[$host]	= [ decode( DEFAULT_BASEPATH ) ];
-	}
+		$bp		= 
+		config( 'default_basepath', \DEFAULT_BASEPATH );
 		
+		$sp[$host]	= 
+		[ \is_array( $bp ) ? $bp : decode( ( string ) $bp ) ];
+	}
+	
 	$sa	= [];
-	foreach( $sp[$host] as $s ) {
-		// This is an active site
-		if ( $s['is_active'] ) {
-			$sa[] = slashPath( $s['basepath'] );
+	foreach ( $sp[$host] as $s ) {
+		// Decode went wrong or setting is invalid
+		if ( !\is_array( $s ) ) {
+			break;
+		}
+		
+		// Assume inactive site if not explicitly enabled
+		$a = ( bool ) ( $s['is_active'] ?? false );
+		if ( $a ) {
+			$sa[] = slashPath( $s['basepath'] ?? '/' );
 		}
 	}
 	
@@ -5977,7 +6067,7 @@ function hostPathMatch( string $host, string $path ) : bool {
  *  
  *  @return string
  */
-function website() {
+function website() : string {
 	static $url;
 	if ( isset( $url ) ) {
 		return $url;
@@ -5990,8 +6080,8 @@ function website() {
 /**
  *  Current full URI including website
  */
-function fullURI() {
-	return website() . $_SERVER['REQUEST_URI'];
+function fullURI() : string {
+	return website() . getURI();
 }
 
 /**
@@ -6760,7 +6850,7 @@ function request( string $event, array $hook, array $params ) : array {
 	}
 	
 	// Sanity checks
-	$path	= $_SERVER['REQUEST_URI'];
+	$path	= getURI();
 	$verb	= getMethod();
 	$safe	= getAllowedMethods( true );
 	
