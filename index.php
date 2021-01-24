@@ -6081,7 +6081,7 @@ function website() : string {
  *  Current full URI including website
  */
 function fullURI() : string {
-	return website() . getURI();
+	return website() . slashPath( getURI() );
 }
 
 /**
@@ -9570,19 +9570,56 @@ function staticPage(
 }
 
 /**
+ *  Static page retrieval helper
+ *  
+ *  @param string	$page	Retrieval page path
+ *  @return array
+ */
+function loadStaticPage( string $page ) {
+	$root	= \rtrim( POSTS, '/' );
+	$path	= slashPath( $page );
+	$post	= loadText( $root . $path );
+	
+	if ( empty( $post ) ) {
+		
+		// Try a site-specific page
+		$hroot	= $root . slashPath( getHost() );
+		$post	= loadText( $hroot . $path );
+	}
+	
+	return $post;
+}
+
+/**
  *  Show homepage or archive depending on whether home.md page is in POSTS
  */
 function showHome( string $event, array $hook, array $params ) {
-	$path	= \rtrim( POSTS, '/' ) . '/home.md';
-	$post	= loadText( $path );
+	$post	= loadStaticPage( 'home.md' );
 	
+	// No homepage found
 	if ( empty( $post ) ) {
 		// Passthrough to showArchive
-		return;
+		return;	
 	}
 	
 	internalState( 'homeFound', true );
-	staticPage( 'home', $path, \DEFAULT_MAIN_LINKS, $post );
+	staticPage( 'home', '/', \DEFAULT_MAIN_LINKS, $post );
+}
+
+/**
+ *  View about page and other custom content
+ */
+function showAbout( string $event, array $hook, array $params ) {
+	$path	= $params['tree'] ?? 'main'; // Sub about page or main
+	$apath	= 'about/' . $path . '.md';
+	$post	= loadStaticPage( $apath )
+	
+	// No about found
+	if ( empty( $post ) ) {
+		sendNotFound();
+	}
+	
+	staticPage( 'about', '/about/' . $path, \DEFAULT_ABOUT_LINKS, $post );
 }
 
 /**
@@ -9913,21 +9950,6 @@ function showPost( string $event, array $hook, array $params ) {
 	send( 200, $page_t, true );
 }
 
-/**
- *  View about page and other custom content
- */
-function showAbout( string $event, array $hook, array $params ) {
-	$path	= $params['tree'] ?? 'main'; // Sub about page or main
-	$apath	= \rtrim( POSTS, '/' )  . '/about/' . $path . '.md';
-	$post	= loadText( $apath );
-	
-	// No about found
-	if ( empty( $post ) ) {
-		sendNotFound();
-	}
-	
-	staticPage( 'about', $path, \DEFAULT_ABOUT_LINKS, $post );
-}
 
 /**
  *  Rebuild index and cache output
