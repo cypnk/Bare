@@ -533,7 +533,7 @@ $templates['tpl_index_post']		= <<<HTML
 	</div>
 	</header>{after_index_post_heading}
 	<div class="{post_idx_body_wrap_classes}">
-		<div class="{post_idx_body_content_classes">{body}</div>
+		<div class="{post_idx_body_content_classes}">{body}</div>
 		<div class="{post_idx_body_tag_classes}">{tags}</div>
 	</div>
 	</div>
