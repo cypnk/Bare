@@ -200,6 +200,12 @@ For PeerTube (any instance):
 
 Note: Remember to add the PeerTube instance URL to the list of  
 URLs in FRAME_WHITELIST (one per line)
+
+
+For Odysee video (use the "Download" link in the share options. LBRY is similar)
+
+[odysee https://odysee.com/$/download/eevblog-1367-5-types-of-oscilloscope/2d70c817aa4e1f7ce6b66473b0c3b66fd09d9281]
+
 ```
 
 ## Custom errors (optional)
