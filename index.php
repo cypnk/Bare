@@ -218,6 +218,8 @@ https://www.youtube.com
 https://player.vimeo.com
 https://archive.org
 https://peertube.mastodon.host
+https://lrby.tv
+https://odysee.com
 
 LINES
 );
@@ -775,6 +777,17 @@ $templates['tpl_archiveorg']	= <<<HTML
 		src="https://archive.org/embed/{src}" 
 		allowfullscreen></iframe></div>
 HTML;
+
+// LRBY/Odysee video wrapper
+$templates['tpl_lrby']	= <<<HTML
+<div class="media">
+	<iframe width="560" height="315" frameborder="0" 
+		sandbox="allow-same-origin allow-scripts" 
+		src="https://{src_host}/$/embed/{slug}/{src}" 
+		allowfullscreen></iframe>
+</div>
+HTML;
+
 
 /**
  *  Overridable CSS classes on HTML elements and content segments
@@ -5529,7 +5542,14 @@ function embeds( string $html, string $prefix = ''  ) : string {
 		=> \strtr( template( 'tpl_archiveorg' ), [ '{src}' => '$3' ] ),
 		
 		'/\[archive ([0-9a-z_\/\.]*)\]/is'
-		=> \strtr( template( 'tpl_archiveorg' ), [ '{src}' => '$1' ] )
+		=> \strtr( template( 'tpl_archiveorg' ), [ '{src}' => '$1' ] ),
+		
+		// LRBY/Odysee syntax
+		'/\[(lrby|odysee) http(s)?\:\/\/(.*?)\/\$\/download\/([\pL\pN\-_]*)\/\-([0-9a-z_]*)\]/is'
+		=> \strtr( template( 'tpl_lrby' ), [ 
+			'{src_host}' => '$3', '{slug}' => '$4', '{src}' => '$5' 
+		] )
+		
 		];
 		
 		// Append custom embeds
