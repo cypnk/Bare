@@ -218,7 +218,7 @@ https://www.youtube.com
 https://player.vimeo.com
 https://archive.org
 https://peertube.mastodon.host
-https://lrby.tv
+https://lbry.tv
 https://odysee.com
 
 LINES
@@ -778,8 +778,8 @@ $templates['tpl_archiveorg']	= <<<HTML
 		allowfullscreen></iframe></div>
 HTML;
 
-// LRBY/Odysee video wrapper
-$templates['tpl_lrby']	= <<<HTML
+// LBRY/Odysee video wrapper
+$templates['tpl_lbry']	= <<<HTML
 <div class="media">
 	<iframe width="560" height="315" frameborder="0" 
 		sandbox="allow-same-origin allow-scripts" 
@@ -5544,9 +5544,9 @@ function embeds( string $html, string $prefix = ''  ) : string {
 		'/\[archive ([0-9a-z_\/\.]*)\]/is'
 		=> \strtr( template( 'tpl_archiveorg' ), [ '{src}' => '$1' ] ),
 		
-		// LRBY/Odysee syntax
-		'/\[(lrby|odysee) http(s)?\:\/\/(.*?)\/\$\/download\/([\pL\pN\-_]*)\/\-([0-9a-z_]*)\]/is'
-		=> \strtr( template( 'tpl_lrby' ), [ 
+		// LBRY/Odysee syntax
+		'/\[(lbry|odysee) http(s)?\:\/\/(.*?)\/\$\/download\/([\pL\pN\-_]*)\/\-([0-9a-z_]*)\]/is'
+		=> \strtr( template( 'tpl_lbry' ), [ 
 			'{src_host}' => '$3', '{slug}' => '$4', '{src}' => '$5' 
 		] )
 		
