@@ -2629,6 +2629,7 @@ function language() {
 		return $data;
 	}
 	
+	// Set default language and append language file definitions
 	$terms	= decode( \DEFAULT_LANGUAGE );
 	$lang	= config( 'language', \LANGUAGE );
 	$file	= loadFile( $lang . '.json' );
@@ -2744,6 +2745,8 @@ function parseLang( string $tpl ) : string {
 
 /**
  *  Hompage link with website and relative path root
+ *  
+ *  @return string
  */
 function homeLink() : string {
 	static $home;
@@ -2757,6 +2760,8 @@ function homeLink() : string {
 
 /**
  *  Syndication feed link
+ *  
+ *  @return string
  */
 function feedLink() : string {
 	static $feed;
@@ -2770,6 +2775,8 @@ function feedLink() : string {
 
 /**
  *  Create home navigation link
+ *  
+ *  @return string
  */
 function navHome() : string {
 	static $home;
@@ -2853,6 +2860,7 @@ function paginate( int $page, string $prefix, array $posts ) : string {
  *  
  *  @param string	$wrap		Link wrapper template
  *  @param mixed	$def		Link JSON definition
+ *  @return string
  */
 function renderNavLinks(
 	string		$wrap,
@@ -2879,6 +2887,8 @@ function renderNavLinks(
 
 /**
  *  Footer template rendering helper
+ *  
+ *  @return string
  */
 function pageFooter() : string {
 	// Footer with home link set
@@ -2898,8 +2908,10 @@ function pageFooter() : string {
 
 /**
  *  Load and change each placeholder into a key
+ *  
+ *  @return array
  */
-function loadClasses() {
+function loadClasses() : array {
 	$cls	= config( 'default_classes', decode( \DEFAULT_CLASSES ) );
 	// Trigger class load hook
 	hook( [ 'loadcssclasses', [ 'classes' => $cls ] ] );
@@ -2922,6 +2934,10 @@ function loadClasses() {
 
 /**
  *  Get or override render store pairs
+ *  
+ *  @param string	$area	Template store placeholder area
+ *  @param array	$modify	New placeholder replacements
+ *  @return array
  */ 
 function rsettings( string $area, array $modify = [] ) : array {
 	static $store = [];
@@ -2980,6 +2996,9 @@ function rsettings( string $area, array $modify = [] ) : array {
 
 /**
  *  Get all the CSS classes of the given render segment
+ *  
+ *  @param string	$name	CSS applicable area
+ *  @return array
  */
 function getClasses( string $name ) : array {
 	$cls	= rsettings( 'classes' );
@@ -2998,6 +3017,9 @@ function getClasses( string $name ) : array {
 
 /**
  *  Overwrite the CSS class(es) of a render segment
+ *  
+ *  @param string	$name	CSS applying segment name
+ *  @param string	$value	CSS new CSS parameters
  */
 function setClass( string $name, string $value ) {
 	rsettings( 
@@ -3008,32 +3030,52 @@ function setClass( string $name, string $value ) {
 
 /**
  *  Add a CSS class to render segment
+ *  
+ *  @param string	$name	CSS applying segment name
+ *  @param string	$value	New CSS classes
  */
 function addClass( string $name, string $value ) {
-	$cls	= getClasses( $name );
-	$cls[]	= $value;
+	$vls	= 
+	\preg_split( 
+		'/\s+/', $value, -1, \PREG_SPLIT_NO_EMPTY 
+	);
+	
+	$cls	= \array_merge( getClasses( $name ), $vls );
 	
 	setClass( $name, \implode( ' ', \array_unique( $cls ) ) );
 }
 
 /**
  *  Remove a CSS class from the segment's class list
+ *  
+ *  @param string	$name	CSS segment name
+ *  @param string	$value	Removing class(es)
  */
 function removeClass( string $name, string $value ) {
-	$cls	= getClasses( $name );
-	$cls	= \array_diff( $cls, [ $value ] );
+	$vls	= 
+	\preg_split( 
+		'/\s+/', $value, -1, \PREG_SPLIT_NO_EMPTY 
+	);
+	
+	$cls	= \array_diff( getClasses( $name ), $vls );
 	setClass( $name, \implode( ' ', \array_unique( $cls ) ) );
 }
 
 /**
  *  Special tag rendering helper (scripts, links etc...)
+ *  
+ *  @param string	$tpl	Rendering template
+ *  @param string	$label	Region placeholder
+ *  @param string	$tag	Tag replacement template
+ *  @param string	$region	Region setting name
+ *  @return string
  */
 function regionTags(
 	string		$tpl,
 	string		$label,
 	string		$tag, 
 	string		$region 
-) {
+) : string {
 	$rg	= rsettings( $region );
 	$rgo	= '';
 	
@@ -3073,7 +3115,7 @@ function setRegion( array $region = [] ) {
 		return $presets;
 	}
 	
-	foreach( $region as $k => $v ) {
+	foreach ( $region as $k => $v ) {
 		$presets[$k] = ( $presets[$k] ?? '' ) . $v;
 	}
 }
@@ -3116,12 +3158,17 @@ function renderRegions( string $tpl ) : string {
 
 /**
  *  Format template with classes, assets, and language parameters
+ *  
+ *  @param string	$tpl	Rendering template
+ *  @param array	$input	Placeholder replacements
+ *  @param bool		$full	Complete render including regions if true
+ *  @return string
  */
 function render(
 	string	$tpl,
 	array	$input	= [],
 	bool	$full		= false 
-) {
+) : string {
 	static $cache	= [];
 	static $regions	= [];
 	$key		= hash( 'sha1', ( string ) $full . $tpl );
@@ -3249,8 +3296,9 @@ function genCodeKey( int $size = 24 ) : string {
  *  Get the SQL definition from DSN
  *  
  *  @param string	$dsn	User defined database path
+ *  @return array
  */
-function loadSQL( string $dsn ) {
+function loadSQL( string $dsn ) : array {
 	// Get list of user-defined constants
 	$cts	= \get_defined_constants( true );
 	$my	= \array_flip( $cts['user'] );
@@ -3289,7 +3337,7 @@ function installSQL( \PDO $db, string $dsn ) {
 	}
 	
 	// Filter SQL comments and lines starting PRAGMA
-	foreach( $lines as $l ) {
+	foreach ( $lines as $l ) {
 		if ( \preg_match( '/^(\s+)?(--|PRAGMA)/is', $l ) ) {
 			continue;
 		}
@@ -3298,7 +3346,7 @@ function installSQL( \PDO $db, string $dsn ) {
 	
 	// Separate into statement actions
 	$qr	= \explode( '-- --', \implode( " \n", $parse ) );
-	foreach( $qr as $q ) {
+	foreach ( $qr as $q ) {
 		if ( empty( trim( $q ) ) ) {
 			continue;
 		}
@@ -3311,6 +3359,7 @@ function installSQL( \PDO $db, string $dsn ) {
  *  
  *  @param string	$dsn	Connection string
  *  @param string	$mode	Return mode
+ *  @return mixed		PDO object if successful or else null
  */
 function getDb( string $dsn, string $mode = 'get' ) {
 	static $db	= [];
@@ -3582,7 +3631,9 @@ function setInsert(
 }
 
 /**
- *  Get a single item by ID
+ *  Get a single item row by ID
+ *  
+ *  @return array
  */
 function getSingle(
 	int		$id,
@@ -3634,12 +3685,14 @@ function loadPlugins( string $event, array $hook, array $params ) {
 	$templates	= $params['templates'] ?? [];
 	
 	foreach ( $plugins as $p ) {
+		// Generate and check full plugin file path
 		$path = \PLUGINS . $p . DIRECTORY_SEPARATOR . $p . '.php';
 		if ( empty( filterDir( $path, \PLUGINS ) ) ) {
 			$msg[]		= $p;
 			continue;
 		}
 		
+		// Load plugin if it exists or add to failed list
 		if ( \file_exists( $path ) ) {
 			require( $path );
 			$loaded[]	= $p;
@@ -3766,6 +3819,8 @@ function saveCache( string $uri, string $content ) {
 
 /**
  *  Samesite cookie origin setting
+ *  
+ *  @return string
  */
 function sameSiteCookie() : string {
 	if ( \COOKIE_RESTRICT ) {
@@ -3978,6 +4033,8 @@ function sessionWrite( $id, $data ) {
  *  Session owner and staleness marker
  *  
  *  @link https://paragonie.com/blog/2015/04/fast-track-safe-and-secure-php-sessions
+ *  
+ *  @param string	$visit	Previous random visitation identifier
  */
 function sessionCanary( string $visit = '' ) {
 	$bt	= config( 'session_bytes', \SESSION_BYTES, 'int' );
@@ -3993,6 +4050,8 @@ function sessionCanary( string $visit = '' ) {
 	
 /**
  *  Check session staleness
+ *  
+ *  @param bool		$reset	Reset session and canary if true
  */
 function sessionCheck( bool $reset = false ) {
 	session( $reset );
@@ -4022,12 +4081,15 @@ function cleanSession() {
 
 /**
  *  Set session cookie parameters
+ *  
+ *  @return bool
  */
 function sessionCookieParams() : bool {
 	$options		= defaultCookieOptions();
 	
 	// Override some defaults
-	$options['lifetime']	=  config( 'cookie_exp', \COOKIE_EXP, 'int' );
+	$options['lifetime']	=  
+		config( 'cookie_exp', \COOKIE_EXP, 'int' );
 	unset( $options['expires'] );
 	
 	hook( [ 'sessioncookieparams', $options ] );
@@ -4234,6 +4296,8 @@ function sessionThrottle() {
 
 /**
  *  Convert timestamp to int if it's not in integer format
+ *  
+ *  @return mixed
  */
 function tstring( $stamp ) {
 	if ( empty( $stamp ) ) {
@@ -4254,6 +4318,9 @@ function tstring( $stamp ) {
 
 /**
  *  UTC timestamp
+ *  
+ *  @param mixed	$stamp	Plain timestamp or null to generate new
+ *  @return string
  */
 function utc( $stamp = null ) : string {
 	return 
@@ -4754,6 +4821,8 @@ function getProxyChain() : array {
 
 /**
  *  Get IP address (best guess)
+ *  
+ *  @return string
  */
 function getIP() : string {
 	static $ip;
@@ -4836,8 +4905,10 @@ function httpHeaders( bool $lower = false ) : array {
 
 /**
  *  Create current visitor's browser signature by sent headers
+ *  
+ *  @return string
  */
-function signature() {
+function signature() : string {
 	static $sig;
 	if ( isset( $sig ) ) {
 		return $sig;
@@ -5503,19 +5574,12 @@ function tidyup( string $text ) : string {
 }
 
 /**
- *  Embedded media
+ *  Embedded media shortcode list helper and hook trigger
  *  
- *  @param string	$html	Pre-filtered HTML to replace media tags
- *  @return string
+ *  @return array
  */
-function embeds( string $html, string $prefix = ''  ) : string {
-	static $hosted;
-	static $media;	// Locally uploaded
-	
-	// First run?
-	if ( !isset( $hosted ) ) {
-		$hosted	= 
-		[
+function hostedEmbeds() : array {
+	$hosted = [
 		// YouTube syntax
 		'/\[youtube http(s)?\:\/\/(www)?\.?youtube\.com\/watch\?v=([0-9a-z_]*)\]/is'
 		=> \strtr( template( 'tpl_youtube' ), [ '{src}' => '$3' ] ),
@@ -5555,12 +5619,29 @@ function embeds( string $html, string $prefix = ''  ) : string {
 			'{src_host}' => 'lbry.tv', '{slug}' => '$2', '{src}' => '$5' 
 		] )
 		
-		];
-		
-		// Append custom embeds
-		hook( [ 'hostedembeds', [ 'hosted' => $hosted ] ] );
-		$hosted = 
-		hookArrayResult( 'hostedembeds', [] )['hosted'] ?? $hosted;
+	];
+	
+	// Append custom embeds
+	hook( [ 'hostedembeds', [ 'hosted' => $hosted ] ] );
+	$hosted = 
+	hookArrayResult( 'hostedembeds', [] )['hosted'] ?? $hosted;
+	
+	return $hosted;
+}
+
+/**
+ *  Embedded media
+ *  
+ *  @param string	$html	Pre-filtered HTML to replace media tags
+ *  @return string
+ */
+function embeds( string $html, string $prefix = ''  ) : string {
+	static $hosted;
+	static $media;	// Locally uploaded
+	
+	// First run?
+	if ( !isset( $hosted ) ) {
+		$hosted	= hostedEmbeds();
 	}
 	
 	if ( !isset( $media ) ) {
