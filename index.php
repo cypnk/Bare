@@ -5545,9 +5545,14 @@ function embeds( string $html, string $prefix = ''  ) : string {
 		=> \strtr( template( 'tpl_archiveorg' ), [ '{src}' => '$1' ] ),
 		
 		// LBRY/Odysee syntax
-		'/\[(lbry|odysee) http(s)?\:\/\/(.*?)\/\$\/download\/([\pL\pN\-_]*)\/\-([0-9a-z_]*)\]/is'
+		'/\[(lbry|odysee) http(s)?\:\/\/(.*?)\/\$\/download\/([\pL\pN\-_]*)\/\-?([0-9a-z_]*)\]/is'
 		=> \strtr( template( 'tpl_lbry' ), [ 
 			'{src_host}' => '$3', '{slug}' => '$4', '{src}' => '$5' 
+		] ),
+		
+		'/\[lbry lbry\:\/\/\@(.*?)\/([\pL\pN\-_]*)(\#[\pL\pN\-_]*)?(\s|\/)([\pL\pN\-_]*)\]/is'
+		=> \strtr( template( 'tpl_lbry' ), [ 
+			'{src_host}' => 'lbry.tv', '{slug}' => '$2', '{src}' => '$5' 
 		] )
 		
 		];
