@@ -1920,6 +1920,14 @@ function mailMessage(
 		'Content-Type: text/plain; charset="UTF-8"'
 	];
 	
+	// Check if mail function is disabled
+	if ( missing( 'mail' ) ) {
+		shutdown( 
+			'logError', 
+			'Email: mail() Has been disabled. Check the disable_function list in php.ini.' 
+		);
+		return false;
+	}
 	
 	$msg	 = trim( $msg );
 	if ( empty( $msg ) ) {
@@ -9063,7 +9071,6 @@ function bland( string $text, bool $nospecial = false ) : string {
  *  @param string	$find	Raw text to match
  *  @param string	$mode	Word splitting mode
  *  @return int
- *  
  */
 function wordcount( string $find, string $mode = '' ) : int {
 	// Select split type
@@ -9219,6 +9226,8 @@ function searchData( string $find ) : string {
 
 /**
  *  Render search form template
+ *  
+ *  @return string
  */
 function searchForm() : string {
 	// Search form hidden fields
@@ -9249,8 +9258,11 @@ function searchForm() : string {
 
 /**
  *  Render search pagination path
+ *  
+ *  @param array	$data	Search page URL components
+ *  @return string
  */
-function searchPagePath( array $data ) {
+function searchPagePath( array $data ) : string {
 	return homeLink() . 
 		'?nonce=' . $data['nonce'] . 
 		'&token=' . $data['token'] . 
@@ -9606,13 +9618,20 @@ function collectBody( array $res ) : array {
 
 /**
  *  Static page display helper. E.G. for homepage or about
+ *  
+ *  @param string	$label		Page name 'home', 'about' etc...
+ *  @param string	$path		Relative URL E.G. '/'
+ *  @param string	$links		Default link definition (overridden by $label)
+ *  @param array	$post		Page content as a list of lines
+ *  @param bool		$forms		This page may contain forms (E.G. contact page)
+ *  @param bool		$cache		Cache this page if true
  */
 function staticPage( 
 	string	$label,
 	string	$path,
 	string	$links,
 	array	$post,
-	bool	$filter		= true,
+	bool	$forms		= true,
 	bool	$cache		= true
 ) {
 	$ptitle	= config( 'page_title', \PAGE_TITLE );
@@ -9620,7 +9639,7 @@ function staticPage(
 	
 	// First line is the title, everything else is the body
 	$title	= title( \array_shift( $post ) );
-	$body	= html( \implode( "\n", $post ), homeLink(), $filter );
+	$body	= html( \implode( "\n", $post ), homeLink(), $forms );
 	
 	// Send to render hook
 	hook( [ $label . 'render', [ 
@@ -9681,7 +9700,7 @@ function staticPage(
  *  @param string	$page	Retrieval page path
  *  @return array
  */
-function loadStaticPage( string $page ) {
+function loadStaticPage( string $page ) : array {
 	$root	= \rtrim( POSTS, '/' );
 	$path	= slashPath( $page );
 	$post	= loadText( $root . $path );
