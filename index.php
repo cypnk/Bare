@@ -1939,7 +1939,7 @@ function mailMessage(
 	if ( empty( $mfr ) ) {
 		shutdown( 
 			'logError', 
-			'Email: Sender address is invalid. Check mail_form config setting.' 
+			'Email: Sender address is invalid. Check mail_from config setting.' 
 		);
 		return false;
 	}
