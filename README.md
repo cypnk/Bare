@@ -670,5 +670,18 @@ These are possible problems you may encounter and potential solutions to them. I
 		* "Headers already sent with code...": Some content (or just whitespace) was sent to the visitor before redirecting. Check for "echo" or send() function calls before the redirect() function call in the plugin.
 		
 		* "No route defined*: Bare requires at least one path, even if it's "" (I.E. empty path) to be defined to function. The addBlogRoutes() function adds the default Bare routes, but a plugin may overwrite these without adding any of its own, leading to this error.
-		
+
+	* **Email**
+
+		* "mail() Has been disabled. Check the disable_function list in php.ini.": The administrator of your website or server has disabled access to the mail() function. This may have been done to prevent spam or other abuse. Make sure "mail" is not part of the disable_function list in *php.ini*. The location of *php.ini* depends on the way PHP was originally installed and, in some cases, the operating system. You may need to contact your administrator to enable this.
+
+		* "Message cannot be empty.": A plugin or custom core function attempted to send an email without a message body. Check to make sure the code using the mailMessage() function has recepients, subject, and message body fields filled.
+
+		* "Sender address is invalid. Check mail_from config setting.": The destination address is not in the whitelist of recipients. Add a sender email (one which has permissions to send email on your server) to the MAIL_FROM setting in *index.php* or add to the "mail_from" setting in *config.json*.
+
+		* "No valid recipients found. Check whitelist.": The whitelist of recipient addresses is still empty. Add one or more email addresses to MAIL_WHITELIST in *index.php* or add one or more emails to "mail_whitelist" in *config.json* which are meant to receive emails from Bare.
+
+		* "No matching recipients in whitelist.": The recipient(s) was not in the mail_whitelist. Bare only supports sending email to one or more addresses in this whitelist. Make sure the intended recipient email address is added to the whitelist in "mail_whitelist" in *config.json* or MAIL_WHITELIST in *index.php*.
+
+		* "Error sending message": An unkown error that Bare was not able to retrieve via the error_get_last() function which comes with PHP. This is usually caused by the PHP mail() function failing either due to a configuration error or a permission error. The *php_errors.log* file or other general PHP error file location on your web server (not part of Bare) may have more information regarding any errors Bare was not able get.
 
