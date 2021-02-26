@@ -677,7 +677,7 @@ These are possible problems you may encounter and potential solutions to them. I
 
 		* "Message cannot be empty.": A plugin or custom core function attempted to send an email without a message body. Check to make sure the code using the mailMessage() function has recepients, subject, and message body fields filled.
 
-		* "Sender address is invalid. Check mail_from config setting.": The destination address is not in the whitelist of recipients. Add a sender email (one which has permissions to send email on your server) to the MAIL_FROM setting in *index.php* or add to the "mail_from" setting in *config.json*.
+		* "Sender address is invalid. Check mail_from config setting.": Add a sender email (one which has permissions to send email on your server) to the MAIL_FROM setting in *index.php* or add to the "mail_from" setting in *config.json*. This is different from an email address entered into a contact form, for example.
 
 		* "No valid recipients found. Check whitelist.": The whitelist of recipient addresses is still empty. Add one or more email addresses to MAIL_WHITELIST in *index.php* or add one or more emails to "mail_whitelist" in *config.json* which are meant to receive emails from Bare.
 
