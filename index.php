@@ -1348,6 +1348,11 @@ BEGIN
 		VALUES ( NEW.id, NEW.post_bare );
 END;-- --
 
+CREATE TRIGGER post_before_update BEFORE UPDATE ON posts FOR EACH ROW
+BEGIN
+	DELETE FROM post_tags WHERE post_id = OLD.id;
+END;-- --
+
 CREATE TRIGGER post_update AFTER UPDATE ON posts FOR EACH ROW 
 BEGIN
 	UPDATE post_search SET body = NEW.post_bare 
@@ -1357,6 +1362,7 @@ END;-- --
 CREATE TRIGGER post_delete BEFORE DELETE ON posts FOR EACH ROW 
 BEGIN
 	DELETE FROM post_search WHERE docid = OLD.id;
+	DELETE FROM post_tags WHERE post_id = OLD.id;
 END;-- --
 
 
