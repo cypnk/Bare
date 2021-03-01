@@ -3469,12 +3469,13 @@ function getDb( string $dsn, string $mode = 'get' ) {
 /**
  *  Helper to get the result from a successful statement execution
  *  
+ *  @param PDO		$db	Database connection
  *  @param array	$params	Parameters 
  *  @param string	$rtype	Return type
  *  @param PDOStatement	$stm	PDO prepared statement
  *  @return mixed
  */
-function getDataResult( array $params, string $rtype, \PDOStatement $stm ) {
+function getDataResult( \PDO $db, array $params, string $rtype, \PDOStatement $stm ) {
 	$ok	= empty( $params ) ? 
 			$stm->execute() : 
 			$stm->execute( $params );
@@ -3518,7 +3519,7 @@ function dataExec(
 	
 	try {
 		$stm	= $db->prepare( $sql );
-		$res	= getDataResult( $params, $rtype, $stm );
+		$res	= getDataResult( $db, $params, $rtype, $stm );
 		
 	} catch( \PDOException $e ) {
 		$stm	= null;
@@ -3555,7 +3556,7 @@ function dataBatchExec (
 		
 		$stm	= $db->prepare( $sql );
 		foreach ( $params as $p ) {
-			$res[]	= getDataResult( $params, $rtype, $stm );
+			$res[]	= getDataResult( $db, $params, $rtype, $stm );
 		}
 		$db->commit();
 		
