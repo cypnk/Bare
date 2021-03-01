@@ -530,7 +530,7 @@ server "www.example.com" {
 	root "/htdocs"
 	
 	# Create your certificates first
-	hsts max-age 16000000
+	hsts max-age 31536000
 	hsts subdomains
 	tls {
 		certificate "/etc/ssl/example.com.pem"
