@@ -1092,10 +1092,18 @@ JSON
 define( 'DEFAULT_JCSP',		<<<JSON
 {
 	"img-src"		: "*",
+	"base-uri"		: "'self'",
 	"style-src"		: "'self'",
 	"script-src"		: "'self'",
+	"font-src"		: "'self'",
 	"form-action"		: "'self'",
-	"frame-ancestors"	: "'self'"
+	"frame-ancestors"	: "'self'",
+	"object-src"		: "'none'",
+	"media-src"		: "'self'",
+	"connect-src"		: "'self'",
+	"worker-src"		: "'self'",
+	"manifest-src"		: "'none'",
+	"prefetch-src"		: "'none'"
 }
 JSON
 );
@@ -5937,15 +5945,10 @@ function preamble(
 	
 	\header( 'X-XSS-Protection: 1; mode=block', true );
 	\header( 'X-Content-Type-Options: nosniff', true );
-	
-	// Check if TLS is requested 
-	if ( isSecure() ) {
-		\header(
-			'Strict-Transport-Security: ' . 
-			'max-age=31536000; includeSubdomains;', 
-			true
-		);
-	}
+	\header( 
+		'Referrer-Policy: ' .
+		'no-referrer, strict-origin-when-cross-origin', true 
+	);
 	
 	// If sending CSP and content checksum isn't used
 	if ( $send_csp ) {
