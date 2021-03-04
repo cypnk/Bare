@@ -1091,6 +1091,7 @@ JSON
 // Default content security policy
 define( 'DEFAULT_JCSP',		<<<JSON
 {
+	"default-src"		: "'none'',
 	"img-src"		: "*",
 	"base-uri"		: "'self'",
 	"style-src"		: "'self'",
@@ -1098,12 +1099,12 @@ define( 'DEFAULT_JCSP',		<<<JSON
 	"font-src"		: "'self'",
 	"form-action"		: "'self'",
 	"frame-ancestors"	: "'self'",
-	"object-src"		: "'none'",
+	"frame-src"		: "*",
 	"media-src"		: "'self'",
 	"connect-src"		: "'self'",
 	"worker-src"		: "'self'",
-	"manifest-src"		: "'none'",
-	"prefetch-src"		: "'none'"
+	"child-src"		: "'self'",
+	"require-trusted-types-for" : "'script'"
 }
 JSON
 );
