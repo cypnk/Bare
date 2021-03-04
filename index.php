@@ -5946,6 +5946,7 @@ function preamble(
 	
 	\header( 'X-XSS-Protection: 1; mode=block', true );
 	\header( 'X-Content-Type-Options: nosniff', true );
+	\header( 'X-Frame-Options: SAMEORIGIN', true );
 	\header( 
 		'Referrer-Policy: ' .
 		'no-referrer, strict-origin-when-cross-origin', true 
