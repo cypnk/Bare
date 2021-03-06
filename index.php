@@ -6033,6 +6033,8 @@ function httpCode( int $code ) {
 		return;
 	}
 	
+	$prot = getProtocol();
+	
 	// Special cases
 	switch( $code ) {
 		case 425:
