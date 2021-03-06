@@ -1983,7 +1983,7 @@ function logRollover( string $file ) {
 	
 	$cf	= config( 'max_log_size', \MAX_LOG_SIZE, 'int' );
 	if ( $fs > $cf ) {
-		backupFile( $file, false, 'log', 0 );
+		backupFile( $file, false, 'old', 0 );
 	}
 }
 
@@ -2372,7 +2372,8 @@ function backupFile(
 	}
 	
 	// Filter file extension
-	$ext	= labelName( $ext );
+	$ext	= 
+	\preg_replace( '/[[:space:]]+/', bland( title( $ext ), true ), '' );
 	
 	// Extension mode
 	$prefix = $fx == 1 ? \rtrim( $ext, '.' ) . '.' : '';
