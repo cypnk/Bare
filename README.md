@@ -51,9 +51,9 @@ Upload the following to your web root:
 * /posts folder - Contains your posts (use your favorite editor)
 * /cache folder - Formatted cache
 
-Change the default settings in *index.php* E.G. SITE_NAME etc... *index.php* Also has the default theme so there are no other files to edit.
+The following changes are to the settings in *index.php*, which also has the default theme so there are no other files to edit.
 
-Then add your site's domain name, E.G. *example.com*, to the whitelist in SITE_WHITE (currently, the author's Tor blog is in this place):
+Add your site's domain name, E.G. *example.com*, to the whitelist in SITE_WHITE (currently, the author's Tor blog is in this place):
 ```
 {
 	"example.com" : []
@@ -98,7 +98,7 @@ Or multiple blogs on the same domain:
 	]
 }
 ```
-As above, remember to escape forward slashes.
+As above, remember to escape forward slashes. 
 
 Bare supports caching of formatted posts. Simply enable write permissions to the cache directory. On \*nix systems:
 ```
@@ -110,7 +110,7 @@ And then, follow the conventions in the example post:
 /posts/2018/09/22/a-new-post.md
 ```
 
-An optional **config.json** file can be created in the */cache* folder to override some configuration defaults.
+An optional **config.json** file can be created in the */cache* folder to override all but a handful of configuration defaults.
 
 There is also a [plugin](https://github.com/cypnk/Bare-Plugins) project for Bare.
 
@@ -118,8 +118,7 @@ There is also a [plugin](https://github.com/cypnk/Bare-Plugins) project for Bare
 * Webserver capable of handling URL rewrites (Apache, Nginx etc...)
 * PHP Version 7.3+ (may work on 7.2 and older, but no longer tested on these)
 
-The following PHP extensions may need to be installed or enabled  
-in **php.ini**:
+The following PHP extensions may need to be installed or enabled in **php.ini**:
 * pdo_sqlite (*required*)
 * sqlite3 (*required*)
 * mbstring
@@ -134,7 +133,7 @@ Remember to backup **php.ini** before making changes to it.
 The GD extension (gd2) is suggested as future plugins may use it however it is not required for core functionality.
 
 ### Composer
-If you prefer to use [Composer](https://getcomposer.org/) to handle your environment, use the following example **composer.json**:
+If you prefer to use [Composer](https://getcomposer.org/) to handle your environment (optional), use the following example **composer.json**:
 ```
 {
 	"require": {
