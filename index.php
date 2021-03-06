@@ -1842,6 +1842,101 @@ function getMethod() : string {
 	return $method;
 }
 
+/**
+ *  Visitor's preferred languages based on Accept-Language header
+ *  
+ *  @return array
+ */
+function getLang() : array {
+	static $found;
+	if ( isset( $found ) ) {
+		return $found;
+	}
+	
+	$found	= [];
+	$lang	= bland( httpheaders( true )['accept-language'] ?? '' );
+	
+	// No header?
+	if ( empty( $lang ) ) {
+		return [];
+	}
+	
+	// Find languages by locale and priority
+	\preg_match_all( 
+		'/(?P<lang>[^-;,\s]{2,8})' . 
+		'(?:-(?P<locale>[^;,\s]{2,8}))?' . 
+		'(?:;q=(?P<weight>[0-9]{1}(?:\.[0-9]{1})))?/is',
+		$lang,
+		$matches
+	);
+	$matches =
+	\array_filter( 
+		$matches, 
+		function( $k ) {
+			return !\is_numeric( $k );
+		}, \ARRAY_FILTER_USE_KEY 
+	);
+	
+	if ( empty( $matches ) ) {
+		return [];
+	}
+	
+	// Re-arrange
+	$c	= count( $matches );
+	for ( $i = 0; $i < $c; $i++ ) {
+		
+		foreach ( $matches as $k => $v ) {
+			if ( !isset( $found[$i] ) ) {
+				$found[$i] = [];
+			}
+			
+			switch ( $k ) {
+				case 'lang':
+					$found[$i][$k] = 
+					empty( $v[$i] ) ? '*' : $v[$i];
+					break;
+					
+				case 'locale':
+					$found[$i][$k] = 
+					empty( $v[$i] ) ? '' : $v[$i];
+					break;
+					
+				case 'weight':
+					// Lower global or empty language priority
+					if ( 
+						empty( $matches['lang'][$i] ) ||
+						0 == \strcmp( $found[$i]['lang'], '*' )
+					) {
+						$found[$i][$k] = 
+						( float ) ( empty( $v[$i] ) ? 0 : $v[$i] );
+					} else {
+						$found[$i][$k] = 
+						( float ) ( empty( $v[$i] ) ? 1 : $v[$i] );						
+					}
+					break;
+			
+				default:
+					// Anything else, send as-is
+					$found[$i][$k] = 
+					empty( $v[$i] ) ? '' : $v[$i];
+			}
+		}
+	}
+	
+	// Sorting columns
+	$weight = \array_column( $found, 'weight' );
+	$locale	= \arary_column( $found, 'locale' );
+	
+	// Sort by weight priority, followed by locale
+	return
+	\array_multisort( 
+		$weight, \SORT_DESC, 
+		$locale, \SORT_ASC, 
+		$found
+	) ? $found : [];
+}
+
+
 
 /**
  *  Parameter filter helpers
