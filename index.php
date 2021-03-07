@@ -1091,7 +1091,7 @@ JSON
 // Default content security policy
 define( 'DEFAULT_JCSP',		<<<JSON
 {
-	"default-src"		: "'none'',
+	"default-src"		: "'none'",
 	"img-src"		: "*",
 	"base-uri"		: "'self'",
 	"style-src"		: "'self'",
