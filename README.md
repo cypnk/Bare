@@ -137,7 +137,7 @@ If you prefer to use [Composer](https://getcomposer.org/) to handle your environ
 ```
 {
 	"require": {
-		"php": "^7.3",
+		"php": ">=7.4",
 		"lib-iconv": "*",
 		"ext-pdo": "*",
 		"ext-pdo_sqlite": "*",
