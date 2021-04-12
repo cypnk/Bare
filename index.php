@@ -6629,6 +6629,24 @@ function adjustMime( $mime, $path, $ext = null ) : string {
 }
 
 /**
+ *  File mime-type detection helper
+ *  
+ *  @param string	$path	Fixed file path
+ *  @return string
+ */
+function detectMime( string $path ) : string {
+	if ( !missing( 'mime_content_type' ) ) { 
+		return adjustMime( \mime_content_type( $path ), $path );
+	}
+	
+	$info	= \finfo_open( \FILEINFO_MIME_TYPE );
+	$mime	= adjustMime( \finfo_open( $info, $path ), $path );
+	
+	\finfo_close( $info );
+	return $mime;
+}
+
+/**
  *  Prepare to send a file instead of an HTTP response
  *  
  *  @param string	$path		File path to send
@@ -6648,7 +6666,7 @@ function sendFilePrep(
 	
 	// Set content type if mime is found
 	if ( $verify ) {
-		$mime	= adjustMime( \mime_content_type( $path ), $path );
+		$mime	= detectMime( $path );
 		\header( "Content-Type: {$mime}", true );
 	}
 	\header( "Content-Security-Policy: default-src 'self'", true );	
