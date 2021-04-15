@@ -6048,6 +6048,7 @@ function preamble(
 		'Referrer-Policy: ' .
 		'no-referrer, strict-origin-when-cross-origin', true 
 	);
+	\header( 'Permissions-Policy: interest-cohort=()', true );
 	
 	// If sending CSP and content checksum isn't used
 	if ( $send_csp ) {
