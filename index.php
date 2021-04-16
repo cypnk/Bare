@@ -1088,23 +1088,37 @@ define( 'FORM_WHITE',	<<<JSON
 JSON
 );
 
-// Default content security policy
-define( 'DEFAULT_JCSP',		<<<JSON
+// Content Security and Permissions Policy headers
+define( 'DEFAULT_SECPOLICY',	<<<JSON
 {
-	"default-src"		: "'none'",
-	"img-src"		: "*",
-	"base-uri"		: "'self'",
-	"style-src"		: "'self'",
-	"script-src"		: "'self'",
-	"font-src"		: "'self'",
-	"form-action"		: "'self'",
-	"frame-ancestors"	: "'self'",
-	"frame-src"		: "*",
-	"media-src"		: "'self'",
-	"connect-src"		: "'self'",
-	"worker-src"		: "'self'",
-	"child-src"		: "'self'",
-	"require-trusted-types-for" : "'script'"
+	"content-security-policy": {
+		"default-src"			: "'none'",
+		"img-src"			: "*",
+		"base-uri"			: "'self'",
+		"style-src"			: "'self'",
+		"script-src"			: "'self'",
+		"font-src"			: "'self'",
+		"form-action"			: "'self'",
+		"frame-ancestors"		: "'self'",
+		"frame-src"			: "*",
+		"media-src"			: "'self'",
+		"connect-src"			: "'self'",
+		"worker-src"			: "'self'",
+		"child-src"			: "'self'",
+		"require-trusted-types-for"	: "'script'"
+	},
+	"permissions-policy": {
+		"accelerometer"			: [ "none" ],
+		"camera"			: [ "none" ],
+		"fullscreen"			: [ "self" ],
+		"geolocation"			: [ "none" ],
+		"gyroscope"			: [ "none" ],
+		"interest-cohort"		: [],
+		"payment"			: [ "none" ],
+		"usb"				: [ "none" ],
+		"microphone"			: [ "none" ],
+		"magnetometer"			: [ "none" ]
+	}
 }
 JSON
 );
@@ -6023,6 +6037,113 @@ function getRoot( bool $err = false ) : string {
 }
 
 /**
+ *  Quoted security policy attribute helper
+ *   
+ *  @param string	$atr	Security policy parameter
+ *  @return string
+ */
+function quoteSecAttr( string $atr ) : string {
+	// Safe allow list
+	static $allow	= [ 'self', 'src', 'none' ];
+	$atr		= \trim( unifySpaces( $atr ) );
+	
+	return 
+	\in_array( $atr, $allow ) ? 
+		$atr : '"' . cleanUrl( $atr ) . '"'; 
+}
+
+/**
+ *  Parse security policy attribute value
+ *  
+ *  @param string	$key	Permisisons policy identifier
+ *  @param mixed	$policy	Policy value(s)
+ *  @return string
+ */
+function parsePermPolicy( string $key, $policy = null ) : string {
+	// No value? Send empty set E.G. "interest-cohort=()"
+	if ( empty( $policy ) ) {
+		return bland( $key ) . '=()';
+	}
+	
+	// Send specific value(s) E.G. "fullscreen=(self)"
+	return 
+	bland( $key ) . '=(' . 
+	( \is_array( $policy ) ? 
+		\implode( ' ', \array_map( 'quoteSecAttr', $policy ) ) : 
+		quoteSecAttr( ( string ) $policy ) ) . 
+	')';
+}
+
+/**
+ *  Content Security and Permissions Policy settings
+ *  
+ *  @param string	$policy		Security policy header
+ *  @return string
+ */
+function securityPolicy( string $policy ) : string {
+	static $p;
+	static $r	= [];
+	
+	// Load defaults
+	if ( !isset( $p ) ) {
+		$p = decode( \DEFAULT_SECPOLICY );
+	}
+	
+	switch ( $policy ) {
+		case 'permissions':
+		case 'permissions-policy':
+			if ( isset( $r['permissions'] ) ) {
+				return $r['permissions']
+			}
+			
+			$prm = [];
+			
+			// Permissions policy override
+			$cfj = config( 'permisisons-policy', [], 'json' );
+			$def = $p['permissions-policy'] ?? [];
+			$pjp = 
+			\is_array( $cfj ) ? 
+				\array_merge( $def, $cfj ) : $def;
+			
+			foreach ( $pjp as $k => $v ) {
+				$prm[]	= parsePermPolicy( $k, $v );
+			}
+			
+			$p['permissions'] = \implode( ', ', $prm );
+			return $p['permissions'];
+		
+		case 'content-security':
+		case 'content-security-policy':
+			if ( isset( $r['content'] ) ) {
+				return $r['content']
+			}
+			$csp = '';
+			$cjp = $p['content-security-policy'] ?? [];
+			
+			// Approved frame ancestors ( for embedding media )
+			$frl = config( 'frame_whitelist', \FRAME_WHITELIST );
+			$raw = 
+			\is_array( $frl ) ? 
+				\array_map( 'cleanUrl', $frl ) : 
+				lineSettings( $frl, -1, 'cleanUrl' );
+			
+			$raw = \array_unique( \array_filter( $raw ) );
+			$frm = \implode( ' ', $raw );
+			
+			foreach ( $cjp as $k => $v ) {
+				$csp .= 
+				( 0 == \strcmp( $k, 'frame-ancestors' ) ) ? 
+					"$k $v $frm;" : "$k $v;";
+			}
+			$r['content'] = \rtrim( $csp, ';' );
+			return $r['content'];
+	}
+	
+	return '';
+}
+
+
+/**
  *  Safety headers
  *  
  *  @param string	$chk	Content checksum
@@ -6048,28 +6169,19 @@ function preamble(
 		'Referrer-Policy: ' .
 		'no-referrer, strict-origin-when-cross-origin', true 
 	);
-	\header( 'Permissions-Policy: interest-cohort=()', true );
+	
+	// Set default permissions policy header
+	$perms = securityPolicy( 'permissions-policy' );
+	if ( !empty( $perms ) ) {
+		\header( 'Permissions-Policy: ' . $perms , true );
+	}
 	
 	// If sending CSP and content checksum isn't used
 	if ( $send_csp ) {
-		$cjp = decode( DEFAULT_JCSP );
-		$csp = 'Content-Security-Policy: ';
-		
-		// Approved frame ancestors ( for embedding media )
-		$frl = config( 'frame_whitelist', \FRAME_WHITELIST );
-		$raw = \is_array( $frl ) ? 
-				\array_map( 'cleanUrl', $frl ) : 
-				lineSettings( $frl, -1, 'cleanUrl' );
-		
-		$raw = \array_unique( \array_filter( $raw ) );
-		$frm = \implode( ' ', $raw );
-		
-		foreach ( $cjp as $k => $v ) {
-			$csp .= 
-			( 0 == \strcmp( $k, 'frame-ancestors' ) ) ? 
-				"$k $v $frm;" : "$k $v;";
+		$csp = securityPolicy( 'content-security-policy' );
+		if ( !empty( $csp ) ) {
+			\header( 'Content-Security-Policy: ' . $csp, true );
 		}
-		\header( \rtrim( $csp, ';' ), true );
 	
 	// Content checksum used
 	} elseif ( !empty( $chk ) ) {
