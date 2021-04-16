@@ -6093,7 +6093,7 @@ function securityPolicy( string $policy ) : string {
 		case 'permissions':
 		case 'permissions-policy':
 			if ( isset( $r['permissions'] ) ) {
-				return $r['permissions']
+				return $r['permissions'];
 			}
 			
 			$prm = [];
@@ -6115,7 +6115,7 @@ function securityPolicy( string $policy ) : string {
 		case 'content-security':
 		case 'content-security-policy':
 			if ( isset( $r['content'] ) ) {
-				return $r['content']
+				return $r['content'];
 			}
 			$csp = '';
 			$cjp = $p['content-security-policy'] ?? [];
