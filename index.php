@@ -149,7 +149,7 @@ define( 'SUMMARY_LEVEL',	0 );
 // Allowed extensions
 define( 'EXT_WHITELIST',	<<<JSON
 {
-	"text"		: "css, js, txt, html",
+	"text"		: "css, js, txt, html, vtt",
 	"images"	: "ico, jpg, jpeg, gif, bmp, png, tif, tiff, svg", 
 	"fonts"		: "ttf, otf, woff, woff2",
 	"audio"		: "ogg, oga, mpa, mp3, m4a, wav, wma, flac",
@@ -724,16 +724,26 @@ HTML;
 // Embedded video without preview
 $templates['tpl_video_np_embed'] =<<<HTML
 <div class="media">
-	<video width="560" height="315" src="{src}" controls></video>
+	<video width="560" height="315" src="{src}" controls>{detail}</video>
 </div>
 HTML;
 
+// Embedded video with preview
 $templates['tpl_video_embed'] =<<<HTML
 <div class="media">
-	<video width="560" height="315" src="{src}" poster="{preview}" controls></video>
+	<video width="560" height="315" src="{src}" poster="{preview}" controls>{detail}</video>
 </div>
 HTML;
 
+// Video caption track without language
+$templates['tpl_cc_nl_embed'] =<<<HTML
+<track kind="subtitles" src="{src}" {default}>
+HTML;
+
+// Video caption with language
+$templates['tpl_cc_embed'] =<<<HTML
+<track label="{label}" kind="subtitles" srclang="{lang}" src="{src}" {default}>
+HTML;
 
 /**
  *  Hosted media templates
@@ -1868,7 +1878,8 @@ function getLang() : array {
 	}
 	
 	$found	= [];
-	$lang	= bland( httpheaders( true )['accept-language'] ?? '' );
+	$lang	= 
+	bland( httpheaders( true )['accept-language'] ?? '', true );
 	
 	// No header?
 	if ( empty( $lang ) ) {
@@ -3060,7 +3071,7 @@ function loadClasses() : array {
 	// Add new or appened classes while removing duplicates
 	foreach( $cls as $k => $v ) {
 		$cv['{' . $k . '}'] = 
-			\implode( ' ', uniqueTerms( bland( $v ) ) );
+			\implode( ' ', uniqueTerms( bland( $v, true ) ) );
 	}
 	return $cv;
 }
@@ -3135,7 +3146,7 @@ function rsettings( string $area, array $modify = [] ) : array {
  */
 function getClasses( string $name ) : array {
 	$cls	= rsettings( 'classes' );
-	$n	= '{' . bland( $name ) . '}';
+	$n	= '{' . bland( $name, true ) . '}';
 	$va	= [];
 	foreach( $cls as $k => $v ) {
 		if ( 0 != \strcmp( $n , $k ) ) {
@@ -3157,7 +3168,7 @@ function getClasses( string $name ) : array {
 function setClass( string $name, string $value ) {
 	rsettings( 
 		'classes', 
-		[ '{' . bland( $name ) . '}' => bland( $value ) ] 
+		[ '{' . bland( $name, true ) . '}' => bland( $value, true ) ] 
 	);
 }
 
@@ -5708,6 +5719,87 @@ function tidyup( string $text ) : string {
 }
 
 /**
+ *  Parse caption/subtitle definitions if any are specified
+ *  
+ *  @param string	$cc	Combined caption definitions
+ *  @param string	$preifx	Source path prefix
+ *  @return string
+ */
+function extractCC( string $cc, string $prefx = '' ) : string {
+	
+	$cc	= \trim( $cc );
+	if ( empty( $cc ) ) {
+		return '';
+	}
+	
+	$dd	= '';
+	$src	= '';
+	$lang	= '';
+	$id	= '';
+	$p	= [];
+	
+	// Find multiple caption definitions if any
+	$defs	= trimmedList( $cc, false, '][' );
+	
+	// Parse captions
+	foreach ( $defs as $d ) {
+		if ( empty( $d ) ) {
+			continue;
+		}
+		
+		\parse_str( $d, $p );
+		
+		if ( empty( $p ) || !\is_array( $p ) ) {
+			$p = [];
+			continue;
+		}
+		
+		// Parse only if all elements are strings
+		foreach ( $p as $k => $v ) {
+			if ( is_array( $v ) ) {
+				$p[$k] = 
+				empty( $v[0] ) ? '' : ( 
+					\is_array( $v[0] ) ? '' : ( string ) $v[0] 
+				);
+			} else {
+				$p[$k] = ( string ) $v;
+			}
+		}
+		
+		// Prefix prepended source path
+		$src	= 
+		prependPath( $p['src'] ?? $p['source'] ?? '', $prefix );
+		
+		// Language name if specified
+		$lang	= 
+		bland( $p['lang'] ?? $p['language'] ?? '--', true );
+		
+		// Is default?
+		$id	= empty( $p['default'] ) ? '' : 'default';
+		
+		// Language or plain subtitle
+		$dd	.= empty( $lang ) ? 
+		\strtr( template( 'tpl_cc_nl_embed' ), [
+			'{src}'		=> $src,
+			'{default}'	=> $id
+		] ) : 
+		\strtr( template( 'tpl_cc_embed' ), [
+			'{label}'	=> 
+			bland( 
+				$p['label'] ?? $p['name'] ?? $lang, 
+				true
+			),
+			'{src}'		=> $src,
+			'{lang}'	=> $lang,
+			'{default}'	=> $id
+		] );
+		$p	= [];
+	}
+	
+	return $dd;
+}
+
+/**
  *  Embedded media shortcode list helper and hook trigger
  *  
  *  @return array
@@ -5767,6 +5859,7 @@ function hostedEmbeds() : array {
  *  Embedded media
  *  
  *  @param string	$html	Pre-filtered HTML to replace media tags
+ *  @param string	$preifx	Source path prefix
  *  @return string
  */
 function embeds( string $html, string $prefix = ''  ) : string {
@@ -5780,14 +5873,22 @@ function embeds( string $html, string $prefix = ''  ) : string {
 	
 	if ( !isset( $media ) ) {
 		// Uploaded media embedding
-		$media	= [
-		'/\[(audio|video) (?:\((.*?)\))?([^\[]+)\]/s'	=> 
+		$rx = '/(?:\[)(?<type>audio|video) ' . 
+			'(?:(?:\[)(?<captions>.*?)(?:\])(?:\s+)?)?' . 
+			'(?:\((?<preview>.*?)\)(?:\s+)?)?' . 
+			'(?<src>[^\[]+)(?:\])/s';
+		
+		$media	= [ $rx => 
+		
 		function( $m ) use ( $prefix ) {
-			$i = \trim( $m[1] );		// Media type
-			$p = \trim( $m[2] ?? '' );	// Thumbnail or preview
+			$i = \trim( $m['type'] ?? '' );		// Media type
+			$p = \trim( $m['preview'] ?? '' );	// Thumbnail or preview
 			
 			// Use prefix for relative paths
-			$u = prependPath( \trim( $m[3] ), $prefix );
+			$u = prependPath( \trim( $m['src'] ?? '' ), $prefix );
+			
+			// Parse caption definitions if any
+			$c = extractCC( $m['captions'] ?? '', $prefix );
 			
 			switch( $i ) {
 				case 'audio':
@@ -5804,12 +5905,16 @@ function embeds( string $html, string $prefix = ''  ) : string {
 					
 					return empty( $p ) ? 
 					// No preview
-					\strtr( template( 'tpl_video_np_embed' ), [ '{src}' => $u ] ) : 
+					\strtr( template( 'tpl_video_np_embed' ), [ 
+						'{src}'		=> $u,
+						'{detail}'	=> $c
+					] ) : 
 					
 					// With preview
 					\strtr( template( 'tpl_video_embed' ), [ 
 						'{preview}'	=> prependPath( $p, $prefix ),
-						'{src}'		=> $u 
+						'{src}'		=> $u,
+						'{detail}'	=> $c
 					] );
 					
 				default:
@@ -6062,12 +6167,12 @@ function quoteSecAttr( string $atr ) : string {
 function parsePermPolicy( string $key, $policy = null ) : string {
 	// No value? Send empty set E.G. "interest-cohort=()"
 	if ( empty( $policy ) ) {
-		return bland( $key ) . '=()';
+		return bland( $key, true ) . '=()';
 	}
 	
 	// Send specific value(s) E.G. "fullscreen=(self)"
 	return 
-	bland( $key ) . '=(' . 
+	bland( $key, true ) . '=(' . 
 	( \is_array( $policy ) ? 
 		\implode( ' ', \array_map( 'quoteSecAttr', $policy ) ) : 
 		quoteSecAttr( ( string ) $policy ) ) . 
@@ -6735,6 +6840,9 @@ function adjustMime( $mime, $path, $ext = null ) : string {
 				
 			case 'svg':
 				return 'image/svg+xml';
+				
+			case 'vtt':
+				return 'text/vtt';
 		}
 	}
 	
