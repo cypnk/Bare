@@ -160,50 +160,69 @@ To embed a previously uploaded image file, use markdown syntax:
 or 
 ![alt text](/path/to/filename.jpg)
 ```
-HTML is filtered of potentially harmful tags, however embedding videos to YouTube, Vimeo, PeerTube, or Archive.org is supported via shortcodes
-```
-E.G. For uploaded video and audio:
+HTML is filtered of potentially harmful tags, however embedding videos to YouTube, Vimeo, PeerTube, Archive.org or LBRY/Odysee is supported via shortcodes.
 
-[video (/path/to/preview.jpg) /path/to/media.mp4]
-or 
+E.G. For uploaded media:
+```
+Plain video:
 [video /path/to/media.mp4]
 
-[audio /path/to/file.mp3]
+Video with preview thumbnail:
+[video (/path/to/preview.jpg) /path/to/media.mp4]
+```
+For media with subtitles or captions in [WebVTT](https://en.wikipedia.org/wiki/WebVTT) format
+```
+Simple captions:
+[video [/path/to/captions.vtt] /path/to/media.mp4]
 
+Captions and media preview:
+[video [/path/to/captions.vtt] (/path/to/preview.jpg) /path/to/media.mp4]
+
+Subtitles:
+[video [lang=en&label=English&src=/path/to/en.vtt] /path/to/media.mp4]
+
+Subtitles in multiple languages:
+[video [lang=de&label=Deutsche&src=/path/to/de.vtt][lang=jp&label=日本語&src=/path/to/jp.vtt] /path/to/media.mp4]
+
+Multiple languages with single default set:
+[video [lang=en&label=English&default=yes&src=/path/to/en.vtt][lang=de&label=Deutsche&src=/path/to/de.vtt][lang=jp&label=日本語&src=/path/to/jp.vtt] /path/to/media.mp4]
+```
+For audio files
+```
+[audio /path/to/file.mp3]
+```
 
 For Youtube: 
-
+```
 [youtube https://www.youtube.com/watch?v=RJ0ULhVKwEI]
 or
 [youtube https://youtu.be/RJ0ULhVKwEI]
 or
 [youtube RJ0ULhVKwEI]
-
+```
 For Vimeo:
-
+```
 [vimeo https://vimeo.com/113315619]
 or
 [vimeo 113315619]
-
-
+```
 For Archive.org:
-
+```
 [archive https://archive.org/details/A-Few-Days-In-Winter]
 or
 [archive A-Few-Days-In-Winter]
-
-
+```
 For PeerTube (any instance):
-
+```
 [peertube https://peertube.mastodon.host/videos/watch/56047136-00eb-4296-afc3-dd213fd6bab0]
+```
+Note: Remember to add the PeerTube instance URL to the list of URLs in FRAME_WHITELIST (one per line)
 
-Note: Remember to add the PeerTube instance URL to the list of  
-URLs in FRAME_WHITELIST (one per line)
-
-
-For Odysee video (use the "Download" link in the share options. LBRY is similar)
-
+For Odysee or LBRY video (use the "Download" link in the share options)
+```
 [odysee https://odysee.com/$/download/eevblog-1367-5-types-of-oscilloscope/2d70c817aa4e1f7ce6b66473b0c3b66fd09d9281]
+or 
+[lbry https://lbry.tv/$/download/eevblog-1367-5-types-of-oscilloscope/2d70c817aa4e1f7ce6b66473b0c3b66fd09d9281]
 
 ```
 
@@ -222,13 +241,13 @@ E.G. Create an */errors/404.html* file and put your custom Not Found content. Th
 The Nginx web server supports URL rewriting and file filtering. The following is a simple configuration for a site named example.com.  
 Note: The pound sign(#) denotes comments.
 
-The following is an example server block tested on Arch linux.
+The following is an example server block tested on Arch linux. The location of **nginx.config** will depend on your platform.
 ```
 server {
 	server_name example.com;
 	
 	# Change this to your web root, if it's different
-	root /srv/http/example.com/html;
+	root /usr/share/nginx/example.com/html;
 	
 	# Prevent access to special files
 	location ~\.(hta|htp|md|conf|db|sql|json|sh)\$ {
