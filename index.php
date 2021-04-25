@@ -1128,7 +1128,13 @@ define( 'DEFAULT_SECPOLICY',	<<<JSON
 		"usb"				: [ "none" ],
 		"microphone"			: [ "none" ],
 		"magnetometer"			: [ "none" ]
-	}
+	}, 
+	"common-policy": [
+		"X-XSS-Protection: 1; mode=block",
+		"X-Content-Type-Options: nosniff",
+		"X-Frame-Options: SAMEORIGIN",
+		"Referrer-Policy: no-referrer, strict-origin-when-cross-origin"
+	]
 }
 JSON
 );
@@ -2030,6 +2036,23 @@ function appName() : string {
 }
 
 /**
+ *  Find a configuration setting as a set of lines or an array and returns filtered
+ *  
+ *  @param string	$param	Configuration setting name
+ *  @param mixed	$def	Default value on empty
+ *  @param string	$map	Filter function
+ */
+function linedConfig( string $param, $def, string $filter ) {
+	$opt = config( $param, $def );
+	$raw = 
+	\is_array( $opt ) ? 
+		\array_map( $filter, $opt ) : 
+		lineSettings( $opt, -1, $filter );
+	
+	return \array_unique( \array_filter( $raw ) );
+}
+
+/**
  *  Email sending message helper
  *  
  *  @param array	$rec		List of recipients (must match whitelist)
@@ -2101,13 +2124,10 @@ function mailMessage(
 	$rcpt	= $res['recipients'] ?? $rec;
 	
 	// Check sender whitelist
-	$mrl	= config( 'mail_whitelist', \MAIL_WHITELIST );
-	$mwhite	= \is_array( $mrl ) ? 
-			\array_map( 'cleanEmail', $mrl ) : 
-			lineSettings( $mrl, -1, 'cleanEmail' );
+	$mwhite	= 
+	linedConfig( 'mail_whitelist', \MAIL_WHITELIST, 'cleanEmail' );
 	
 	// Nothing in whitelist?
-	$mwhite = \array_filter( $mwhite );
 	if ( empty( $mwhite ) ) {
 		shutdown( 
 			'logError',
@@ -6195,6 +6215,23 @@ function securityPolicy( string $policy ) : string {
 	}
 	
 	switch ( $policy ) {
+		case 'common':
+		case 'common-policy':
+			if ( isset( $r['common'] ) ) {
+				return $r['common'];
+			}
+			
+			// Common header override
+			$cfj = 
+			linedConfig( 
+				'common-policy', 
+				$p['common-policy'] ?? [], 
+				'bland' 
+			);
+			$r['common'] = \implode( "\n", $cfj );
+			
+			return $r['common'];
+			
 		case 'permissions':
 		case 'permissions-policy':
 			if ( isset( $r['permissions'] ) ) {
@@ -6214,8 +6251,8 @@ function securityPolicy( string $policy ) : string {
 				$prm[]	= parsePermPolicy( $k, $v );
 			}
 			
-			$p['permissions'] = \implode( ', ', $prm );
-			return $p['permissions'];
+			$r['permissions'] = \implode( ', ', $prm );
+			return $r['permissions'];
 		
 		case 'content-security':
 		case 'content-security-policy':
@@ -6226,14 +6263,14 @@ function securityPolicy( string $policy ) : string {
 			$cjp = $p['content-security-policy'] ?? [];
 			
 			// Approved frame ancestors ( for embedding media )
-			$frl = config( 'frame_whitelist', \FRAME_WHITELIST );
-			$raw = 
-			\is_array( $frl ) ? 
-				\array_map( 'cleanUrl', $frl ) : 
-				lineSettings( $frl, -1, 'cleanUrl' );
-			
-			$raw = \array_unique( \array_filter( $raw ) );
-			$frm = \implode( ' ', $raw );
+			$frm = 
+			\implode( ' ', 
+				linedConfig( 
+					'frame_whitelist', 
+					\FRAME_WHITELIST, 
+					'cleanUrl' 
+				) 
+			);
 			
 			foreach ( $cjp as $k => $v ) {
 				$csp .= 
@@ -6267,13 +6304,11 @@ function preamble(
 		);
 	}
 	
-	\header( 'X-XSS-Protection: 1; mode=block', true );
-	\header( 'X-Content-Type-Options: nosniff', true );
-	\header( 'X-Frame-Options: SAMEORIGIN', true );
-	\header( 
-		'Referrer-Policy: ' .
-		'no-referrer, strict-origin-when-cross-origin', true 
-	);
+	// Set common policy headers
+	$chead	= explode( "\n", securityPolicy( 'common-policy' ) );
+	foreach ( $chead as $h ) {
+		\header( $h, true );
+	}
 	
 	// Set default permissions policy header
 	$perms = securityPolicy( 'permissions-policy' );
