@@ -2728,9 +2728,15 @@ function configModified( string $event, array $hook, array $params ) {
  *  @param string	$name		Configuration setting name
  *  @param mixed	$default	If not set, fallback value
  *  @param string	$type		String, integer, or boolean
+ *  @param string	$filter		Optional parse function
  *  @return mixed
  */
-function config( string $name, $default, string $type = 'string' ) {
+function config( 
+	string	$name, 
+		$default, 
+	string	$type		= 'string',
+	string	$filter		= '' 
+) {
 	$config = loadConfig( \CONFIG );
 	switch( $type ) {
 		case 'int':
@@ -2740,7 +2746,22 @@ function config( string $name, $default, string $type = 'string' ) {
 		case 'bool':
 		case 'boolean':
 			return ( bool ) ( $config[$name] ?? $default );
+		
+		case 'json':
+			$json	= $config[$name] ?? $default ?? '';
 			
+			return \is_array( $json ) ? 
+				$json : decode( ( string ) $json );
+			
+		case 'lines':
+			$lines	= $config[$name] ?? $default ?? '';
+			
+			return \is_array( $lines ) ? 
+					$lines : 
+					lineSettings( 
+						( string ) $lines, $filter 
+					);
+		
 		default:
 			return $config[$name] ?? $default;
 	}
