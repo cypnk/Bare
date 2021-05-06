@@ -5141,6 +5141,48 @@ function signature() : string {
 }
 
 /**
+ *  Helper to find if sent user headers contain the given headers and/or values
+ *  
+ *  @example
+ *  headerContains( [ 'X-Requested-With' => 'XMLHttpRequest' ] );
+ *  headerContains( [ 'X-Requested-With' => [ 'MobileApp', 'XMLHttpRequest' ] ] );
+ *  
+ *  @param array	$search		Key/value pairs to find in sent headers
+ *  @return bool
+ */
+function headersContain( array $search ) : bool {
+	if ( empty( $search ) ) {
+		return false;
+	}
+	
+	$found	= \array_intersect_key( httpHeaders(), $search );
+	if ( empty( $found ) ) {
+		return false;
+	}
+	
+	foreach ( $found as $k => $v ) {
+		if ( \is_array( $search[$k] ) ) {
+			foreach ( $search[$k] as $j ) {
+				// Skip nested arrays
+				if ( \is_array( $j ) ) {
+					continue;
+				}
+				
+				if ( textHas( $v, ( string ) $j ) ) {
+					return true;
+				}
+			}
+		} else {
+			if ( textHas( $v, $search[$k] ) ) {
+				return true;
+			}
+		}
+	}
+	
+	return false;
+}
+
+/**
  *  Simple division helper for mixed content type numbers
  *  
  *  @param mixed	$n	Numerator value
