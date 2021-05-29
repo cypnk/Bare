@@ -313,7 +313,7 @@ doas rcctl start php74_fpm
 
 **Note:** Although it shares the same comment style, httpd(8) [configuration](https://man.openbsd.org/httpd.conf.5) directives *do not* end in a semicolon(;) unlike Nginx settings.
 
-The following configuration can be used if Bare is installed as the "example.com" website (tested on OpenBSD 6.8).
+The following configuration can be used if Bare is installed as the "example.com" website (tested on OpenBSD 6.9).
 
 Edit **/etc/httpd.conf** to add a custom server setting file:
 ```
