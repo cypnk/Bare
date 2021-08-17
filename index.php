@@ -1967,6 +1967,100 @@ function getLang() : array {
 	) ? $found : [];
 }
 
+/**
+ *  Get requested file range, return [-1] if range was invalid
+ *  
+ *  @return array
+ */
+function getFileRange() : array {
+	$fr = $_SERVER['HTTP_RANGE'] ?? '';
+	if ( empty( $fr ) ) {
+		return [];
+	}
+	
+	// Range(s) too long 
+	if ( strlen( $fr ) > 180 ) {
+		return [-1];
+	}
+	
+	// Check multiple ranges, if given
+	$rg = \preg_match_all( 
+		'/bytes=(^$)|(?<start>\d+)?(\s+)?-(\s+)?(?<end>\d+)?/is',
+		$fr,
+		$m
+	);
+	
+	// Invalid range syntax?
+	if ( false === $rg ) {
+		return [-1];
+	}
+	
+	$starting	= $m['start'] ?? [];
+	$ending		= $m['end'] ?? [];
+	$sc		= count( $starting );
+	
+	// Too many or too few ranges or starting / ending mismatch
+	if ( $sc > 10 || $sc == 0 || $sc != count( $ending ) ) {
+		return [-1];
+	}
+	
+	\asort( $starting );
+	\asort( $ending );
+	$rx = [];
+	
+	// Format ranges
+	foreach ( $ending as $k => $v ) {
+		
+		// Specify 0 for starting if empty and -1 if end of file
+		$rx[$k] = [ 
+			empty( $starting[$k] ) ? 0 : \intval( $starting[$k] ), 
+			empty( $ending[$k] ) ? -1 : \intval( $ending[$k] )
+		];
+		
+		// If start is larger or same as ending and not EOF...
+		if ( $rx[$k][0] >= $rx[$k][1] && $rx[$k][1] != -1 ) {
+			return [-1];
+		}
+	}
+	
+	// Sort by lowest starting value
+	usort( $rx, function( $a, $b ) {
+		return $a[0] <=> $b[0];
+	} );
+	
+	// End of file range found if true
+	$eof = 0;
+	
+	// Check for overlapping/redundant ranges (preserves bandwidth)
+	foreach ( $rx as $k => $v ) {
+		// Nothing to check yet
+		if ( !isset( $rx[$k-1] ) ) {
+			continue;
+		}
+		// Starting range is lower than or equal previous start
+		if ( $rx[$k][0] <= $rx[$k-1][0] ) {
+			return [-1];
+		}
+		
+		// Ending range lower than previous ending range
+		if ( $rx[$k][1] <= $rx[$k-1][1] ) {
+			// Special case EOF and it hasn't been found yet
+			if ( $rx[$k][1] == -1 && $eof == 0) {
+				$eof = 1;
+				continue;
+			}
+			return [-1];
+		}
+		
+		// Duplicate EOF ranges
+		if ( $rx[$k][1] == -1 && $eof == 1 ) {
+			return [-1];
+		}
+	}
+	
+	return $rx;
+}
+
 
 
 /**
