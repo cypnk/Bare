@@ -205,6 +205,9 @@ define( 'META_LIMIT',		15 );
 // Maximum depth when searching for files (E.G. Plugin folders)
 define( 'FOLDER_LIMIT',		15 );
 
+// Streaming file chunks
+define( 'STREAM_CHUNK_SIZE',	4096 );
+
 // Application name
 define( 'APP_NAME',		'Bare' );
 
@@ -7098,6 +7101,42 @@ function ifModified( $etag ) : bool {
 	}
 	
 	return ( 0 !== \strcmp( $etag, $mod ) );
+}
+
+/**
+ *  Stream content in chunks within starting and ending limits
+ *  
+ *  @param resource	$stream		Open file stream
+ *  @param int		$int		Starting offset
+ *  @param int		$end		Ending offset or end of file
+ */
+function streamChunks( &$stream, int $start, int $end ) {
+	// Default chunk size
+	$csize	= config( 'stream_chunk_size', \STREAM_CHUNK_SIZE, 'int' );
+	$sent	= 0;
+	
+	if ( $start != 0 ) {
+		fseek( $stream, $start );
+	}
+	
+	while ( !feof( $stream ) ) {
+		if ( $sent >= $end - $start ) {
+			break;
+		}
+		
+		// Change chunk size when approaching the end of range
+		if ( $sent + $csize > $end ) {
+			$csize = $end - $sent;
+		}
+		
+		$buf = fread( $stream, $csize );
+		echo $buf;
+		
+		$sent += strsize( $buf );
+		
+		ob_flush();
+		flush();
+	}
 }
 
 /**
