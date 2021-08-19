@@ -208,6 +208,9 @@ define( 'FOLDER_LIMIT',		15 );
 // Streaming file chunks
 define( 'STREAM_CHUNK_SIZE',	4096 );
 
+// Maximum file size before streaming in chunks
+define( 'STREAM_CHUNK_LIMIT',	5000000 );
+
 // Application name
 define( 'APP_NAME',		'Bare' );
 
@@ -1191,6 +1194,7 @@ define( 'MSG_INVALID',		'Invalid request' );
 define( 'MSG_CODEDETECT',	'Server-side code detected' );
 define( 'MSG_EXPIRED',		'This form has expired' );
 define( 'MSG_TOOMANY',		'Too many requests' );
+define( 'MSG_FILERANGE',	'Invalid file range requested' );
 
 
 /**
@@ -1274,6 +1278,7 @@ define( 'FORM_STATUS_FLOOD',	3 );
  *  Environment preparation
  */
 \date_default_timezone_set( 'UTC' );
+\ignore_user_abort( true );
 
 
 /**
@@ -1976,6 +1981,11 @@ function getLang() : array {
  *  @return array
  */
 function getFileRange() : array {
+	static $ranges;
+	if ( isset( $ranges ) ) {
+		return $ranges;
+	}
+	
 	$fr = $_SERVER['HTTP_RANGE'] ?? '';
 	if ( empty( $fr ) ) {
 		return [];
@@ -2061,6 +2071,7 @@ function getFileRange() : array {
 		}
 	}
 	
+	$ranges = $rx;
 	return $rx;
 }
 
@@ -2371,6 +2382,16 @@ function visitorError( int $code = 0, string $msg = '-' ) {
 			$ua . ' ' . $uri;
 	
 	shutdown( 'logError', [ $err, false ] );
+}
+
+/**
+ *  Visitor disconnect event helper
+ */
+function visitorAbort() {
+	ob_end_clean();
+	visitorError( 499, 'Client disconnect' );
+	shutdown( 'cleanup' );
+	shutdown();
 }
 
 
@@ -6889,6 +6910,14 @@ function sendError( int $code, $body ) {
 }
 
 /**
+ *  Invalid file range error page helper
+ */
+function sendRangeError() {
+	visitorError( 416, 'Range' );
+	sendError( 416, errorLang( "filerange", \MSG_FILERANGE ) );
+}
+
+/**
  *  Override content sending if hook was called
  *  
  *  @param string	$event	Event name to call back from hook
@@ -7051,15 +7080,8 @@ function adjustMime( $mime, $path, $ext = null ) : string {
  *  @return string
  */
 function detectMime( string $path ) : string {
-	if ( !missing( 'mime_content_type' ) ) { 
-		return adjustMime( \mime_content_type( $path ), $path );
-	}
+	return adjustMime( \mime_content_type( $path ), $path );
 	
-	$info	= \finfo_open( \FILEINFO_MIME_TYPE );
-	$mime	= adjustMime( \finfo_open( $info, $path ), $path );
-	
-	\finfo_close( $info );
-	return $mime;
 }
 
 /**
@@ -7081,7 +7103,7 @@ function sendFilePrep(
 	preamble( '', false, false );
 	
 	// Set content type if mime is found
-	if ( $verify ) {
+	if ( $verify && $code != 206 ) {
 		$mime	= detectMime( $path );
 		\header( "Content-Type: {$mime}", true );
 	}
@@ -7124,6 +7146,13 @@ function streamChunks( &$stream, int $start, int $end ) {
 			break;
 		}
 		
+		// Check for aborted connection between flushes
+		if ( \connection_aborted() ) {
+			fclose( $stream );
+			$stream = false;
+			visitorAbort();
+		}
+		
 		// Change chunk size when approaching the end of range
 		if ( $sent + $csize > $end ) {
 			$csize = $end - $sent;
@@ -7149,7 +7178,22 @@ function sendFileFinish( $path ) {
 	$tags	= genEtag( $path );
 	$fsize	= $tags['fsize'];
 	$etag	= $tags['etag'];
-	if ( false !== $tags['fsize'] ) {
+	$stream = false;
+	
+	if ( false !== $fsize ) {
+		$climit = config( 'stream_chunk_limit', \STREAM_CHUNK_LIMIT, 'int' );
+	
+		// Prepare resource if this is a large file
+		if ( $fsize > $climit ) {
+			$stream = fopen( $path, 'rb' );
+			if ( false === $stream ) {
+				// Don't send error or this may loop
+				// Error handlers also use this function
+				shutdown( 'logError', 'Error opening ' . $path );
+				shutdown();
+			}
+		}
+	
 		\header( "Content-Length: {$fsize}", true );
 		if ( !empty( $etag ) ) {
 			\header( "ETag: {$etag}", true );
@@ -7174,6 +7218,11 @@ function sendFileFinish( $path ) {
 	\ob_end_flush();
 	
 	if ( ifModified( $etag ) ) {
+		if ( $stream !== false ) {
+			streamChunks( $stream, 0, $fsize - 1 );
+			fclose( $stream );
+			return;
+		}
 		\readfile( $path );
 	}
 }
@@ -7808,6 +7857,76 @@ function sendWithEtag( $path ) : bool {
 	return sendFile( $path, false, true, $code );
 }
 
+/**
+ *  Handle ranged file request
+ *  
+ *  @param string	$path		Absolute file path
+ *  @param bool		$dosend		Send file ranges if true
+ *  @return bool
+ */
+function sendFileRange( string $path, bool $dosend ) : bool {
+	$frange	= getFileRange();
+	$fsize	= filesize( $path );
+	$fend	= $fsize - 1;
+	$totals	= 0;
+	
+	// Check if any ranges are outside file limits
+	foreach ( $frange as $r ) {
+		if ( $r[0] >= $fend || $r[1] > $fend ) {
+			sendRangeError();
+		}
+		$totals += ( $r[1] > -1 ) ? 
+			( $r[1] - $r[0] ) : ( $fend - $f[0] );
+	}
+	
+	if ( !$dosend ) {
+		return true;
+	}
+	
+	$stream	= fopen( $path, 'rb' );
+	if ( false === $stream ) {
+		shutdown( 'logError', 'Error opening ' . $path );
+		sendError( 500, errorLang( "generic", \MSG_GENERIC ) );
+	}
+	
+	
+	// Prepare partial content
+	sendFilePrep( $path, 206, false );
+	$mime	= detectMime( $path );
+	
+	// Generate boundary
+	$bound	= \base64_encode( \hash( 'sha1', $path . $fsize, true ) );
+	\header(
+		"Content-Type: multipart/byteranges; boundary={$bound}",
+		true
+	);
+	\header( "Content-Length: {$totals}", true );
+	
+	cleanup();
+	
+	// Send any headers and end buffering
+	\ob_end_flush();
+	
+	// Start fresh buffer
+	\ob_start();
+	
+	$limit = 0;
+	
+	foreach ( $frange as $r ) {
+		echo "\n--{$bound}";
+		echo "Content-Type: {$mime}";
+		if ( $r[1] == -1 ) {
+			echo "Content-Range: {$r[0]}-{$fend}/{$fend}\n";
+		} else {
+			echo "Content-Range: {$r[0]}-{$f[1]}/{$fend}\n";
+		}
+		
+		$limit = ( $f[1] > -1 ) ? $f[1] : $fend;
+		streamChunks( $path, $f[0], $limit );
+	}
+	\ob_end_flush();
+	return true;
+}
 
 /**
  *  Get resource from plugin directory(ies)
@@ -7829,6 +7948,9 @@ function sendPluginFile(
 	// Clip plugin name from path to prepare for asset searching
 	$path	= truncate( $path, strsize( $plugin ) - 1, strsize( $path ) );
 	
+	// Check if ranged request
+	$frange	= getFileRange();
+	
 	foreach ( $loaded as $p ) {
 		// Check if first path fragment is the same as the plugin name
 		if ( 0 !== \strcasecmp( $p, $plugin ) ) {
@@ -7839,14 +7961,20 @@ function sendPluginFile(
 		$fpath = 
 		\PLUGINS . $p . DIRECTORY_SEPARATOR . \PLUGIN_ASSETS . $path;
 		if ( \file_exists( $fpath ) ) {
-			return $dosend ? sendWithEtag( $fpath ) : true;
+			if ( empty( $frange ) ) {
+				return $dosend ? sendWithEtag( $fpath ) : true;
+			}
+			return sendFileRange( $fpath, $dosend );
 		}
 		
 		// File written by plugin?
 		$fpath = 
 		getPostFileDir( 'plugin' ) . $p . DIRECTORY_SEPARATOR . $path;
 		if ( \file_exists( $fpath ) ) {
-			return $dosend ? sendWithEtag( $fpath ) : true;
+			if ( empty( $frange ) ) {
+				return $dosend ? sendWithEtag( $fpath ) : true;
+			}
+			return sendFileRange( $fpath, $dosend );
 		}
 	}
 	
@@ -7885,8 +8013,20 @@ function fileRequest(
 	// Static file path
 	$fpath	= getPostFileDir( 'file' ) . $path;
 	
+	// Check if ranged request
+	$frange	= getFileRange();
+	
+	// Range wasn't satisfiable
+	if ( \in_array( -1, $frange ) ) {
+		sendRangeError();
+	}
+	
 	if ( \file_exists( $fpath ) ) {
-		return $dosend ? sendWithEtag( $fpath ) : true;
+		if ( empty( $frange ) ) {
+			return $dosend ? sendWithEtag( $fpath ) : true;
+		}
+		
+		return sendFileRange( $fpath, $dosend );
 	}
 	
 	// If there's no prefix, there's no plugin folder to check 
