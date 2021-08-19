@@ -209,7 +209,7 @@ define( 'FOLDER_LIMIT',		15 );
 define( 'STREAM_CHUNK_SIZE',	4096 );
 
 // Maximum file size before streaming in chunks
-define( 'STREAM_CHUNK_LIMIT',	5000000 );
+define( 'STREAM_CHUNK_LIMIT',	50000 );
 
 // Application name
 define( 'APP_NAME',		'Bare' );
@@ -7136,16 +7136,25 @@ function streamChunks( &$stream, int $start, int $end ) {
 	// Default chunk size
 	$csize	= config( 'stream_chunk_size', \STREAM_CHUNK_SIZE, 'int' );
 	$sent	= 0;
+	$tset	= false;
 	
 	fseek( $stream, $start );
 	
 	while ( !feof( $stream ) ) {
+		if ( !$tset ) {
+			// Turn off limit while streaming
+			\set_time_limit( 0 );
+			$tset = true;
+		}
+		
 		if ( $sent >= $end ) {
+			\set_time_limit( 30 );
 			break;
 		}
 		
 		// Check for aborted connection between flushes
 		if ( \connection_aborted() ) {
+			\set_time_limit( 30 );
 			fclose( $stream );
 			$stream = false;
 			visitorAbort();
@@ -7918,12 +7927,12 @@ function sendFileRange( string $path, bool $dosend ) : bool {
 		echo "\n--{$bound}";
 		echo "Content-Type: {$mime}";
 		if ( $r[1] == -1 ) {
-			echo "Content-Range: {$r[0]}-{$fend}/{$fend}\n";
+			echo "Content-Range: bytes {$r[0]}-{$fend}/{$fsize}\n";
 		} else {
-			echo "Content-Range: {$r[0]}-{$f[1]}/{$fend}\n";
+			echo "Content-Range: bytes {$r[0]}-{$f[1]}/{$fsize}\n";
 		}
 		
-		$limit = ( $f[1] > -1 ) ? $f[1] : $fsize;
+		$limit = ( $f[1] > -1 ) ? $f[1] + 1 : $fsize;
 		streamChunks( $path, $f[0], $limit );
 	}
 	\ob_end_flush();
