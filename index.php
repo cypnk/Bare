@@ -7137,12 +7137,10 @@ function streamChunks( &$stream, int $start, int $end ) {
 	$csize	= config( 'stream_chunk_size', \STREAM_CHUNK_SIZE, 'int' );
 	$sent	= 0;
 	
-	if ( $start != 0 ) {
-		fseek( $stream, $start );
-	}
+	fseek( $stream, $start );
 	
 	while ( !feof( $stream ) ) {
-		if ( $sent >= $end - $start ) {
+		if ( $sent >= $end ) {
 			break;
 		}
 		
@@ -7877,7 +7875,7 @@ function sendFileRange( string $path, bool $dosend ) : bool {
 			sendRangeError();
 		}
 		$totals += ( $r[1] > -1 ) ? 
-			( $r[1] - $r[0] ) : ( $fend - $f[0] );
+			( $r[1] - $r[0] ) + 1 : ( $fend - $f[0] ) + 1;
 	}
 	
 	if ( !$dosend ) {
