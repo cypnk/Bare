@@ -7219,7 +7219,7 @@ function sendFileFinish( $path ) {
 	
 	if ( ifModified( $etag ) ) {
 		if ( $stream !== false ) {
-			streamChunks( $stream, 0, $fsize - 1 );
+			streamChunks( $stream, 0, $fsize );
 			fclose( $stream );
 			return;
 		}
@@ -7241,12 +7241,13 @@ function sendFileHeaders( string $dsp, string $fname, bool $cache ) {
 		true
 	);
 	
+	\header( "Accept-Ranges: bytes", true );
+	
 	// If cached, set long expiration
 	if ( $cache ) {
 		\header( 'Cache-Control:public, max-age=31536000', true );
 		return;
 	}
-	
 	// Uncached
 	\header( 'Cache-Control: must-revalidate', true );
 	\header( 'Expires: 0', true );
@@ -7892,6 +7893,8 @@ function sendFileRange( string $path, bool $dosend ) : bool {
 	
 	// Prepare partial content
 	sendFilePrep( $path, 206, false );
+	\header( "Accept-Ranges: bytes", true );
+	
 	$mime	= detectMime( $path );
 	
 	// Generate boundary
@@ -7900,6 +7903,7 @@ function sendFileRange( string $path, bool $dosend ) : bool {
 		"Content-Type: multipart/byteranges; boundary={$bound}",
 		true
 	);
+	
 	\header( "Content-Length: {$totals}", true );
 	
 	cleanup();
@@ -7921,7 +7925,7 @@ function sendFileRange( string $path, bool $dosend ) : bool {
 			echo "Content-Range: {$r[0]}-{$f[1]}/{$fend}\n";
 		}
 		
-		$limit = ( $f[1] > -1 ) ? $f[1] : $fend;
+		$limit = ( $f[1] > -1 ) ? $f[1] : $fsize;
 		streamChunks( $path, $f[0], $limit );
 	}
 	\ob_end_flush();
