@@ -7884,7 +7884,7 @@ function sendFileRange( string $path, bool $dosend ) : bool {
 			sendRangeError();
 		}
 		$totals += ( $r[1] > -1 ) ? 
-			( $r[1] - $r[0] ) + 1 : ( $fend - $f[0] ) + 1;
+			( $r[1] - $r[0] ) + 1 : ( $fend - $r[0] ) + 1;
 	}
 	
 	if ( !$dosend ) {
@@ -7929,11 +7929,11 @@ function sendFileRange( string $path, bool $dosend ) : bool {
 		if ( $r[1] == -1 ) {
 			echo "Content-Range: bytes {$r[0]}-{$fend}/{$fsize}\n";
 		} else {
-			echo "Content-Range: bytes {$r[0]}-{$f[1]}/{$fsize}\n";
+			echo "Content-Range: bytes {$r[0]}-{$r[1]}/{$fsize}\n";
 		}
 		
-		$limit = ( $f[1] > -1 ) ? $f[1] + 1 : $fsize;
-		streamChunks( $path, $f[0], $limit );
+		$limit = ( $r[1] > -1 ) ? $r[1] + 1 : $fsize;
+		streamChunks( $path, $r[0], $limit );
 	}
 	\ob_end_flush();
 	return true;
