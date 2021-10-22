@@ -287,14 +287,14 @@ The OpenBSD operating system comes with its own web server in the base installat
 
 OpenBSD does not come with PHP and needs to be installed separately. Select the highest version after each command:
 ```
-doas pkg_add php_fpm
+doas pkg_add php
 doas pkg_add php-pdo_sqlite
 doas pkg_add php-tidy
 doas pkg_add php-intl
 ```
 If you're already logged in as root, skip the "[doas](https://man.openbsd.org/doas)" before each command.
 
-Edit **/etc/php-7.x.ini** (or the version of PHP you're running) and make sure the following extensions are enabled.
+Edit **/etc/php-8.x.ini** (or the version of PHP you're running) and make sure the following extensions are enabled.
 ```
 extension=fileinfo
 extension=intl
@@ -305,15 +305,15 @@ extension=tidy
 ```
 
 Now enable and start PHP.  
-This is assuming 7.4, but other versions follow the same convention:
+This is assuming 8.0, but other versions follow the same convention:
 ```
-doas rcctl enable php74_fpm
-doas rcctl start php74_fpm
+doas rcctl enable php80_fpm
+doas rcctl start php80_fpm
 ```
 
 **Note:** Although it shares the same comment style, httpd(8) [configuration](https://man.openbsd.org/httpd.conf.5) directives *do not* end in a semicolon(;) unlike Nginx settings.
 
-The following configuration can be used if Bare is installed as the "example.com" website (tested on OpenBSD 6.9).
+The following configuration can be used if Bare is installed as the "example.com" website (tested on OpenBSD 7.0).
 
 Edit **/etc/httpd.conf** to add a custom server setting file:
 ```
@@ -328,6 +328,9 @@ server "www.example.com" {
   
 	# listening on external addresses
 	listen on egress port 80
+	
+	# Uncomment the following, if you're only hosting on Tor
+	#listen on lo port 80
 	
 	# Default directory
 	directory index "index.html"
@@ -374,6 +377,18 @@ doas rcctl reload httpd
 ```
 
 Your new Bare blog is ready to be served.
+
+To ensure the server and PHP will run each time you (re)start your OpenBSD system, remember to add the following to **rc.conf.local**:
+```
+httpd_flags=
+pkg_scripts=php80_fpm
+```
+
+Or if you're hosting your blog over Tor, make sure that's added as well:
+```
+httpd_flags=
+pkg_scripts=tor php80_fpm
+```
 
 If you have already enabled firewall access to your site, you may skip this part.
 
@@ -458,6 +473,9 @@ Create or edit **/etc/httpd.conf.local** same as above, but add this instead:
 # A site called "example.com" 
 server "www.example.com" {
 	alias "example.com"
+	
+	# listening on external addresses on port 80
+	listen on egress port 80
 	
 	# Default directory
 	directory index "index.html"
