@@ -7170,7 +7170,9 @@ function streamChunks( &$stream, int $start, int $end ) {
 		
 		$sent += strsize( $buf );
 		
-		ob_flush();
+		if ( ob_get_level() > 0 ) {
+			ob_flush();
+		}
 		flush();
 	}
 }
