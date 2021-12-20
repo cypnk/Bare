@@ -768,9 +768,9 @@ HTML;
 // Vimeo video wrapper
 $templates['tpl_vimeo']		= <<<HTML
 <div class="media">
-	<iframe width="500" height="281" frameborder="0" 
+	<iframe width="560" height="315" frameborder="0" 
 		sandbox="allow-same-origin allow-scripts" 
-		src="https://player.vimeo.com/video/{src}?portrait=0" 
+		src="https://player.vimeo.com/video/{src}" 
 		allowfullscreen></iframe>
 </div>
 HTML;
@@ -6766,6 +6766,24 @@ function scrubOutput() {
 }
 
 /**
+ *  Flush and optionally end output buffers
+ *  
+ *  @param bool		$ebuf		End buffers
+ */
+function flushOutput( bool $ebuf = false ) {
+	if ( $ebuf ) {
+		while ( \ob_get_level() > 0 ) {
+			\ob_end_flush();
+		}
+	} else {
+		while ( \ob_get_level() > 0 ) {
+			\ob_flush();	
+		}
+	}
+	flush();
+}
+
+/**
  *  Print headers, content, and end execution
  *  
  *  @param int		$code		HTTP Status code
@@ -6809,7 +6827,7 @@ function send(
 	] ] );
 	
 	// Schedule flush
-	shutdown( 'ob_end_flush' );
+	shutdown( 'flushOutput', [ true ] );
 	
 	// Check gzip prerequisites
 	if ( $code != 304 && \extension_loaded( 'zlib' ) ) {
@@ -7170,10 +7188,7 @@ function streamChunks( &$stream, int $start, int $end ) {
 		
 		$sent += strsize( $buf );
 		
-		if ( ob_get_level() > 0 ) {
-			ob_flush();
-		}
-		flush();
+		flushOutput();
 	}
 }
 
@@ -7224,7 +7239,7 @@ function sendFileFinish( $path ) {
 	cleanup();
 	
 	// Send any headers and end buffering
-	\ob_end_flush();
+	flushOutput( true );
 	
 	if ( ifModified( $etag ) ) {
 		if ( $stream !== false ) {
@@ -7918,7 +7933,7 @@ function sendFileRange( string $path, bool $dosend ) : bool {
 	cleanup();
 	
 	// Send any headers and end buffering
-	\ob_end_flush();
+	flushOutput( true );
 	
 	// Start fresh buffer
 	\ob_start();
@@ -7937,7 +7952,7 @@ function sendFileRange( string $path, bool $dosend ) : bool {
 		$limit = ( $r[1] > -1 ) ? $r[1] + 1 : $fsize;
 		streamChunks( $path, $r[0], $limit );
 	}
-	\ob_end_flush();
+	flushOutput( true );
 	return true;
 }
 
@@ -9841,7 +9856,7 @@ function wordcount( string $find, string $mode = '' ) : int {
 function readingTime( string $text ) : int {
 	static $sets;
 	if ( !isset( $sets ) ) {
-		// Deafult character and measurement sets
+		// Default character and measurement sets
 		$default = [
 			// Matching type, average matches / minute, character pattern
 			[ 'words', 230, '/[\p{Latin}\p{Greek}\p{Cyrillic}]/u' ],
