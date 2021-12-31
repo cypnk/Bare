@@ -9477,6 +9477,10 @@ function filterRequest( string $event, array $hook, array $params ) {
 			'filter'	=> \FILTER_CALLBACK,
 			'options'	=> 'unifySpaces'
 		],
+		'tree'	=> [
+			'filter'	=> \FILTER_CALLBACK,
+			'options'	=> 'cleanUrl'
+		],
 		'token'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
 		'nonce'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
 		'meta'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS
@@ -10484,7 +10488,7 @@ function showHome( string $event, array $hook, array $params ) {
  */
 function showAbout( string $event, array $hook, array $params ) {
 	$path	= $params['tree'] ?? 'main'; // Sub about page or main
-	$apath	= 'about/' . $path . '.md';
+	$apath	= eventRoutePrefix( 'aboutview', 'about' ) . '/' . $path . '.md';
 	$post	= loadStaticPage( $apath );
 	
 	// No about found
