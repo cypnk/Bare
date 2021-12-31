@@ -31,10 +31,9 @@ Use the [Tor Browser Bundle](https://www.torproject.org/) to visit.
 ![Bare Powered](https://raw.githubusercontent.com/cypnk/Bare/master/88x15-button2.jpg)
 
 ## Table of contents
+* [Requirements](#requirements)
 * [Installation](#installation)
 	* [Multiple blogs or shared content](#multiple-blogs-or-shared-content)
-* [Requirements](#requirements)
-	* [Composer](#composer) (Only for PHP settings and this is optional)
 * [Formatting](#content-formatting)
 * [Custom errors (optional)](#custom-errors-optional)
 * [Installing on other web servers](#installing-on-other-web-servers)
@@ -43,10 +42,50 @@ Use the [Tor Browser Bundle](https://www.torproject.org/) to visit.
 * [Running a TLS-enabled Bare blog on OpenBSD](#running-a-tls-enabled-bare-blog-on-openbsd)
 * [Troubleshooting](#troubleshooting)
 
+
+
+## Requirements
+* Webserver capable of handling URL rewrites (Apache, Nginx etc...)
+* PHP Version 8+ (will work on 7.4 for now, but support for the 7.x branch will be phased out)
+
+The following PHP extensions may need to be installed or enabled in **php.ini**:
+* pdo_sqlite (*required*)
+* sqlite3 (*required*)
+* mbstring
+* fileinfo (*required*)
+* intl
+* tidy
+
+Note: Various Windows and Unix-like platforms have differing locations for [php.ini](https://www.php.net/manual/en/configuration.file.php). Check your installation or contact your administrator to gain access to this file.
+
+Remember to backup **php.ini** before making changes to it.
+
+The GD extension (gd2) is suggested as future plugins may use it however it is not required for core functionality.
+
+If you prefer to use [Composer](https://getcomposer.org/) to handle your environment (optional), use the following example **composer.json**:
+```
+{
+	"require": {
+		"php": ">=8.0",
+		"lib-iconv": "*",
+		"ext-pdo": "*",
+		"ext-pdo_sqlite": "*",
+		"ext-mbstring": "*",
+		"ext-fileinfo": "*",
+		"ext-intl" : "*",
+		"ext-tidy" : "*"
+	},
+	"suggest": {
+		"ext-gd": "*"
+	},
+	"prefer-stable": true
+}
+```
+
 ## Installation
 
 Upload the following to your web root:
-* .htaccess - Required if using the Apache web server
+* .htaccess - Required only if using the Apache web server
 * index.php - Your homepage
 * /posts folder - Contains your posts (use your favorite editor)
 * /cache folder - Formatted cache
@@ -114,44 +153,6 @@ An optional **config.json** file can be created in the */cache* folder to overri
 
 There is also a [plugin](https://github.com/cypnk/Bare-Plugins) project for Bare.
 
-## Requirements
-* Webserver capable of handling URL rewrites (Apache, Nginx etc...)
-* PHP Version 7.3+ (may work on 7.2 and older, but no longer tested on these)
-
-The following PHP extensions may need to be installed or enabled in **php.ini**:
-* pdo_sqlite (*required*)
-* sqlite3 (*required*)
-* mbstring
-* fileinfo (*required*)
-* intl
-* tidy
-
-Note: Various Windows and Unix-like platforms have differing locations for [php.ini](https://www.php.net/manual/en/configuration.file.php). Check your installation or contact your administrator to gain access to this file.
-
-Remember to backup **php.ini** before making changes to it.
-
-The GD extension (gd2) is suggested as future plugins may use it however it is not required for core functionality.
-
-### Composer
-If you prefer to use [Composer](https://getcomposer.org/) to handle your environment (optional), use the following example **composer.json**:
-```
-{
-	"require": {
-		"php": ">=8.0",
-		"lib-iconv": "*",
-		"ext-pdo": "*",
-		"ext-pdo_sqlite": "*",
-		"ext-mbstring": "*",
-		"ext-fileinfo": "*",
-		"ext-intl" : "*",
-		"ext-tidy" : "*"
-	},
-	"suggest": {
-		"ext-gd": "*"
-	},
-	"prefer-stable": true
-}
-```
 
 ## Content formatting
 To embed a previously uploaded image file, use markdown syntax:
