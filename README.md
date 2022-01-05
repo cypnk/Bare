@@ -6,17 +6,13 @@ Bare has no usernames, passwords, editors, file uploaders, or other mechanisms t
 The first line in each post is the title. The URL slug is the filename. Posts can be tagged by adding the last line in the following format:  
 `tags: cabin, diy`
 
-You can also schedule posts to be published at a future date as bare will only show posts from the current date and into the past.
+You can also schedule posts to be published at a future date as bare will only show posts from the current date and into the past. Bare will create an archive of all posts and create a syndication feed of the most recent ones.
 
-Bare will also create an archive of all posts and create a syndication feed of the most recent ones.
-
-An about page can be created by editing *posts/about/main.md*. Additional about pages can be added to the same directory and again the URL is the filename. About sub directories can also be added.
+An about page can be created by editing *posts/about/main.md*. Additional about pages can be added to the same directory and again the URL is the filename. About sub directories can also be added. The location of the "about" folder may be renamed to anything else URL friendly, and under 255 characters in length, in the "aboutview" URL route in *index.php*.
 
 A static homepage can be shown instead of the lastest posts by creating a *posts/home.md* page. Bare will show this similar to an about page.
 
-Bare understands a rudimentary subset of [Markdown](https://daringfireball.net/projects/markdown/) and will filter HTML for you. 
-
-Optionally, Bare will use the [Parsedown](https://github.com/erusev/parsedown) and the [ParsedownExtra](https://github.com/erusev/parsedown-extra) classes to format Markdown, if these files are present.
+Bare understands a few HTML tags and a rudimentary subset of [Markdown](https://daringfireball.net/projects/markdown/). 
 
 Posts are cached in a SQLite database created dynamically, which enables fast browsing and searching for posts by tags, title, or post body. The *cache.db* can be deleted at any time and Bare will rebuild it on the first visit to your blog.
 
@@ -56,7 +52,7 @@ The following PHP extensions may need to be installed or enabled in **php.ini**:
 * intl
 * tidy
 
-Note: Various Windows and Unix-like platforms have differing locations for [php.ini](https://www.php.net/manual/en/configuration.file.php). Check your installation or contact your administrator to gain access to this file.
+**Note:** Various Windows and Unix-like platforms have differing locations for [php.ini](https://www.php.net/manual/en/configuration.file.php). Check your installation or contact your administrator to gain access to this file.
 
 Remember to backup **php.ini** before making changes to it.
 
@@ -153,7 +149,6 @@ An optional **config.json** file can be created in the */cache* folder to overri
 
 There is also a [plugin](https://github.com/cypnk/Bare-Plugins) project for Bare.
 
-
 ## Content formatting
 To embed a previously uploaded image file, use markdown syntax:
 ```
@@ -217,7 +212,7 @@ For PeerTube (any instance):
 ```
 [peertube https://peertube.mastodon.host/videos/watch/56047136-00eb-4296-afc3-dd213fd6bab0]
 ```
-Note: Remember to add the PeerTube instance URL to the list of URLs in FRAME_WHITELIST (one per line)
+**Note:** Remember to add the PeerTube instance URL to the list of URLs in FRAME_WHITELIST (one per line) in your *index.php*
 
 For Odysee or LBRY video (use the "Download" link in the share options)
 ```
@@ -226,6 +221,8 @@ or
 [lbry https://lbry.tv/$/download/eevblog-1367-5-types-of-oscilloscope/2d70c817aa4e1f7ce6b66473b0c3b66fd09d9281]
 
 ```
+
+Optionally, Bare will use the [Parsedown](https://github.com/erusev/parsedown) and the [ParsedownExtra](https://github.com/erusev/parsedown-extra) classes to format Markdown, if these files are present in the same folder as *index.php*. **Note:** Parsedown has only been tested (as of this writing) in older PHP versions which Bare itself no longer supports, however most Markdown formatting should work the same way. Parsedown loading has been left in for backward compatibility.
 
 ## Custom errors (optional)
 
@@ -240,7 +237,7 @@ E.G. Create an */errors/404.html* file and put your custom Not Found content. Th
 ### Nginx
 
 The Nginx web server supports URL rewriting and file filtering. The following is a simple configuration for a site named example.com.  
-Note: The pound sign(#) denotes comments.
+**Note:** The pound sign(#) denotes comments.
 
 The following is an example server block tested on Arch linux. The location of **nginx.config** will depend on your platform.
 ```
@@ -281,6 +278,8 @@ server {
         }
 }
 ``` 
+
+The *index.php* file should be in the subfolder you're hosting the blog from, if you haven't added any custom rewriting rules to your webserver configuration, and also remember to change the static file and cache directory. This is especially important when hosting a blog from a subfolder instead of the main web root.
 
 ### OpenBSD's httpd(8) web server
 
@@ -393,8 +392,7 @@ pkg_scripts=tor php80_fpm
 
 If you have already enabled firewall access to your site, you may skip this part.
 
-The OpenBSD [firewall is pf](https://man.openbsd.org/pf), which requires its own set of directives to enable serving websites. There is an example pf  
-configuration which will let external web traffic through. Study the manual for a more detailed explanation what each of these directives do.
+The OpenBSD [firewall is pf](https://man.openbsd.org/pf), which requires its own set of directives to enable serving websites. There is an example pf configuration which will let external web traffic through. Study the manual for a more detailed explanation what each of these directives do.
 
 Make a backup of **/etc/pf.conf** first and include these directives:
 ```
@@ -412,6 +410,10 @@ table <flooders> persist counters
 websrv="(max 500, source-track rule, max-src-states 50, max-src-conn-rate 500/5, \
 	max-src-conn 50, overload <flooders> flush global)"
 
+# If you're also receiving email on the same server, uncomment the following
+#mailsrv="(max 500, source-track rule, max-src-states 5, max-src-conn-rate 5/10, \
+#	max-src-conn 3, overload <flooders> flush global)"
+
 # Note the slash at the end of the first line indicates the directive wraps
 # DO NOT add a space after that slash
 
@@ -421,7 +423,7 @@ set block-policy drop
 # Ignore loopback (localhost)
 set skip on lo
 
-# Accomodate slow clients (E.G. when hosting over Tor)
+# Accommodate slow clients (E.G. when hosting over Tor)
 set optimization high-latency
 set ruleset-optimization profile
 set timeout { frag 30 }
@@ -451,15 +453,19 @@ block in quick from no-route to any
 # Allow access to web ports (email is similar, but outside the scope of this)
 pass in on egress inet proto tcp from any to (egress) port { 80 443 } keep state $websrv
 
+# Uncomment this line if you're also handling email on this server
+#pass in on egress inet proto tcp from any to (egress) port { 25 } keep state $mailsrv
+
 # Pass TCP, UDP, ICMP
 pass out on egress proto { tcp, udp, icmp } all modulate state
 
 # The pf.conf that comes with OpenBSD has some other settings, which should be left as-is
-# Only modify what's needed to get your site up and running, but learn more about what these do
+# Only add/modify what's needed to get your site up and running, but learn more about what these do
 
 ```
 
 ## Running a TLS-enabled Bare blog on OpenBSD
+**Note:** Remember to point your DNS servers to your web public server's public IP address first.
 
 This assumes you're already logged in as root and skips "doas". PHP installation is the same as above.
 
@@ -592,7 +598,7 @@ server "www.example.com" {
 	location "/*.json*"		{ block }
 	location "/*.sh*"		{ block }
 	
-	# Prevent access to data folder
+	# Prevent access to data folder, if it's also in the web root
 	location "/cache/*"		{ block }
 	
 	# Remember to put static files (I.E. .css, .js etc...)
@@ -668,7 +674,7 @@ These are possible problems you may encounter and potential solutions to them. I
 
 	* If you're using custom CSS classes by adding them to "default_classes" in *config.json* or by adding them to DEFAULT_CLASSES in *index.php*, try changing or removing these to see if it makes a difference.
 
-	* If you're using [Parsedown](https://github.com/erusev/parsedown) with or without [Parsedown Extra](https://github.com/erusev/parsedown-extra), make sure these files are in the same folder as *index.php*. If your post did look the way you want before adding these files, rename them to *Parsedown.bak* and *ParsedownExtra.bak* and see if that made a difference. If you downloaded these from the web or copied them via USB drive, the files may need execute permission for your webserver or PHP to be able to use them.
+	* If you're using [Parsedown](https://github.com/erusev/parsedown) with or without [Parsedown Extra](https://github.com/erusev/parsedown-extra), make sure these files are in the same folder as *index.php*. If your post did look the way you want before adding these files, rename them to *Parsedown.bak* and *ParsedownExtra.bak* and see if that made a difference. If you downloaded these from the web or copied them via USB drive, the files may need execute permission for your webserver or PHP to be able to use them. **Note:** As of this writing, Parsedown has only been tested on older versions of PHP which Bare itself no longer supports.
 	
 * **Problem: I see a message in errors.log in the CACHE folder**
 	* **Error retrieving posts from...**
