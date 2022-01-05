@@ -4,63 +4,8 @@
  */
 
 /**
- *  Relative path based on current file location
+ *  The following 4 settings can also be set in config.json
  */
-define( 'PATH',		\realpath( \dirname( __FILE__ ) ) . '/' );
-// Use this instead if you keep scripts outside the web root
-// define( 'PATH',	\realpath( \dirname( __FILE__, 2 ) ) . '/htdocs/' );
-
-// Global post directory
-define( 'POSTS',	PATH . 'posts/' );
-// Add posts to "posts/example.com/" to blog separately on multiple domains
-
-// Cache directory. Must be writable (chmod -R 0755 on *nix)
-define( 'CACHE',	PATH . 'cache/' );
-// Use this instead if you keep the cache outside the web root
-// define( 'CACHE',	\realpath( \dirname( __FILE__, 2 ) ) . '/cache/' );
-
-// Cached index timeout
-define( 'CACHE_TTL',	3200 );
-
-// Uploaded file location (usually the same as POSTS)
-define( 'FILE_PATH',	POSTS );
-// Use this instead if you keep uploaded files outside the web root
-// define( 'FILE_PATH',	\realpath( \dirname( __FILE__, 2 ) ) . '/uploads/' );
-// Add files to a relative path E.G. 'example.com/' to keep multi-site content separate
-
-// Configuration filename (optional, overrides some constants here)
-define( 'CONFIG',	'config.json' );
-
-// Error log filename (will be created if it doesn't exist)
-define( 'ERROR',	'errors.log' );
-
-// Visitor error log (will be created if if doesn't exist)
-define( 'ERROR_VISIT',	'visitor_errors.log' );
-
-// Special notices and other messages that aren't errors but should be recorded
-define( 'NOTICE',	'notices.log' );
-
-// Custom error file folder (optional)
-define( 'ERROR_ROOT',	PATH . 'errors/' );
-// Use this if error files are outside web root
-// define( 'ERROR_ROOT',	\realpath( \dirname( __FILE__, 2 ) ) . '/errors/' );
-
-// Plugins directory
-define( 'PLUGINS',	PATH . 'plugins/' );
-// Use this if you keep plugins outside the web root
-// define( 'PLUGINS',		\realpath( \dirname( __FILE__, 2 ) ) . '/plugins/' );
-
-// Relative path of assets (JS, CSS etc... ) within the folders of each plugin
-define( 'PLUGIN_ASSETS',	'assets/' );
-
-// Writable directory inside cache for plugin data (not directly browsable by visitors)
-define( 'PLUGIN_DATA',	CACHE . 'plugins/' );
-
-// Whitelisted plugins as comma separated list
-define( 'PLUGINS_ENABLED', '' );
-
-// Friendly date format
-define( 'DATE_NICE',	'l, F j, Y' );
 
 // Site title
 define( 'PAGE_TITLE',	'Rustic Cyberpunk' );
@@ -70,6 +15,14 @@ define( 'PAGE_SUB',	'Coffee. Code. Cabins.' );
 
 // Number of posts per page
 define( 'PAGE_LIMIT',	12 );
+
+// Whitelisted plugins as comma separated list
+define( 'PLUGINS_ENABLED', '' );
+
+
+/**
+ *  These need to be set here in index.php
+ */
 
 /**
  *  Important:
@@ -86,6 +39,64 @@ define( 'SITE_WHITE',		<<<JSON
 }
 JSON
 );
+
+/**
+ *  Relative path based on current file location
+ */
+define( 'PATH',		\realpath( \dirname( __FILE__ ) ) . '/' );
+// Use this instead if you keep scripts outside the web root
+// define( 'PATH',	\realpath( \dirname( __FILE__, 2 ) ) . '/htdocs/' );
+
+// Global post directory
+define( 'POSTS',	PATH . 'posts/' );
+// Add posts to "posts/example.com/" to blog separately on multiple domains
+
+// Cache directory. Must be writable (chmod -R 0755 on *nix)
+define( 'CACHE',	PATH . 'cache/' );
+// Use this instead if you keep the cache outside the web root
+// define( 'CACHE',	\realpath( \dirname( __FILE__, 2 ) ) . '/cache/' );
+
+// Uploaded file location (usually the same as POSTS)
+define( 'FILE_PATH',	POSTS );
+// Use this instead if you keep uploaded files outside the web root
+// define( 'FILE_PATH',	\realpath( \dirname( __FILE__, 2 ) ) . '/uploads/' );
+// Add files to a relative path E.G. 'example.com/' to keep multi-site content separate
+
+// Custom error file folder (optional)
+define( 'ERROR_ROOT',	PATH . 'errors/' );
+// Use this if error files are outside web root
+// define( 'ERROR_ROOT',	\realpath( \dirname( __FILE__, 2 ) ) . '/errors/' );
+
+// Plugins directory
+define( 'PLUGINS',	PATH . 'plugins/' );
+// Use this if you keep plugins outside the web root
+// define( 'PLUGINS',		\realpath( \dirname( __FILE__, 2 ) ) . '/plugins/' );
+
+// Writable directory inside cache for plugin data (not directly browsable by visitors)
+define( 'PLUGIN_DATA',	CACHE . 'plugins/' );
+
+// Relative path of assets (JS, CSS etc... ) within the folders of each plugin
+define( 'PLUGIN_ASSETS',	'assets/' );
+
+// Configuration filename (optional, overrides most constants here)
+define( 'CONFIG',	'config.json' );
+
+// Error log filename (will be created if it doesn't exist)
+define( 'ERROR',	'errors.log' );
+
+// Visitor error log (will be created if if doesn't exist)
+define( 'ERROR_VISIT',	'visitor_errors.log' );
+
+// Special notices and other messages that aren't errors but should be recorded
+define( 'NOTICE',	'notices.log' );
+
+
+/**
+ *  The following settings can be overridden in config.json:
+ */
+
+// Cached index timeout
+define( 'CACHE_TTL',	3200 );
 
 // Default path parameters if any sites in the whitelist above didn't have any
 define( 'DEFAULT_BASEPATH',	<<<JSON
@@ -128,6 +139,11 @@ define( 'YEAR_END',	2099 );
 
 // Default language
 define( 'LANGUAGE',	'en-US' );
+
+// Friendly date format
+define( 'DATE_NICE',	'l, F j, Y' );
+// Note: Date format can also be overridden in [lang].config
+// E.G. In en-US.config, "date_nice": "l, F j, Y"
 
 // Default local timezone when not set in config.json
 define( 'TIMEZONE',		'America/New_York' );
@@ -232,7 +248,7 @@ LINES
 
 /**
  *  Comma delimited list of supported PHP versions
- *  Offically, Bare supports 7.3 and above
+ *  Officially, Bare supports 7.4 and above
  */
 define( 'SUPPORTED_PHP', '7.2, 7.3, 7.4, 8.0' );
 
@@ -807,6 +823,7 @@ HTML;
 
 /**
  *  Overridable CSS classes on HTML elements and content segments
+ *  These can also be set in config.json
  */
 define( 'DEFAULT_CLASSES', <<<JSON
 {
@@ -8662,7 +8679,11 @@ function extractMeta( array $find ) : array {
  *  Parse current post's type or send default type
  */
 function extractType( array $find ) : string {
-	return lowercase( labelName( $html['label'] ?? \POST_TYPE ) );
+	return 
+	lowercase( labelName( 
+		$find['label'] ?? 
+		config( 'post_type', \POST_TYPE )
+	) );
 }
 
 /**
