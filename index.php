@@ -2405,7 +2405,10 @@ function visitorError( int $code = 0, string $msg = '-' ) {
  *  Visitor disconnect event helper
  */
 function visitorAbort() {
-	ob_end_clean();
+	cleanOutput( true );
+	if ( !\headers_sent() ) {
+		httpCode( 205 );
+	}
 	visitorError( 499, 'Client disconnect' );
 	shutdown( 'cleanup' );
 	shutdown();
@@ -6770,11 +6773,29 @@ function setCacheExp( int $ttl ) {
 }
 
 /**
+ *  Clean the output buffer without flushing
+ *  
+ *  @param bool		$ebuf		End buffers
+ */
+function cleanOutput( bool $ebuf = false ) {
+	if ( $ebuf ) {
+		while ( \ob_get_level() > 0 ) {
+			\ob_end_clean();
+		}
+		return;
+	}
+	
+	while ( \ob_get_level() && \ob_get_length() > 0 ) {
+		\ob_clean();
+	}
+}
+
+/**
  *  Remove previously set headers, output
  */
 function scrubOutput() {
 	// Scrub output buffer
-	\ob_clean();
+	cleanOutput();
 	\header_remove( 'Pragma' );
 	
 	// This is best done in php.ini : expose_php = Off
@@ -7409,7 +7430,7 @@ function redirect(
 	int		$code		= 200,
 	string		$path		= ''
 ) {
-	\ob_end_clean();
+	cleanOutput( true );
 	
 	$url	= \parse_url( $path );
 	$host	= $url['host'] ?? '';
