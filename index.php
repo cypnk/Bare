@@ -7194,34 +7194,31 @@ function streamChunks( &$stream, int $start, int $end ) {
 	// Default chunk size
 	$csize	= config( 'stream_chunk_size', \STREAM_CHUNK_SIZE, 'int' );
 	$sent	= 0;
-	$tset	= false;
 	
 	fseek( $stream, $start );
 	
 	while ( !feof( $stream ) ) {
-		if ( !$tset ) {
-			// Turn off limit while streaming
-			\set_time_limit( 0 );
-			$tset = true;
-		}
-		
-		if ( $sent >= $end ) {
-			\set_time_limit( 30 );
-			break;
-		}
 		
 		// Check for aborted connection between flushes
 		if ( \connection_aborted() ) {
-			\set_time_limit( 30 );
 			fclose( $stream );
 			$stream = false;
 			visitorAbort();
 		}
 		
+		// End reached
+		if ( $sent >= $end ) {
+			flushOutput();
+			break;
+		}
+		
 		// Change chunk size when approaching the end of range
 		if ( $sent + $csize > $end ) {
-			$csize = $end - $sent;
+			$csize = ( $end + 1 ) - $sent;
 		}
+		
+		// Reset limit while streaming
+		\set_time_limit( 30 );
 		
 		$buf = fread( $stream, $csize );
 		echo $buf;
@@ -7256,6 +7253,7 @@ function sendFileFinish( $path ) {
 				shutdown( 'logError', 'Error opening ' . $path );
 				shutdown();
 			}
+			\stream_set_blocking( $stream, false );
 		}
 	
 		\header( "Content-Length: {$fsize}", true );
@@ -7954,6 +7952,7 @@ function sendFileRange( string $path, bool $dosend ) : bool {
 		sendError( 500, errorLang( "generic", \MSG_GENERIC ) );
 	}
 	
+	\stream_set_blocking( $stream, false );
 	
 	// Prepare partial content
 	sendFilePrep( $path, 206, false );
@@ -7990,8 +7989,10 @@ function sendFileRange( string $path, bool $dosend ) : bool {
 		}
 		
 		$limit = ( $r[1] > -1 ) ? $r[1] + 1 : $fsize;
-		streamChunks( $path, $r[0], $limit );
+		streamChunks( $stream, $r[0], $limit );
 	}
+	
+	fclose( $stream );
 	flushOutput( true );
 	return true;
 }
