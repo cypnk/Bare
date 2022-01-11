@@ -79,6 +79,7 @@ If you prefer to use [Composer](https://getcomposer.org/) to handle your environ
 ```
 
 ## Installation
+**Note**: These instructions are for the [releases](https://github.com/cypnk/Bare/releases). Only use released Bare versions.
 
 Upload the following to your web root:
 * .htaccess - Required only if using the Apache web server
@@ -465,7 +466,7 @@ pass out on egress proto { tcp, udp, icmp } all modulate state
 ```
 
 ## Running a TLS-enabled Bare blog on OpenBSD
-**Note:** Remember to point your DNS servers to your web public server's public IP address first.
+**Note:** Remember to point your DNS servers to your web server's public IP address first.
 
 This assumes you're already logged in as root and skips "doas". PHP installation is the same as above.
 
