@@ -4,7 +4,7 @@
  */
 
 /**
- *  The following 4 settings can also be set in config.json
+ *  The following 5 settings can also be set in config.json
  */
 
 // Site title
@@ -19,11 +19,6 @@ define( 'PAGE_LIMIT',	12 );
 // Whitelisted plugins as comma separated list
 define( 'PLUGINS_ENABLED', '' );
 
-
-/**
- *  These need to be set here in index.php
- */
-
 /**
  *  Important:
  *
@@ -33,12 +28,17 @@ define( 'PLUGINS_ENABLED', '' );
  *  'is_maintenance' Lets a plugin send an "under construction" placeholder
  *  'settings' Are for any plugins/helpers
  **/
-define( 'SITE_WHITE',		<<<JSON
+define( 'SITES_ENABLED',	<<<JSON
 {
 	"kpz62k4pnyh5g5t2efecabkywt2aiwcnqylthqyywilqgxeiipen5xid.onion" : []
 }
 JSON
 );
+
+
+/**
+ *  These need to be set here in index.php
+ */
 
 /**
  *  Relative path based on current file location
@@ -75,9 +75,6 @@ define( 'PLUGINS',	PATH . 'plugins/' );
 // Writable directory inside cache for plugin data (not directly browsable by visitors)
 define( 'PLUGIN_DATA',	CACHE . 'plugins/' );
 
-// Relative path of assets (JS, CSS etc... ) within the folders of each plugin
-define( 'PLUGIN_ASSETS',	'assets/' );
-
 // Configuration filename (optional, overrides most constants here)
 define( 'CONFIG',	'config.json' );
 
@@ -94,6 +91,9 @@ define( 'NOTICE',	'notices.log' );
 /**
  *  The following settings can be overridden in config.json:
  */
+
+// Relative path of assets (JS, CSS etc... ) within the folders of each plugin
+define( 'PLUGIN_ASSETS',	'assets/' );
 
 // Cached index timeout
 define( 'CACHE_TTL',	3200 );
@@ -250,9 +250,9 @@ LINES
 
 /**
  *  Comma delimited list of supported PHP versions
- *  Officially, Bare supports 7.4 and above
+ *  Officially, Bare supports 8.0 and above
  */
-define( 'SUPPORTED_PHP', '7.2, 7.3, 7.4, 8.0' );
+define( 'SUPPORTED_PHP', '8.0, 8.1' );
 
 
 /**
@@ -1124,7 +1124,7 @@ JSON
 );
 
 // Content Security and Permissions Policy headers
-define( 'DEFAULT_SECPOLICY',	<<<JSON
+define( 'SECURITY_POLICY',	<<<JSON
 {
 	"content-security-policy": {
 		"default-src"			: "'none'",
@@ -3517,7 +3517,8 @@ function render(
 	$input['home']		= $input['home']	?? homeLink();
 	$input['feedlink']	= $input['feedlink']	?? feedLink();
 	$input['plugin_assets']	= 
-		$input['plugin_assets'] ?? \PLUGIN_ASSETS;
+		$input['plugin_assets'] ?? 
+		slashPath( config( 'plugin_assets', \PLUGIN_ASSETS ), true );
 	
 	$out		= [];
 	
@@ -3567,13 +3568,7 @@ function genId( int $bytes = 16 ) : string {
  *  @return string
  */
 function genSeqId() : string {
-	if ( newPHP( '7.3' ) ) {
-		$t = ( string ) \hrtime( true );
-	} else {
-		list( $us, $se ) = 
-			\explode( ' ', \microtime() );
-		$t = $se . $us;
-	}
+	$t = ( string ) \hrtime( true );
 	
 	return 
 	\base_convert( $t, 10, 16 ) . \genId();
@@ -4217,22 +4212,8 @@ function makeCookie( string $name, $data, array $options = [] ) : bool {
 		'data'		=> $data, 
 		'options'	=> $options 
 	] ] );
-	if ( newPHP( '7.3' ) ) {
-		return 
-		\setcookie( appName() . "[$name]", $data, $options );
-	}
-	
-	// PHP < 7.3
 	return 
-	\setcookie( 
-		appName() . "[$name]", 
-		$data,
-		$options['expires'],
-		$options['path'],
-		$options['domain'],
-		$options['secure'],
-		$options['httponly']
-	);
+	\setcookie( appName() . "[$name]", $data, $options );
 }
 
 /**
@@ -4419,19 +4400,7 @@ function sessionCookieParams() : bool {
 	unset( $options['expires'] );
 	
 	hook( [ 'sessioncookieparams', $options ] );
-	if ( newPHP( '7.3' ) ) {
-		return \session_set_cookie_params( $options );
-	}
-	
-	// PHP < 7.3
-	return 
-	\session_set_cookie_params( 
-		$options['lifetime'], 
-		$options['path'], 
-		$options['domain'],
-		$options['secure'],
-		$options['httponly']
-	);
+	return \session_set_cookie_params( $options );
 }
 
 /**
@@ -6414,7 +6383,8 @@ function securityPolicy( string $policy ) : string {
 	
 	// Load defaults
 	if ( !isset( $p ) ) {
-		$p = decode( \DEFAULT_SECPOLICY );
+		$p = 
+		config( 'security_policy', \SECURITY_POLICY, 'json' );
 	}
 	
 	switch ( $policy ) {
@@ -6623,7 +6593,9 @@ function getSiteWhite() : array {
 	if ( isset( $sw ) ) {
 		return $sw;
 	}
-	$sw	= decode( \SITE_WHITE );
+	$sw	= 
+	config( 'sites_enabled', \SITES_ENABLED, 'json' );
+	
 	return $sw;
 }
 
@@ -6682,11 +6654,9 @@ function getHostPaths( string $host ) : array {
 	
 	// Add filler if empty
 	if ( empty( $sp[$host] ) ) {
-		$bp		= 
-		config( 'default_basepath', \DEFAULT_BASEPATH );
-		
-		$sp[$host]	= 
-		[ \is_array( $bp ) ? $bp : decode( ( string ) $bp ) ];
+		$sp[$host]	= [
+			config( 'default_basepath', \DEFAULT_BASEPATH, 'json' )
+		];
 	}
 	
 	$sa	= [];
@@ -7184,6 +7154,34 @@ function ifModified( $etag ) : bool {
 }
 
 /**
+ *  Open a file stream in binary mode and set blocking mode
+ *  
+ *  @param mixed	$stream		File resource or false if initializing
+ *  @param string	$path		File path
+ *  @return resource|false
+ */
+function openStream( &$stream, string $path ) {
+	$stream = fopen( $path, 'rb' );
+	if ( false === $stream ) {
+		return;
+	}
+	\stream_set_blocking( $stream, false );
+}
+
+/**
+ *  Close opened stream
+ *  
+ *  @param resource	$stream		Open file stream
+ */
+function closeStream( &$stream ) {
+	if ( false === $stream ) {
+		return;
+	}
+	fclose( $stream );
+	$stream = false;
+}
+
+/**
  *  Stream content in chunks within starting and ending limits
  *  
  *  @param resource	$stream		Open file stream
@@ -7201,8 +7199,7 @@ function streamChunks( &$stream, int $start, int $end ) {
 		
 		// Check for aborted connection between flushes
 		if ( \connection_aborted() ) {
-			fclose( $stream );
-			$stream = false;
+			closeStream( $stream );
 			visitorAbort();
 		}
 		
@@ -7246,14 +7243,13 @@ function sendFileFinish( $path ) {
 	
 		// Prepare resource if this is a large file
 		if ( $fsize > $climit ) {
-			$stream = fopen( $path, 'rb' );
+			openStream( $stream, $path );
 			if ( false === $stream ) {
 				// Don't send error or this may loop
 				// Error handlers also use this function
 				shutdown( 'logError', 'Error opening ' . $path );
 				shutdown();
 			}
-			\stream_set_blocking( $stream, false );
 		}
 	
 		\header( "Content-Length: {$fsize}", true );
@@ -7280,12 +7276,12 @@ function sendFileFinish( $path ) {
 	flushOutput( true );
 	
 	if ( ifModified( $etag ) ) {
-		if ( $stream !== false ) {
-			streamChunks( $stream, 0, $fsize );
-			fclose( $stream );
+		if ( $stream === false ) {
+			\readfile( $path );
 			return;
 		}
-		\readfile( $path );
+		streamChunks( $stream, 0, $fsize );
+		closeStream( $stream );
 	}
 }
 
@@ -7946,13 +7942,11 @@ function sendFileRange( string $path, bool $dosend ) : bool {
 		return true;
 	}
 	
-	$stream	= fopen( $path, 'rb' );
+	openStream( $stream, $path );
 	if ( false === $stream ) {
 		shutdown( 'logError', 'Error opening ' . $path );
 		sendError( 500, errorLang( "generic", \MSG_GENERIC ) );
 	}
-	
-	\stream_set_blocking( $stream, false );
 	
 	// Prepare partial content
 	sendFilePrep( $path, 206, false );
@@ -7992,7 +7986,7 @@ function sendFileRange( string $path, bool $dosend ) : bool {
 		streamChunks( $stream, $r[0], $limit );
 	}
 	
-	fclose( $stream );
+	closeStream( $stream );
 	flushOutput( true );
 	return true;
 }
@@ -10525,6 +10519,14 @@ function showHome( string $event, array $hook, array $params ) {
 	}
 	
 	internalState( 'homeFound', true );
+	hook( [ 'showhomepage', [
+		'home'	=> $post,
+		'params'=> $params
+	] ] );
+	
+	// Override home content if hook was rendered
+	sendOverride( 'showhomepage' );
+	
 	staticPage( 'home', '/', \DEFAULT_MAIN_LINKS, $post );
 }
 
@@ -10541,6 +10543,18 @@ function showAbout( string $event, array $hook, array $params ) {
 		sendNotFound();
 	}
 	
+	internalState( 'aboutFound', true );
+	hook( [ 'showaboutpage', [
+		'path'	=> $path,
+		'file'	=> $apath,
+		'about'	=> $post,
+		'params'=> $params
+	] ] );
+	
+	// Override about content if hook was rendered
+	sendOverride( 'showaboutpage' );
+	
+	// Fallback to preset about
 	staticPage( 'about', '/about/' . $path, \DEFAULT_ABOUT_LINKS, $post );
 }
 
