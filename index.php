@@ -4005,10 +4005,13 @@ function loadPlugins( string $event, array $hook, array $params ) {
 	// Preload templates
 	$templates	= $params['templates'] ?? [];
 	
+	// Plugin root
+	$pr	= slashPath( \PLUGINS, true );
+	
 	foreach ( $plugins as $p ) {
 		// Generate and check full plugin file path
-		$path = \PLUGINS . $p . DIRECTORY_SEPARATOR . $p . '.php';
-		if ( empty( filterDir( $path, \PLUGINS ) ) ) {
+		$path = $pr . $p . DIRECTORY_SEPARATOR . $p . '.php';
+		if ( empty( filterDir( $path, $pr ) ) ) {
 			$msg[]		= $p;
 			continue;
 		}
@@ -4033,7 +4036,7 @@ function loadPlugins( string $event, array $hook, array $params ) {
 			'logError', 
 			'Error loading plugins(s): ' . 
 				\implode( ', ', $msg ) . 
-				' From directory: ' . \PLUGINS
+				' From directory: ' . $pr
 		);
 	}
 	hook( [ 'pluginsLoaded', [ 'plugins' => $p, 'failed' => $msg ] ] );
@@ -8014,6 +8017,10 @@ function sendPluginFile(
 	// Check if ranged request
 	$frange	= getFileRange();
 	
+	// Plugin root and asset folders
+	$pr	= slashPath( \PLUGINS, true );
+	$pa	= slashPath( config( 'plugin_assets', \PLUGIN_ASSETS ), true );
+	
 	foreach ( $loaded as $p ) {
 		// Check if first path fragment is the same as the plugin name
 		if ( 0 !== \strcasecmp( $p, $plugin ) ) {
@@ -8021,8 +8028,7 @@ function sendPluginFile(
 		}
 		
 		// Send first occurence of file within the assets of each plugin
-		$fpath = 
-		\PLUGINS . $p . DIRECTORY_SEPARATOR . \PLUGIN_ASSETS . $path;
+		$fpath = $pr . $p . DIRECTORY_SEPARATOR . $pa . $path;
 		if ( \file_exists( $fpath ) ) {
 			if ( empty( $frange ) ) {
 				return $dosend ? sendWithEtag( $fpath ) : true;
