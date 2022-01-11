@@ -42,7 +42,7 @@ Use the [Tor Browser Bundle](https://www.torproject.org/) to visit.
 
 ## Requirements
 * Webserver capable of handling URL rewrites (Apache, Nginx etc...)
-* PHP Version 8+ (will work on 7.4 for now, but support for the 7.x branch will be phased out)
+* PHP Version 8+
 
 The following PHP extensions may need to be installed or enabled in **php.ini**:
 * pdo_sqlite (*required*)
@@ -54,7 +54,7 @@ The following PHP extensions may need to be installed or enabled in **php.ini**:
 
 **Note:** Various Windows and Unix-like platforms have differing locations for [php.ini](https://www.php.net/manual/en/configuration.file.php). Check your installation or contact your administrator to gain access to this file.
 
-Remember to backup **php.ini** before making changes to it.
+Remember to backup **php.ini** before making changes to it. 
 
 The GD extension (gd2) is suggested as future plugins may use it however it is not required for core functionality.
 
@@ -87,9 +87,11 @@ Upload the following to your web root:
 * /posts folder - Contains your posts (use your favorite editor)
 * /cache folder - Formatted cache
 
-The following changes are to the settings in *index.php*, which also has the default theme so there are no other files to edit.
+The following changes are to the settings in *index.php*, which also has the default theme so there are no other files to edit. 
 
-Add your site's domain name, E.G. *example.com*, to the whitelist in SITE_WHITE (currently, the author's Tor blog is in this place):
+An optional **config.json** file can be created in the */cache* folder to override all but a few configuration defaults. The **config.json** uses typical [JSON formating](https://en.wikipedia.org/wiki/JSON) and will make it easier to upgrade Bare.
+
+Add your site's domain name, E.G. *example.com*, to SITES_ENABLED in **index.php** (currently, the author's Tor blog is in this place) or to the 'sites_enabled' setting in the **config.json** file:
 ```
 {
 	"example.com" : []
@@ -102,7 +104,7 @@ And if testing for both *example.com* and locally on localhost:
 	"localhost" : []
 }
 ```
-Bare is multi-site capable. If you want to host different posts for different domains, publish your posts in */posts/example.com/* 
+Bare is multi-site capable. If you want to host different posts for different domains, publish your posts in */posts/example.com/* after adding your additional domains to the above list. 
 
 ### Multiple blogs or shared content
 Hosting a blog in a subfolder instead of the main domain:
@@ -145,8 +147,6 @@ And then, follow the conventions in the example post:
 ```
 /posts/2018/09/22/a-new-post.md
 ```
-
-An optional **config.json** file can be created in the */cache* folder to override all but a handful of configuration defaults.
 
 There is also a [plugin](https://github.com/cypnk/Bare-Plugins) project for Bare.
 
@@ -660,7 +660,7 @@ These are possible problems you may encounter and potential solutions to them. I
 	* At a minimum, check if you have PHP enabled and, as a test, create a plain *index.php* file with just `<?php echo 1;` in it and see if it prints "1". If you still don't see anything, then PHP is not installed or not configured correctly for your webserver.
 
 * **Problem: I see a 404 error on the homepage, or 400 error or "Invalid request" error**  
-	* Check if your domain name is added to the host whitelist. This is SITE_WHITE in *index.php*. Bare should also work with your server's IP address if you don't yet have a domain name.  
+	* Check if your domain name is added to the host whitelist. This is SITES_ENABLED in *index.php* or 'sites_enabled' in *config.json*. Bare should also work with your server's IP address if you don't yet have a domain name.  
 	
 	* If you're hosting multiple blogs or your Bare blog is on a subfolder or different domain, follow the [multiple blog instructions](#multiple-blogs-or-shared-content).
 
