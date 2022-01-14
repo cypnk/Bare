@@ -4418,6 +4418,8 @@ function session( $reset = false ) {
 	}
 	
 	if ( \session_status() !== \PHP_SESSION_ACTIVE ) {
+		\session_cache_limiter( '' );
+		
 		sessionCookieParams();
 		\session_name( appName() );
 		\session_start();
