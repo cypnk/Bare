@@ -4413,7 +4413,6 @@ function sessionCookieParams() : bool {
  *  @param bool		$reset		Reset session ID if true
  */
 function session( $reset = false ) {
-	\session_cache_limiter( '' );
 	if ( \session_status() === \PHP_SESSION_ACTIVE && !$reset ) {
 		return;
 	}
