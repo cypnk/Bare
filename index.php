@@ -4438,6 +4438,21 @@ function session( $reset = false ) {
 }
 
 /**
+ *  Mark certain URIs as disabled for throttling
+ * 
+ *  @param string	$path	Disabled path
+ */
+function throttleDisabled( ?string $path ) {
+	static $uris = [];
+	if ( null === $path ) {
+		return $uris;
+	}
+	
+	$uris[] = $path;
+	$uris	= \array_unique( $uris );
+}
+
+/**
  *  Last visit session data and timeouts
  *  
  *  @return int
@@ -4448,8 +4463,9 @@ function lastVisit() : int {
 	// Default return state
 	$check 	= \SESSION_STATE_FRESH;
 	
-	// Check for generally safe extensions requested 
-	$nice	= isSafeExt( getURI() );
+	// Check for generally safe extensions requested or throttle disabled uri
+	$uri	= getURI();
+	$nice	= isSafeExt( $uri ) || textStartsWith( $uri, throttleDisabled( null ) );
 	
 	// First visit?
 	$last	= $_SESSION['last'] ?? [];
