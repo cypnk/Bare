@@ -537,7 +537,7 @@ $templates['tpl_post']		= <<<HTML
 	</div>
 	</header>{before_post_body}
 	<div class="{post_body_wrap_classes}">
-		<div class="{post_body_content_classes">{body}</div>
+		<div class="{post_body_content_classes}">{body}</div>
 		<div class="{post_body_tag_classes}">{tags}</div>
 	</div>{after_post_body}
 	</div>{after_full_post}
@@ -6311,6 +6311,11 @@ function markdown(
 			);
 		}
 		];
+		
+		// Merge custom markdown filters
+		hook( [ 'markdownfilter', [ 'filters' => $filters ] ] );
+		$filters = 
+		hookArrayResult( 'markdownfilter' )['filters'] ?? $filters;
 	}
 	
 	return
