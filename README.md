@@ -223,8 +223,6 @@ or
 
 ```
 
-Optionally, Bare will use the [Parsedown](https://github.com/erusev/parsedown) and the [ParsedownExtra](https://github.com/erusev/parsedown-extra) classes to format Markdown, if these files are present in the same folder as *index.php*. **Note:** Parsedown has only been tested (as of this writing) in older PHP versions which Bare itself no longer supports, however most Markdown formatting should work the same way. Parsedown loading has been left in for backward compatibility.
-
 ## Custom errors (optional)
 
 A separate */errors* folder can be used to create custom error pages for each HTTP status code. The location of the */errors* folder is configurable via the ERROR_ROOT setting.
@@ -674,8 +672,6 @@ These are possible problems you may encounter and potential solutions to them. I
 	* If you're using any custom templates added to *index.php* or by using the [templates plugin](https://github.com/cypnk/Bare-Plugins/tree/master/templates), see if the post looks correctly without these changes.
 
 	* If you're using custom CSS classes by adding them to "default_classes" in *config.json* or by adding them to DEFAULT_CLASSES in *index.php*, try changing or removing these to see if it makes a difference.
-
-	* If you're using [Parsedown](https://github.com/erusev/parsedown) with or without [Parsedown Extra](https://github.com/erusev/parsedown-extra), make sure these files are in the same folder as *index.php*. If your post did look the way you want before adding these files, rename them to *Parsedown.bak* and *ParsedownExtra.bak* and see if that made a difference. If you downloaded these from the web or copied them via USB drive, the files may need execute permission for your webserver or PHP to be able to use them. **Note:** As of this writing, Parsedown has only been tested on older versions of PHP which Bare itself no longer supports.
 	
 * **Problem: I see a message in errors.log in the CACHE folder**
 	* **Error retrieving posts from...**
