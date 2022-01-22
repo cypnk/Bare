@@ -132,10 +132,7 @@ define( 'MAX_PAGE',	500 );
 define( 'MAX_URL_SIZE',	512 );
 
 // Starting date for post archive
-define( 'YEAR_START',	2015 );
-
-// Ending date for post archive
-define( 'YEAR_END',	2099 );
+define( 'YEAR_START',	1990 );
 
 // Default language
 define( 'LANGUAGE',	'en-US' );
@@ -4687,12 +4684,12 @@ function isASCII( string $text ) : bool {
  *  Check if a string contains a fragment
  *  
  *  @param mixed	$source		Original text
- *  @param strin	$term		Search term
+ *  @param string	$term		Search term
  */
 function textHas( $source, string $term ) : bool {
 	return 
 	( empty( $source ) || empty( $term ) ) ? 
-		false : ( false !== \strpos( ( string ) $source, $term ) );
+		false : \str_contains( ( string ) $source, $term );
 }
 
 /**
@@ -4705,16 +4702,18 @@ function textHas( $source, string $term ) : bool {
  */
 function textStartsWith( string $find, array $collection, bool $ca = true ) {
 	if ( $ca ) {
+		$find = \strtolower( $find );
 		foreach ( $collection as $c ) {
-			if ( 0 === \strncasecmp( $find, $c, strsize( $c ) ) ) {
+			if ( \str_starts_with( $find, \strtolower( $c ) ) ) {
 				return true;
 			}
-		} 
-	} else {
-		foreach ( $collection as $c ) {
-			if ( 0 === \strncmp( $find, $c, strsize( $c ) ) ) {
-				return true;
-			}
+		}
+		return false;
+	}
+	
+	foreach ( $collection as $c ) {
+		if ( \str_starts_with( $find, $c ) ) {
+			return true;
 		}
 	}
 	return false;
@@ -4836,13 +4835,8 @@ function title( $text, int $max = 255 ) : string {
 	}
 	
 	// Unify spaces, tabs, returns etc...
-	$text	= 
-	unifySpaces( 
-		\is_string( $text ) ? $text : ( string ) $text 
-	);
-	
 	return 
-	smartTrim( \preg_replace( '/\s+/', ' ', $text ), $max );
+	smartTrim( unifySpaces( ( string ) $text ), $max );
 }
 
 /**
@@ -5506,16 +5500,15 @@ function prependPath( string $v, string $prefix ) : string {
  *  @return string
  */
 function cleanFormEnctype( string $v ) : string {
-	$v = trim( $v );
-	if (
-		0 == \strcasecmp( $v, 'application/x-www-form-urlencoded' )	|| 
-		0 == \strcasecmp( $v, 'multipart/form-data' )			|| 
-		0 == \strcasecmp( $v, 'text/plain' )
-	) {
-		return $v;
-	}
+	static $ft = [
+		'application/x-www-form-urlencoded',
+		'multipart/form-data',
+		'text/plain'
+	];
 	
-	return 'application/x-www-form-urlencoded';
+	$v = \strtolower( trim( $v ) );
+	return \in_array( $v, $ft ) ?
+		$v : 'application/x-www-form-urlencoded';
 }
 
 /**
@@ -5525,15 +5518,10 @@ function cleanFormEnctype( string $v ) : string {
  *  @return string
  */
 function cleanFormMethodType( string $v ) : string {
-	$v = trim( $v );
-	if (
-		0 == \strcasecmp( $v, 'GET' )	|| 
-		0 == \strcasecmp( $v, 'POST' )
-	) {
-		return $v;
-	}
+	static $fm = [ 'get', 'post' ];
 	
-	return 'get';
+	$v = \strtolower( trim( $v ) );
+	return \in_array( $v, $fm ) ? $v : 'get';
 }
 
 /**
@@ -5770,12 +5758,13 @@ function html(
 	}
 	
 	if ( !isset( $white['html'] ) ) {
-		$default_tags = decode( TAG_WHITE );
+		$default_tags = config( 'tag_white', \TAG_WHITE, 'json' );
 		
 		// Include form tags
 		$default_form = 
 		\array_merge_recursive( 
-			$default_tags, decode( FORM_WHITE ) 
+			$default_tags, 
+			config( 'form_white', \FORM_WHITE, 'json' )
 		);
 		
 		// Tag loader hook
@@ -6148,42 +6137,6 @@ function embeds( string $html, string $prefix = ''  ) : string {
 }
 
 /**
- *  Get the parsedown class loaded
- */
-function getParsedown() {
-	static $parse;
-	
-	if ( isset( $parse ) ) {
-		return $parse;
-	}
-	
-	// Parsedown.php is required at a minimum
-	if ( !\class_exists( 'Parsedown' ) ) {
-		if ( \file_exists( PATH . 'Parsedown.php' ) ) {
-			require( PATH . 'Parsedown.php' );
-		} else {
-			$parse	= null;
-			return null;
-		}
-	}
-	
-	// Optinally load ParsedownExtra.php
-	if ( \class_exists( 'ParsedownExtra' ) ) {
-		$parse = new ParsedownExtra();
-	} else {
-		if ( \file_exists( PATH . 'ParsedownExtra.php' ) ) {
-			require( PATH . 'ParsedownExtra.php' );
-			$parse		= new ParsedownExtra();
-		} else {
-			// Only Parsdown present
-			$parse = new Parsedown();
-		}
-	}
-	
-	return $parse;
-}
-
-/**
  *  Convert Markdown formatted text into HTML tags
  *  
  *  Inspired by : 
@@ -6197,15 +6150,9 @@ function markdown(
 	string	$html,
 	string	$prefix = '' 
 ) {
-	// Try to load Parsedown, if possible
-	$parse		= getParsedown();
-	if ( !empty( $parse ) ) {
-		return $parse->text( $html );
-	}
-	
 	static $filters;
 	
-	if ( !isset( $filters ) ) {
+	if ( empty( $filters ) ) {
 		$filters	= 
 		[
 		// Links / Images with alt text and titles
@@ -9487,7 +9434,7 @@ function filterRequest( string $event, array $hook, array $params ) {
 	$now	= time();
 	$mpage	= config( 'max_page', \MAX_PAGE, 'int' );
 	$ys	= config( 'year_start', \YEAR_START, 'int' );
-	$ye	= config( 'year_end', \YEAR_END, 'int' );
+	$ye	= ( int ) \date( 'Y', $now );
 	
 	$filter	= [
 		'id'	=> [
@@ -9510,8 +9457,7 @@ function filterRequest( string $event, array $hook, array $params ) {
 			'options'	=> [
 				'min_range'	=> $ys,
 				'max_range'	=> $ye,
-				'default'	=> 
-				( int ) \date( 'Y', $now )
+				'default'	=> $ye
 			]
 		],
 		'month'	=> [
@@ -11040,6 +10986,8 @@ function runIndex( string $event, array $hook, array $params ) {
  *  @param array	$params		Current configuration
  */
 function checkConfig( string $event, array $hook, array $params ) {
+	$ye = ( int ) \date( 'Y' );
+	
 	$filter	= [
 		'page_title'	=> \FILTER_SANITIZE_STRING,
 		'page_sub'	=> \FILTER_SANITIZE_STRING,
@@ -11145,18 +11093,9 @@ function checkConfig( string $event, array $hook, array $params ) {
 		'year_start'	=> [
 			'filter'	=> \FILTER_VALIDATE_INT,
 			'options'	=> [
-				'min_range'	=> 1990,
-				'max_range'	=> ( int ) \date( 'Y' ),
+				'min_range'	=> \YEAR_START,
+				'max_range'	=> $ye,
 				'default'	=> \YEAR_START
-			]
-		],
-		
-		'year_end'	=> [
-			'filter'	=> \FILTER_VALIDATE_INT,
-			'options'	=> [
-				'min_range'	=> 1990,
-				'max_range'	=> ( int ) \date( 'Y' ),
-				'default'	=> \YEAR_END
 			]
 		],
 		
