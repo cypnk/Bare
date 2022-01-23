@@ -2149,7 +2149,7 @@ function intRange( $val, int $min, int $max ) : int {
  *  Logging safe string
  */
 function logStr( $text, int $len = 255 ) : string {
-	return truncate( pacify( ( string ) ( $text ?? '' ) ), 0, $len );
+	return truncate( unifySpaces( ( string ) ( $text ?? '' ) ), 0, $len );
 }
 
 /**
@@ -2185,9 +2185,9 @@ function appName() : string {
 	if ( isset( $app ) ) {
 		return $app;
 	}
-	$app = title( config( 'app_name', \APP_NAME ) );
+	$app = labelName( config( 'app_name', \APP_NAME ) );
 	if ( empty( $app ) ) {
-		$app = title( \APP_NAME );
+		$app = labelName( \APP_NAME );
 	}
 	return $app;
 }
@@ -7092,6 +7092,22 @@ function sendDenied(
 }
 
 /**
+ *  Send method not allowed
+ *  
+ *  @param string	$vlog		Logged error message
+ *  @param string	$msg		Language error sent to visitor
+ *  @param string	$default	Fallback language error message
+ */
+function sendBadMethod(
+	string	$vlog		= 'Method', 
+	string	$msg		= 'badmethod', 
+	string	$default	= \MSG_BADMETHOD 
+) {
+	visitorError( 405, $vlog );
+	sendError( 405, errorLang( $msg, $default ) );	
+}
+
+/**
  *  Send not found page and log the visit
  *  
  *  @param string	$vlog		Logged error message
@@ -7146,14 +7162,13 @@ function genEtag( $path ) {
 }
 
 /**
- *  Adjust text mime-type based on path extension
+ *  File mime-type detection helper
  *  
- *  @param mixed	$mime		Discovered mime-type
- *  @param string	$path		File name or path name
- *  @param mixed	$ext		Given extension (optional)
- *  @return string Adjusted mime type
+ *  @param string	$path	Fixed file path
+ *  @return string
  */
-function adjustMime( $mime, $path, $ext = null ) : string {
+function detectMime( string $path ) : string {
+	$mime = \mime_content_type( $path );
 	if ( false === $mime ) {
 		return 'application/octet-stream';
 	}
@@ -7161,10 +7176,9 @@ function adjustMime( $mime, $path, $ext = null ) : string {
 	// Override text types with special extensions
 	// Required on some OSes like OpenBSD
 	if ( 0 === \strcasecmp( $mime, 'text/plain' ) ) {
-		$e	= 
-		$ext ?? \pathinfo( $path, \PATHINFO_EXTENSION ) ?? '';
+		$ext = \pathinfo( $path, \PATHINFO_EXTENSION ) ?? '';
 		
-		switch( \strtolower( $e ) ) {
+		switch( \strtolower( $ext ) ) {
 			case 'css':
 				return 'text/css';
 				
@@ -7180,17 +7194,6 @@ function adjustMime( $mime, $path, $ext = null ) : string {
 	}
 	
 	return \strtolower( $mime );
-}
-
-/**
- *  File mime-type detection helper
- *  
- *  @param string	$path	Fixed file path
- *  @return string
- */
-function detectMime( string $path ) : string {
-	return adjustMime( \mime_content_type( $path ), $path );
-	
 }
 
 /**
@@ -7649,10 +7652,11 @@ function checkMethodRoutes( string $verb, array $routes ) {
 	$mfound	= false;
 	
 	// Filter routes for methods without any handlers
-	foreach( $routes as $r ) {
+	foreach ( $routes as $r ) {
 		// Method has a handler
-		if ( 0 === \strcmp( $r[0], $verb ) ) {
+		if ( 0 === \strcasecmp( $r[0], $verb ) ) {
 			$mfound = true;
+			break;
 		}
 	}
 	
@@ -7739,9 +7743,15 @@ function request( string $event, array $hook, array $params ) : array {
 	
 	// Unrecognized method?
 	if ( !\in_array( $verb, $safe ) ) {
-		// Send method not allowed
-		visitorError( 405, 'Method' );
-		sendError( 405, errorLang( "badmethod", \MSG_BADMETHOD ) );
+		sendBadMethod();
+	}
+	
+	// If posting isn't allowed files should be empty
+	if ( 
+		!config( 'allow_post', \ALLOW_POST, 'bool' ) && 
+		!empty( $_FILES ) 
+	) {
+		sendBadMethod();
 	}
 	
 	// Request path hard limit
@@ -7761,11 +7771,10 @@ function request( string $event, array $hook, array $params ) : array {
 		sendError( 400, errorLang( "invalid", \MSG_INVALID ) );
 	}
 	
-	// Possible XSS, directory traversal, or file upload detected
+	// Possible XSS, directory traversal
 	if ( 
 		\preg_match( RX_XSS3, $path ) || 
-		\preg_match( RX_XSS4, $path ) || 
-		!empty( $_FILES )
+		\preg_match( RX_XSS4, $path )
 	) {
 		sendDenied();
 	}
