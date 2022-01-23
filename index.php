@@ -4919,7 +4919,7 @@ function labelName( string $text ) : string {
 	
 	return 
 	smartTrim( \preg_replace( 
-		'/^[a-zA-Z0-9_\-\.]/i', '', normal( $text ) 
+		'/[^a-z0-9_\-\.]/i', '', normal( $text ) 
 	), 50 );
 }
 
