@@ -6659,6 +6659,9 @@ function formatSites( array $sites ) : array {
 			
 			// Set maintenance mode
 			$b['is_maintenance'] ??= 0;
+			
+			// Custom site settings or empty array
+			$b['settings'] ??= [];
 			$f[] = $b;
 		}
 		
