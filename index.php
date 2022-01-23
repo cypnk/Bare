@@ -3743,7 +3743,8 @@ function getDb( string $dsn, string $mode = 'get' ) {
 	$first_run	= !\file_exists( $dsn );
 	
 	$opts	= [
-		\PDO::ATTR_TIMEOUT		=> \DATA_TIMEOUT,
+		\PDO::ATTR_TIMEOUT		=> 
+			config( 'data_timeout', \DATA_TIMEOUT, 'int' ),
 		\PDO::ATTR_DEFAULT_FETCH_MODE	=> \PDO::FETCH_ASSOC,
 		\PDO::ATTR_PERSISTENT		=> false,
 		\PDO::ATTR_EMULATE_PREPARES	=> false,
@@ -11102,6 +11103,20 @@ function checkConfig( string $event, array $hook, array $params ) {
 				\FILTER_REQUIRE_ARRAY
 		],
 		
+		// Mail sender address
+		'mail_from'	=> [
+			'filter'	=> \FILTER_VALIDATE_EMAIL,
+			'options'	=> [
+				'default'	=> \MAIL_FROM
+			]
+		],
+		
+		// Mail receiver list
+		'mail_whitelist'=> [
+			'filter'	=> \FILTER_VALIDATE_EMAIL,
+			'flags'		=> \FILTER_REQUIRE_ARRAY
+		],
+		
 		// Post tagging
 		'tag_limit'	=> [
 			'filter'	=> \FILTER_VALIDATE_INT,
@@ -11119,6 +11134,16 @@ function checkConfig( string $event, array $hook, array $params ) {
 				'min_range'	=> 300,
 				'max_range'	=> 604800,
 				'default'	=> \CACHE_TTL
+			]
+		],
+		
+		// Database connection timeout
+		'data_timeout'	=> [
+			'filter'	=> \FILTER_VALIDATE_INT,
+			'options'	=> [
+				'min_range'	=> 1,
+				'max_range'	=> 60,
+				'default'	=> \DATA_TIMEOUT
 			]
 		],
 		
@@ -11166,6 +11191,14 @@ function checkConfig( string $event, array $hook, array $params ) {
 			'options' => [
 				'default' => \READTIME_TYPES
 			]
+		],
+		'plugins_enabled'=> [
+			'filter'	=> \FILTER_SANITIZE_SPECIAL_CHARS,
+			'flags'		=> 
+				\FILTER_FLAG_STRIP_LOW	| 
+				\FILTER_FLAG_STRIP_HIGH	| 
+				\FILTER_FLAG_STRIP_BACKTICK | 
+				\FILTER_REQUIRE_ARRAY
 		],
 		
 		// Session settings
@@ -11277,9 +11310,15 @@ function checkConfig( string $event, array $hook, array $params ) {
 		
 		// Templating settings
 		'shared_assets'	=> [
-			'filter'=> \FILTER_VALIDATE_URL,
-			'options' => [
+			'filter'	=> \FILTER_VALIDATE_URL,
+			'options'	=> [
 				'default' => \SHARED_ASSETS
+			],
+		],
+		'plugin_assets'	=> [
+			'filter'	=> \FILTER_VALIDATE_URL,
+			'options'	=> [
+				'default' => \PLUGIN_ASSETS
 			],
 		],
 		'style_limit'	=> [
@@ -11320,6 +11359,11 @@ function checkConfig( string $event, array $hook, array $params ) {
 	if ( isset( $data['nonce_hash'] ) ) {
 		$data['nonce_hash']	= 
 		hashAlgo( ( string ) $data['nonce_hash'], \NONCE_HASH );
+	}
+	
+	if ( isset( $data['plugins_enabled'] ) ) {
+		$pl = \array_map( 'trim', $data['plugins_enabled'] );
+		$data['plugins_enabled'] = \array_map( 'strtolower', $pl );
 	}
 	
 	return \array_merge( $hook, $data );
