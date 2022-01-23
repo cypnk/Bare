@@ -6590,6 +6590,77 @@ function httpCode( int $code ) {
 }
 
 /**
+ *  Format available sites with default parameters
+ *  
+ *  @param array	$sites		Available sites
+ *  @return array
+ */
+function formatSites( array $sites ) : array {
+	if ( empty( $sites ) ) {
+		return [];
+	}
+	
+	$se = [];
+	foreach ( $sites as $host => $base ) {
+		// Skip if invalid hostname
+		if ( false === \filter_var( 
+			$host, 
+			\FILTER_VALIDATE_DOMAIN,
+			\FILTER_FLAG_HOSTNAME
+		) ) {
+			continue;
+		}
+		
+		// Add default site if empty
+		if ( empty( $base ) ) {
+			$base	= [
+				config( 
+					'default_basepath', 
+					\DEFAULT_BASEPATH, 
+					'json' 
+				)
+			];
+		}
+	
+		// Decode went wrong or setting is invalid
+		if ( !\is_array( $base ) ) {
+			continue;
+		}
+		
+		// Found sub sites
+		$f = [];
+		
+		// Set default sub parameters
+		foreach ( $base as $b ) {
+			if ( !\is_array( $b ) ) {
+				continue;
+			}
+			
+			// Slash basepath
+			$b['basepath'] = 
+				slashPath( $b['basepath'] ?? '/' );
+		
+			// Set active mode if not set
+			$b['is_active'] ??= 1;
+			
+			// Set maintenance mode
+			$b['is_maintenance'] ??= 0;
+			$f[] = $b;
+		}
+		
+		// No valid sites?
+		if ( empty( $f ) ) {
+			continue;
+		}
+		// Append to enabled sites under this host
+		$se[$host] = $f;
+	}
+	
+	\natcasesort( $se );
+	return $se;
+}
+
+/**
  *  Get whitelisted sites and associated paths
  *  
  *  @return array
@@ -6600,7 +6671,9 @@ function getSitesEnabled() : array {
 		return $sw;
 	}
 	$sw	= 
-	config( 'sites_enabled', \SITES_ENABLED, 'json' );
+	formatSites(
+		config( 'sites_enabled', \SITES_ENABLED, 'json' )
+	);
 	
 	return $sw;
 }
@@ -6658,20 +6731,8 @@ function getHostPaths( string $host ) : array {
 	}
 	$sp		= getSitesEnabled();
 	
-	// Add filler if empty
-	if ( empty( $sp[$host] ) ) {
-		$sp[$host]	= [
-			config( 'default_basepath', \DEFAULT_BASEPATH, 'json' )
-		];
-	}
-	
 	$sa	= [];
 	foreach ( $sp[$host] as $s ) {
-		// Decode went wrong or setting is invalid
-		if ( !\is_array( $s ) ) {
-			break;
-		}
-		
 		// Assume inactive site if not explicitly enabled
 		$a = ( bool ) ( $s['is_active'] ?? false );
 		if ( $a ) {
@@ -11200,6 +11261,12 @@ function checkConfig( string $event, array $hook, array $params ) {
 				\FILTER_FLAG_STRIP_BACKTICK | 
 				\FILTER_REQUIRE_ARRAY
 		],
+		
+		'sites_enabled'=> [
+			'filter'	=> \FILTER_CALLBACK,
+			'flags'		=> \FILTER_REQUIRE_ARRAY,
+			'options'	=> 'formatSites'
+		], 
 		
 		// Session settings
 		'session_bytes'	=> [
