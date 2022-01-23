@@ -4013,6 +4013,20 @@ function cleanup() {
 }
 
 /**
+ *  Filter plugin names into usable array
+ *  
+ *  @param mixed	$pl	List of plugins as an array or string
+ *  @return array
+ */
+function pluginNames( $pl ) : array {
+	return 
+	\is_array( $pl ) ? 
+		\array_map( 'strtolower', 
+			\array_map( 'labelName', $pl ) ) : 
+		\array_map( 'labelName', trimmedList( $pl, true ) );
+}
+
+/**
  *  Plugin loading event handler
  */
 function loadPlugins( string $event, array $hook, array $params ) {
@@ -4029,7 +4043,7 @@ function loadPlugins( string $event, array $hook, array $params ) {
 		return;
 	}
 	
-	$plugins	= trimmedList( $pl, true );
+	$plugins	= pluginNames( $pl );
 	$msg		= [];
 	$loaded		= [];
 	
@@ -11429,8 +11443,8 @@ function checkConfig( string $event, array $hook, array $params ) {
 	}
 	
 	if ( isset( $data['plugins_enabled'] ) ) {
-		$pl = \array_map( 'trim', $data['plugins_enabled'] );
-		$data['plugins_enabled'] = \array_map( 'strtolower', $pl );
+		$data['plugins_enabled'] = 
+			pluginNames( $data['plugins_enabled'] );
 	}
 	
 	return \array_merge( $hook, $data );
