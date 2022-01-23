@@ -5708,12 +5708,17 @@ function makeParagraphs( $val, $skipCode = false ) {
 		return $out;
 	}
 	$filters	= [
-		// Remove <br> tags inside <pre> and <code>
-		'#<(pre|code)>(.*)<\/\1>#ism'	=>
+		// Remove <br>, <p> tags inside <pre> and <code>
+		'#<(pre|code)(.*)?>(.*)<\/\1>#ism'	=>
 		function( $m ) {
+			$v = \preg_replace( '#<br\s*/?>#', "\n", $m[3] );
+			$v = \strtr( $v, [ 
+				'</p><p>'	=> "\n\n",
+				'<p>'		=> ''
+			] );
 			return 
-			'<' . $m[1] . '>' . 
-			\preg_replace( '#<br\s*/?>#', "", $m[2] ) . 
+			'<' . $m[1] . ( $m[2] ?? '' ) . '>' . 
+			$v . 
 			'</' . $m[1] . '>';
 		},
 		
