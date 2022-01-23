@@ -701,6 +701,15 @@ $templates['tpl_index_header']	= <<<HTML
 </li>
 HTML;
 
+// Embedded code
+$templates['tpl_codeblock'] = <<<HTML
+<pre class="{code_wrap_classes}"><code class="{code_classes}">{code}</code></pre>
+HTML;
+
+$templates['tpl_codeinline'] = <<<HTML
+<code class="{code_classes}">{code}</code>
+HTML;
+
 // Language placeholders
 $templates['tpl_previous']	= '{lang:nav:previous}';
 $templates['tpl_next']		= '{lang:nav:next}';
@@ -946,6 +955,9 @@ define( 'DEFAULT_CLASSES', <<<JSON
 	"nav_last1_a_classes"		: "",
 	"nav_last2_classes"		: "",
 	"nav_last2_a_classes"		: "",
+	
+	"code_wrap_classes"		: "",
+	"code_classes"			: "",
 	
 	"form_classes"			: "",
 	"fieldset_classes"		: "",
@@ -3255,7 +3267,7 @@ function pageFooter() : string {
  *  @return array
  */
 function loadClasses() : array {
-	$cls	= config( 'default_classes', decode( \DEFAULT_CLASSES ) );
+	$cls	= config( 'default_classes', \DEFAULT_CLASSES, 'json' );
 	// Trigger class load hook
 	hook( [ 'loadcssclasses', [ 'classes' => $cls ] ] );
 	
@@ -4100,7 +4112,7 @@ function getCache( string $uri ) : string {
 		"SELECT cache_id, content, expires 
 		FROM caches WHERE cache_id = :id LIMIT 1;", 
 		[ ':id' => $key ], 
-		CACHE_DATA 
+		\CACHE_DATA 
 	);
 	
 	if ( empty( $find ) ) {
@@ -4165,7 +4177,7 @@ function saveCache( string $uri, string $content ) {
  *  @return string
  */
 function sameSiteCookie() : string {
-	if ( \COOKIE_RESTRICT ) {
+	if ( config( 'cookie_restrict', \COOKIE_RESTRICT, 'bool' ) ) {
 		return 'Strict';
 	}
 	
@@ -5494,11 +5506,8 @@ function cleanUrl(
  *  @return string
  */
 function cleanEmail( string $email ) : string {
-	if ( \filter_var( $email, \FILTER_VALIDATE_EMAIL ) ) {
-		return $email;
-	}
-	
-	return '';
+	return 
+	\filter_var( $email, \FILTER_VALIDATE_EMAIL ) ? $email : '';
 }
 
 /**
@@ -5656,9 +5665,9 @@ function makeParagraphs( $val, $skipCode = false ) {
 				return '';
 			}
 			return 
-			\sprintf( '<pre><code>%s</code></pre>', 
-				entities( \trim( $m[1] ), false, false ) 
-			);
+			\strtr( template( 'tpl_codeblock' ), [ 
+				'{code}' => entities( \trim( $m[1] ), false, false )
+			] );
 		}, $out );	
 	}
 	
@@ -5699,16 +5708,6 @@ function makeParagraphs( $val, $skipCode = false ) {
 		return $out;
 	}
 	$filters	= [
-		// Block of code
-		'#^\n`{3,}([\s\S]*)(^(?!\s)`{3,}.*$)\n#smU' =>
-		function( $m ) {
-			return
-			\sprintf(
-				'<pre><code>%s</code></pre>',
-				entities( trim( $m[1], '`' ), false, false )
-			);
-		},
-		
 		// Remove <br> tags inside <pre> and <code>
 		'#<(pre|code)>(.*)<\/\1>#ism'	=>
 		function( $m ) {
@@ -5716,6 +5715,15 @@ function makeParagraphs( $val, $skipCode = false ) {
 			'<' . $m[1] . '>' . 
 			\preg_replace( '#<br\s*/?>#', "", $m[2] ) . 
 			'</' . $m[1] . '>';
+		},
+		
+		// Block of code
+		'#^\n`{3,}([\s\S]*)(^(?!\s)`{3,}.*$)\n#smU' =>
+		function( $m ) {
+			return
+			\strtr( template( 'tpl_codeblock' ), [ 
+				'{code}' => entities( \trim( $m[1] ), false, false )
+			] );
 		}
 	];
 	
@@ -6273,10 +6281,9 @@ function markdown(
 		'/`(.*)`/i'			=>
 		function( $m ) {
 			return 
-			\sprintf( 
-				'<code>%s</code>', 
-				entities( $m[1], false, false ) 
-			);
+			\strtr( template( 'tpl_codeinline' ), [ 
+				'{code}' => entities( \trim( $m[1] ), false, false )
+			] );
 		}
 		];
 		
@@ -6581,7 +6588,7 @@ function httpCode( int $code ) {
  *  
  *  @return array
  */
-function getSiteWhite() : array {
+function getSitesEnabled() : array {
 	static $sw;
 	if ( isset( $sw ) ) {
 		return $sw;
@@ -6600,7 +6607,7 @@ function getHost() : string {
 	static $host;
 	if ( isset( $host ) ) { return $host; }
 	
-	$sk	= getSiteWhite();
+	$sk	= getSitesEnabled();
 	$sw	= trimmedList( implode( ',', array_keys( $sk ) ), true );
 	
 	// Base host headers
@@ -6643,7 +6650,7 @@ function getHostPaths( string $host ) : array {
 	if ( !empty( $paths[$host] ) ) {
 		return $paths[$host];
 	}
-	$sp		= getSiteWhite();
+	$sp		= getSitesEnabled();
 	
 	// Add filler if empty
 	if ( empty( $sp[$host] ) ) {
