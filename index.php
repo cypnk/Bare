@@ -5669,7 +5669,19 @@ function scrub(
  * @param bool		$skipCode	Ignore code blocks
  */
 function makeParagraphs( $val, $skipCode = false ) {
-	$out = $val;
+	// Escape excluded markdown-sensitive characters
+	static $esc	= [
+		'\\#'	=> '&#35;',
+		'\\*'	=> '&#42;',
+		'\\-'	=> '&#45;',
+		'\\:'	=> '&#58;',
+		'\\>'	=> '&#62;',
+		'\\['	=> '&#91;',
+		'\\]'	=> '&#93;',
+		'\\`'	=> '&#96;',
+		'\\~'	=> '&#126;'
+	];
+	$out = \strtr( $val, $esc );
 	
 	// Escape block level code first
 	if ( !$skipCode ) {
@@ -5738,7 +5750,7 @@ function makeParagraphs( $val, $skipCode = false ) {
 		},
 		
 		// Block of code
-		'#^\n`{3,}([\s\S]*)(^(?!\s)`{3,}.*$)\n#smU' =>
+		'#^`{3,}([^`{3,}]+)`{3,}#mU' =>
 		function( $m ) {
 			return
 			\strtr( template( 'tpl_codeblock' ), [ 
@@ -6298,7 +6310,7 @@ function markdown(
 		}, 
 		
 		// Inline code (untrimmed)
-		'/`(.*)`/i'			=>
+		'/[^\`]\`([^\n`]+)\`/'			=>
 		function( $m ) {
 			return 
 			\strtr( template( 'tpl_codeinline' ), [ 
