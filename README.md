@@ -84,12 +84,15 @@ If you prefer to use [Composer](https://getcomposer.org/) to handle your environ
 Upload the following to your web root:
 * .htaccess - Required only if using the Apache web server
 * index.php - Your homepage
-* /posts folder - Contains your posts (use your favorite editor)
-* /cache folder - Formatted cache
+* /posts folder - Contains your posts (use your favorite editor) and content such as CSS, media, or robots.txt
+* /cache folder - Formatted cache (needs write access)
+* /errors - Custom error pages (optional)
+
+The */posts*, */cache*, and */errors* folder locations can be adjusted in *index.php*. You may keep them in the same directory or outside the web root as long as PHP still has access to them. The */errors* folder can be excluded entirely if you don't intend to use any custom error pages.
+
+An optional **config.json** file can be created in the */cache* folder to override all but a few configuration defaults. The **config.json** uses typical [JSON formating](https://en.wikipedia.org/wiki/JSON) and will make it easier to upgrade Bare while preserving your settings.
 
 The following changes are to the settings in *index.php*, which also has the default theme so there are no other files to edit. 
-
-An optional **config.json** file can be created in the */cache* folder to override all but a few configuration defaults. The **config.json** uses typical [JSON formating](https://en.wikipedia.org/wiki/JSON) and will make it easier to upgrade Bare.
 
 Add your site's domain name, E.G. *example.com*, to SITES_ENABLED in **index.php** (currently, the author's Tor blog is in this place) or to the 'sites_enabled' setting in the **config.json** file:
 ```
@@ -104,17 +107,24 @@ And if testing for both *example.com* and locally on localhost:
 	"localhost" : []
 }
 ```
-Bare is multi-site capable. If you want to host different posts for different domains, publish your posts in */posts/example.com/* after adding your additional domains to the above list. 
+Bare is multi-site capable.
 
 ### Multiple blogs or shared content
+Add your domains to SITES_ENABLED in *index.php* or to 'sites_enabled' in **config.json** as above:
+```
+{
+	"example.com": [],
+	"example.net": []
+}
+```
+Add your posts for **example.com** in */posts/example.com/* and posts for **example.net** in */posts/example.net/* and so on, following the *year/month/day/title-slug.md* format.
+
 Hosting a blog in a subfolder instead of the main domain:
 ```
 {
 	"example.com" : [ 
 		{
-			"basepath" : "\/myblog",
-			"is_active" : 1,
-			"is_maintenance" : 0
+			"basepath" : "\/myblog"
 		} 
 	]
 }
@@ -124,14 +134,32 @@ Or multiple blogs on the same domain:
 {
 	"example.com" : [ 
 		{
-			"basepath" : "\/",
-			"is_active" : 1,
-			"is_maintenance" : 0
+			"basepath" : "\/"
 		}, 
 		{
-			"basepath" : "\/secondblog",
-			"is_active" : 1,
-			"is_maintenance" : 0
+			"basepath" : "\/secondblog"
+		} 
+	]
+}
+```
+To put a blog into maintenance mode:
+```
+{
+	"example.com" : [ 
+		{
+			"basepath" : "\/",
+			"is_maintenance": 1
+		} 
+	]
+}
+```
+Make a blog inactive:
+```
+{
+	"example.com" : [ 
+		{
+			"basepath" : "\/",
+			"is_active": 0
 		} 
 	]
 }
@@ -159,7 +187,11 @@ or
 ```
 HTML is filtered of potentially harmful tags, however embedding videos to YouTube, Vimeo, PeerTube, Archive.org or LBRY/Odysee is supported via shortcodes.
 
-E.G. For uploaded media:
+E.G. For uploaded audio files:
+```
+[audio /path/to/file.mp3]
+```
+For uploaded video media:
 ```
 Plain video:
 [video /path/to/media.mp4]
@@ -184,12 +216,8 @@ Subtitles in multiple languages:
 Multiple languages with single default set:
 [video [lang=en&label=English&default=yes&src=/path/to/en.vtt][lang=de&label=Deutsche&src=/path/to/de.vtt][lang=jp&label=日本語&src=/path/to/jp.vtt] /path/to/media.mp4]
 ```
-For audio files
-```
-[audio /path/to/file.mp3]
-```
 
-For Youtube: 
+For YouTube: 
 ```
 [youtube https://www.youtube.com/watch?v=RJ0ULhVKwEI]
 or
