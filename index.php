@@ -2566,6 +2566,21 @@ function linePresets(
 }
 
 /**
+ *  Filter file extension
+ *  
+ *  @param string	$ext		Raw file extension or empty
+ *  @return string
+ */
+function filterExt( ?string $ext ) : string {
+	return 
+	empty( $ext ) ? '' : 
+	\preg_replace( 
+		'/[[:space:]]+/', 
+		bland( title( $ext ), true ), '' 
+	);
+}
+
+/**
  *  Create a datestamped backup of the given file before moving or copying it
  *  
  *  @param string	$file	File name path
@@ -2587,8 +2602,7 @@ function backupFile(
 	}
 	
 	// Filter file extension
-	$ext	= 
-	\preg_replace( '/[[:space:]]+/', bland( title( $ext ), true ), '' );
+	$ext	= filterExt( $ext );
 	
 	// Extension mode
 	$prefix = $fx == 1 ? \rtrim( $ext, '.' ) . '.' : '';
@@ -8322,15 +8336,16 @@ function filterDir( $path, string $root = \POSTS ) {
  */
 function dupRename( string $path ) : string {
 	$info	= \pathinfo( $path );
-	$ext	= $info['extension'];
+	$ext	= filterExt( $info['extension'] ?? '' );
 	$name	= $info['filename'];
 	$dir	= $info['dirname'];
 	$file	= $path;
 	$i	= 0;
 	
 	while ( \file_exists( $file ) ) {
-		$file = $dir . \DIRECTORY_SEPARATOR . 
-			$name . '_' . $i++ . '.' . $ext;
+		$file = slashPath( $dir, true ) . 
+			$name . '_' . $i++ . 
+			\rtrim( '.' . $ext, '.' );
 	}
 	
 	return $file;
