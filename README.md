@@ -12,11 +12,11 @@ An about page can be created by editing *posts/about/main.md*. Additional about 
 
 A static homepage can be shown instead of the lastest posts by creating a *posts/home.md* page. Bare will show this similar to an about page.
 
-Bare understands a few HTML tags and a rudimentary subset of [Markdown](https://daringfireball.net/projects/markdown/). 
+Bare understands a few HTML tags, which can be extended, and a rudimentary subset of [Markdown](https://daringfireball.net/projects/markdown/). 
 
 Posts are cached in a SQLite database created dynamically, which enables fast browsing and searching for posts by tags, title, or post body. The *cache.db* can be deleted at any time and Bare will rebuild it on the first visit to your blog.
 
-An extensive hook system allows customizing posts, indexes, and other template elements. Hooks also enable completely overriding the default behavior of most rendering functions and some core functions.
+An extensive hook system allows customizing posts, indexes, and other template elements. Hooks also enable completely overriding the default behavior of most rendering functions and some core functions via [plugins](https://github.com/cypnk/Bare-Plugins).
 
 Bare's simple installation and minimal set of features make it ideal for hosting blogs on [Hidden Services](https://en.wikipedia.org/wiki/Tor_(anonymity_network)#Onion_services) on the Tor anonymity network.
 
@@ -56,7 +56,7 @@ The following PHP extensions may need to be installed or enabled in **php.ini**:
 
 Remember to backup **php.ini** before making changes to it. 
 
-The GD extension (gd2) is suggested as future plugins may use it however it is not required for core functionality.
+The GD extension is suggested as plugins may use it, however it is not required for core functionality.
 
 If you prefer to use [Composer](https://getcomposer.org/) to handle your environment (optional), use the following example **composer.json**:
 ```
@@ -176,8 +176,6 @@ And then, follow the conventions in the example post:
 /posts/2018/09/22/a-new-post.md
 ```
 
-There is also a [plugin](https://github.com/cypnk/Bare-Plugins) project for Bare.
-
 ## Content formatting
 To embed a previously uploaded image file, use markdown syntax:
 ```
@@ -241,7 +239,7 @@ For PeerTube (any instance):
 ```
 [peertube https://peertube.mastodon.host/videos/watch/56047136-00eb-4296-afc3-dd213fd6bab0]
 ```
-**Note:** Remember to add the PeerTube instance URL to the list of URLs in FRAME_WHITELIST (one per line) in your *index.php*
+**Note:** Remember to add the PeerTube instance URL to the list of URLs in FRAME_WHITELIST (one per line) in your *index.php* or 'frame_whitelist' in *config.json* (JSON array format)
 
 For Odysee or LBRY video (use the "Download" link in the share options)
 ```
@@ -266,7 +264,7 @@ E.G. Create an */errors/404.html* file and put your custom Not Found content. Th
 The Nginx web server supports URL rewriting and file filtering. The following is a simple configuration for a site named example.com.  
 **Note:** The pound sign(#) denotes comments.
 
-The following is an example server block tested on Arch linux. The location of **nginx.config** will depend on your platform.
+The following is an example server block tested on Manjaro Linux (Arch based). The location of **nginx.config** will depend on your platform.
 ```
 server {
 	server_name example.com;
@@ -754,3 +752,8 @@ These are possible problems you may encounter and potential solutions to them. I
 
 		* "Error sending message": An unkown error that Bare was not able to retrieve via the error_get_last() function which comes with PHP. This is usually caused by the PHP mail() function failing either due to a configuration error or a permission error. The *php_errors.log* file or other general PHP error file location on your web server (not part of Bare) may have more information regarding any errors Bare was not able get.
 
+* **Problem: Bare isn't in my language / I want to change the language text seen by visitors**
+
+	* To override the text of Bare messages or other language used by plugins, language files can be created in the CACHE folder location following the JSON format of the 'DEFAULT_LANGUAGE' in *index.php*. E.G. Since the current default language is U.S. English, this would be **en-US.json**. Other language files follow the same format: For Brazilian Portuguese **pt-BR.json**, for Indian and Sri Lankan Tamil **ta-IN.json** and **ta-SL.json** respectively, and so on.
+
+	* If you already have a new language file and messages are still in U.S. English, check if the LANGUAGE setting in *index.php* or 'language' in *config.json* is set to your language and region and not still set to 'en-US'. Make sure your language file exists is in the CACHE folder location.
