@@ -3127,10 +3127,11 @@ function feedLink() { return pageRoutePath( 'feed' ); }
  *  @param string	$default	Fallback event route
  *  @return string
  */
-function pageRoutePath( ?string $path, ?string $default ) : string {
+function pageRoutePath( ?string $path = null, ?string $default = null ) : string {
 	static $urls	= [];
 	
-	$path		?= '';
+	$path		??= ''
+	
 	if ( isset( $urls[$path] ) ) {
 		return $urls[$path];
 	}
