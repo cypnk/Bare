@@ -3113,33 +3113,42 @@ function parseLang( string $tpl ) : string {
  */
 
 /**
- *  Hompage link with website and relative path root
- *  
- *  @return string
+ *  @deprecated
+ *  Preserved for backward compatibility
  */
-function homeLink() : string {
-	static $home;
-	if ( isset( $home ) ) {
-		return $home;
-	}
-	
-	$home = website() . getRoot();
-	return $home;
-}
+function homeLink() { return pageRoutePath(); }
+function feedLink() { return pageRoutePath( 'feed' ); }
 
 /**
- *  Syndication feed link
+ *  Website and relative path root path given a URL prefix
+ *  Defaults to home link
  *  
+ *  @param string	$path		Event route label
+ *  @param string	$default	Fallback event route
  *  @return string
  */
-function feedLink() : string {
-	static $feed;
-	if ( isset( $feed ) ) {
-		return $feed;
+function pageRoutePath( ?string $path, ?string $default ) : string {
+	static $urls	= [];
+	
+	$path		?= '';
+	if ( isset( $urls[$path] ) ) {
+		return $urls[$path];
 	}
 	
-	$feed = homelink() . eventRoutePrefix( 'feed', 'feed' );
-	return $feed;
+	// Empty path? Use home link
+	if ( empty( $path ) ) {
+		$urls[$path] = website() . getRoot(); 
+		return $urls[$path];
+	}
+	
+	$rt	= eventRoutePrefix( $path, $default ?? $path );
+	
+	// Avoid placeholders E.G. :user, :page, :tag etc...
+	$st	= strstr( $rt, ':', true );
+	$urls[$path]	= website() . getRoot() . 
+		( ( false === $st ) ? $rt : $st );
+	
+	return $urls[$path];
 }
 
 /**
@@ -3153,7 +3162,7 @@ function navHome() : string {
 		return $home;
 	}
 	
-	$url	= homeLink();
+	$url	= pageRoutePath();
 	hook( [ 'homelink', [ 'url' => $url ] ] );
 	$html	= hookHTML( 'homelink' );
 	if ( !empty( $html ) ) {
@@ -3246,8 +3255,8 @@ function renderNavLinks(
 	
 	// Replace any home link references
 	$out	= render( $out, [ 
-		'home'		=> homeLink(),
-		'feedlink'	=> feedLink()
+		'home'		=> pageRoutePath(),
+		'feedlink'	=> pageRoutePath( 'feed' )
 	] );
 	
 	// Return language replaced
@@ -3270,8 +3279,8 @@ function pageFooter() : string {
 				template( 'tpl_footernav_wrap' ), 
 				$flinks
 			),
-		'home'		=> homeLink(),
-		'feedlink'	=> feedLink()
+		'home'		=> pageRoutePath(),
+		'feedlink'	=> pageRoutePath( 'feed' )
 	] );
 }
 
@@ -3558,8 +3567,8 @@ function render(
 	}
 	
 	// Always set defaults
-	$input['home']		= $input['home']	?? homeLink();
-	$input['feedlink']	= $input['feedlink']	?? feedLink();
+	$input['home']		= $input['home']	?? pageRoutePath();
+	$input['feedlink']	= $input['feedlink']	?? pageRoutePath( 'feed' );
 	$input['plugin_assets']	= 
 		$input['plugin_assets'] ?? 
 		slashPath( config( 'plugin_assets', \PLUGIN_ASSETS ), true );
@@ -3674,9 +3683,9 @@ function loadSQL( string $dsn ) : array {
 	// E.G. CACHE_SQL definition
 	$src	= \constant( $def . '_SQL' ) ?? '';
 	
-	// If SQL isn't defined, try to load SQL file with the lowercase DSN
+	// If SQL isn't defined, try to load SQL file with the DSN
 	if ( empty( $src ) ) {
-		$src = loadFile( lowercase( $dsn ) . '.sql' );
+		$src = loadFile( $dsn . '.sql' );
 		if ( empty( $src ) ) {
 			return [];
 		}
@@ -4499,17 +4508,25 @@ function session( $reset = false ) {
 /**
  *  Mark certain URIs as disabled for throttling
  * 
- *  @param string	$path	Disabled path
+ *  @param mixed	$path	Disabled path(s)
  */
-function throttleDisabled( ?string $path ) {
+function throttleDisabled( $path = null ) {
 	static $uris = [];
 	if ( null === $path ) {
 		return $uris;
 	}
 	
-	$uris[] = $path;
+	if ( \is_array( $path ) ) {
+		$uris = \array_merge( $uris, $path );
+	} elseif ( \is_string( $path ) ) {
+		$uris[] = $path;
+	} else {
+		return;
+	}
+	
 	$uris	= \array_unique( $uris );
 }
+
 
 /**
  *  Last visit session data and timeouts
@@ -7093,7 +7110,7 @@ function sendPage(
 ) {
 	// Pre-redirect hooks
 	hook( [ 'sendpage', [
-		'home'	=> homeLink(),
+		'home'	=> pageRoutePath(),
 		'host'	=> getHost(),
 		'root'	=> getRoot(),
 		'code'	=> $code,
@@ -7101,7 +7118,7 @@ function sendPage(
 	] ] );
 	
 	// Send redirect with requested code
-	redirect( $code, homeLink() . $page );
+	redirect( $code, slashPath( pageRoutePath(), true ) . $page );
 }
 
 /**
@@ -8771,7 +8788,7 @@ function extractFeature(
  *  Get summary or abstract from post
  */
 function extractSummary( array $find ) : string {
-	return html( $find['all'] ?? '', homeLink() );
+	return html( $find['all'] ?? '', pageRoutePath() );
 }
 
 /**
@@ -9521,7 +9538,7 @@ function formatPost(
 	
 	// Everything else after the first line is the body
 	$post	= \array_slice( $post, 1 );
-	$body	= html( \implode( "\n", $post ), homeLink() );
+	$body	= html( \implode( "\n", $post ), pageRoutePath() );
 	
 	// Calculate read time, if appropriate, from formatted body
 	$rtime	= hasReadTime( $type ) ? readingTime( $body ) : 0;
@@ -9707,7 +9724,7 @@ function formatIndex(
 		'post_title'	=> $ptitle,
 		'page_title'	=> $ptitle,
 		'lang'		=> config( 'language', \LANGUAGE ),
-		'home'		=> homeLink(),
+		'home'		=> pageRoutePath(),
 		'body_before'	=> $heading
 	];
 	
@@ -9716,7 +9733,7 @@ function formatIndex(
 		$tpl['body']		= 
 		render( 
 			template( 'tpl_noposts' ), 
-			[ 'home'	=> homeLink() ] 
+			[ 'home'	=> pageRoutePath() ] 
 		);
 		$tpl['body_after']	= 
 		render( template( 'tpl_page_nextprev' ), [ 'links' => navHome() ] );
@@ -10176,7 +10193,7 @@ function searchForm() : string {
  *  @return string
  */
 function searchPagePath( array $data ) : string {
-	return homeLink() . 
+	return slashPath( pageRoutePath(), true ) . 
 		'?nonce=' . $data['nonce'] . 
 		'&token=' . $data['token'] . 
 		'&meta=' . $data['meta'] . 
@@ -10552,7 +10569,7 @@ function staticPage(
 	
 	// First line is the title, everything else is the body
 	$title	= title( \array_shift( $post ) );
-	$body	= html( \implode( "\n", $post ), homeLink(), $forms );
+	$body	= html( \implode( "\n", $post ), pageRoutePath(), $forms );
 	
 	// Send to render hook
 	hook( [ $label . 'render', [ 
@@ -10594,8 +10611,8 @@ function staticPage(
 			'post_title'	=> $title . ' - ' . $ptitle,
 			'lang'		=> 
 				config( 'language', \LANGUAGE ),
-			'home'		=> homeLink(),
-			'feedlink'	=> feedLink(),
+			'home'		=> pageRoutePath(),
+			'feedlink'	=> pageRoutePath( 'feed' ),
 			'body_before'	=> $heading,
 			'body'		=> $body,
 			'body_after'	=> pageFooter()
@@ -10713,7 +10730,7 @@ function showArchive( string $event, array $hook, array $params ) {
 	// Full archive
 	if ( empty( $params['year'] ) ) {
 		$posts	= loadPosts( $page, '', false, $slvl );
-		$prefix	= slashPath( homeLink(), true );
+		$prefix	= slashPath( pageRoutePath(), true );
 	
 	// Starting from year?
 	} else {
@@ -10729,7 +10746,7 @@ function showArchive( string $event, array $hook, array $params ) {
 				$date[1] : $date[1] . $s . $date[2];
 		}
 		$stamp	= \trim( $stamp, $s ) . $s;
-		$prefix	= slashPath( homeLink(), true ) . $stamp;
+		$prefix	= slashPath( pageRoutePath(), true ) . $stamp;
 		$posts	= loadPosts( $page, $stamp, false, $slvl );
 	}
 	
@@ -10762,7 +10779,8 @@ function showTag( string $event, array $hook, array $params ) {
 	
 	$tag	= slugify( $params['tag'] );
 	$page	= ( int ) ( $params['page'] ?? 1 );
-	$prefix	= homeLink() . 'tags/' . $tag . '/';
+	$prefix	= 
+	slashPath( pageRoutePath( 'tagview', 'tags' ), true ) . $tag . '/';
 	
 	// Pagination prep
 	$plimit	= config( 'page_limit', \PAGE_LIMIT, 'int' );
@@ -10910,7 +10928,7 @@ function showFeed( string $event, array $hook, array $params ) {
 	$tpl	= [
 		'page_title'	=> $ptitle,
 		'tagline'	=> $psub,
-		'home'		=> homeLink(),
+		'home'		=> pageRoutePath(),
 		'date_gen'	=> dateRfc(),
 		'body'		=> \implode( '', $posts )
 	];
@@ -10996,7 +11014,7 @@ function showPost( string $event, array $hook, array $params ) {
 			'page_title'	=> $ptitle,
 			'post_title'	=> $title . ' - ' . $ptitle,
 			'lang'		=> config( 'language', \LANGUAGE ),
-			'home'		=> homeLink(),
+			'home'		=> pageRoutePath(),
 			'body_before'	=> $heading,
 			'body'		=> $post,
 			'body_after'	=> $sib . $rel . pageFooter()
@@ -11042,7 +11060,7 @@ function runIndex( string $event, array $hook, array $params ) {
 	// Default index render
 	$out	= '';
 	
-	$prefix	= slashPath( homeLink(), true ) . 'archive/';
+	$prefix	= slashPath( pageRoutePath(), true ) . 'archive/';
 	$out	= '';
 	$pf	= '';
 	$plist	= [];
@@ -11113,8 +11131,8 @@ function runIndex( string $event, array $hook, array $params ) {
 			'page_title'	=> $ptitle,
 			'post_title'	=> $ptitle,
 			'lang'		=> config( 'language', \LANGUAGE ),
-			'home'		=> homeLink(),
-			'feedlink'	=> feedLink(),
+			'home'		=> pageRoutePath(),
+			'feedlink'	=> pageRoutePath( 'feed' ),
 			'body_before'	=> $heading,
 			'body'		=> $out,
 			'body_after'	=> $pages . pageFooter()
