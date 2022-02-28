@@ -3147,7 +3147,7 @@ function feedLink() { return pageRoutePath( 'feed' ); }
 function pageRoutePath( ?string $path = null, ?string $default = null ) : string {
 	static $urls	= [];
 	
-	$path		??= ''
+	$path		??= '';
 	
 	if ( isset( $urls[$path] ) ) {
 		return $urls[$path];
