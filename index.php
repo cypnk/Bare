@@ -2618,18 +2618,33 @@ function backupFile(
 }
 
 /**
- *  Load file contents and check for any server-side code		
+ *  Load file contents and check for any server-side code
+ *   
+ *  @param string	$file	File name relative to root path
+ *  @param string	$root	File location, defaults to CACHE
+ *  @param bool		$rem	Store loaded file contents if true
+ *  @return string		
  */
-function loadFile( string $name ) : string {
+function loadFile( 
+	string	$name, 
+	string	$root	= \CACHE,
+	bool	$rem	= true
+) : string {
 	static $loaded	= [];
 	
 	// Check if already loaded
-	if ( isset( $loaded[$name] ) ) {
+	if ( isset( $loaded[$name] ) && $rem ) {
 		return $loaded[$name];
 	}
 	
 	// Relative path to storage
-	$fname	= \CACHE . $name;
+	$fname	= slashPath( $root, true ) . $name;
+	
+	// Check folder location
+	if ( empty( filterDir( $fname, $root ) ) ) {
+		return '';
+	}
+	
 	if ( !\file_exists( $fname ) ) {
 		return '';
 	}
@@ -2663,7 +2678,9 @@ function loadFile( string $name ) : string {
 		send( 500, \MSG_CODEDETECT );
 	}
 	
-	$loaded[$name] = $data;
+	if ( $rem ) {
+		$loaded[$name] = $data;
+	}
 	
 	return $data;
 }
