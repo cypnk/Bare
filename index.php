@@ -1322,7 +1322,8 @@ CREATE TABLE caches (
 );-- --
 
 CREATE UNIQUE INDEX idx_caches_on_cache_id ON caches ( cache_id ASC );-- --
-CREATE INDEX idx_caches_on_expires ON caches ( expires DESC );-- --
+CREATE INDEX idx_caches_on_expires ON caches ( expires DESC )
+	WHERE expires IS NOT NULL;-- --
 CREATE INDEX idx_caches_on_created ON caches ( created ASC );-- --
 CREATE INDEX idx_caches_on_updated ON caches ( updated );-- --
 
@@ -1339,7 +1340,7 @@ BEGIN
 	-- Clear expired data
 	DELETE FROM caches WHERE 
 		strftime( '%s', expires ) < 
-		strftime( '%s', updated );
+		strftime( '%s', updated ) AND expires IS NOT NULL;
 END;-- --
 
 -- Change only update period when TTL is empty
@@ -3782,13 +3783,13 @@ function getDb( string $dsn, string $mode = 'get' ) {
 	
 	// First time? SQLite database will be created
 	$first_run	= !\file_exists( $dsn );
-	
+	$timeout	= config( 'data_timeout', \DATA_TIMEOUT, 'int' );
 	$opts	= [
-		\PDO::ATTR_TIMEOUT		=> 
-			config( 'data_timeout', \DATA_TIMEOUT, 'int' ),
+		\PDO::ATTR_TIMEOUT		=> $timeout,
 		\PDO::ATTR_DEFAULT_FETCH_MODE	=> \PDO::FETCH_ASSOC,
 		\PDO::ATTR_PERSISTENT		=> false,
 		\PDO::ATTR_EMULATE_PREPARES	=> false,
+		\PDO::ATTR_AUTOCOMMIT		=> false,
 		\PDO::ATTR_ERRMODE		=> 
 			\PDO::ERRMODE_EXCEPTION
 	];
@@ -3803,6 +3804,9 @@ function getDb( string $dsn, string $mode = 'get' ) {
 		);
 		die();
 	}
+	
+	// Set busy timeout
+	$db[$dsn]->exec( 'PRAGMA busy_timeout = ' . $timeout . ';' );
 	
 	// Preemptive defense
 	$db[$dsn]->exec( 'PRAGMA quick_check;' );
@@ -7817,6 +7821,11 @@ function request( string $event, array $hook, array $params ) : array {
 	
 	// Check throttling
 	sessionThrottle();
+	
+	// Check for closed connection
+	if ( \connection_aborted() ) {
+		visitorAbort();
+	}
 	
 	$host	= getHost();
 	
