@@ -1236,7 +1236,7 @@ define( 'CACHE_DATA',		CACHE . 'cache.db' );
 define( 'SESSION_DATA',		CACHE . 'session.db' );
 
 // Database connection timeout
-define( 'DATA_TIMEOUT',		5 );
+define( 'DATA_TIMEOUT',		15 );
 
 
 
