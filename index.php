@@ -3870,6 +3870,31 @@ function getDataResult( \PDO $db, array $params, string $rtype, \PDOStatement $s
 }
 
 /**
+ *  Get or create cached PDO Statements
+ *  
+ *  @param PDO		$db	Database connection
+ *  @param string	$sql	Query string or statement
+ *  @return mixed
+ */
+function statement( ?\PDO $db, ?string $sql ) {
+	static $stmcache = [];
+	if ( empty( $db ) && empty( $sql ) ) {
+		\array_map( 
+			function( $v ) { return null; }, 
+			$stmcache 
+		);
+		return null;
+	}
+	
+	if ( isset( $stmcache[$sql] ) ) {
+		return $stmcache[$sql];
+	}
+	
+	$stmcache[$sql] = $db->prepare( $sql );
+	return $stmcache[$sql];
+}
+
+/**
  *  Shared data execution routine
  *  
  *  @param string	$sql	Database SQL
@@ -3888,7 +3913,7 @@ function dataExec(
 	$res	= null;
 	
 	try {
-		$stm	= $db->prepare( $sql );
+		$stm	= statement( $db, $sql );
 		$res	= getDataResult( $db, $params, $rtype, $stm );
 		
 	} catch( \PDOException $e ) {
@@ -3924,7 +3949,7 @@ function dataBatchExec (
 			return false;
 		}
 		
-		$stm	= $db->prepare( $sql );
+		$stm	= statement( $db, $sql );
 		foreach ( $params as $p ) {
 			$res[]	= getDataResult( $db, $params, $rtype, $stm );
 		}
@@ -4049,6 +4074,7 @@ function cleanup() {
 		\session_write_close();
 	}
 	
+	statement( null, null );
 	getDb( '', 'closeall' );
 	saveConfig();
 }
@@ -8513,13 +8539,11 @@ function refreshPost(
 	$db		= getDb( \CACHE_DATA );
 	// Post delete statement
 	$dstm		= 
-	$db->prepare(
-		"DELETE FROM posts WHERE post_path = :path"
-	);
+	statement( $db, 'DELETE FROM posts WHERE post_path = :path' );
 	
 	// Post insertion statement
 	$pstm		= 
-	$db->prepare( 
+	statement( $db, 
 		"INSERT OR IGNORE INTO posts( 
 			post_path, post_view, post_bare, post_summary, 
 			post_type, updated, published 
@@ -8529,21 +8553,19 @@ function refreshPost(
 	
 	// Select post statement
 	$sstm		=
-	$db->prepare(
-		"SELECT id FROM posts WHERE post_path = :perm LIMIT 1;"
-	);
+	statement( $db, 'SELECT id FROM posts WHERE post_path = :perm LIMIT 1;' );
 	
 	// Post tag association statement
 	$tstm		= 
-	$db->prepare( 
+	statement( $db, 
 		"INSERT OR IGNORE INTO post_tags( post_id, tag_slug ) 
 		VALUES ( :id, :tag );"
 	);
 	
 	// Tag insertion statement
 	$istm		= 
-	$db->prepare( 
-	"INSERT OR IGNORE INTO tags( slug, term ) 
+	statement( $db, 
+		"INSERT OR IGNORE INTO tags( slug, term ) 
 		VALUES ( :slug, :term );" 
 	);
 	
@@ -9214,14 +9236,14 @@ function loadIndex(
 	
 	// Tag insertion statement
 	$istm		= 
-	$db->prepare( 
+	statement( $db, 
 	"INSERT OR IGNORE INTO tags( slug, term ) 
 		VALUES ( :slug, :term );" 
 	);
 	
 	// Post insertion statement
 	$pstm		= 
-	$db->prepare( 
+	statement( $db, 
 		"INSERT OR IGNORE INTO posts( 
 			post_path, post_view, post_bare, post_summary, 
 			post_type, updated, published 
@@ -9231,13 +9253,13 @@ function loadIndex(
 	
 	// Select post statement
 	$sstm		=
-	$db->prepare(
+	statement( $db, 
 		"SELECT id FROM posts WHERE post_path = :perm LIMIT 1;"
 	);
 	
 	// Post tag association statement
 	$tstm		= 
-	$db->prepare( 
+	statement( $db, 
 		"REPLACE INTO post_tags( post_id, tag_slug ) 
 		VALUES ( :id, :tag );"
 	);
