@@ -3805,9 +3805,6 @@ function getDb( string $dsn, string $mode = 'get' ) {
 		die();
 	}
 	
-	// Set busy timeout
-	$db[$dsn]->exec( 'PRAGMA busy_timeout = ' . $timeout . ';' );
-	
 	// Preemptive defense
 	$db[$dsn]->exec( 'PRAGMA quick_check;' );
 	$db[$dsn]->exec( 'PRAGMA trusted_schema = OFF;' );
@@ -3919,6 +3916,7 @@ function dataExec(
 	try {
 		$stm	= statement( $db, $sql );
 		$res	= getDataResult( $db, $params, $rtype, $stm );
+		$stm->closeCursor();
 		
 	} catch( \PDOException $e ) {
 		$stm	= null;
@@ -3957,6 +3955,7 @@ function dataBatchExec (
 		foreach ( $params as $p ) {
 			$res[]	= getDataResult( $db, $params, $rtype, $stm );
 		}
+		$stm->closeCursor();
 		$db->commit();
 		
 	} catch( \PDOException $e ) {
@@ -8582,6 +8581,7 @@ function refreshPost(
 	if ( $db->beginTransaction() ) {
 		// Carry out delete
 		$dstm->execute( [':path' => $path ] );
+		$dstm->closeCursor();
 		
 		// Insert post again
 		insertPost( $pstm, $path, $summ, $type, $out, $pub, $mtime );
@@ -8599,13 +8599,6 @@ function refreshPost(
 			'Error starting DB transaction in refreshPost()'
 		);
 	}
-	
-	// Cleanup
-	$dstm	= null;
-	$pstm	= null;
-	$sstm	= null;
-	$tstm	= null;
-	$istm	= null;
 }
 
 /**
@@ -8999,6 +8992,7 @@ function insertTags( \PDOStatement $stm, array $tags ) : bool {
 		] ) || $st;
 	}
 	
+	$stm->closeCursor();
 	return $st;
 }
 
@@ -9015,6 +9009,8 @@ function applyTags(
 	
 	if ( $sstm->execute( [ ':perm' => $perm ] ) ) {
 		$res	= $sstm->fetchAll();
+		$sstm->closeCursor();
+		
 		$id	= ( int ) ( $res[0]['id'] ?? 0 );
 	} else { 
 		return false; 
@@ -9032,6 +9028,7 @@ function applyTags(
 			':tag'	=> $pair['slug']
 		] ) || $st;
 	}
+	$tstm->closeCursor();
 	
 	return $st;
 }
@@ -9189,8 +9186,10 @@ function insertPost(
 	];
 	
 	if ( $pstm->execute( $params ) ) {
+		$pstm->closeCursor();
 		return true;
 	}
+	$pstm->closeCursor();
 	shutdown( 'logError', 'Error inserting post ' . $path );
 	return false;
 }
