@@ -736,7 +736,7 @@ These are possible problems you may encounter and potential solutions to them. I
 		
 		* "Headers already sent with code...": Some content (or just whitespace) was sent to the visitor before redirecting. Check for "echo" or send() function calls before the redirect() function call in the plugin.
 		
-		* "No route defined*: Bare requires at least one path, even if it's "" (I.E. empty path) to be defined to function. The addBlogRoutes() function adds the default Bare routes, but a plugin may overwrite these without adding any of its own, leading to this error.
+		* "No route defined": Bare requires at least one path, even if it's "" (I.E. empty path) to be defined to function. The addBlogRoutes() function adds the default Bare routes, but a plugin may overwrite these without adding any of its own, leading to this error.
 
 	* **Email**
 
