@@ -252,6 +252,10 @@ LINES
  *  Templates and customization
  */
 
+// When enabled, scripts with a nonce are embedded (for use with plugins)
+// This relies on the 'script-src' content security policy being set correctly
+define( 'NONCED_SCRIPTS',	0 );
+
 // List of stylesheets to load from SHARED_ASSETS (one per line)
 define( 'DEFAULT_STYLESHEETS',		<<<LINES
 {shared_assets}style.css
@@ -1033,6 +1037,7 @@ JSON
 // Meta, script, and stylesheet tag templates
 define( 'TPL_META_TAG',	'<meta name="{name}" content="{content}">' );
 define( 'TPL_SCRIPT_TAG', '<script src="{url}"></script>' );
+define( 'TPL_SCRIPT_NONCE_TAG', '<script src="{url}" nonce="{nonce}"></script>' );
 define( 'TPL_STYLE_TAG', '<link rel="stylesheet" href="{url}">' );
 
 // Whitelist of allowed HTML tags
@@ -1269,11 +1274,23 @@ define( 'SESSION_LIMIT_MEDIUM', 3 );
 // Seconds between requests before "heavy" throttling
 define( 'SESSION_LIMIT_HEAVY', 1 );
 
-// Cookie defaults
+/**
+ *  Cookie defaults
+ */
+
+// Base expiration
 define( 'COOKIE_EXP', 		86400 );
+
+// Base domain path
 define( 'COOKIE_PATH',		'/' );
+
 // Restrict cookies to same-site origin (I.E. No third party can snoop)
 define( 'COOKIE_RESTRICT',	1 );
+
+// Use prefixed cookies for additional privacy
+// Leaving this on is highly recommended, but it may break some analytics/ad services
+define( 'COOKIE_PREFIXED',	1 );
+
 
 
 /**
@@ -3318,7 +3335,7 @@ function loadClasses() : array {
 	if ( !empty( $sent ) ) {
 		$cls	= \array_merge( $cls, $sent );
 	}
-		
+	
 	$cv	= [];
 	
 	// Add new or appened classes while removing duplicates
@@ -3346,34 +3363,51 @@ function rsettings( string $area, array $modify = [] ) : array {
 				break;
 				
 			case 'styles':
-				$s = config( 'default_stylesheets', \DEFAULT_STYLESHEETS );
-				$store['styles']	= \is_array( $s ) ? $s : 
+				$s	= config( 'default_stylesheets', \DEFAULT_STYLESHEETS );
+				$s	= \is_array( $s ) ? $s : 
 				linePresets( 
 					'stylesheets', 
 					'style_limit', 
 					\STYLE_LIMIT, 
 					$s
 				);
+				
+				// Merge plugin stylesheets
+				hook( [ 'stylesloaded', [ 'styles' => $s ] ] );
+				$store['styles'] = 
+				hookArrayResult( 'stylesloaded' )['styles'] ?? $s;
+				
 				break;
 				
 			case 'scripts':
-				$s = config( 'default_scripts', \DEFAULT_SCRIPTS );
-				$store['scripts']	= \is_array( $s ) ? $s : 
+				$s	= config( 'default_scripts', \DEFAULT_SCRIPTS );
+				$s	= \is_array( $s ) ? $s : 
 				linePresets( 
 					'scripts', 
 					'script_limit', 
 					\SCRIPT_LIMIT,
 					$s
 				);
+				
+				// Merge plugin script files
+				hook( [ 'scriptsloaded', [ 'scripts' => $s ] ] );
+				$store['scripts'] = 
+				hookArrayResult( 'scriptsloaded' )['scripts'] ?? $s;
+				
 				break;
 			
 			case 'meta':
 				// Load custom meta tags
-				$meta = config( 'default_meta', \DEFAULT_META );
-				
-				$store['meta']		= 
+				$meta	= config( 'default_meta', \DEFAULT_META );
+				$meta	= 
 					\is_string( $meta ) ? decode( $meta ) : 
 						[ 'meta' => $meta ];
+				
+				// Merge plugin meta tags
+				hook( [ 'metaloaded', [ 'meta' => $meta ] ] );
+				$store['meta'] = 
+				hookArrayResult( 'metaloaded' )['meta'] ?? $meta;
+				
 				break;
 			
 			default:
@@ -3459,6 +3493,25 @@ function removeClass( string $name, string $value ) {
 }
 
 /**
+ *  URL and associated nonce extraction helper
+ *  
+ *  @param string	$path	URL|nonce formatted string
+ *  @return array
+ */
+function splitUrlNonce( string $path ) : array {
+	if ( false === \strpos( $path, '|' ) ) {
+		return [ 'url' => \trim( $path ), 'nonce' => '' ];
+	}
+	
+	$u	= \strstr( $r, '|', true );
+	$n	= \strstr( $r, '|' );
+	return [ 
+		'url'	=> ( false === $n ) ? '' : \trim( $u ), 
+		'nonce'	=> ( false === $n ) ? '' : \trim( $n, '| ' )
+	];
+}
+
+/**
  *  Special tag rendering helper (scripts, links etc...)
  *  
  *  @param string	$tpl	Rendering template
@@ -3492,7 +3545,7 @@ function regionTags(
 		default:
 			foreach( $rg as $r ) {
 				$rgo .= 
-				render( $tag, [ 'url' => $r ] );
+				render( $tag, splitUrlNonce( $r ) );
 			}
 	
 	}
@@ -3543,7 +3596,10 @@ function renderRegions( string $tpl ) : string {
 	$tpl	= 
 	regionTags( $tpl, '{stylesheets}', \TPL_STYLE_TAG, 'styles' );
 	
+	// Use nonced script tag template if that setting is enabled
 	$tpl	= 
+	config( 'nonced_scripts', \NONCED_SCRIPTS, 'bool' ) ?
+	regionTags( $tpl, '{body_js}', \TPL_SCRIPT_NONCE_TAG, 'scripts' ) : 
 	regionTags( $tpl, '{body_js}', \TPL_SCRIPT_TAG, 'scripts' );
 	
 	$tpl	= 
@@ -4280,6 +4336,10 @@ function cookiePrefix() : string {
 		return $prefix;
 	}
 	
+	if ( config( 'cookie_prefixed', \COOKIE_PREFIXED, 'bool' ) ) {
+		$prefix = '';
+		return '';
+	}
 	$cpath	= config( 'cookie_path', \COOKIE_PATH );
 	
 	// Enable locking if connection is secure and path is '/'
@@ -6521,6 +6581,10 @@ function securityPolicy( string $policy ) : string {
 	if ( !isset( $p ) ) {
 		$p = 
 		config( 'security_policy', \SECURITY_POLICY, 'json' );
+		
+		// Merge custom content security policy
+		hook( [ 'cspload', [ 'policy' => $p ] ] );
+		$p = hookArrayResult( 'cspload' )['policy'] ?? $p;
 	}
 	
 	switch ( $policy ) {
