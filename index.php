@@ -4270,6 +4270,27 @@ function sameSiteCookie() : string {
 }
 
 /**
+ *  Prefixed cookie name helper
+ *  
+ *  @return string
+ */
+function cookiePrefix() : string {
+	static $prefix;
+	if ( isset( $prefix ) ) {
+		return $prefix;
+	}
+	
+	$cpath	= config( 'cookie_path', \COOKIE_PATH );
+	
+	// Enable locking if connection is secure and path is '/'
+	$prefix	= 
+	( 0 === \strcmp( $cpath, '/' ) && isSecure() ) ? 
+		'__Host-' : ( isSecure() ? '__Secure-' : '' );
+	
+	return $prefix;
+}
+
+/**
  *  Set the cookie options when defaults are/aren't specified
  *  
  *  @param array	$options	Additional cookie options
@@ -4284,11 +4305,16 @@ function defaultCookieOptions( array $options = [] ) : array {
 		'expires'	=> 
 			( int ) ( $options['expires'] ?? time() + $cexp ),
 		'path'		=> $cpath,
-		'domain'	=> getHost(),
 		'samesite'	=> sameSiteCookie(),
 		'secure'	=> isSecure() ? true : false,
 		'httponly'	=> true
 	] );
+	
+	// Domain shouldn't be used when using '__Host-' prefixed cookies
+	$prefix = cookiePrefix();
+	if ( empty( $prefix ) || 0 === \strcmp( $prefix, '__Secure-' ) ) {
+		$opts['domain']	= getHost();
+	}
 	
 	hook( [ 'cookieparams', $opts ] );
 	return $opts;
@@ -4302,7 +4328,7 @@ function defaultCookieOptions( array $options = [] ) : array {
  *  @return mixed
  */
 function getCookie( string $name, $default ) {
-	$app = appName();
+	$app = cookiePrefix() . appName();
 	if ( !isset( $_COOKIE[$app] ) ) {
 		return $default;
 	}
@@ -4331,7 +4357,7 @@ function makeCookie( string $name, $data, array $options = [] ) : bool {
 		'options'	=> $options 
 	] ] );
 	return 
-	\setcookie( appName() . "[$name]", $data, $options );
+	\setcookie( cookiePrefix() . appName() . "[$name]", $data, $options );
 }
 
 /**
@@ -4536,7 +4562,7 @@ function session( $reset = false ) {
 		\session_cache_limiter( '' );
 		
 		sessionCookieParams();
-		\session_name( appName() );
+		\session_name( cookiePrefix() . appName() );
 		\session_start();
 		
 		hook( [ 'sessioncreated', [ 'id' => \session_id() ] ] );
