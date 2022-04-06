@@ -4336,7 +4336,7 @@ function cookiePrefix() : string {
 		return $prefix;
 	}
 	
-	if ( config( 'cookie_prefixed', \COOKIE_PREFIXED, 'bool' ) ) {
+	if ( !config( 'cookie_prefixed', \COOKIE_PREFIXED, 'bool' ) ) {
 		$prefix = '';
 		return '';
 	}
