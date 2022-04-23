@@ -714,6 +714,23 @@ $templates['tpl_codeinline'] = <<<HTML
 <code class="{code_classes}">{code}</code>
 HTML;
 
+// Footnotes
+$templates['tpl_footnote_wrap'] =<<<HTML
+<ul class="{footnote_wrap_classes}">{footnotes}</ul>
+HTML;
+
+$templates['tpl_footnote'] =<<<HTML
+<li id="{link}-phrase" class="{footnote_phrase_classes}">
+	<a href="#{link}-link">{phrase}</a>: <span 
+		class="{footnote_def_classes}">{footnote}</span>
+</li>
+HTML;
+
+$templates['tpl_footlink'] =<<<HTML
+<sup class="{footnote_s_classes}"><a class="{footnote_a_classes}" href="#{link}-phrase" id="{link}-link">[{phrase}]</a></sup>
+HTML;
+
+
 // Language placeholders
 $templates['tpl_previous']	= '{lang:nav:previous}';
 $templates['tpl_next']		= '{lang:nav:next}';
@@ -962,6 +979,12 @@ define( 'DEFAULT_CLASSES', <<<JSON
 	
 	"code_wrap_classes"		: "",
 	"code_classes"			: "",
+	
+	"footnote_wrap_classes"		: "",
+	"footnote_phrase_classes"	: "",
+	"footnote_s_classes"		: "",
+	"footnote_a_classes"		: "",
+	"footnote_def_classes"		: "",
 	
 	"form_classes"			: "",
 	"fieldset_classes"		: "",
@@ -5927,6 +5950,39 @@ function makeParagraphs( $val, $skipCode = false ) {
 }
 
 /**
+ *  Parse out and format footnotes, if given 
+ *  
+ *  @param mixed	$footnotes	Unformated list of footnotes
+ *  @return string
+ */
+function formatFootnotes( $footnotes ) : string {
+	// Total running footnotes on this page
+	static $running_f = 0;
+	
+	if ( empty( $footnotes ) || !\is_array( $footnotes ) ) {
+		return '';
+	}
+	
+	$foot	= '';
+	foreach ( $footnotes as $k => $v ) {
+		$running_f++;
+		$foot .= 
+		\strtr( template( 'tpl_footnote' ), [
+			'{link}'	=> 
+				$running_f . '-' . 
+				slugify( ( string ) $k ),
+			'{phrase}'	=> $k,
+			'{footnote}'	=> $v
+		] );
+	}
+	
+	return 
+	\strtr( template( 'tpl_footnote_wrap' ), [
+		'{footnotes}'	=> $foot
+	] );
+}
+
+/**
  *  Post formatting handler
  *  
  *  @param string	$html	Raw HTML entered by the user
@@ -5941,10 +5997,18 @@ function formatHTML( string $html, string $prefix ) {
 	
 	// Check if formatting was handled or use the default markdown formatter
 	$sent	= hookArrayResult( 'formatting' );
+	if ( !empty( $sent['html'] ) ) {
+		return $sent['html'];
+	} 
 	
-	return empty( $sent ) ? 
-		markdown( $html, $prefix ) : 
-		( $sent['html'] ?? markdown( $html, $prefix ) );
+	$out	= markdown( $html, $prefix );
+	if ( !\is_array( $out ) ) {
+		return '';
+	}
+	
+	// Parse out footnotes, if any
+	$html = $out['html'] ?? '';
+	return $html . formatFootnotes( $out['footnotes'] ?? [] );
 }
 
 /**
@@ -6369,13 +6433,17 @@ function embeds( string $html, string $prefix = ''  ) : string {
  *  
  *  @param string	$html	Pacified text to transform into HTML
  *  @param string	$prefix	URL prefix to prepend text
- *  @return string
+ *  @return array
  */
 function markdown(
 	string	$html,
 	string	$prefix = '' 
-) {
+) : array {
 	static $filters;
+	
+	// Running footnotes
+	static $running_f	= 0;
+	$footnotes		= [];
 	
 	if ( empty( $filters ) ) {
 		$filters	= 
@@ -6480,6 +6548,29 @@ function markdown(
 			\strtr( template( 'tpl_codeinline' ), [ 
 				'{code}' => entities( \trim( $m[1] ), false, false )
 			] );
+		},
+		
+		// Footnote
+		'/(?:\[\^)(?<phrase>[[:alnum:]_\-]*)(?:\])((?:\:)(?:\s+)?(?<footnote>[[:print:]]*))?/si' =>
+		function( $m ) use ( &$footnotes, &$running_f ) {
+			
+			// Definition missing? Make an anchor
+			if ( empty( $m['footnote'] ) ) {
+				// Total running footnotes
+				$running_f++;
+				
+				return 
+				\strtr( template( 'tpl_footlink' ), [ 
+					'{link}'	=> 
+					$running_f . '-' . 
+					slugify( ( string ) $m['phrase'] ),
+					'{phrase}'	=> $m['phrase']
+				] );
+			}
+			
+			// Footnote definition made separately
+			$footnotes[$m['phrase']] = $m['footnote'];
+			return '';
 		}
 		];
 		
@@ -6489,8 +6580,12 @@ function markdown(
 		hookArrayResult( 'markdownfilter' )['filters'] ?? $filters;
 	}
 	
+	$html	= \preg_replace_callback_array( $filters, $html );
 	return
-	\preg_replace_callback_array( $filters, $html );
+	[
+		'footnotes'	=> $footnotes,
+		'html'		=> $html
+	];
 }
 
 
