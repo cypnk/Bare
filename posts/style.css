@@ -252,6 +252,14 @@ nav.tags ul li + li {
 	margin-left: 1rem;
 }
 
+nav.footnotes, nav.footnotes ul li + li { 
+	margin-top: 1rem;
+}
+
+nav.footnotes ul {
+	margin-left: 1rem;
+}
+
 ul.index {
 	margin: 1rem 0;
 	list-style: none;
