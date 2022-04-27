@@ -716,7 +716,9 @@ HTML;
 
 // Footnotes
 $templates['tpl_footnote_wrap'] =<<<HTML
-<ul class="{footnote_wrap_classes}">{footnotes}</ul>
+<nav class="{footnote_nav_classes}">
+	<ul class="{footnote_ul_classes}">{footnotes}</ul>
+</nav>
 HTML;
 
 $templates['tpl_footnote'] =<<<HTML
@@ -980,7 +982,8 @@ define( 'DEFAULT_CLASSES', <<<JSON
 	"code_wrap_classes"		: "",
 	"code_classes"			: "",
 	
-	"footnote_wrap_classes"		: "",
+	"footnote_nav_classes"		: "footnotes",
+	"footnote_ul_classes"		: "",
 	"footnote_phrase_classes"	: "",
 	"footnote_s_classes"		: "",
 	"footnote_a_classes"		: "",
@@ -1875,6 +1878,11 @@ function shutdown() {
  *  Guess if current request is secure
  */
 function isSecure() : bool {
+	static $secure;
+	if ( isset( $secure ) ) {
+		return $secure;
+	}
+	
 	$ssl	= $_SERVER['HTTPS'] ?? '0';
 	$frd	= 
 		$_SERVER['HTTP_X_FORWARDED_PROTO'] ?? 
@@ -1886,11 +1894,14 @@ function isSecure() : bool {
 		0 === \strcasecmp( $ssl, '1' )		|| 
 		0 === \strcasecmp( $frd, 'https' )
 	) {
+		$secure = true;
 		return true;
 	}
 	
-	return 
-	( 443 == ( int ) ( $_SERVER['SERVER_PORT'] ?? 80 ) );
+	$secure = 
+	( 443 == ( int ) ( $_SERVER['SERVER_PORT'] ?? 80 ) ) ? 
+		true : false;
+	return $secure;
 }
 
 
