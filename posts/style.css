@@ -252,12 +252,22 @@ nav.tags ul li + li {
 	margin-left: 1rem;
 }
 
-nav.footnotes, nav.footnotes ul li + li { 
+nav.footnotes {
 	margin-top: 1rem;
+	padding-top: 1rem;
+	border-top: 1px solid #dcdcdc;
 }
 
 nav.footnotes ul {
 	margin-left: 1rem;
+}
+
+nav.footnote ul li {
+	display: block;
+}
+
+nav.footnotes ul li + li { 
+	padding-top: 0.5em;
 }
 
 ul.index {
