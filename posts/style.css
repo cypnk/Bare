@@ -270,6 +270,11 @@ nav.footnotes ul li + li {
 	padding-top: 0.5em;
 }
 
+nav.footnote ul li a {
+	padding: 0;
+	display: inline-block;
+}
+
 ul.index {
 	margin: 1rem 0;
 	list-style: none;
