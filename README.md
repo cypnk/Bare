@@ -12,8 +12,6 @@ An about page can be created by editing *posts/about/main.md*. Additional about 
 
 A static homepage can be shown instead of the lastest posts by creating a *posts/home.md* page. Bare will show this similar to an about page.
 
-Bare understands a few HTML tags, which can be extended, and a rudimentary subset of [Markdown](https://daringfireball.net/projects/markdown/). 
-
 Posts are cached in a SQLite database created dynamically, which enables fast browsing and searching for posts by tags, title, or post body. The *cache.db* can be deleted at any time and Bare will rebuild it on the first visit to your blog.
 
 An extensive hook system allows customizing posts, indexes, and other template elements. Hooks also enable completely overriding the default behavior of most rendering functions and some core functions via [plugins](https://github.com/cypnk/Bare-Plugins).
@@ -176,13 +174,45 @@ And then, follow the conventions in the example post:
 /posts/2018/09/22/a-new-post.md
 ```
 
-## Content formatting
-To embed a previously uploaded image file, use markdown syntax:
+## Content formatting 
+Bare understands a few HTML tags, which can be extended, and a small subset of [Markdown](https://daringfireball.net/projects/markdown/). 
+
+To bold or italicize text:
+```
+**bold text** *italic text*
+```
+
+To create a link:
+```
+[link text](https://example.com)
+```
+
+To embed a previously uploaded image file:
 ```
 ![alt text](https://example.com/filename.jpg)
 or 
 ![alt text](/path/to/filename.jpg)
 ```
+
+To create a footnote:
+```
+This post has a footnote[^1] and another[^2]
+
+Footnotes are fully written at the end of the post body
+
+[^1]: First footnote
+[^2]: Second footnote with a [link](https://example.com)
+```
+Bare also supports text-based footnote references:
+```
+This post has a footnote[^One] and another[^Two]
+
+Footnotes are fully written at the end of the post body
+
+[^One]: First footnote
+[^Two]: Second footnote with a [link](https://example.com)
+```
+
 HTML is filtered of potentially harmful tags, however embedding videos to YouTube, Vimeo, PeerTube, Archive.org or LBRY/Odysee is supported via shortcodes.
 
 E.G. For uploaded audio files:
@@ -338,7 +368,7 @@ doas rcctl start php80_fpm
 
 **Note:** Although it shares the same comment style, httpd(8) [configuration](https://man.openbsd.org/httpd.conf.5) directives *do not* end in a semicolon(;) unlike Nginx settings.
 
-The following configuration can be used if Bare is installed as the "example.com" website (tested on OpenBSD 7.0).
+The following configuration can be used if Bare is installed as the "example.com" website (tested on OpenBSD 7.1).
 
 Edit **/etc/httpd.conf** to add a custom server setting file:
 ```
