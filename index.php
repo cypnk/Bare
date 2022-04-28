@@ -721,15 +721,19 @@ $templates['tpl_footnote_wrap'] =<<<HTML
 </nav>
 HTML;
 
+$templates['tpl_footnote_back'] =<<<HTML
+<a href="#{link}-link" class="{footnote_ba_classes}">{phrase}</a>
+HTML;
+
 $templates['tpl_footnote'] =<<<HTML
-<li id="{link}-phrase" class="{footnote_phrase_classes}">
-	<a href="#{link}-link">{phrase}</a>: <span 
+<li id="{id}-ref" class="{footnote_phrase_classes}">
+	<sup>{backlinks}</sup>: <span 
 		class="{footnote_def_classes}">{footnote}</span>
 </li>
 HTML;
 
 $templates['tpl_footlink'] =<<<HTML
-<sup class="{footnote_s_classes}"><a class="{footnote_a_classes}" href="#{link}-phrase" id="{link}-link">[{phrase}]</a></sup>
+<sup class="{footnote_s_classes}"><a class="{footnote_a_classes}" href="#{link}-ref" id="{id}-link">[{phrase}]</a></sup>
 HTML;
 
 
@@ -987,6 +991,7 @@ define( 'DEFAULT_CLASSES', <<<JSON
 	"footnote_phrase_classes"	: "",
 	"footnote_s_classes"		: "",
 	"footnote_a_classes"		: "",
+	"footnote_ba_classes"		: "",
 	"footnote_def_classes"		: "",
 	
 	"form_classes"			: "",
@@ -5963,31 +5968,85 @@ function makeParagraphs( $val, $skipCode = false ) {
 /**
  *  Parse out and format footnotes, if given 
  *  
- *  @param mixed	$footnotes	Unformated list of footnotes
+ *  @param string	$html		Content body
+ *  @param array	$footnotes	Unformated list of footnotes
  *  @return string
  */
-function formatFootnotes( $footnotes ) : string {
-	// Total running footnotes on this page
-	static $running_f = 0;
-	
-	if ( empty( $footnotes ) || !\is_array( $footnotes ) ) {
-		return '';
+function formatFootnotes( string $html, array $footnotes ) : string {
+	// No footnotes? Send content as-is
+	if ( empty( $footnotes ) ) {
+		return $html;
 	}
 	
-	$foot	= '';
-	foreach ( $footnotes as $k => $v ) {
-		$running_f++;
+	$slug	= '';		// Footnote ID link slug
+	$foot	= '';		// Formatted footnote
+	$id	= 0;		// Footnote marker counter
+	$blink	= '';		// Footnote marker backlink reference slug
+	$back	= [];		// Formatted markers per footnote
+	$multi	= false;	// Multiple backlinks to body text
+	
+	// Replace placeholder markers with links
+	foreach( $footnotes as $k => $v ) {
+		// No placeholders in body text?
+		if ( empty( $v['markers'] ) ) {
+			continue;
+		}
+		
+		// Generate ID slug from part of footnote and its hash
+		$slug	= 
+		slugify( 
+			smartTrim( \strip_tags( $v['footnote'] ), 20 ) 
+		) . '-' . \hash( 'crc32b', $v['footnote'] );
+		
+		// Multiple backlinks to this footnote?
+		$multi	= 
+		( count( $v['markers'] ) > 1 ) ? true : false;
+		
+		foreach( $v['markers'] as $m ) {
+			
+			// Marker link slug ID 
+			$id	= count( $back ) + 1;
+			$blink	= $slug . '-' . $id;
+			
+			// Backlink to body text location
+			// Use the ID if there are multiple backlinks
+			$back[] = 
+			\strtr( template( 'tpl_footnote_back' ), [
+				'{link}'	=> $blink,
+				'{phrase}'	=> $multi ? $id : $k
+			] );
+			
+			// Replace marker in body text with link to footnote
+			$html = 
+			\strtr( $html, [ $m =>
+				\strtr( template( 'tpl_footlink' ), [ 
+					'{link}'	=> $slug,
+					'{id}'		=> $blink,
+					'{phrase}'	=> $k
+				] ) 
+			] );
+			$id++;
+		}
+		
 		$foot .= 
-		\strtr( template( 'tpl_footnote' ), [
-			'{link}'	=> 
-				$running_f . '-' . 
-				slugify( ( string ) $k ),
-			'{phrase}'	=> $k,
-			'{footnote}'	=> $v
-		] );
+		\strtr( 
+			template( 'tpl_footnote' ), 
+			[
+				'{backlinks}'	=> 
+				$multi ? 
+					$k . '. ' . \implode( ', ', $back ) : 
+					$back[0],
+				'{id}'		=> $slug,
+				'{footnote}'	=> $v['footnote']
+			] 
+		);
+		
+		// Reset after each footnote
+		$back	= [];
+		$id	= 0;
 	}
 	
-	return 
+	return $html . 
 	\strtr( template( 'tpl_footnote_wrap' ), [
 		'{footnotes}'	=> $foot
 	] );
@@ -6008,18 +6067,10 @@ function formatHTML( string $html, string $prefix ) {
 	
 	// Check if formatting was handled or use the default markdown formatter
 	$sent	= hookArrayResult( 'formatting' );
-	if ( !empty( $sent['html'] ) ) {
-		return $sent['html'];
-	} 
 	
-	$out	= markdown( $html, $prefix );
-	if ( !\is_array( $out ) ) {
-		return '';
-	}
-	
-	// Parse out footnotes, if any
-	$html = $out['html'] ?? '';
-	return $html . formatFootnotes( $out['footnotes'] ?? [] );
+	return empty( $sent ) ? 
+		markdown( $html, $prefix ) : 
+		( $sent['html'] ?? markdown( $html, $prefix ) );
 }
 
 /**
@@ -6444,17 +6495,18 @@ function embeds( string $html, string $prefix = ''  ) : string {
  *  
  *  @param string	$html	Pacified text to transform into HTML
  *  @param string	$prefix	URL prefix to prepend text
- *  @return array
+ *  @return string
  */
 function markdown(
 	string	$html,
 	string	$prefix = '' 
-) : array {
+) : string {
 	static $filters;
 	
 	// Running footnotes
 	static $running_f	= 0;
 	$footnotes		= [];
+	$fmarkers		= [];
 	
 	if ( empty( $filters ) ) {
 		$filters	= 
@@ -6563,24 +6615,32 @@ function markdown(
 		
 		// Footnote
 		'/(?:\[\^)(?<phrase>[[:alnum:]_\-]*)(?:\])((?:\:)(?:\s+)?(?<footnote>[[:print:]]*))?/si' =>
-		function( $m ) use ( &$footnotes, &$running_f ) {
+		function( $m ) use ( &$footnotes, &$running_f, &$fmarkers ) {
 			
-			// Definition missing? Make an anchor
+			// Definition missing? Make a placeholder
 			if ( empty( $m['footnote'] ) ) {
 				// Total running footnotes
 				$running_f++;
 				
-				return 
-				\strtr( template( 'tpl_footlink' ), [ 
-					'{link}'	=> 
-					$running_f . '-' . 
-					slugify( ( string ) $m['phrase'] ),
-					'{phrase}'	=> $m['phrase']
-				] );
+				// Create placeholder slug
+				$slug		= 
+				'{footnote_marker_' . $running_f . '-' . 
+				slugify( ( string ) $m['phrase'] ) . '}';
+				
+				// Create list for this phrase
+				$fmarkers[$m['phrase']] ??= [];
+				
+				// Placeholder slug and link text phrase
+				$fmarkers[$m['phrase']][] = $slug;
+				return $slug;
 			}
 			
 			// Footnote definition made separately
-			$footnotes[$m['phrase']] = $m['footnote'];
+			$footnotes[$m['phrase']] = [
+				'footnote'	=> $m['footnote'],
+				'markers'	=> 
+					$fmarkers[$m['phrase']] ?? []
+			];
 			return '';
 		}
 		];
@@ -6592,11 +6652,9 @@ function markdown(
 	}
 	
 	$html	= \preg_replace_callback_array( $filters, $html );
-	return
-	[
-		'footnotes'	=> $footnotes,
-		'html'		=> $html
-	];
+	
+	// Parse out footnotes, if any
+	return formatFootnotes( $html, $footnotes );
 }
 
 
