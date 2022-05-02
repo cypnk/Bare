@@ -7017,7 +7017,6 @@ function formatSites( array $sites ) : array {
 		$se[$host] = $f;
 	}
 	
-	\natcasesort( $se );
 	return $se;
 }
 
