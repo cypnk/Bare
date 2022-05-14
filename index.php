@@ -6177,7 +6177,7 @@ function html(
 		if ( false !== $e ) {
 			shutdown( 
 				'logError', 
-				[ $e->message ?? 'Error loading DOMDocument' ]
+				$e->message ?? 'Error loading DOMDocument'
 			);
 		}
 		
@@ -8578,9 +8578,9 @@ function route( string $event, array $hook, array $params ) {
  *  Get all files in relative post path
  *  
  *  @param string	$root Post relative root
- *  @return mixed
+ *  @return array
  */
-function getPosts( string $root = '' ) {
+function getPosts( string $root = '' ) : array {
 	static $st =	[];
 	if ( isset( $st[$root] ) ) {
 		return $st[$root];
@@ -8588,6 +8588,14 @@ function getPosts( string $root = '' ) {
 	
 	// Get relative root
 	$pd	= getPostFileDir( 'posts' ) . $root;
+	if ( !\is_dir( $pd ) ) {
+		$st[$root] = [];
+		shutdown( 
+			'logError', 
+			'Error retrieving posts from ' . $pd
+		);
+		return $st[$root];
+	}
 	
 	try {
 		$dir		= 
@@ -8618,8 +8626,9 @@ function getPosts( string $root = '' ) {
 			'Error retrieving posts from ' . $pd . ' ' . 
 			$e->getMessage() ?? 'Directory search exception'
 		);
-		return null;
 	}
+	
+	return [];
 }
 
 /**
@@ -8942,6 +8951,7 @@ function timeZoneOffset() : int {
 		$ot = $dz->getOffset( $dt );
 		
 	} catch( \Exception $e ) { // Default fallback
+		shutdown( 'logError', 'Invalid timezone set ' . $tz );
 		$dz = new \DateTimeZone( 'America/New_York' );
 		$ot = $dz->getOffset( $dt );
 	}
