@@ -6989,6 +6989,10 @@ function httpCode( int $code ) {
 	
 	// Special cases
 	switch( $code ) {
+		case 416:
+			\header( "$prot $code " . 'Range Not Satisfiable' );
+			return;
+			
 		case 425:
 			\header( "$prot $code " . 'Too Early' );
 			return;
@@ -10588,6 +10592,7 @@ function reloadIndex( string $event, array $hook, array $params ) {
 	// New cache database was created
 	if ( 0 == \strcmp( $params['dbname'], \CACHE_DATA ) ) {
 		internalState( 'prepareIndex', true );
+		logStartup();
 	}
 }
 
