@@ -87,6 +87,9 @@ define( 'ERROR_VISIT',	'visitor_errors.log' );
 // Special notices and other messages that aren't errors but should be recorded
 define( 'NOTICE',	'notices.log' );
 
+// A log file created when Bare is first run with information about its enviornment
+define( 'STARTUP',	'startup.log' );
+
 
 /**
  *  The following settings can be overridden in config.json:
@@ -1215,6 +1218,7 @@ define(
 define( 'RX_XSS2',		'/(<(s(?:cript|tyle)).*?)/ism' );
 define( 'RX_XSS3',		'/(document\.|window\.|eval\(|\(\))/ism' );
 define( 'RX_XSS4',		'/(\\~\/|\.\.|\\\\|\-\-)/sm' );
+define( 'RX_ULANG',		'/(?P<lang>[^-;,\s]{2,8})(?:-(?P<locale>[^;,\s]{2,8}))?(?:;q=(?P<weight>[0-9]{1}(?:\.[0-9]{1})))?/is' );
 
 
 // URL routing placeholders
@@ -2007,13 +2011,7 @@ function getLang() : array {
 	}
 	
 	// Find languages by locale and priority
-	\preg_match_all( 
-		'/(?P<lang>[^-;,\s]{2,8})' . 
-		'(?:-(?P<locale>[^;,\s]{2,8}))?' . 
-		'(?:;q=(?P<weight>[0-9]{1}(?:\.[0-9]{1})))?/is',
-		$lang,
-		$matches
-	);
+	\preg_match_all( \RX_ULANG, $lang, $matches );
 	$matches =
 	\array_filter( 
 		$matches, 
@@ -2070,7 +2068,7 @@ function getLang() : array {
 	
 	// Sorting columns
 	$weight = \array_column( $found, 'weight' );
-	$locale	= \arary_column( $found, 'locale' );
+	$locale	= \array_column( $found, 'locale' );
 	
 	// Sort by weight priority, followed by locale
 	return
@@ -2468,6 +2466,74 @@ function logNotice( string $msg ) : bool {
 		'date, time, s-comment',
 		truncate( unifySpaces( $msg ), 0, 2048 ) 
 	);
+}
+
+/**
+ *  Startup environment logging
+ */
+function logStartup() {
+	$log = \CACHE . \STARTUP;
+	
+	if ( \file_exists( $log ) ) {
+		return;
+	}
+	// List of required and optional libraries
+	$lib	= [ 
+	'required' => [
+		'libxml_clear_errors'	=> 'libxml',
+		'mime_content_type'	=> 'fileinfo',
+		'iconv'			=> 'iconv'
+	],
+	'optional' => [ 
+		'mb_strlen'		=> 'mbstring', 
+		'normalizer_normalize'	=> 'intl', 
+		'tidy_repair_string'	=> 'tidy',
+		'imagecreatetruecolor'	=> 'GD',
+		'mail'			=> 'mail'
+	]];
+	
+	// Check PDO too
+	if ( !defined( 'PDO::ATTR_DEFAULT_FETCH_MODE' ) ) {
+		$lib['required'] = 'pdo-sqlite';
+	}
+	
+	// Missing storage
+	$miss	= [ 'required' => [], 'optional' => [] ];
+	
+	// Log any missing required libraries
+	foreach ( $lib['required'] as $f => $name ) {
+		if ( !\function_exists( $f ) ) {
+			$miss['required'][] = $name;
+		}
+	}
+	// Optional libraries
+	foreach ( $lib['optional'] as $f => $name ) {
+		if ( !\function_exists( $f ) ) {
+			$miss['optional'][] = $name;
+		}
+	}
+	
+	if ( !empty( $miss['required'] ) ) {
+		$msg	= 
+		'These required library(ies) may be missing or disabled: ' . 
+			implode( ', ', $miss['required'] );
+		logMessage( 
+			$log, 
+			'date, time, s-comment',
+			truncate( unifySpaces( $msg ), 0, 2048 ) 
+		);
+	}
+	
+	if ( !empty( $miss['optional'] ) ) {
+		$msg	= 
+		'These recommended function(s) or library(ies) may be missing or disabled: ' . 
+			implode( ', ', $miss['optional'] );
+		logMessage( 
+			$log, 
+			'date, time, s-comment',
+			truncate( unifySpaces( $msg ), 0, 2048 ) 
+		);
+	}
 }
 
 /**
@@ -11461,8 +11527,8 @@ function checkConfig( string $event, array $hook, array $params ) {
 	$ye = ( int ) \date( 'Y' );
 	
 	$filter	= [
-		'page_title'	=> \FILTER_SANITIZE_STRING,
-		'page_sub'	=> \FILTER_SANITIZE_STRING,
+		'page_title'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
+		'page_sub'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
 		'page_limit'	=> [
 			'filter'	=> \FILTER_VALIDATE_INT,
 			'options'	=> [
