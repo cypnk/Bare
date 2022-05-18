@@ -2492,13 +2492,13 @@ function logStartup() {
 		'mail'			=> 'mail'
 	]];
 	
-	// Check PDO too
-	if ( !defined( 'PDO::ATTR_DEFAULT_FETCH_MODE' ) ) {
-		$lib['required'] = 'pdo-sqlite';
-	}
-	
 	// Missing storage
 	$miss	= [ 'required' => [], 'optional' => [] ];
+	
+	// Check PDO too
+	if ( !defined( 'PDO::ATTR_DEFAULT_FETCH_MODE' ) ) {
+		$miss['required'][] = 'pdo-sqlite';
+	}
 	
 	// Log any missing required libraries
 	foreach ( $lib['required'] as $f => $name ) {
@@ -10592,7 +10592,6 @@ function reloadIndex( string $event, array $hook, array $params ) {
 	// New cache database was created
 	if ( 0 == \strcmp( $params['dbname'], \CACHE_DATA ) ) {
 		internalState( 'prepareIndex', true );
-		logStartup();
 	}
 }
 
@@ -11936,6 +11935,9 @@ function addBlogRoutes( string $event, array $hook, array $params ) {
 						'searchpaginate' ]
 	];
 }
+
+// Environment check
+logStartup();
 
 /**
  *  Begin event registry
