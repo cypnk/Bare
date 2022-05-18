@@ -729,6 +729,11 @@ These are possible problems you may encounter and potential solutions to them. I
 
 	* If you're using custom CSS classes by adding them to "default_classes" in *config.json* or by adding them to DEFAULT_CLASSES in *index.php*, try changing or removing these to see if it makes a difference.
 	
+* **Problem: I see a message in startup.log in the CACHE folder**
+	* Bare has certain [requirements](https://github.com/cypnk/Bare#requirements) to function properly and will print this list in the file. See if they are enabled and try to run Bare again. You may delete or rename the *startup.log* file and Bare will create it again only if there's an issue.
+
+	* Optional, but recommended, items may also be present. These can be ignored if you don't intend to use plugins or can manage without some of Bare's features.
+
 * **Problem: I see a message in errors.log in the CACHE folder**
 	* **Error retrieving posts from...**
 		* Check if the POSTS definition in *index.php* is set to the same location where you keep your blog posts. If you uploaded the demo post as-is, check if PHP has read permissions to this folder. You may also need to set ownership permissions for the webserver user (E.G. `chown -R www posts` on some platforms).
