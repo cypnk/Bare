@@ -1615,14 +1615,6 @@ function template( string $label, array $reg = [] ) : string {
 }
 
 /**
- *  Check if script is running with the latest supported PHP version
- *  This function remains for backward compatibility
- */ 
-function newPHP( string $spec = '8.0' ) : bool {
-	return libVersion( $spec );
-}
-
-/**
  *  Check if a specific library or if PHP is the given version or above
  *  
  *  @param string	$spec		Minimum supported version
@@ -3251,13 +3243,6 @@ function parseLang( string $tpl ) : string {
 /**
  *  Template helpers
  */
-
-/**
- *  @deprecated
- *  Preserved for backward compatibility
- */
-function homeLink() { return pageRoutePath(); }
-function feedLink() { return pageRoutePath( 'feed' ); }
 
 /**
  *  Website and relative path root path given a URL prefix
