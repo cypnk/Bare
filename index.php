@@ -3918,7 +3918,7 @@ function getDb( string $dsn, string $mode = 'get' ) {
 	if ( !internalState( 'dbcleanupset' ) ) {
 		shutdown( 'statement', [ null, null ] );
 		shutdown( 'getDb', [ '', 'closeAll' ] );
-		internalState( 'dbcleanupset', true )
+		internalState( 'dbcleanupset', true );
 	}
 	
 	switch( $mode ) {
@@ -7749,9 +7749,6 @@ function sendFileFinish( $path ) {
 			}
 		}
 	}
-	
-	// Cleanup and flush before readfile
-	cleanup();
 	
 	// Send any headers and end buffering
 	flushOutput( true );
