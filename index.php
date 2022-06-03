@@ -1355,6 +1355,8 @@ define( 'FORM_STATUS_FLOOD',	3 );
  */
 \date_default_timezone_set( 'UTC' );
 \ignore_user_abort( true );
+\register_shutdown_function( 'shutdown' );
+
 
 
 /**
@@ -1855,6 +1857,11 @@ function shutdown() {
 	
 	// Shutdown called
 	if ( empty( $args ) ) {
+		// Cleanup any session data
+		if ( \session_status() === \PHP_SESSION_ACTIVE ) {
+			\session_write_close();
+		}
+		
 		hook( [ 'shutdown', [] ] );
 		foreach( $registered as $k => $v ) {
 			if ( \is_array( $v ) ) {
@@ -1867,7 +1874,7 @@ function shutdown() {
 		}
 		
 		// End
-		die();
+		return;
 	}
 	
 	if ( \is_callable( $args[0] ) ) {
@@ -2557,8 +2564,7 @@ function visitorAbort() {
 		httpCode( 205 );
 	}
 	visitorError( 499, 'Client disconnect' );
-	shutdown( 'cleanup' );
-	shutdown();
+	die();
 }
 
 
@@ -2784,11 +2790,10 @@ function loadFile(
 	}
 	
 	if ( false !== \strpos( $data, '<?php' ) ) {
-		shutdown( 'cleanup' );
 		
 		// Prevent circular failure if config file contained the error
 		if ( 0 == \strcasecmp( $name, CONFIG ) ) {
-			shutdown();
+			die();
 		}
 		send( 500, \MSG_CODEDETECT );
 	}
@@ -3054,6 +3059,13 @@ function config(
 	string	$filter		= '' 
 ) {
 	$config = loadConfig( \CONFIG );
+	
+	// Set self-save
+	if ( !internalState( 'configsaveset' ) ) {
+		shutdown( 'saveConfig' );
+		internalState( 'configsaveset', true );
+	}
+	
 	switch( $type ) {
 		case 'int':
 		case 'integer':
@@ -3902,6 +3914,13 @@ function installSQL( \PDO $db, string $dsn ) {
 function getDb( string $dsn, string $mode = 'get' ) {
 	static $db	= [];
 	
+	// Set self-cleanup
+	if ( !internalState( 'dbcleanupset' ) ) {
+		shutdown( 'statement', [ null, null ] );
+		shutdown( 'getDb', [ '', 'closeAll' ] );
+		internalState( 'dbcleanupset', true )
+	}
+	
 	switch( $mode ) {
 		case 'close':	
 			if ( isset( $db[$dsn] ) ) {
@@ -4215,20 +4234,6 @@ function getSingle(
 }
 
 /**
- *  Close the session and any open connections
- */
-function cleanup() {
-	hook( [ 'cleanup', [] ] );
-	if ( \session_status() === \PHP_SESSION_ACTIVE ) {
-		\session_write_close();
-	}
-	
-	statement( null, null );
-	getDb( '', 'closeall' );
-	saveConfig();
-}
-
-/**
  *  Filter plugin names into usable array
  *  
  *  @param mixed	$pl	List of plugins as an array or string
@@ -4391,9 +4396,6 @@ function saveCache( string $uri, string $content ) {
 		], 
 		CACHE_DATA 
 	);
-	
-	// Schedule cleanup
-	shutdown( 'cleanup' );
 }
 
 
@@ -4886,18 +4888,15 @@ function sessionThrottle() {
 		// Send Too Many Requests
 		case SESSION_STATE_HEAVY:
 			visitorError( 429, 'Requests' );
-			shutdown( 'cleanup' );
 			shutdown( 'sleep', 20 );
 			sendError( 429, errorLang( "toomany", \MSG_TOOMANY ) );
 			
 		// Send Not Modified for the rest
 		case SESSION_STATE_MEDIUM:
-			shutdown( 'cleanup' );
 			shutdown( 'sleep', 10 );
 			send( 304 );
 			
 		case SESSION_STATE_LIGHT:
-			shutdown( 'cleanup' );
 			shutdown( 'sleep', 5 );
 			send( 304 );
 	}
@@ -7328,7 +7327,7 @@ function send(
 	echo $content;
 	
 	// End
-	shutdown();
+	die();
 }
 
 /**
@@ -7351,7 +7350,7 @@ function sendErrorFile( string $path, int $code ) {
 	] );
 	sendFilePrep( $path, $code );
 	sendFileFinish( $path, true );
-	shutdown();
+	die();
 }
 
 /**
@@ -7404,7 +7403,6 @@ function sendError( int $code, $body ) {
 	
 	// Send custom errors
 	if ( !empty( $html ) ) {
-		shutdown( 'cleanup' );
 		send( $code, $html );
 	}
 	
@@ -7415,7 +7413,6 @@ function sendError( int $code, $body ) {
 		'code'		=> $code,
 		'body'		=> $body 
 	];
-	shutdown( 'cleanup' );
 	send( $code, render( template( 'tpl_error_page' ), $params ) );
 }
 
@@ -7444,7 +7441,6 @@ function sendOverride( string $event, bool $feed = false ) {
 		return;
 	}
 	
-	shutdown( 'cleanup' );
 	send( 
 		( int ) ( $sent['code'] ?? 200 ), 
 		$html, 
@@ -7733,7 +7729,7 @@ function sendFileFinish( $path ) {
 				// Don't send error or this may loop
 				// Error handlers also use this function
 				shutdown( 'logError', 'Error opening ' . $path );
-				shutdown();
+				die();
 			}
 		}
 	
@@ -8000,8 +7996,7 @@ function handleHead( string $path, array $routes ) {
 	}
 	
 	// Done
-	shutdown( 'cleanup' );
-	shutdown();
+	die();
 }
 
 /**
@@ -8016,8 +8011,7 @@ function handleOptions() {
 	setCacheExp( 604800 );
 	
 	// Done
-	shutdown( 'cleanup' );
-	shutdown();
+	die();
 }
 
 /**
@@ -8033,7 +8027,6 @@ function handleCache( string $path ) {
 	}
 	
 	// If URI is already saved, send contents and exit
-	shutdown( 'cleanup' );
 	
 	// Is this a feed?
 	if ( 0 === \strcasecmp( \basename( $path ), 'feed' ) ) {
@@ -8083,8 +8076,7 @@ function methodPreParse( string $verb, string $path, array $routes ) {
 		case 'get':
 			// Try to send file, if it's a file
 			if ( fileRequest( $verb, $path ) ) {
-				shutdown( 'cleanup' );
-				shutdown();
+				die();
 			
 			// Try to send cache if it's available
 			} else {
@@ -8109,7 +8101,6 @@ function methodPreParse( string $verb, string $path, array $routes ) {
 		// Nothing else implemented
 		default:
 			visitorError( 405, 'Method' );
-			shutdown( 'cleanup' );
 			send( 405 );
 	}
 }
@@ -8159,7 +8150,6 @@ function request( string $event, array $hook, array $params ) : array {
 	$lurl	= config( 'max_url_size', \MAX_URL_SIZE, 'int' );
 	if ( strsize( $path ) > $lurl ) {
 		visitorError( 414, 'Path' );
-		shutdown( 'cleanup' );
 		send( 414 );
 	}
 	
@@ -10116,7 +10106,6 @@ function formatIndex(
 	);
 	
 	// Send results
-	shutdown( 'cleanup' );
 	send( 200, $page_t, $cache );
 }
 
@@ -10981,7 +10970,6 @@ function staticPage(
 		true 
 	);
 	
-	shutdown( 'cleanup' );
 	send( 200, $page_t, $cache );
 }
 
@@ -11294,7 +11282,6 @@ function showFeed( string $event, array $hook, array $params ) {
 		'body'		=> \implode( '', $posts )
 	];
 	
-	shutdown( 'cleanup' );
 	send( 200, render( template( 'tpl_feed' ), $tpl ), true, true );
 }
 
@@ -11383,7 +11370,6 @@ function showPost( string $event, array $hook, array $params ) {
 		true 
 	);
 	
-	shutdown( 'cleanup' );
 	send( 200, $page_t, true );
 }
 
@@ -11501,7 +11487,6 @@ function runIndex( string $event, array $hook, array $params ) {
 		true 
 	);
 	
-	shutdown( 'cleanup' );
 	send( 200, $page_t, true );
 }
 
