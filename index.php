@@ -775,20 +775,20 @@ XML;
 
 // Embedded video with preview
 $templates['tpl_audio_embed']	= <<<HTML
-<div class="media"><audio src="{src}" controls></audio></div>
+<div class="media"><audio src="{src}" preload="none" controls></audio></div>
 HTML;
 
 // Embedded video without preview
 $templates['tpl_video_np_embed'] =<<<HTML
 <div class="media">
-	<video width="560" height="315" src="{src}" controls>{detail}</video>
+	<video width="560" height="315" src="{src}" preload="none" controls>{detail}</video>
 </div>
 HTML;
 
 // Embedded video with preview
 $templates['tpl_video_embed'] =<<<HTML
 <div class="media">
-	<video width="560" height="315" src="{src}" poster="{preview}" controls>{detail}</video>
+	<video width="560" height="315" src="{src}" preload="none" poster="{preview}" controls>{detail}</video>
 </div>
 HTML;
 
