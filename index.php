@@ -244,6 +244,7 @@ https://archive.org
 https://peertube.mastodon.host
 https://lbry.tv
 https://odysee.com
+https://utreon.com
 
 LINES
 );
@@ -810,8 +811,9 @@ $templates['tpl_youtube']	= <<<HTML
 <div class="media">
 	<iframe width="560" height="315" frameborder="0" 
 		sandbox="allow-same-origin allow-scripts" 
-		src="https://www.youtube.com/embed/{src}" 
-		allowfullscreen></iframe>
+		src="https://www.youtube.com/embed/{src}?start={time}" 
+		allow="encrypted-media;picture-in-picture" 
+		loading="lazy" allowfullscreen></iframe>
 </div>
 HTML;
 
@@ -821,6 +823,7 @@ $templates['tpl_vimeo']		= <<<HTML
 	<iframe width="560" height="315" frameborder="0" 
 		sandbox="allow-same-origin allow-scripts" 
 		src="https://player.vimeo.com/video/{src}" 
+		allow="picture-in-picture" loading="lazy" 
 		allowfullscreen></iframe>
 </div>
 HTML;
@@ -831,6 +834,7 @@ $templates['tpl_peertube']	= <<<HTML
 	<iframe width="560" height="315" frameborder="0" 
 		sandbox="allow-same-origin allow-scripts" 
 		src="https://{src_host}/videos/embed/{src}" 
+		allow="picture-in-picture" loading="lazy" 
 		allowfullscreen></iframe>
 </div>
 HTML;
@@ -841,6 +845,7 @@ $templates['tpl_archiveorg']	= <<<HTML
 	<iframe width="560" height="315" frameborder="0" 
 		sandbox="allow-same-origin allow-scripts" 
 		src="https://archive.org/embed/{src}" 
+		allow="picture-in-picture" loading="lazy" 
 		allowfullscreen></iframe></div>
 HTML;
 
@@ -850,7 +855,19 @@ $templates['tpl_lbry']	= <<<HTML
 	<iframe width="560" height="315" frameborder="0" 
 		sandbox="allow-same-origin allow-scripts" 
 		src="https://{src_host}/$/embed/{slug}/{src}" 
+		allow="picture-in-picture" loading="lazy" 
 		allowfullscreen></iframe>
+</div>
+HTML;
+
+// Utreon video wrapper
+$templates['tpl_utreon']	= <<<HTML
+<div class="media">
+	<iframe width="560" height="315" frameborder="0" 
+		sandbox="allow-same-origin allow-scripts" 
+		allow="encrypted-media;picture-in-picture"
+		src="https://utreon.com/embed/{src}?t={time}" 
+		loading="lazy" allowfullscreen></iframe>
 </div>
 HTML;
 
@@ -6409,13 +6426,13 @@ function extractCC( string $cc, string $prefx = '' ) : string {
 function hostedEmbeds() : array {
 	$hosted = [
 		// YouTube syntax
-		'/\[youtube http(s)?\:\/\/(www)?\.?youtube\.com\/watch\?v=([0-9a-z_]*)\]/is'
-		=> \strtr( template( 'tpl_youtube' ), [ '{src}' => '$3' ] ),
+		'/\[youtube http(s)?\:\/\/(www)?\.?youtube\.com\/watch\?v=([0-9a-z_\-]*)(?:\&t\=([\d]*)s)?\]/is'
+		=> \strtr( template( 'tpl_youtube' ), [ '{src}' => '$3', '{time}' => ( '$4' ?? '0' ) ] ),
 		
-		'/\[youtube http(s)?\:\/\/(www)?\.?youtu\.be\/([0-9a-z_]*)\]/is'
-		=> \strtr( template( 'tpl_youtube' ), [ '{src}' => '$3' ] ),
+		'/\[youtube http(s)?\:\/\/(www)?\.?youtu\.be\/([0-9a-z_\-]*)(?:\?t\=([\d]*))?\]/is'
+		=> \strtr( template( 'tpl_youtube' ), [ '{src}' => '$3', '{time}' => ( '$4' ?? '0' ) ] ),
 		
-		'/\[youtube ([0-9a-z_]*)\]/is'
+		'/\[youtube ([0-9a-z_\-]*)\]/is'
 		=> \strtr( template( 'tpl_youtube' ), [ '{src}' => '$1' ] ),
 		
 		// Vimeo syntax
@@ -6445,7 +6462,10 @@ function hostedEmbeds() : array {
 		'/\[lbry lbry\:\/\/\@(.*?)\/([\pL\pN\-_]*)(\#[\pL\pN\-_]*)?(\s|\/)([\pL\pN\-_]*)\]/is'
 		=> \strtr( template( 'tpl_lbry' ), [ 
 			'{src_host}' => 'lbry.tv', '{slug}' => '$2', '{src}' => '$5' 
-		] )
+		] ),
+		
+		'/\[utreon http(s)?\:\/\/(www)?\.?utreon\.com\/v\/([0-9a-z_\-]*)(?:\?t\=([\d]*))?\]/is'
+		=> \strtr( template( 'tpl_utreon' ), [ '{src}' => '$3', '{time}' => ( '$4' ?? '0' ) ] )
 		
 	];
 	
