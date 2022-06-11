@@ -3113,6 +3113,21 @@ function config(
 }
 
 /**
+ *  Check if a given hash scheme is valid
+ *  
+ *  @param string	$algo	Checking hash scheme
+ *  @param bool		$hmac	Check HMAC algo list if true
+ *  @return bool
+ */
+function validHashAlgo( string $algo, bool $hmac = false ) : bool {
+	return 
+	\in_array( 
+		$algo, 
+		( $hmac ? \hash_hmac_algos() : \hash_algos() )
+	) ? true : false;
+}
+
+/**
  *  Helper to determine if given hash algo exists or returns default
  *  
  *  @param string	$token		Configuration setting name
@@ -3132,12 +3147,8 @@ function hashAlgo(
 	}
 	
 	$ht		= config( $token, $default );
+	$algos[$t]	= validHashAlgo( $ht, $hmac ) ? $ht : $default;
 	
-	$algos[$t]	= 
-		\in_array( $ht, 
-			( $hmac ? \hash_hmac_algos() : \hash_algos() ) 
-		) ? $ht : $default;
-		
 	return $algos[$t];	
 }
 
@@ -7611,6 +7622,42 @@ function detectMime( string $path ) : string {
 	}
 	
 	return \strtolower( $mime );
+}
+
+/**
+ *  Create a digest hash of a file
+ *  
+ *  @param string	$path	File path
+ *  @param string	$algo	Hashing scheme
+ */
+function fileDigest( string $path, string $algo	= 'sha384' ) : string {
+	static $done	= [];
+	
+	if ( empty( $path ) || empty( $algo ) ) {
+		return '';
+	}
+	
+	$key = $algo . $path;
+	
+	if ( \array_key_exists( $key, $done ) ) {
+		return $done[$key];
+	}
+	
+	if ( !validHashAlgo( $algo, false ) ) {
+		return '';
+	}
+	if ( 
+		empty( $path ) || 
+		!\is_file( $path ) || 
+		!\is_readable( $path ) 
+	) {
+		return '';
+	}
+	
+	$done[$key] = 
+	\base64_encode( \hash_file( $algo, $path, true ) );
+	
+	return $done[$key];
 }
 
 /**
