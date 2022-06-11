@@ -7735,11 +7735,16 @@ function closeStream( &$stream ) {
  *  @param resource	$stream		Open file stream
  *  @param int		$int		Starting offset
  *  @param int		$end		Ending offset or end of file
+ *  @param callable	$flh		Flushing action
+ *  @param callable	$abr		Abort action
  */
-function streamChunks( &$stream, int $start, int $end ) {
+function streamChunks( &$stream, int $start, int $end, $flh, $abr ) {
 	// Default chunk size
 	$csize	= config( 'stream_chunk_size', \STREAM_CHUNK_SIZE, 'int' );
 	$sent	= 0;
+	
+	$is_flh	= \is_callable( $flh );
+	$is_abr	= \is_callable( $abr );
 	
 	fseek( $stream, $start );
 	
@@ -7748,12 +7753,17 @@ function streamChunks( &$stream, int $start, int $end ) {
 		// Check for aborted connection between flushes
 		if ( \connection_aborted() ) {
 			closeStream( $stream );
-			visitorAbort();
+			if ( $is_abr ) {
+				\call_user_func( $abr );
+			}
+			break;
 		}
 		
 		// End reached
 		if ( $sent >= $end ) {
-			flushOutput();
+			if ( $is_flh ) {
+				\call_user_func( $flh );
+			}
 			break;
 		}
 		
@@ -7770,7 +7780,9 @@ function streamChunks( &$stream, int $start, int $end ) {
 		
 		$sent += strsize( $buf );
 		
-		flushOutput();
+		if ( $is_flh ) {
+			\call_user_func( $flh );
+		}
 	}
 }
 
@@ -7825,7 +7837,7 @@ function sendFileFinish( $path ) {
 			\readfile( $path );
 			return;
 		}
-		streamChunks( $stream, 0, $fsize );
+		streamChunks( $stream, 0, $fsize, 'flushOutput', 'visitorAbort' );
 		closeStream( $stream );
 	}
 }
@@ -8526,7 +8538,7 @@ function sendFileRange( string $path, bool $dosend ) : bool {
 		}
 		
 		$limit = ( $r[1] > -1 ) ? $r[1] + 1 : $fsize;
-		streamChunks( $stream, $r[0], $limit );
+		streamChunks( $stream, $r[0], $limit, 'flushOutput', 'visitorAbort' );
 	}
 	
 	closeStream( $stream );
