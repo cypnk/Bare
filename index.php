@@ -8461,8 +8461,6 @@ function sendFileRange( string $path, bool $dosend ) : bool {
 	
 	\header( "Content-Length: {$totals}", true );
 	
-	cleanup();
-	
 	// Send any headers and end buffering
 	flushOutput( true );
 	
