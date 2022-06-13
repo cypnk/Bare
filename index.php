@@ -6569,6 +6569,78 @@ function embeds( string $html, string $prefix = ''  ) : string {
 }
 
 /**
+ *  Convert row string to list of cells
+ *  
+ *  @param string	$row		Matched plain text row cells
+ *  @param bool		$is_align	This is an alignment row if true
+ *  @return array
+ */
+function tableCells( string $row, bool $is_align = false ) : array {
+	$row = \trim( $row, '|' );
+	
+	// Split by vertical pipes, skipping any escaped
+	$c =  empty( $row ) ? [] : 
+	\preg_split( 
+		'/[^\\\\]\|' . ( $is_align ? '|\+/' : '/' ), $row
+	);
+	return ( false === $c )? [] : $c;
+}
+
+/**
+ *  Format table row with each cell aligned as designated
+ *   
+ *  @param array	$cells	Column cells in a single table row
+ *  @param array	$align	Formatting alignment definition
+ *  @param bool		$tpl	Cell rendering template
+ *  @return string
+ */
+function tableRow( array $cells, array $align, string $tpl ) : string {
+	$i = 0;		// Row cell counter
+	
+	$cells	= 
+	\array_map( function( $r ) use ( $align, $tpl, &$i ) {
+		switch ( $align[$i] ?? '' ) {
+			// Left align
+			case 'l':
+				$r = \strtr( $tpl, [ 
+					'{class}'	=> 'left',
+					'{data}'	=> $r
+				] );
+				break;
+			
+			// Center align
+			case 'c': 
+				$r = \strtr( $tpl, [ 
+					'{class}'	=> 'center',
+					'{data}'	=> $r
+				] );
+				break;
+			
+			// Right align
+			case 'r':
+				$r = \strtr( $tpl, [ 
+					'{class}'	=> 'right',
+					'{data}'	=> $r
+				] );
+				break;
+			
+			// No alignment
+			default:
+				$r = \strtr( $tpl, [ 
+					'{class}'	=> '',
+					'{data}'	=> $r
+				] );
+		}
+		
+		$i++;
+		return $r;
+		
+	}, $cells );
+	
+	return '<tr>' . \implode( '', $cells ) . '</tr>';
+}
+
+/**
  *  Convert Markdown formatted text into HTML tags
  *  
  *  Inspired by : 
@@ -6695,7 +6767,8 @@ function markdown(
 		},
 		
 		// Footnote
-		'/(?:\[\^)(?<phrase>[[:alnum:]_\-]*)(?:\])((?:\:)(?:\s+)?(?<footnote>[[:print:]]*))?/si' =>
+		'/(?:\[\^)(?<phrase>[[:alnum:]_\-]*)(?:\])((?:\:)(?:\s+)?' . 
+		'(?<footnote>[[:print:]]*))?/si' =>
 		function( $m ) use ( &$footnotes, &$running_f, &$fmarkers ) {
 			
 			// Definition missing? Make a placeholder
@@ -6723,6 +6796,57 @@ function markdown(
 					$fmarkers[$m['phrase']] ?? []
 			];
 			return '';
+		},
+		
+		// Tables
+		'/\n(?:\|)(?<headers>[^\n]+)(?:\|\r?\n)(?:[\+\:\|\-])' . 
+		'(?<align>[\+\:\|\-]+)(?:[\|\+]\r?\n)' . 
+		'(?<rows>(?:\|[^\n]+\|\r?\n)*$)/m'	=>
+		function( $m ) {
+			// TODO: Fix alignment
+			// Table cell alignment definition
+			$align		= 
+			\array_map( function( $a ) {
+				$a = \trim( $a );
+				
+				return 
+				// Left align?
+				\str_starts_with( $a, ':' ) ? (
+					// And right? Center
+					\str_ends_with( $a, ':' ) ? 
+						'c' : 'l' // Or left only
+				) : (
+					// Right only?
+					\str_ends_with( $a, ':' ) ? 
+						'r' : '' // Or nothing
+				);
+			}, tableCells( $m['align'] ?? '' , true ) );
+			
+			// Table column headers
+			$headers	= 
+			tableRow( 
+				tableCells( $m['headers'] ?? '' ), 
+				$align,
+				'<th class="{class}" align="{class}">{data}</th>'
+			);
+			
+			// Table rows
+			$rows	= 
+			\array_map( function( $r ) use ( $align ) {
+				return 
+				tableRow( 
+					tableCells( $r ), 
+					$align, 
+					'<td class="{class}" align="{class}">{data}</td>' 
+				);
+				
+			}, lines( $m['rows'] ?? '', -1, true ) );
+			
+			return 
+			'<table>' . 
+			'<thead>' . $headers . '</thead>' . 
+			'<tbody>' . \implode( '', $rows ) . '</tbody>' . 
+			'</table>';
 		}
 		];
 		
