@@ -770,6 +770,44 @@ XML;
 
 
 /**
+ *  Table formatting
+ */
+
+// Table formatting
+$templates['tpl_table']		= <<<HTML
+<table>
+	<thead>{thead}</thead>
+	<tbody>{tbody}</tbody>
+	<tfoot>{tfoot}</tfoot></table>
+HTML;
+
+// Table without heading but with footers
+$templates['tpl_table_nf']	= <<<HTML
+<table>
+	<thead>{thead}</thead>
+	<tbody>{tbody}</tbody>
+</table>
+HTML;
+
+// Table without heading or footers
+$templates['tpl_table_nh_nf']	= <<<HTML
+<table>
+	<tbody>{tbody}</tbody>
+</table>
+HTML;
+
+// Heading cell
+$templates['tpl_table_h_cell']	= <<<HTML
+<th class="{class}" align="{class}">{data}</th>
+HTML;
+
+// Ordinary cell 
+$templates['tpl_table_cell']	= <<<HTML
+<td class="{class}" align="{class}">{data}</td>
+HTML;
+
+
+/**
  *  Embeded media templates
  */
 
@@ -6581,7 +6619,7 @@ function tableCells( string $row, bool $is_align = false ) : array {
 	// Split by vertical pipes, skipping any escaped
 	$c =  empty( $row ) ? [] : 
 	\preg_split( 
-		'/[^\\\\]\|' . ( $is_align ? '|\+/' : '/' ), $row
+		'/[^\\\\]\|' . ( $is_align ? '|[^\\\\]\+/' : '/' ), $row
 	);
 	return ( false === $c )? [] : $c;
 }
@@ -6595,8 +6633,11 @@ function tableCells( string $row, bool $is_align = false ) : array {
  *  @return string
  */
 function tableRow( array $cells, array $align, string $tpl ) : string {
-	$i = 0;		// Row cell counter
+	if ( empty( $cells ) ) {
+		return '';
+	}
 	
+	$i	= 0;		// Row cell counter
 	$cells	= 
 	\array_map( function( $r ) use ( $align, $tpl, &$i ) {
 		switch ( $align[$i] ?? '' ) {
@@ -6638,6 +6679,81 @@ function tableRow( array $cells, array $align, string $tpl ) : string {
 	}, $cells );
 	
 	return '<tr>' . \implode( '', $cells ) . '</tr>';
+}
+
+/**
+ *  Table formatting helper
+ *  
+ *  @param array	$m	Regex found match
+ *  @return string
+ */
+function tableBuild( array $m ) : string {
+	// Table cell alignment definition
+	$align = 
+	\array_map( function( $a ) {
+		$a = \trim( $a );
+		
+		return 
+		empty( $a ) ? '' : (
+			// Left align?
+			\str_starts_with( $a, ':' ) ? (
+				// And right? Center
+				\str_ends_with( $a, ':' ) ? 'c' : 'l' // Or left only
+			) : (
+				// Right only?
+				\str_ends_with( $a, ':' ) ? 'r' : '' // Or nothing
+			) 
+		);
+	}, tableCells( $m['align'] ?? '' , true ) );
+		
+	// Table column headers
+	$headers	= 
+	tableRow( 
+		tableCells( $m['headers'] ?? '' ), 
+		$align, 
+		template( 'tpl_table_h_cell' )
+	);
+	
+	// Table column footers
+	$footers	= 
+	tableRow( 
+		tableCells( $m['footers'] ?? '' ), 
+		$align,
+		template( 'tpl_table_cell' )
+	);
+	
+	// Table body rows
+	$rows	= 
+	\array_map( function( $r ) use ( $align ) {
+		return 
+		tableRow( 
+			tableCells( $r ), 
+			$align, 
+			template( 'tpl_table_cell' )
+		);
+		
+	}, lines( $m['rows'] ?? '', -1, true ) );
+	
+	$body = \implode( '', $rows );
+	
+	if ( !empty( $headers ) && !empty( $footers ) ) {
+		return 
+		\strtr( template( 'tpl_table' ), [ 
+			'{thead}' => $headers,
+			'{tfoot}' => $footers,
+			'{tbody}' => $body
+		] );
+		
+	} elseif ( empty( $headers ) && !empty( $footers ) ) {
+		return 
+		\strtr( template( 'tpl_table_nf' ), [ 
+			'{tfoot}' => $footers,
+			'{tbody}' => $body
+		] );
+	}
+	
+	return 
+	\strtr( template( 'tpl_table_nh_nf' ), [ '{tbody}' => $body ] );
 }
 
 /**
@@ -6799,54 +6915,12 @@ function markdown(
 		},
 		
 		// Tables
-		'/\n(?:\|)(?<headers>[^\n]+)(?:\|\r?\n)(?:[\+\:\|\-])' . 
-		'(?<align>[\+\:\|\-]+)(?:[\|\+]\r?\n)' . 
-		'(?<rows>(?:\|[^\n]+\|\r?\n)*$)/m'	=>
+		'/(?:\|(?<headers>[^\n]+)\|\n{1}(?:[\+\:\|\-])' . 
+		'(?<align>[\+\:\|\-]{1,})(?:[\|\+]\r?\n){1})?' . 
+		'(?<rows>(?:\|[^\n=]+\|\n){1,})(?:\|[=\|]+\|\n\|' . 
+		'(?<footer>[^\n]+)(?:\|\n))?/m'	=>
 		function( $m ) {
-			// TODO: Fix alignment
-			// Table cell alignment definition
-			$align		= 
-			\array_map( function( $a ) {
-				$a = \trim( $a );
-				
-				return 
-				// Left align?
-				\str_starts_with( $a, ':' ) ? (
-					// And right? Center
-					\str_ends_with( $a, ':' ) ? 
-						'c' : 'l' // Or left only
-				) : (
-					// Right only?
-					\str_ends_with( $a, ':' ) ? 
-						'r' : '' // Or nothing
-				);
-			}, tableCells( $m['align'] ?? '' , true ) );
-			
-			// Table column headers
-			$headers	= 
-			tableRow( 
-				tableCells( $m['headers'] ?? '' ), 
-				$align,
-				'<th class="{class}" align="{class}">{data}</th>'
-			);
-			
-			// Table rows
-			$rows	= 
-			\array_map( function( $r ) use ( $align ) {
-				return 
-				tableRow( 
-					tableCells( $r ), 
-					$align, 
-					'<td class="{class}" align="{class}">{data}</td>' 
-				);
-				
-			}, lines( $m['rows'] ?? '', -1, true ) );
-			
-			return 
-			'<table>' . 
-			'<thead>' . $headers . '</thead>' . 
-			'<tbody>' . \implode( '', $rows ) . '</tbody>' . 
-			'</table>';
+			return empty( $m ) ? '' : tableBuild( $m );
 		}
 		];
 		
