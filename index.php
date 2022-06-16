@@ -775,35 +775,59 @@ XML;
 
 // Table formatting
 $templates['tpl_table']		= <<<HTML
-<table>
-	<thead>{thead}</thead>
-	<tbody>{tbody}</tbody>
-	<tfoot>{tfoot}</tfoot></table>
+<table class="{table_classes}">
+	<thead class="{table_header_classes}">{thead}</thead>
+	<tbody class="{table_body_classes}">{tbody}</tbody>
+	<tfoot class="{table_footer_classes}">{tfoot}</tfoot>
+</table>
 HTML;
 
-// Table without heading but with footers
+// Table without headers but with footers
+$templates['tpl_table_nh']	= <<<HTML
+<table class="{table_classes}">
+	<tbody class="{table_body_classes}">{tbody}</tbody>
+	<tfoot class="{table_footer_classes}">{tfoot}</tfoot>
+</table>
+HTML;
+
+// Table without footers but with headers
 $templates['tpl_table_nf']	= <<<HTML
-<table>
-	<thead>{thead}</thead>
-	<tbody>{tbody}</tbody>
+<table class="{table_classes}">
+	<thead class="{table_header_classes}">{thead}</thead>
+	<tbody class="{table_body_classes}">{tbody}</tbody>
 </table>
 HTML;
 
 // Table without heading or footers
 $templates['tpl_table_nh_nf']	= <<<HTML
-<table>
-	<tbody>{tbody}</tbody>
+<table class="{table_classes}">
+	<tbody class="{table_body_classes}">{tbody}</tbody>
 </table>
+HTML;
+
+// Ordinary row 
+$templates['tpl_table_row']	= <<<HTML
+<tr class="{table_row_classes}">{cells}</tr>
+HTML;
+
+// Odd row
+$templates['tpl_table_row_odd']	= <<<HTML
+<tr class="{table_row_odd_classes}">{cells}</tr>
+HTML;
+
+// Even row
+$templates['tpl_table_row_even']= <<<HTML
+<tr class="{table_row_even_classes}">{cells}</tr>
 HTML;
 
 // Heading cell
 $templates['tpl_table_h_cell']	= <<<HTML
-<th class="{class}" align="{class}">{data}</th>
+<th class="{table_th_classes} {align}" align="{align}">{data}</th>
 HTML;
 
 // Ordinary cell 
 $templates['tpl_table_cell']	= <<<HTML
-<td class="{class}" align="{class}">{data}</td>
+<td class="{table_td_classes} {align}" align="{align}">{data}</td>
 HTML;
 
 
@@ -1069,7 +1093,17 @@ define( 'DEFAULT_CLASSES', <<<JSON
 	"submit_classes"		: "",
 	"alt_classes"			: "",
 	"warn_classes"			: "",
-	"action_classes"		: ""
+	"action_classes"		: "", 
+	
+	"table_classes"			: "",
+	"table_header_classes"		: "",
+	"table_body_classes"		: "",
+	"table_footer_classes"		: "",
+	"table_row_classes"		: "",
+	"table_row_odd_classes"		: "",
+	"table_row_even_classes"	: "",
+	"table_th_classes"		: "",
+	"table_td_classes"		: ""
 }
 JSON
 );
@@ -6630,11 +6664,13 @@ function tableCells( string $row, bool $is_align = false ) : array {
  *  @param array	$cells	Column cells in a single table row
  *  @param array	$align	Formatting alignment definition
  *  @param bool		$tpl	Cell rendering template
+ *  @param int		$oe	Optional odd/even row selector
  *  @return string
  */
-function tableRow( array $cells, array $align, string $tpl ) : string {
+function tableRow( array $cells, array $align, string $tpl, int $oe = 0 ) : string {
 	if ( empty( $cells ) ) {
-		return '';
+		return 
+		render( template( 'tpl_table_row' ), [ 'cells' => ''] );
 	}
 	
 	$i	= 0;		// Row cell counter
@@ -6643,33 +6679,33 @@ function tableRow( array $cells, array $align, string $tpl ) : string {
 		switch ( $align[$i] ?? '' ) {
 			// Left align
 			case 'l':
-				$r = \strtr( $tpl, [ 
-					'{class}'	=> 'left',
-					'{data}'	=> $r
+				$r = render( $tpl, [ 
+					'align'	=> 'left',
+					'data'	=> $r
 				] );
 				break;
 			
 			// Center align
 			case 'c': 
-				$r = \strtr( $tpl, [ 
-					'{class}'	=> 'center',
-					'{data}'	=> $r
+				$r = render( $tpl, [ 
+					'align'	=> 'center',
+					'data'	=> $r
 				] );
 				break;
 			
 			// Right align
 			case 'r':
-				$r = \strtr( $tpl, [ 
-					'{class}'	=> 'right',
-					'{data}'	=> $r
+				$r = render( $tpl, [ 
+					'align'	=> 'right',
+					'data'	=> $r
 				] );
 				break;
 			
 			// No alignment
 			default:
-				$r = \strtr( $tpl, [ 
-					'{class}'	=> '',
-					'{data}'	=> $r
+				$r = render( $tpl, [ 
+					'align'	=> '',
+					'data'	=> $r
 				] );
 		}
 		
@@ -6678,7 +6714,21 @@ function tableRow( array $cells, array $align, string $tpl ) : string {
 		
 	}, $cells );
 	
-	return '<tr>' . \implode( '', $cells ) . '</tr>';
+	// No Odd/Even
+	if ( empty( $oe ) ) {
+		return 
+		render( template( 'tpl_table_row' ), [ 
+			'cells' => \implode( '', $cells ) 
+		] ):
+	}
+	
+	return ( 0 == $oe % 2 ) ?
+	render( template( 'tpl_table_row_even' ), [ 
+		'cells' => \implode( '', $cells ) 
+	] ) :
+	render( template( 'tpl_table_row_odd' ), [ 
+		'cells' => \implode( '', $cells ) 
+	] );
 }
 
 /**
@@ -6722,38 +6772,50 @@ function tableBuild( array $m ) : string {
 		template( 'tpl_table_cell' )
 	);
 	
+	// Odd/Even rows
+	$oe	= 1;
+	
 	// Table body rows
 	$rows	= 
-	\array_map( function( $r ) use ( $align ) {
+	\array_map( function( $r ) use ( $align, &$oe ) {
 		return 
 		tableRow( 
 			tableCells( $r ), 
 			$align, 
-			template( 'tpl_table_cell' )
+			template( 'tpl_table_cell' ),
+			$oe
 		);
-		
+		$oe++;
 	}, lines( $m['rows'] ?? '', -1, true ) );
 	
 	$body = \implode( '', $rows );
 	
 	if ( !empty( $headers ) && !empty( $footers ) ) {
 		return 
-		\strtr( template( 'tpl_table' ), [ 
-			'{thead}' => $headers,
-			'{tfoot}' => $footers,
-			'{tbody}' => $body
+		render( template( 'tpl_table' ), [ 
+			'thead' 		=> $headers,
+			'tfoot' 		=> $footers,
+			'tbody' 		=> $body
 		] );
 		
 	} elseif ( empty( $headers ) && !empty( $footers ) ) {
 		return 
-		\strtr( template( 'tpl_table_nf' ), [ 
-			'{tfoot}' => $footers,
-			'{tbody}' => $body
+		render( template( 'tpl_table_nf' ), [ 
+			'tfoot' 		=> $footers,
+			'tbody'			=> $body
+		] );
+	} elseif ( !empty( $headers ) && empty( $footers ) ) {
+		return 
+		render( template( 'tpl_table_nh' ), [ 
+			'thead' 		=> $headers,
+			'tbody'			=> $body
 		] );
 	}
 	
 	return 
-	\strtr( template( 'tpl_table_nh_nf' ), [ '{tbody}' => $body ] );
+	render( template( 'tpl_table_nh_nf' ), [ 
+		'tbody' => $body
+	] );
 }
 
 /**
@@ -6918,7 +6980,7 @@ function markdown(
 		'/(?:\|(?<headers>[^\n]+)\|\n{1}(?:[\+\:\|\-])' . 
 		'(?<align>[\+\:\|\-]{1,})(?:[\|\+]\r?\n){1})?' . 
 		'(?<rows>(?:\|[^\n=]+\|\n){1,})(?:\|[=\|]+\|\n\|' . 
-		'(?<footer>[^\n]+)(?:\|\n))?/m'	=>
+		'(?<footers>[^\n]+)(?:\|\n))?/m'	=>
 		function( $m ) {
 			return empty( $m ) ? '' : tableBuild( $m );
 		}
