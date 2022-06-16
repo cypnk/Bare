@@ -6719,7 +6719,7 @@ function tableRow( array $cells, array $align, string $tpl, int $oe = 0 ) : stri
 		return 
 		render( template( 'tpl_table_row' ), [ 
 			'cells' => \implode( '', $cells ) 
-		] ):
+		] );
 	}
 	
 	return ( 0 == $oe % 2 ) ?
