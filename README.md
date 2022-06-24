@@ -271,12 +271,17 @@ For PeerTube (any instance):
 ```
 **Note:** Remember to add the PeerTube instance URL to the list of URLs in FRAME_WHITELIST (one per line) in your *index.php* or 'frame_whitelist' in *config.json* (JSON array format)
 
-For Odysee or LBRY video (use the "Download" link in the share options)
+For Odysee or LBRY video (use the "Download" link in the share options):
 ```
 [odysee https://odysee.com/$/download/eevblog-1367-5-types-of-oscilloscope/2d70c817aa4e1f7ce6b66473b0c3b66fd09d9281]
 or 
 [lbry https://lbry.tv/$/download/eevblog-1367-5-types-of-oscilloscope/2d70c817aa4e1f7ce6b66473b0c3b66fd09d9281]
 
+```
+
+For Utreon:
+```
+[utreon https://utreon.com/v/gP3WmpEiTz2]
 ```
 
 ## Custom errors (optional)
