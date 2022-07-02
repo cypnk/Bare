@@ -6983,6 +6983,26 @@ function markdown(
 		'(?<footers>[^\n]+)(?:\|\n))?/m'	=>
 		function( $m ) {
 			return empty( $m ) ? '' : tableBuild( $m );
+		},
+		
+		// Wiki page
+		'/(?:\[{2})(?:(?<wslug>[\pL\d\-_]{1,100})(?:\|))?' . 
+		'(?:(?<wtitle>[\pL\pM\-_\s\(\)]{1,100}))(?:\]{2})/s' =>
+		function( $m ) {
+			$t = trim( $m['wtitle'] ):
+			if ( empty( $t ) ) {
+				return '';
+			}
+			
+			$s = 
+			'/' . eventRoutePrefix( 'wikiview', 'wiki' ) . 
+			'/' . slugify( $m['wslug'] ?? $t );
+			
+			return 
+			\strtr( '<a href="{slug}">{title}</a>', [ 
+				'{slug}'	=> $s, 
+				'{title}'	=> entities( $t )
+			] );
 		}
 		];
 		
@@ -11381,6 +11401,20 @@ function showAbout( string $event, array $hook, array $params ) {
 }
 
 /**
+ *  Show wiki page
+ */
+function showWiki( string $event, array $hook, array $params ) {
+	$slug	= $params['slug'] ?? '';
+	if ( empty( $slug ) ) {
+		sendPage( '/' );
+	}
+	$page	= ( int ) ( $params['page'] ?? 1 );
+	
+	// TODO
+	send( 200, '' );
+}
+
+/**
  *  Archived posts by date
  */
 function showArchive( string $event, array $hook, array $params ) {
@@ -12231,6 +12265,13 @@ function addBlogRoutes( string $event, array $hook, array $params ) {
 	[ 'get', 'about/:tree',				'aboutview' ],
 	
 	/**
+	 *  Wiki pages
+	 */
+	[ 'get', 'wiki',				'wikiview' ],
+	[ 'get', 'wiki/:slug',				'wikiview' ],
+	[ 'get', 'wiki/:slug/:page',			'wikiview' ],
+	
+	/**
 	 *  Searching
 	 */
 	[ 'get', '\\?nonce=:nonce&token=:token&meta=&find=:find',
@@ -12266,6 +12307,9 @@ hook( [ 'postview',	'showPost' ] );
 
 // About page event
 hook( [ 'aboutview',	'showAbout' ] );
+
+// Wiki page view
+hook( [ 'wikiview',	'showWiki' ] );
 
 // Searching
 hook( [ 'search',	'showSearch' ] );
