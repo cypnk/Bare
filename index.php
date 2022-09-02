@@ -4813,6 +4813,11 @@ function session( $reset = false ) {
 	}
 }
 
+/****
+ *  @deprecated Left in place for some plugins (E.G. MonsterID)
+ */
+function throttleDisabled( $path = null ) { }
+
 
 /**
  *  Content formatting
