@@ -1380,24 +1380,6 @@ define( 'SESSION_EXP',		300 );
 // ID random bytes
 define( 'SESSION_BYTES',	12 );
 
-// Session throttling levels
-define( 'SESSION_STATE_FRESH',	0 );
-define( 'SESSION_STATE_LIGHT',	1 );
-define( 'SESSION_STATE_MEDIUM',	2 );
-define( 'SESSION_STATE_HEAVY',	3 );
-define( 'SESSION_STATE_CORRUPT',99 );
-
-/**
- *  Session throttling limits
- */
-// Number of rapid requests before throttling begins
-define( 'SESSION_LIMIT_COUNT', 5 );
-
-// Seconds between requests before "medium" throttling
-define( 'SESSION_LIMIT_MEDIUM', 3 );
-
-// Seconds between requests before "heavy" throttling
-define( 'SESSION_LIMIT_HEAVY', 1 );
 
 /**
  *  Cookie defaults
@@ -4828,178 +4810,6 @@ function session( $reset = false ) {
 		}
 		
 		hook( [ 'sessiondestroyed', [] ] );
-	}
-}
-
-/**
- *  Mark certain URIs as disabled for throttling
- * 
- *  @param mixed	$path	Disabled path(s)
- */
-function throttleDisabled( $path = null ) {
-	static $uris = [];
-	if ( null === $path ) {
-		return $uris;
-	}
-	
-	if ( \is_array( $path ) ) {
-		$uris = \array_merge( $uris, $path );
-	} elseif ( \is_string( $path ) ) {
-		$uris[] = $path;
-	} else {
-		return;
-	}
-	
-	$uris	= \array_unique( $uris );
-}
-
-
-/**
- *  Last visit session data and timeouts
- *  
- *  @return int
- */
-function lastVisit() : int {
-	$now	= time();
-
-	// Default return state
-	$check 	= \SESSION_STATE_FRESH;
-	
-	// Check for generally safe extensions requested or throttle disabled uri
-	$uri	= getURI();
-	$nice	= isSafeExt( $uri ) || textStartsWith( $uri, throttleDisabled( null ) );
-	
-	// First visit?
-	$last	= $_SESSION['last'] ?? [];
-	if ( empty( $last ) ) {
-		$last			= [ $now, 0 ];
-		$_SESSION['last']	= $last;
-		hook( [ 'lastvisit', [ 
-			'check'	=> $check, 
-			'last'	=> $last,
-			'now'	=> $now,
-			'ext'	=> $nice
-		] ] );
-		return $check;
-	}
-	
-	// Session corrupted?
-	if ( !\is_array( $last ) || \count( $last ) !== 2 ) {
-		$last			= [ $now, 0 ];
-		$_SESSION['last']	= $last;
-		$check			= \SESSION_STATE_CORRUPT;
-		hook( [ 'lastvisit', [ 
-			'check'	=> $check, 
-			'last'	=> $last,
-			'now'	=> $now,
-			'ext'	=> $nice
-		] ] );
-		return $check;
-	}
-	
-	// Timestamp segments
-	$t	= ( int ) ( $last[0] ?? time() );
-	$q	= ( int ) ( $last[1] ?? 0 );
-	
-	// Rapid query limit exceeded?
-	$slc = config( 'session_limit_count', \SESSION_LIMIT_COUNT, 'int' );
-	if ( $q >= $slc ) {
-		$exp	= config( 'session_exp', \SESSION_EXP, 'int' );
-		// Delay has timed out? Reset
-		if ( ( $t + $exp ) > $now ) {
-			$last			= [ $now, 0 ];
-			$_SESSION['last']	= $last;
-		
-		// Generally safe extension?
-		} elseif ( $nice ) {
-			// Return as-is
-			hook( [ 'lastvisit', [ 
-				'check'	=> $check, 
-				'last'	=> $last,
-				'now'	=> $now,
-				'ext'	=> $nice
-			] ] );
-			return $check;
-			
-		// Still within limit
-		// Set time, but keep query limit
-		} else {
-			$last			= [ $now, $q ];
-			$_SESSION['last']	= $last;
-			$check			= \SESSION_STATE_LIGHT;
-		}
-	} else {
-		$slh = config( 'session_limit_heavy', \SESSION_LIMIT_HEAVY, 'int' );
-		$slm = config( 'session_limit_medium', \SESSION_LIMIT_MEDIUM, 'int' );
-		// Generally safe extension?
-		if ( $nice ) {
-			hook( [ 'lastvisit', [ 
-				'check'	=> $check, 
-				'last'	=> $last,
-				'now'	=> $now,
-				'ext'	=> $nice
-			] ] );
-			return $check;
-		
-		// Last request less than heavy throttle limit?
-		// Probably abuse
-		} elseif ( \abs( $now - $t ) < $slh ) {
-			$last			= [ $now, $q++ ];
-			$_SESSION['last']	= $last;
-			$check			= \SESSION_STATE_HEAVY;
-			
-		// Less than medium throttle limit?
-		// Probably just impatient
-		} elseif ( \abs( $now - $t ) < $slm ) {
-			$last			= [ $now, $q ];
-			$_SESSION['last']	= $last;
-			$check			= \SESSION_STATE_MEDIUM;
-		
-		// No limits exceeded. Reset
-		} else {
-			$last			= [ $now, 0 ];
-			$_SESSION['last']	= $last;
-		}
-	}
-	hook( [ 'lastvisit', [ 
-		'check'	=> $check, 
-		'last'	=> $last,
-		'now'	=> $now,
-		'ext'	=> $nice
-	] ] );
-	return $check;
-}
-
-/**
- *  Limit requests per session
- */
-function sessionThrottle() {
-	// Check session
-	sessionCheck();
-	
-	// Sender should not be served for the duration of this session
-	if ( isset( $_SESSION['kill'] ) ) {
-		sendDenied();
-	}
-	
-	$check		= lastVisit();
-	
-	// Increase sleep delay
-	switch( $check ) {
-		// Send Too Many Requests
-		case SESSION_STATE_HEAVY:
-			visitorError( 429, 'Requests' );
-			shutdown( 'sleep', 20 );
-			sendError( 429, errorLang( "toomany", \MSG_TOOMANY ) );
-			
-		// Send Not Modified for the rest
-		case SESSION_STATE_MEDIUM:
-			shutdown( 'sleep', 10 );
-			send( 304 );
-			
-		case SESSION_STATE_LIGHT:
-			shutdown( 'sleep', 5 );
-			send( 304 );
 	}
 }
 
@@ -8480,9 +8290,7 @@ function request( string $event, array $hook, array $params ) : array {
 	
 	// Set session save handler
 	setSessionHandler();
-	
-	// Check throttling
-	sessionThrottle();
+	sessionCheck();
 	
 	$host	= getHost();
 	
@@ -12095,30 +11903,6 @@ function checkConfig( string $event, array $hook, array $params ) {
 				'min_range'	=> 300,
 				'max_range'	=> 3600,
 				'default'	=> \SESSION_LIMIT_EXP
-			]
-		],
-		'session_limit_count' => [
-			'filter'	=> \FILTER_VALIDATE_INT,
-			'options'	=> [
-				'min_range'	=> 5,
-				'max_range'	=> 20,
-				'default'	=> \SESSION_LIMIT_COUNT
-			]
-		],
-		'session_limit_medium' => [
-			'filter'	=> \FILTER_VALIDATE_INT,
-			'options'	=> [
-				'min_range'	=> 2,
-				'max_range'	=> 15,
-				'default'	=> \SESSION_LIMIT_MEDIUM
-			]
-		],
-		'session_limit_heavy' => [
-			'filter'	=> \FILTER_VALIDATE_INT,
-			'options'	=> [
-				'min_range'	=> 1,
-				'max_range'	=> 10,
-				'default'	=> \SESSION_LIMIT_HEAVY
 			]
 		],
 		
