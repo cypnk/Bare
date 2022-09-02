@@ -5353,21 +5353,28 @@ function smartTrim(
  *  
  *  @param string	$title	Fallback title to generate slug
  *  @param string	$text	Text to transform into a slug
+ *  @param int		$max	Optional string max length
+ *  @param bool		$dot	Allow periods in slug
  *  @return string
  */
 function slugify( 
 	string		$title, 
-	string		$text		= ''
+	string		$text		= '',
+	int		$max		= 100,
+	bool		$dot		= false
 ) : string {
 	if ( empty( $text ) ) {
 		$text = $title;
 	}
 	$text = lowercase( unifySpaces( $text ) );
-	$text = \preg_replace( '~[^\\pL\d]+~u', ' ', $text );
+	$text = 
+	\preg_replace( 
+		( $dot ? '~[^\\pL\d\.]+~u' : '~[^\\pL\d]+~u' ), ' ', $text 
+	);
 	$text = \preg_replace( '/\s+/', '-', \trim( $text ) );
 	$text = \preg_replace( '/\-+/', '-', \trim( $text, '-' ) );
 	
-	return \strtolower( smartTrim( $text ) );
+	return \strtolower( smartTrim( $text, $max ) );
 }
 
 /**
@@ -6997,7 +7004,7 @@ function markdown(
 			
 			$s = 
 			'/' . eventRoutePrefix( 'wikiview', 'wiki' ) . 
-			'/' . slugify( $m['wslug'] ?? $t );
+			'/' . slugify( $m['wslug'] ?? $t, 255, true );
 			
 			return 
 			\strtr( '<a href="{slug}">{title}</a>', [ 
