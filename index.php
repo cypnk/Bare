@@ -1329,7 +1329,8 @@ define( 'ROUTE_MARK',	<<<JSON
 	":tree"	: "(?<tree>[\\\\pL\\\\/\\\\-_\\\\d\\\\s]{1,255})",
 	":file"	: "(?<file>[\\\\pL_\\\\-\\\\d\\\\.\\\\s]{1,120})",
 	":find"	: "(?<find>[\\\\pL\\\\pN\\\\s\\\\-_,\\\\.\\\\:\\\\+]{2,255})",
-	":redir": "(?<redir>[a-z_\\\\:\\\\/\\\\-\\\\d\\\\.\\\\s]{1,120})"
+	":redir": "(?<redir>[a-z_\\\\:\\\\/\\\\-\\\\d\\\\.\\\\s]{1,120})",
+	":lang" : "(?<lang>[a-z]{2,3})(?:-(?<locale>[a-z]{2,8}))?"
 }
 JSON
 );
@@ -6989,7 +6990,7 @@ function markdown(
 		'/(?:\[{2})(?:(?<wslug>[\pL\d\-_]{1,100})(?:\|))?' . 
 		'(?:(?<wtitle>[\pL\pM\-_\s\(\)]{1,100}))(?:\]{2})/s' =>
 		function( $m ) {
-			$t = trim( $m['wtitle'] ):
+			$t = trim( $m['wtitle'] );
 			if ( empty( $t ) ) {
 				return '';
 			}
@@ -11410,6 +11411,25 @@ function showWiki( string $event, array $hook, array $params ) {
 	}
 	$page	= ( int ) ( $params['page'] ?? 1 );
 	
+	$params['lang']		??= '';
+	$params['locale']	??= '';
+	
+	$lang	= 
+	empty( $params['lang'] ) ? '' :  
+		$parmas['lang'] . (
+			empty( $params['locale'] ) ? 
+				'' : '-' . $params['locale']
+		);
+	
+	// Page format (page 1 is empty): 
+	// slug.md, slug_page.md, slug.lang.md, slug.lang_page.md
+	
+	// Build path
+	$path	= 
+	eventRoutePrefix( 'wikiview', 'wiki' ) . '/' . $slug . 
+		( empty( $lang ) ? '' : '.' . $lang ) . 
+		( ( $page > 1 ) ? '_' . $page : '' ) . '.md';
+	
 	// TODO
 	send( 200, '' );
 }
@@ -12270,6 +12290,8 @@ function addBlogRoutes( string $event, array $hook, array $params ) {
 	[ 'get', 'wiki',				'wikiview' ],
 	[ 'get', 'wiki/:slug',				'wikiview' ],
 	[ 'get', 'wiki/:slug/:page',			'wikiview' ],
+	[ 'get', 'wiki/:slug.:lang',			'wikiview' ],
+	[ 'get', 'wiki/:slug.:lang/:page',		'wikiview' ],
 	
 	/**
 	 *  Searching
