@@ -18,8 +18,7 @@ An extensive hook system allows customizing posts, indexes, and other template e
 
 Bare's simple installation and minimal set of features make it ideal for hosting blogs on [Hidden Services](https://en.wikipedia.org/wiki/Tor_(anonymity_network)#Onion_services) on the Tor anonymity network.
 
-The author's [personal blog](http://kpz62k4pnyh5g5t2efecabkywt2aiwcnqylthqyywilqgxeiipen5xid.onion) is using Bare.  
-Use the [Tor Browser Bundle](https://www.torproject.org/) to visit.
+The author's [personal blog](https://rc.sh2.us) is using Bare, also mirrored on [Tor](http://kpz62k4pnyh5g5t2efecabkywt2aiwcnqylthqyywilqgxeiipen5xid.onion). Use [Tor Browser](https://www.torproject.org/) to visit the Tor mirror.
 
 ![Bare](https://raw.githubusercontent.com/cypnk/Bare/master/88x15-button1.jpg) 
 ![Bare Powered](https://raw.githubusercontent.com/cypnk/Bare/master/88x15-button2.jpg)
@@ -54,7 +53,7 @@ The following PHP extensions may need to be installed or enabled in **php.ini**:
 
 Remember to backup **php.ini** before making changes to it. 
 
-The GD extension is suggested as plugins may use it, however it is not required for core functionality.
+The [GD extension](https://www.php.net/manual/en/intro.image.php) is suggested as plugins may use it, however it is not required for core functionality. If some plugins also need encryption, the [Sodium extension](https://www.php.net/manual/en/intro.sodium.php) is recommended.
 
 If you prefer to use [Composer](https://getcomposer.org/) to handle your environment (optional), use the following example **composer.json**:
 ```
@@ -70,7 +69,8 @@ If you prefer to use [Composer](https://getcomposer.org/) to handle your environ
 		"ext-tidy" : "*"
 	},
 	"suggest": {
-		"ext-gd": "*"
+		"ext-gd": "*",
+		"ext-sodium": "*"
 	},
 	"prefer-stable": true
 }
@@ -88,24 +88,50 @@ Upload the following to your web root:
 
 The */posts*, */cache*, and */errors* folder locations can be adjusted in *index.php*. You may keep them in the same directory or outside the web root as long as PHP still has access to them. The */errors* folder can be excluded entirely if you don't intend to use any custom error pages.
 
-An optional **config.json** file can be created in the */cache* folder to override all but a few configuration defaults. The **config.json** uses typical [JSON formating](https://en.wikipedia.org/wiki/JSON) and will make it easier to upgrade Bare while preserving your settings.
+An optional **config.json** file can be created in the */cache* folder to override all but a few configuration defaults. The **config.json** uses typical [JSON formating](https://en.wikipedia.org/wiki/JSON) and will make it easier to upgrade Bare while preserving your settings. Creating a **config.json** is recommended for ease of upgrading to future releases of Bare. 
+
+Bare will try to create a **startup.log** file in the */cache* folder if there are any missing requirements or missing optional libraries during the first visit to your blog. The **startup.log** should be deleted or renamed after installing or enabling the missing requirements before trying again.
 
 The following changes are to the settings in *index.php*, which also has the default theme so there are no other files to edit. 
 
-Add your site's domain name, E.G. *example.com*, to SITES_ENABLED in **index.php** (currently, the author's Tor blog is in this place) or to the 'sites_enabled' setting in the **config.json** file:
+Add your site's domain name, E.G. *example.com*, to SITES_ENABLED in **index.php** (currently, the author's Tor blog is in this place) or to the 'sites_enabled' setting in the **config.json** file.
+
+In **index.php**, the SITES_ENABLED setting may be as follows:
 ```
-{
+{ 
 	"example.com" : []
 }
 ```
-And if testing for both *example.com* and locally on localhost:
+
+Or a bare minimum **config.json** in the */cache* folder:
+```
+{
+	"page_title" : "Your Blog Title", 
+	"page_sub" : "Tagline of Your Blog",
+	"sites_enabled": { 
+		"example.com" : []
+	}
+}
+```
+And if testing for both *example.com* and locally on localhost, in **index.php** SITES_ENABLED: 
 ```
 {
 	"example.com" : [],
 	"localhost" : []
 }
 ```
-Bare is multi-site capable.
+
+Or the **config.json** in the */cache* folder can be modified to the following:
+```
+{
+	"page_title" : "Your Blog Title", 
+	"page_sub" : "Tagline of Your Blog",
+	"sites_enabled": {
+		"example.com" : [],
+		"localhost" : []
+	}
+}
+```
 
 ### Multiple blogs or shared content
 Add your domains to SITES_ENABLED in *index.php* or to 'sites_enabled' in **config.json** as above:
@@ -213,7 +239,7 @@ Footnotes are fully written at the end of the post body
 [^Two]: Second footnote with a [link](https://example.com)
 ```
 
-HTML is filtered of potentially harmful tags, however embedding videos to YouTube, Vimeo, PeerTube, Archive.org or LBRY/Odysee is supported via shortcodes.
+HTML is filtered of potentially harmful tags, however embedding videos to YouTube, Vimeo, PeerTube, Archive.org, LBRY/Odysee, or Utreon is supported via shortcodes.
 
 E.G. For uploaded audio files:
 ```
@@ -276,7 +302,6 @@ For Odysee or LBRY video (use the "Download" link in the share options):
 [odysee https://odysee.com/$/download/eevblog-1367-5-types-of-oscilloscope/2d70c817aa4e1f7ce6b66473b0c3b66fd09d9281]
 or 
 [lbry https://lbry.tv/$/download/eevblog-1367-5-types-of-oscilloscope/2d70c817aa4e1f7ce6b66473b0c3b66fd09d9281]
-
 ```
 
 For Utreon:
@@ -365,10 +390,10 @@ extension=tidy
 ```
 
 Now enable and start PHP.  
-This is assuming 8.0, but other versions follow the same convention:
+This is assuming 8.1, but other versions follow the same convention:
 ```
-doas rcctl enable php80_fpm
-doas rcctl start php80_fpm
+doas rcctl enable php81_fpm
+doas rcctl start php81_fpm
 ```
 
 **Note:** Although it shares the same comment style, httpd(8) [configuration](https://man.openbsd.org/httpd.conf.5) directives *do not* end in a semicolon(;) unlike Nginx settings.
@@ -563,7 +588,7 @@ Create or edit **/etc/acme-client.conf** to make sure it contains this:
 ```
 authority letsencrypt {
 	api url "https://acme-v02.api.letsencrypt.org/directory"
-	account key "/etc/ssl/private/letsencrypt.key"
+	account key "/etc/ssl/private/letsencrypt.pem"
 }
 
 # Substitute example.com for your own domain
@@ -703,7 +728,7 @@ Your Bare blog will now be served over a secure connection.
 
 ## Troubleshooting
 
-Always remember to backup *index.php* before making modifications to it. Remember that some plugins may cause errors. Disabling any newly added plugins (by taking them off the "plugins_enabled" list in *config.json* or removing them from the PLUGINS_ENABLED setting in *index.php*) may fix a problem. 
+Always remember to backup *index.php* before making modifications to it and also *config.json* if one was created in the **/cache** folder. Remember that some plugins may cause errors. Disabling any newly added plugins (by taking them off the "plugins_enabled" list in *config.json* or removing them from the PLUGINS_ENABLED setting in *index.php*) may fix a problem. 
 
 These are possible problems you may encounter and potential solutions to them. If Bare was able to run at least once, check the *error.log* file in the CACHE folder to see if something was written there. Most of the time, if Bare was succssfully installed, this will give you some useful information.
 
@@ -712,11 +737,13 @@ These are possible problems you may encounter and potential solutions to them. I
 
 	* Check if you have uploaded the posts folder with at least one post and cache folder along with *index.php*. For the Apache webserver, the .htaccess file is also required.  
 
-	* Check if you have any JSON errors in *config.json* if you're using a custom configuration like this. Bare doesn't need a *config.json*, but having one makes upgrading easier.  
+	* Check if you have any JSON errors in *config.json* if you're using a custom configuration like this. Bare doesn't need a *config.json*, but having one is recommended as it makes upgrading easier.  
 
 	* Check if your webserver is configured to host your site, have set permissions (chmod -R 0755 on \*nix systems) on the CACHE folder, and PHP has permission to run following the [installation instructions](#installation).  
 
-	* At a minimum, check if you have PHP enabled and, as a test, create a plain *index.php* file with just `<?php echo 1;` in it and see if it prints "1". If you still don't see anything, then PHP is not installed or not configured correctly for your webserver.
+	* At a minimum, check if you have PHP enabled and, as a test, create a plain *index.php* file with just `<?php echo 1;` in it and see if it prints "1". If you still don't see anything, then PHP is not installed or not configured correctly for your webserver.  
+
+	* If this happened after refreshing the blog multiple times, the session throttle limit may have been reached. Try increasing the number of requests before before throttling starts in **index.php** at SESSION_LIMIT_COUNT or "session_limit_count" in **config.json**. Session-based throttling will be removed in future Bare versions.
 
 * **Problem: I see a 404 error on the homepage, or 400 error or "Invalid request" error**  
 	* Check if your domain name is added to the host whitelist. This is SITES_ENABLED in *index.php* or 'sites_enabled' in *config.json*. Bare should also work with your server's IP address if you don't yet have a domain name.  
