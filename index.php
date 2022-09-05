@@ -51,6 +51,10 @@ define( 'PATH',		\realpath( \dirname( __FILE__ ) ) . '/' );
 define( 'POSTS',	PATH . 'posts/' );
 // Add posts to "posts/example.com/" to blog separately on multiple domains
 
+// Wiki page directory
+define( 'WIKI',		PATH . 'wiki/' );
+// Add wiki pages to "wiki/example.com/" to host wikis on multiple domains
+
 // Cache directory. Must be writable (chmod -R 0755 on *nix)
 define( 'CACHE',	PATH . 'cache/' );
 // Use this instead if you keep the cache outside the web root
@@ -61,6 +65,11 @@ define( 'FILE_PATH',	POSTS );
 // Use this instead if you keep uploaded files outside the web root
 // define( 'FILE_PATH',	\realpath( \dirname( __FILE__, 2 ) ) . '/uploads/' );
 // Add files to a relative path E.G. 'example.com/' to keep multi-site content separate
+
+// Uploaded wiki file location if different from WIKI
+define( 'WIKI_PATH',	WIKI );
+// Use this instead if you keep wiki files outside the web root
+// define( 'WIKI_PATH',	\realpath( \dirname( __FILE__, 2 ) ) . '/wiki/' );
 
 // Custom error file folder (optional)
 define( 'ERROR_ROOT',	PATH . 'errors/' );
@@ -305,6 +314,20 @@ JSON
 define( 'DEFAULT_ABOUT_LINKS',		<<<JSON
 {
 	"links" : [
+		{ "url" : "{home}", "text" : "{lang:nav:home}" },
+		{ "url" : "{home}archive", "text" : "{lang:nav:archive}" },
+		{ "url" : "{feedlink}", "text" : "{lang:nav:feed}" }
+	]
+}
+JSON
+);
+
+// Navigation shown in /wiki page headers
+define( 'DEFAULT_WIKI_LINKS',		<<<JSON
+{
+	"links" : [
+		{ "url" : "{home}", "text" : "{lang:nav:home}" },
+		{ "url" : "{home}about", "text" : "{lang:nav:about}" },
 		{ "url" : "{home}archive", "text" : "{lang:nav:archive}" },
 		{ "url" : "{feedlink}", "text" : "{lang:nav:feed}" }
 	]
@@ -409,6 +432,32 @@ $templates['tpl_about_page']	= <<<HTML
 </html>
 HTML;
 
+// Wiki full page component
+$templates['tpl_wiki_page']	= <<<HTML
+<!DOCTYPE html>
+<html lang="{lang}">
+<head>
+<meta charset="UTF-8">
+<title>{post_title}</title>
+{after_title}
+{stylesheets}
+{meta_tags}
+</head>
+<body class="{body_classes}" {extra}>
+{body_before}
+<div class="{wiki_classes}">
+<article class="{wiki_wrap_classes}">
+{body}
+</article>
+</div>
+{body_after}
+{body_before_lastjs}
+{body_js}
+{body_after_lastjs}
+</body>
+</html>
+HTML;
+
 // Page footer component
 $templates['tpl_page_footer']	= <<<HTML
 <footer class="{footer_classes}">
@@ -460,6 +509,21 @@ $templates['tpl_about_heading']	= <<<HTML
 {heading_after}
 </div>
 </header>{after_about_heading}
+HTML;
+
+// Wiki page specific heading
+$templates['tpl_wiki_heading']	= <<<HTML
+{before_wiki_heading}<header class="{heading_classes}">
+<div class="{heading_wrap_classes}">{before_heading_h}
+<h1 class="{heading_h_classes}">
+	<a href="{home}" class="{heading_a_classes}">{page_title}</a>
+</h1>{after_heading_h}
+<p class="{tagline_classes}">{tagline}</p>
+{wiki_links}
+<div class="{search_form_wrap_classes}">{search_form}</div>
+{heading_after}
+</div>
+</header>{after_wiki_heading}
 HTML;
 
 // Form anti-XSRF hidden inputs (required on all forms)
@@ -960,6 +1024,8 @@ define( 'DEFAULT_CLASSES', <<<JSON
 	"home_wrap_classes"			: "",
 	"about_classes"			: "content",
 	"about_wrap_classes"		: "",
+	"wiki_classes"			: "content",
+	"wiki_wrap_classes"		: "",
 	
 	"post_index_wrap_classes"	: "content",
 	"post_index_ul_wrap_classes"	: "index",
@@ -1134,7 +1200,8 @@ define( 'DEFAULT_LANGUAGE',	<<<JSON
 		"home"		: "Home",
 		"about"		: "About",
 		"archive"	: "Archive",
-		"feed"		: "Feed"
+		"feed"		: "Feed",
+		"wiki"		: "Wiki"
 	}, 
 	"errors"	: {
 		"error"		: "Error",
@@ -4816,7 +4883,7 @@ function session( $reset = false ) {
 /****
  *  @deprecated Left in place for some plugins (E.G. MonsterID)
  */
-function throttleDisabled( $path = null ) { }
+function throttleDisabled( $path = null ) { return []; }
 
 
 /**
@@ -8054,12 +8121,20 @@ function getPostFileDir( string $src = 'none' ) : string {
 			$pd[$src] = getHostDirectory( \FILE_PATH );
 			break;
 			
+		case 'wikifile':
+			$pd[$src] = getHostDirectory( \WIKI_PATH );
+			break;
+			
 		case 'plugin':
 			$pd[$src] = getHostDirectory( \PLUGIN_DATA );
 			break;
 		
 		case 'posts':
 			$pd[$src] = getHostDirectory( \POSTS );
+			break;
+		
+		case 'wiki':
+			$pd[$src] = getHostDirectory( \WIKI );
 			break;
 			
 		default:
@@ -8732,9 +8807,6 @@ function fileRequest(
 		return false;
 	}
 	
-	// Static file path
-	$fpath	= getPostFileDir( 'file' ) . $path;
-	
 	// Check if ranged request
 	$frange	= getFileRange();
 	
@@ -8743,12 +8815,21 @@ function fileRequest(
 		sendRangeError();
 	}
 	
+	// Static file path
+	$fpath	= getPostFileDir( 'file' ) . $path;
+	
 	if ( \file_exists( $fpath ) ) {
-		if ( empty( $frange ) ) {
-			return $dosend ? sendWithEtag( $fpath ) : true;
+		return empty( $frange ) ?
+			( $dosend ? sendWithEtag( $fpath ) : true ) : 
+			sendFileRange( $fpath, $dosend );
+	} else {
+		// Fallback to wiki file
+		$wfpath	= getPostFileDir( 'wikifile' ) . $path;
+		if  ( \file_exists( $wfpath ) ) {
+			return empty( $frange ) ? 
+				( $dosend ? sendWithEtag( $wfpath ) : true ) : 
+				sendFileRange( $wfpath, $dosend );
 		}
-		
-		return sendFileRange( $fpath, $dosend );
 	}
 	
 	// If there's no prefix, there's no plugin folder to check 
@@ -11080,6 +11161,7 @@ function collectBody( array $res ) : array {
  *  @param array	$post		Page content as a list of lines
  *  @param bool		$forms		This page may contain forms (E.G. contact page)
  *  @param bool		$cache		Cache this page if true
+ *  @param string	$lang		Override configured language
  */
 function staticPage( 
 	string	$label,
@@ -11087,7 +11169,8 @@ function staticPage(
 	string	$links,
 	array	$post,
 	bool	$forms		= true,
-	bool	$cache		= true
+	bool	$cache		= true,
+	string	$lang		= ''
 ) {
 	$ptitle	= config( 'page_title', \PAGE_TITLE );
 	$psub	= config( 'page_sub', \PAGE_SUB );
@@ -11135,7 +11218,8 @@ function staticPage(
 			'page_title'	=> $ptitle,
 			'post_title'	=> $title . ' - ' . $ptitle,
 			'lang'		=> 
-				config( 'language', \LANGUAGE ),
+				empty( $lang ) ? 
+				config( 'language', \LANGUAGE ) : $lang,
 			'home'		=> pageRoutePath(),
 			'feedlink'	=> pageRoutePath( 'feed' ),
 			'body_before'	=> $heading,
@@ -11151,11 +11235,22 @@ function staticPage(
 /**
  *  Static page retrieval helper
  *  
- *  @param string	$page	Retrieval page path
+ *  @param string	$page	Retrieval page path,
+ *  @param string	$base	Override root
  *  @return array
  */
-function loadStaticPage( string $page ) : array {
-	$root	= \rtrim( POSTS, '/' );
+function loadStaticPage( 
+	string	$page, 
+	string	$base	= 'posts' 
+) : array {
+	switch( $base ) {
+		case 'wiki':
+			$root	= \rtrim( WIKI, '/' );
+			break;
+		default:
+			$root	= \rtrim( POSTS, '/' );
+	}
+	
 	$path	= slashPath( $page );
 	$post	= loadText( $root . $path );
 	
