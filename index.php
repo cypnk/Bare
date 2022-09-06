@@ -8879,23 +8879,35 @@ function route( string $event, array $hook, array $params ) {
  *  Get all files in relative post path
  *  
  *  @param string	$root Post relative root
+ *  @param string	$ptype Post content type
  *  @return array
  */
-function getPosts( string $root = '' ) : array {
-	static $st =	[];
-	if ( isset( $st[$root] ) ) {
-		return $st[$root];
+function getPosts( string $root = '', string $ptype = 'posts' ) : array {
+	static $st	= [];
+	$ptype		= lowercase( $ptype );
+	$key		= \hash( 'sha1', $root . $ptype );
+	
+	if ( isset( $st[$key] ) ) {
+		return $st[$key];
 	}
 	
 	// Get relative root
-	$pd	= getPostFileDir( 'posts' ) . $root;
+	switch( $ptype ) {
+		case 'wiki':
+			$pd	= getPostFileDir( 'wiki' ) . $root;
+			break;
+			
+		default:
+			$pd	= getPostFileDir( 'posts' ) . $root;
+	}
+	
 	if ( !\is_dir( $pd ) ) {
-		$st[$root] = [];
+		$st[$key] = [];
 		shutdown( 
 			'logError', 
 			'Error retrieving posts from ' . $pd
 		);
-		return $st[$root];
+		return $st[$key];
 	}
 	
 	try {
@@ -8918,7 +8930,7 @@ function getPosts( string $root = '' ) : array {
 		$tmp	= \iterator_to_array( $it, true );
 		\rsort( $tmp, \SORT_NATURAL );
 		
-		$st[$root]	= $tmp;
+		$st[$key]	= $tmp;
 		return $tmp;
 		
 	} catch( \Exception $e ) {
