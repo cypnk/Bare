@@ -1269,7 +1269,7 @@ define( 'TAG_WHITE',	<<<JSON
 				"title", "href" ],
 	"img"		: [ "style", "class", "src", "height", "width", 
 				"alt", "longdesc", "title", "hspace", 
-				"vspace", "srcset", "sizes"
+				"vspace", "srcset", "sizes",
 				"data-srcset", "data-src", 
 				"data-sizes" ],
 	"figure"	: [ "style", "class" ],
