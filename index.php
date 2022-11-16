@@ -8781,8 +8781,7 @@ function route( string $event, array $hook, array $params ) {
  */
 function getPosts( string $root = '' ) : array {
 	static $st	= [];
-	$ptype		= lowercase( $ptype );
-	$key		= \hash( 'sha1', $root . $ptype );
+	$key		= \hash( 'sha1', $root );
 	
 	if ( isset( $st[$key] ) ) {
 		return $st[$key];
