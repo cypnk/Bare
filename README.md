@@ -743,8 +743,6 @@ These are possible problems you may encounter and potential solutions to them. I
 
 	* At a minimum, check if you have PHP enabled and, as a test, create a plain *index.php* file with just `<?php echo 1;` in it and see if it prints "1". If you still don't see anything, then PHP is not installed or not configured correctly for your webserver.  
 
-	* If this happened after refreshing the blog multiple times, the session throttle limit may have been reached. Try increasing the number of requests before before throttling starts in **index.php** at SESSION_LIMIT_COUNT or "session_limit_count" in **config.json**. Session-based throttling will be removed in future Bare versions.
-
 * **Problem: I see a 404 error on the homepage, or 400 error or "Invalid request" error**  
 	* Check if your domain name is added to the host whitelist. This is SITES_ENABLED in *index.php* or 'sites_enabled' in *config.json*. Bare should also work with your server's IP address if you don't yet have a domain name.  
 	
