@@ -7680,32 +7680,34 @@ function genEtag( $path ) {
  *  @return string
  */
 function detectMime( string $path ) : string {
+	$ext = \pathinfo( $path, \PATHINFO_EXTENSION ) ?? '';
+		
+	// Simpler text types
+	switch( \strtolower( $ext ) ) {
+		case 'txt':
+			return 'text/plain';
+			
+		case 'css':
+			return 'text/css';
+			
+		case 'js':
+			return 'text/javascript';
+			
+		case 'svg':
+			return 'image/svg+xml';
+			
+		case 'vtt':
+			return 'text/vtt';
+	}
+	
+	// Detect others
 	$mime = \mime_content_type( $path );
+	
 	if ( false === $mime ) {
 		return 'application/octet-stream';
 	}
 	
-	// Override text types with special extensions
-	// Required on some OSes like OpenBSD
-	if ( 0 === \strcasecmp( $mime, 'text/plain' ) ) {
-		$ext = \pathinfo( $path, \PATHINFO_EXTENSION ) ?? '';
-		
-		switch( \strtolower( $ext ) ) {
-			case 'css':
-				return 'text/css';
-				
-			case 'js':
-				return 'text/javascript';
-				
-			case 'svg':
-				return 'image/svg+xml';
-				
-			case 'vtt':
-				return 'text/vtt';
-		}
-	}
-	
-	return \strtolower( $mime );
+	return $mime;
 }
 
 /**
