@@ -7168,13 +7168,18 @@ function formatSites( array $sites ) : array {
 				slashPath( $b['basepath'] ?? '/' );
 		
 			// Set active mode if not set
-			$b['is_active'] ??= 1;
+			$b['is_active']		??= 1;
 			
 			// Set maintenance mode
-			$b['is_maintenance'] ??= 0;
+			$b['is_maintenance']	??= 0;
 			
-			// Custom site settings or empty array
-			$b['settings'] ??= [];
+			// Custom site settings, or default
+			$b['settings']		??= [
+				'page_title'		=> config( 'page_title', \PAGE_TITLE ),
+				'page_sub'		=> config( 'page_sub', \PAGE_SUB ),
+				'page_limit'		=> config( 'page_limit', \PAGE_LIMIT ),
+				'plugins_enabled'	=> config( 'plugins_enabled', \PLUGINS_ENABLED )
+			];
 			$f[] = $b;
 		}
 		
@@ -7702,12 +7707,8 @@ function detectMime( string $path ) : string {
 	
 	// Detect others
 	$mime = \mime_content_type( $path );
-	
-	if ( false === $mime ) {
-		return 'application/octet-stream';
-	}
-	
-	return $mime;
+	return ( false === $mime ) ? 
+		'application/octet-stream' : $mime;
 }
 
 /**
@@ -8471,7 +8472,11 @@ function getRoutePath(
  *  Route placeholder parse event
  */
 function routeMarkers( string $event, array $hook, array $params ) {
-	return \array_merge( $hook, decode( \ROUTE_MARK ) );
+	static $markers;
+	if ( !isset( $markers ) ) {
+		$markers = config( 'route_mark', \ROUTE_MARK, 'json' );
+	}
+	return \array_merge( $hook, $markers );
 }
 
 /**
@@ -9352,9 +9357,14 @@ function extractType( array $find ) : string {
  *  @return array
  */
 function initPostFeatures( array $post ) : array {
-	$summ	= getMarkers()[':all'] ?? '(?<all>.+)';
-	$tags	= getMarkers()[':tags'] ?? '(?<tags>[\pL\pN\s_\,\-]{1,255})';
-	$label	= getMarkers()[':label'] ?? '(?<label>[\pL\pN\s_\-]{1,30})';
+	static $markers;
+	if ( !isset( $markers ) ) {
+		$markers = getMarkers();
+	}
+	
+	$summ	= $markers[':all'] ?? '(?<all>.+)';
+	$tags	= $markers[':tags'] ?? '(?<tags>[\pL\pN\s_\,\-]{1,255})';
+	$label	= $markers[':label'] ?? '(?<label>[\pL\pN\s_\-]{1,30})';
 	
 	$features	= [
 		'summmary' => [
@@ -10896,9 +10906,10 @@ function getCommonWords( array $lines, bool $as_array = true ) {
 	// Preset stop words
 	if ( !isset( $stop ) ) {
 		// Configured stop words
-		$cstop	= config( 'stop_words', [], 'array' );
-		$stop	= ( \is_array( $cstop ) && !empty( $cstop ) ) ?
-				\array_merge( $default, $cstop ) : $default;
+		$stop	= config( 'stop_words', $default, 'array' );
+		if ( empty( $stop ) ) {
+			$stop = $default;
+		}
 		
 		// Send to hook for additional stop words
 		hook( [ 'stopwords', [ 'words' => $stop ] ] );
@@ -11844,6 +11855,29 @@ function checkConfig( string $event, array $hook, array $params ) {
 			'filter'	=> \FILTER_CALLBACK,
 			'flags'		=> \FILTER_REQUIRE_ARRAY,
 			'options'	=> 'formatSites'
+		], 
+		
+		// URL Markers
+		'route_mark'=> [
+			'filter'	=> \FILTER_CALLBACK,
+			'flags'		=> \FILTER_REQUIRE_ARRAY,
+			'options'	=> 'decode'
+		], 
+		
+		// Log rollover size
+		'max_log_size'	=> [
+			'filter'	=> \FILTER_VALIDATE_INT,
+			'options'	=> [
+				'min_range'	=> 1024,
+				'max_range'	=> 5000000,
+				'default'	=> \MAX_LOG_SIZE
+			]
+		],
+		
+		// Search stop words
+		'stop_words'=> [
+			'filter'	=> \FILTER_SANITIZE_SPECIAL_CHARS,
+			'flags'		=> \FILTER_REQUIRE_ARRAY
 		], 
 		
 		// Session settings
