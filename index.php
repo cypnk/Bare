@@ -7721,8 +7721,26 @@ function detectMime( string $path ) : string {
 			return 'text/vtt';
 	}
 	
-	// Detect others
+	// Intercept potential mime warning as error
+	\set_error_handler( function( 
+		$eno, $emsg, $efile, $eline 
+	) use ( $path ) {
+		$str	= 
+		'Unable to detect mime of ' . $path . ' ' .  
+		'Message: {msg} File: {file} Line: {line}';
+			
+		logException( 
+			new \ErrorException( 
+				$emsg, 0, $eno, $efile, $eline 
+			), $str 
+		);
+	}, E_WARNING );
+	
+	// Detect other mime types
 	$mime = \mime_content_type( $path );
+	
+	\restore_error_handler();
+	
 	return ( false === $mime ) ? 
 		'application/octet-stream' : $mime;
 }
