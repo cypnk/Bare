@@ -2640,6 +2640,22 @@ function visitorAbort() {
 	die();
 }
 
+/**
+ *  Exception recording helper
+ *  
+ *  @param Exception	$e	Thrown error
+ *  @param string	$msg	Optional override of default error format
+ */
+function logException( \Exception $e, ?string $msg = null ) {
+	$msg	??= 'Error: {msg} File: {file} Line: {line}';
+	$err	= 
+	\strtr( $msg, [
+		'{msg}'		=> $e->getMessage(),
+		'{file}'	=> $e->getFile(),
+		'{line}'	=> $e->getLine()
+	] );
+	shutdown( 'logError', $err );
+}
 
 /**
  *  Safely encode array to JSON
