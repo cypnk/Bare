@@ -22,7 +22,7 @@ define( 'PLUGINS_ENABLED', '' );
 /**
  *  Important:
  *
- *  Whitelist of allowed sites and primary paths
+ *  Whitelist of allowed sites and primary paths and their settings
  *  Add "localhost" if testing locally
  *  'is_active' Lets Bare know to allow serving blog posts
  *  'is_maintenance' Lets a plugin send an "under construction" placeholder
@@ -3185,6 +3185,43 @@ function config(
 }
 
 /**
+ *  Get per-site configuration setting or default to core config
+ *  @return mixed
+ */
+function setting( 
+	string	$name, 
+		$default, 
+	string	$type		= 'string',
+	string	$filter		= '' 
+) {
+	// TODO: Override matching current basepath
+	/**
+	static	$setting	= [];
+	if ( isset( $setting[$name] ) ) {
+		return $setting[$name];
+	}
+	
+	$loaded	= hook( [ 'gethostpaths', '' ] );
+	$st	= explode( '/', getURI() );
+	$p	= '';
+	
+	// Match to path
+	foreach( $st as $k => $v ) {
+		$p .= slashPath( $v );
+		foreach ( $loaded['settings'] as $s ) {
+			if ( 0 == \strcasecmp( $p, $s[0] ) && isset( $s[$name] ) ) {
+				$setting[$name] = 
+					config( $s[$name], $default, $type, $filter );
+				return $setting[$name];
+			}
+		}
+	}
+	**/
+	// Fallback
+	return config( $name, $default, $type, $filter );
+}
+
+/**
  *  Check if a given hash scheme is valid
  *  
  *  @param string	$algo	Checking hash scheme
@@ -3244,7 +3281,7 @@ function language() {
 	
 	// Set default language and append language file definitions
 	$terms	= decode( \DEFAULT_LANGUAGE );
-	$lang	= config( 'language', \LANGUAGE );
+	$lang	= setting( 'language', \LANGUAGE );
 	$file	= loadFile( $lang . '.json' );
 	if ( !empty( $file ) ) {
 		$terms	= 
@@ -3426,7 +3463,7 @@ function navHome() : string {
  *  @return string
  */
 function paginate( int $page, string $prefix, array $posts ) : string {
-	$plimit	= config( 'page_limit', \PAGE_LIMIT, 'int' );
+	$plimit	= setting( 'page_limit', \PAGE_LIMIT, 'int' );
 	$c	= count( $posts );
 	
 	hook( [ 'paginate', [ 
@@ -7190,12 +7227,14 @@ function formatSites( array $sites ) : array {
 			$b['is_maintenance']	??= 0;
 			
 			// Custom site settings, or default
-			$b['settings']		??= [
+			$b['settings']		??= [];
+			$b['settings']		= 
+			\array_merge( [
 				'page_title'		=> config( 'page_title', \PAGE_TITLE ),
 				'page_sub'		=> config( 'page_sub', \PAGE_SUB ),
 				'page_limit'		=> config( 'page_limit', \PAGE_LIMIT ),
-				'plugins_enabled'	=> config( 'plugins_enabled', \PLUGINS_ENABLED )
-			];
+				'language'		=> config( 'language', \LANGUAGE )
+			], $b['settings'] );
 			$f[] = $b;
 		}
 		
@@ -7282,11 +7321,17 @@ function getHostPaths( string $host ) : array {
 	$sp		= getSitesEnabled();
 	
 	$sa	= [];
+	$ss	= [];
 	foreach ( $sp[$host] as $s ) {
 		// Assume inactive site if not explicitly enabled
 		$a = ( bool ) ( $s['is_active'] ?? false );
+		
+		// Path based settings
+		$b = slashPath( $s['basepath'] ?? '/' );
+		$ss[] = [ $b => $s['settings'] ?? [] ];
+		
 		if ( $a ) {
-			$sa[] = slashPath( $s['basepath'] ?? '/' );
+			$sa[] = $b;
 		}
 	}
 	
@@ -7295,7 +7340,8 @@ function getHostPaths( string $host ) : array {
 	
 	hook( [ 'gethostpaths', [
 		'allpaths'	=> $sp,
-		'current'	=> $sa
+		'current'	=> $sa,
+		'settings'	=> $ss
 	] ] );
 	
 	$paths[$host]	= $sa;
@@ -7521,8 +7567,8 @@ function sendError( int $code, $body ) {
 	}
 	
 	// No error file sent, continue with built-in error page
-	$ptitle	= config( 'page_title', \PAGE_TITLE );
-	$psub	= config( 'page_sub', \PAGE_SUB );
+	$ptitle	= setting( 'page_title', \PAGE_TITLE );
+	$psub	= setting( 'page_sub', \PAGE_SUB );
 	
 	
 	// Call error code hook
@@ -10237,8 +10283,8 @@ function formatIndex(
 	
 	// Don't cache if no posts found
 	$cache	= empty( $posts ) ? false : $cache;
-	$ptitle	= config( 'page_title', \PAGE_TITLE );
-	$psub	= config( 'page_sub', \PAGE_SUB );
+	$ptitle	= setting( 'page_title', \PAGE_TITLE );
+	$psub	= setting( 'page_sub', \PAGE_SUB );
 	
 	// Use the render plugin if added
 	hook( [ 'renderindex', [ 
@@ -10275,7 +10321,7 @@ function formatIndex(
 	$tpl = [
 		'post_title'	=> $ptitle,
 		'page_title'	=> $ptitle,
-		'lang'		=> config( 'language', \LANGUAGE ),
+		'lang'		=> setting( 'language', \LANGUAGE ),
 		'home'		=> pageRoutePath(),
 		'body_before'	=> $heading
 	];
@@ -11118,8 +11164,8 @@ function staticPage(
 	bool	$cache		= true,
 	string	$lang		= ''
 ) {
-	$ptitle	= config( 'page_title', \PAGE_TITLE );
-	$psub	= config( 'page_sub', \PAGE_SUB );
+	$ptitle	= setting( 'page_title', \PAGE_TITLE );
+	$psub	= setting( 'page_sub', \PAGE_SUB );
 	
 	// First line is the title, everything else is the body
 	$title	= title( \array_shift( $post ) );
@@ -11165,7 +11211,7 @@ function staticPage(
 			'post_title'	=> $title . ' - ' . $ptitle,
 			'lang'		=> 
 				empty( $lang ) ? 
-				config( 'language', \LANGUAGE ) : $lang,
+				setting( 'language', \LANGUAGE ) : $lang,
 			'home'		=> pageRoutePath(),
 			'feedlink'	=> pageRoutePath( 'feed' ),
 			'body_before'	=> $heading,
@@ -11338,7 +11384,7 @@ function showTag( string $event, array $hook, array $params ) {
 	slashPath( pageRoutePath( 'tagview', 'tags' ), true ) . $tag . '/';
 	
 	// Pagination prep
-	$plimit	= config( 'page_limit', \PAGE_LIMIT, 'int' );
+	$plimit	= setting( 'page_limit', \PAGE_LIMIT, 'int' );
 	$start	= ( $page - 1 ) * $plimit;
 	
 	// Get cached tags
@@ -11407,7 +11453,7 @@ function showSearch( string $event, array $hook, array $params ) {
 	$page	= ( int ) ( $params['page'] ?? 1 );
 	
 	// Pagination prep
-	$plimit	= config( 'page_limit', \PAGE_LIMIT, 'int' );
+	$plimit	= setting( 'page_limit', \PAGE_LIMIT, 'int' );
 	$start	= ( $page - 1 ) * $plimit;
 	
 	$res	= 
@@ -11466,8 +11512,8 @@ function showFeed( string $event, array $hook, array $params ) {
 		sendNotFound();
 	}
 	
-	$ptitle	= config( 'page_title', \PAGE_TITLE );
-	$psub	= config( 'page_sub', \PAGE_SUB );
+	$ptitle	= setting( 'page_title', \PAGE_TITLE );
+	$psub	= setting( 'page_sub', \PAGE_SUB );
 	
 	// Send to render hook
 	hook( [ 'feedrender', [  
@@ -11524,8 +11570,8 @@ function showPost( string $event, array $hook, array $params ) {
 	$rel	= config( 'show_related', \SHOW_RELATED, 'int' ) ? 
 			getRelated( $path ) : '';
 	
-	$ptitle	= config( 'page_title', \PAGE_TITLE );
-	$psub	= config( 'page_sub', \PAGE_SUB );
+	$ptitle	= setting( 'page_title', \PAGE_TITLE );
+	$psub	= setting( 'page_sub', \PAGE_SUB );
 	
 	// Send to render hook
 	hook( [ 'postrender', [ 
@@ -11567,7 +11613,7 @@ function showPost( string $event, array $hook, array $params ) {
 		template( 'tpl_full_page' ), [
 			'page_title'	=> $ptitle,
 			'post_title'	=> $title . ' - ' . $ptitle,
-			'lang'		=> config( 'language', \LANGUAGE ),
+			'lang'		=> setting( 'language', \LANGUAGE ),
 			'home'		=> pageRoutePath(),
 			'body_before'	=> $heading,
 			'body'		=> $post,
@@ -11597,8 +11643,8 @@ function runIndex( string $event, array $hook, array $params ) {
 		sendNotFound();
 	}
 	
-	$ptitle	= config( 'page_title', \PAGE_TITLE );
-	$psub	= config( 'page_sub', \PAGE_SUB );
+	$ptitle	= setting( 'page_title', \PAGE_TITLE );
+	$psub	= setting( 'page_sub', \PAGE_SUB );
 	
 	// Send to render hook
 	hook( [ 'indexrender', [ 
@@ -11683,7 +11729,7 @@ function runIndex( string $event, array $hook, array $params ) {
 		template( 'tpl_full_page' ), [
 			'page_title'	=> $ptitle,
 			'post_title'	=> $ptitle,
-			'lang'		=> config( 'language', \LANGUAGE ),
+			'lang'		=> setting( 'language', \LANGUAGE ),
 			'home'		=> pageRoutePath(),
 			'feedlink'	=> pageRoutePath( 'feed' ),
 			'body_before'	=> $heading,
