@@ -3133,6 +3133,43 @@ function configModified( string $event, array $hook, array $params ) {
 }
 
 /**
+ *  Type convert setting value with given format
+ *  
+ *  @param mixed	$value		Setting value
+ *  @param string	$type		String, integer, or boolean
+ *  @param string	$filter		Optional parse function
+ *  @return mixed
+ */
+function configType( 
+		$value, 
+	string	$type, 
+	string	$filter		= ''  
+) {
+	switch( $type ) {
+		case 'int':
+		case 'integer':
+			return ( int ) $value;
+			
+		case 'bool':
+		case 'boolean':
+			return ( bool ) $value;
+		
+		case 'json':
+			return \is_array( $value ) ? 
+				$value : decode( ( string ) $value );
+			
+		case 'lines':
+			return 
+			\is_array( $value ) ? 
+				$value : 
+				lineSettings( ( string ) $value, $filter );
+		
+		default:
+			return $value ?? $default;
+	}
+}
+
+/**
  *  Get configuration setting or default value
  *  
  *  @param string	$name		Configuration setting name
@@ -3155,33 +3192,8 @@ function config(
 		internalState( 'configsaveset', true );
 	}
 	
-	switch( $type ) {
-		case 'int':
-		case 'integer':
-			return ( int ) ( $config[$name] ?? $default );
-			
-		case 'bool':
-		case 'boolean':
-			return ( bool ) ( $config[$name] ?? $default );
-		
-		case 'json':
-			$json	= $config[$name] ?? $default ?? '';
-			
-			return \is_array( $json ) ? 
-				$json : decode( ( string ) $json );
-			
-		case 'lines':
-			$lines	= $config[$name] ?? $default ?? '';
-			
-			return \is_array( $lines ) ? 
-					$lines : 
-					lineSettings( 
-						( string ) $lines, $filter 
-					);
-		
-		default:
-			return $config[$name] ?? $default;
-	}
+	return 
+	configType( $config[$name] ?? $default ?? '', $type, $filter );
 }
 
 /**
@@ -3194,25 +3206,30 @@ function setting(
 	string	$type		= 'string',
 	string	$filter		= '' 
 ) {
-	// TODO: Override matching current basepath
 	static	$setting	= [];
 	if ( isset( $setting[$name] ) ) {
 		return $setting[$name];
 	}
 	
-	$loaded	= hook( [ 'gethostpaths', '' ] );
+	// Load site detail from current host configuration
+	$site	= getSitesEnabled()[getHost()];
+	
+	// Current path
 	$st	= explode( '/', getURI() );
 	$p	= '';
 	
 	// Match to path
 	foreach( $st as $k => $v ) {
 		$p .= slashPath( $v );
-		foreach ( $loaded['settings'] as $s ) {
-			if ( 
-				0 == \strcasecmp( $p, slashPath( $s[0] ) ) && 
-				isset( $s[1][$name] ) 
-			) {
-				$setting[$name] = $s[1][$name];
+		foreach ( $site as $s ) {
+			if ( 0 == \strcasecmp( $p, $s['basepath'] ) ) {
+				$setting[$name] = 
+				configType( 
+					$s['settings'][$name] ?? $default ?? '', 
+					$type, 
+					$filter 
+				);
+				
 				return $setting[$name];
 			}
 		}
@@ -7229,14 +7246,13 @@ function formatSites( array $sites ) : array {
 			$b['is_maintenance']	??= 0;
 			
 			// Custom site settings, or default
-			$b['settings']		??= [];
 			$b['settings']		= 
 			\array_merge( [
 				'page_title'		=> config( 'page_title', \PAGE_TITLE ),
 				'page_sub'		=> config( 'page_sub', \PAGE_SUB ),
 				'page_limit'		=> config( 'page_limit', \PAGE_LIMIT ),
 				'language'		=> config( 'language', \LANGUAGE )
-			], $b['settings'] );
+			], $b['settings'] ?? [] );
 			$f[] = $b;
 		}
 		
