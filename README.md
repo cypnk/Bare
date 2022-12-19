@@ -158,11 +158,15 @@ Or multiple blogs on the same domain:
 {
 	"example.com" : [ 
 		{
-			"basepath" : "\/"
+			"basepath" : "\/",
+			"page_title" : "Example Main Blog",
+			"page_sub" : "A Tagline for The Main Blog"
 		}, 
 		{
-			"basepath" : "\/secondblog"
-		} 
+			"basepath" : "\/secondblog",
+			"page_title" : "Sub Example Blog",
+			"page_sub" : "Sub Tagline for The Second Blog"
+		}
 	]
 }
 ```
