@@ -7246,13 +7246,14 @@ function formatSites( array $sites ) : array {
 			$b['is_maintenance']	??= 0;
 			
 			// Custom site settings, or default
+			$b['settings']		??= [];
 			$b['settings']		= 
 			\array_merge( [
 				'page_title'		=> config( 'page_title', \PAGE_TITLE ),
 				'page_sub'		=> config( 'page_sub', \PAGE_SUB ),
 				'page_limit'		=> config( 'page_limit', \PAGE_LIMIT ),
 				'language'		=> config( 'language', \LANGUAGE )
-			], $b['settings'] ?? [] );
+			], $b['settings'] );
 			$f[] = $b;
 		}
 		
