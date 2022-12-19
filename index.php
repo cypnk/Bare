@@ -3195,7 +3195,6 @@ function setting(
 	string	$filter		= '' 
 ) {
 	// TODO: Override matching current basepath
-	/**
 	static	$setting	= [];
 	if ( isset( $setting[$name] ) ) {
 		return $setting[$name];
@@ -3209,16 +3208,19 @@ function setting(
 	foreach( $st as $k => $v ) {
 		$p .= slashPath( $v );
 		foreach ( $loaded['settings'] as $s ) {
-			if ( 0 == \strcasecmp( $p, $s[0] ) && isset( $s[$name] ) ) {
-				$setting[$name] = 
-					config( $s[$name], $default, $type, $filter );
+			if ( 
+				0 == \strcasecmp( $p, slashPath( $s[0] ) ) && 
+				isset( $s[1][$name] ) 
+			) {
+				$setting[$name] = $s[1][$name];
 				return $setting[$name];
 			}
 		}
 	}
-	**/
+	
 	// Fallback
-	return config( $name, $default, $type, $filter );
+	$setting[$name] = config( $name, $default, $type, $filter );
+	return $setting[$name];
 }
 
 /**
