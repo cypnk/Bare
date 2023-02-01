@@ -2327,7 +2327,7 @@ function appName() : string {
  *  @param string	$map	Filter function
  */
 function linedConfig( string $param, $def, string $filter ) {
-	$opt = config( $param, $def );
+	$opt = setting( $param, $def );
 	$raw = 
 	\is_array( $opt ) ? 
 		\array_map( $filter, $opt ) : 
@@ -2377,7 +2377,7 @@ function mailMessage(
 		return false;
 	}
 	
-	$mfr	= cleanEmail( config( 'mail_from', \MAIL_FROM ) );
+	$mfr	= cleanEmail( setting( 'mail_from', \MAIL_FROM ) );
 	if ( empty( $mfr ) ) {
 		shutdown( 
 			'logError', 
@@ -2769,7 +2769,7 @@ function linePresets(
 	}
 	
 	// Maximum number of items
-	$lim		= config( $base, $default, 'int' );
+	$lim		= setting( $base, $default, 'int' );
 	$prs[$label]	= lineSettings( $data, $lim );
 	
 	return $prs[$label];
@@ -3274,7 +3274,7 @@ function hashAlgo(
 		return $algos[$t];
 	}
 	
-	$ht		= config( $token, $default );
+	$ht		= setting( $token, $default );
 	$algos[$t]	= validHashAlgo( $ht, $hmac ) ? $ht : $default;
 	
 	return $algos[$t];	
@@ -3311,7 +3311,7 @@ function language() {
 	// Trigger language load hook
 	hook( [ 'loadlanguage', [ 
 		'lang'	=> $lang, 
-		'zone'	=> config( 'timezone', \TIMEZONE ),
+		'zone'	=> setting( 'timezone', \TIMEZONE ),
 		'terms' => $data
 	] ] );
 	
@@ -3565,7 +3565,7 @@ function renderNavLinks(
 function pageFooter() : string {
 	// Footer with home link set
 	
-	$flinks	= config( 'default_footer_links', \DEFAULT_FOOTER_LINKS );
+	$flinks	= setting( 'default_footer_links', \DEFAULT_FOOTER_LINKS );
 	return 
 	render( template( 'tpl_page_footer' ), [ 
 		'footer_links'=> 
@@ -3584,7 +3584,7 @@ function pageFooter() : string {
  *  @return array
  */
 function loadClasses() : array {
-	$cls	= config( 'default_classes', \DEFAULT_CLASSES, 'json' );
+	$cls	= setting( 'default_classes', \DEFAULT_CLASSES, 'json' );
 	// Trigger class load hook
 	hook( [ 'loadcssclasses', [ 'classes' => $cls ] ] );
 	
@@ -3621,7 +3621,7 @@ function rsettings( string $area, array $modify = [] ) : array {
 				break;
 				
 			case 'styles':
-				$s	= config( 'default_stylesheets', \DEFAULT_STYLESHEETS );
+				$s	= setting( 'default_stylesheets', \DEFAULT_STYLESHEETS );
 				$s	= \is_array( $s ) ? $s : 
 				linePresets( 
 					'stylesheets', 
@@ -3638,7 +3638,7 @@ function rsettings( string $area, array $modify = [] ) : array {
 				break;
 				
 			case 'scripts':
-				$s	= config( 'default_scripts', \DEFAULT_SCRIPTS );
+				$s	= setting( 'default_scripts', \DEFAULT_SCRIPTS );
 				$s	= \is_array( $s ) ? $s : 
 				linePresets( 
 					'scripts', 
@@ -3656,7 +3656,7 @@ function rsettings( string $area, array $modify = [] ) : array {
 			
 			case 'meta':
 				// Load custom meta tags
-				$meta	= config( 'default_meta', \DEFAULT_META );
+				$meta	= setting( 'default_meta', \DEFAULT_META );
 				$meta	= 
 					\is_string( $meta ) ? decode( $meta ) : 
 						[ 'meta' => $meta ];
@@ -3856,14 +3856,14 @@ function renderRegions( string $tpl ) : string {
 	
 	// Use nonced script tag template if that setting is enabled
 	$tpl	= 
-	config( 'nonced_scripts', \NONCED_SCRIPTS, 'bool' ) ?
+	setting( 'nonced_scripts', \NONCED_SCRIPTS, 'bool' ) ?
 	regionTags( $tpl, '{body_js}', \TPL_SCRIPT_NONCE_TAG, 'scripts' ) : 
 	regionTags( $tpl, '{body_js}', \TPL_SCRIPT_TAG, 'scripts' );
 	
 	$tpl	= 
 	regionTags( $tpl, '{meta_tags}', \TPL_META_TAG, 'meta' );
 	
-	$sa	= config( 'shared_assets', \SHARED_ASSETS );
+	$sa	= setting( 'shared_assets', \SHARED_ASSETS );
 	return \strtr( $tpl, [ '{shared_assets}' => $sa ] );
 }
 
@@ -3904,7 +3904,7 @@ function render(
 	$input['feedlink']	= $input['feedlink']	?? pageRoutePath( 'feed' );
 	$input['plugin_assets']	= 
 		$input['plugin_assets'] ?? 
-		slashPath( config( 'plugin_assets', \PLUGIN_ASSETS ), true );
+		slashPath( setting( 'plugin_assets', \PLUGIN_ASSETS ), true );
 	
 	$out		= [];
 	
@@ -4414,7 +4414,7 @@ function loadPlugins( string $event, array $hook, array $params ) {
 		die();
 	}
 	
-	$pl		= config( 'plugins_enabled', \PLUGINS_ENABLED );
+	$pl		= setting( 'plugins_enabled', \PLUGINS_ENABLED );
 	if ( empty( $pl ) ) {
 		// Nothing to load
 		return;
@@ -4542,7 +4542,7 @@ function saveCache( string $uri, string $content ) {
 	"REPLACE INTO caches ( cache_id, ttl, content )
 		VALUES ( :id, :ttl, :content );";
 	
-	$ttl	= config( 'cache_ttl', \CACHE_TTL, 'int' );
+	$ttl	= setting( 'cache_ttl', \CACHE_TTL, 'int' );
 	setInsert(
 		$sql, 
 		[
@@ -4566,7 +4566,7 @@ function saveCache( string $uri, string $content ) {
  *  @return string
  */
 function sameSiteCookie() : string {
-	if ( config( 'cookie_restrict', \COOKIE_RESTRICT, 'bool' ) ) {
+	if ( setting( 'cookie_restrict', \COOKIE_RESTRICT, 'bool' ) ) {
 		return 'Strict';
 	}
 	
@@ -4584,11 +4584,11 @@ function cookiePrefix() : string {
 		return $prefix;
 	}
 	
-	if ( !config( 'cookie_prefixed', \COOKIE_PREFIXED, 'bool' ) ) {
+	if ( !setting( 'cookie_prefixed', \COOKIE_PREFIXED, 'bool' ) ) {
 		$prefix = '';
 		return '';
 	}
-	$cpath	= config( 'cookie_path', \COOKIE_PATH );
+	$cpath	= setting( 'cookie_path', \COOKIE_PATH );
 	
 	// Enable locking if connection is secure and path is '/'
 	$prefix	= 
@@ -4605,8 +4605,8 @@ function cookiePrefix() : string {
  *  @return array
  */
 function defaultCookieOptions( array $options = [] ) : array {
-	$cexp	= config( 'cookie_exp', \COOKIE_EXP, 'int' );
-	$cpath	= config( 'cookie_path', \COOKIE_PATH );
+	$cexp	= setting( 'cookie_exp', \COOKIE_EXP, 'int' );
+	$cpath	= setting( 'cookie_path', \COOKIE_PATH );
 	
 	$opts	= 
 	\array_merge( $options, [
@@ -4706,7 +4706,7 @@ function sessionClose() { return true; }
  *  @return string
  */
 function sessionCreateID() {
-	$bt	= config( 'session_bytes', \SESSION_BYTES, 'int' );
+	$bt	= setting( 'session_bytes', \SESSION_BYTES, 'int' );
 	$id	= \genId( $bt );
 	$sql	= 
 	"INSERT OR IGNORE INTO sessions ( session_id )
@@ -4796,8 +4796,8 @@ function sessionWrite( $id, $data ) {
  *  @param string	$visit	Previous random visitation identifier
  */
 function sessionCanary( string $visit = '' ) {
-	$bt	= config( 'session_bytes', \SESSION_BYTES, 'int' );
-	$exp	= config( 'session_exp', \SESSION_EXP, 'int' );
+	$bt	= setting( 'session_bytes', \SESSION_BYTES, 'int' );
+	$exp	= setting( 'session_exp', \SESSION_EXP, 'int' );
 	
 	$_SESSION['canary'] = 
 	[
@@ -4848,7 +4848,7 @@ function sessionCookieParams() : bool {
 	
 	// Override some defaults
 	$options['lifetime']	=  
-		config( 'cookie_exp', \COOKIE_EXP, 'int' );
+		setting( 'cookie_exp', \COOKIE_EXP, 'int' );
 	unset( $options['expires'] );
 	
 	hook( [ 'sessioncookieparams', $options ] );
@@ -5037,7 +5037,7 @@ function dateNice( $stamp = null, string $fmt = \DATE_NICE ) : string {
 	static $dn;
 	if ( !isset( $dn ) ) {
 		$dn	= 
-		langVar( 'date_nice', config( 'date_nice', $fmt ) );
+		langVar( 'date_nice', setting( 'date_nice', $fmt ) );
 	}
 	return \gmdate( $dn, tstring( $stamp ) );
 }
@@ -5284,7 +5284,7 @@ function enforceDates( array $args ) : array {
 	$month	= $args['month'] ?? $m;
 	$day	= $args['day'] ?? $d;
 	
-	$ys	= config( 'year_start', \YEAR_START, 'int' );
+	$ys	= setting( 'year_start', \YEAR_START, 'int' );
 	
 	// Enforce date ranges
 	$year	= intRange( $year, $ys, $y );
@@ -5457,7 +5457,7 @@ function getIP() : string {
 		$ip	= \array_shift( $raw );
 	}
 		
-	$skip	= config( 'skip_local', \SKIP_LOCAL, 'int' );
+	$skip	= setting( 'skip_local', \SKIP_LOCAL, 'int' );
 	$va	=
 	( $skip ) ?
 	\filter_var( $ip, \FILTER_VALIDATE_IP ) : 
@@ -6155,13 +6155,13 @@ function html(
 	}
 	
 	if ( !isset( $white['html'] ) ) {
-		$default_tags = config( 'tag_white', \TAG_WHITE, 'json' );
+		$default_tags = setting( 'tag_white', \TAG_WHITE, 'json' );
 		
 		// Include form tags
 		$default_form = 
 		\array_merge_recursive( 
 			$default_tags, 
-			config( 'form_white', \FORM_WHITE, 'json' )
+			setting( 'form_white', \FORM_WHITE, 'json' )
 		);
 		
 		// Tag loader hook
@@ -6981,7 +6981,7 @@ function securityPolicy( string $policy ) : string {
 	// Load defaults
 	if ( !isset( $p ) ) {
 		$p = 
-		config( 'security_policy', \SECURITY_POLICY, 'json' );
+		setting( 'security_policy', \SECURITY_POLICY, 'json' );
 		
 		// Merge custom content security policy
 		hook( [ 'cspload', [ 'policy' => $p ] ] );
@@ -7015,7 +7015,7 @@ function securityPolicy( string $policy ) : string {
 			$prm = [];
 			
 			// Permissions policy override
-			$cfj = config( 'permisisons-policy', [], 'json' );
+			$cfj = setting( 'permisisons-policy', [], 'json' );
 			$def = $p['permissions-policy'] ?? [];
 			$pjp = 
 			\is_array( $cfj ) ? 
@@ -7111,7 +7111,7 @@ function preamble(
  *  Send list of supported HTTP request methods
  */
 function getAllowedMethods( bool $arr = false ) {
-	$ap	= config( 'allow_post', \ALLOW_POST, 'int' );
+	$ap	= setting( 'allow_post', \ALLOW_POST, 'int' );
 	if ( $arr ) {
 		return $ap ?  
 		[ 'get', 'post', 'head', 'options' ] : 
@@ -7504,7 +7504,7 @@ function send(
 	
 	// Also save to cache?
 	if ( $cache ) {
-		$ex	= config( 'cache_ttl', \CACHE_TTL, 'int' );
+		$ex	= setting( 'cache_ttl', \CACHE_TTL, 'int' );
 		$full	= fullURI();
 		
 		setCacheExp( $ex );
@@ -7926,7 +7926,7 @@ function closeStream( &$stream ) {
  */
 function streamChunks( &$stream, int $start, int $end, $flh, $abr ) {
 	// Default chunk size
-	$csize	= config( 'stream_chunk_size', \STREAM_CHUNK_SIZE, 'int' );
+	$csize	= setting( 'stream_chunk_size', \STREAM_CHUNK_SIZE, 'int' );
 	$sent	= 0;
 	
 	$is_flh	= \is_callable( $flh );
@@ -7985,7 +7985,7 @@ function sendFileFinish( $path ) {
 	$stream = false;
 	
 	if ( false !== $fsize ) {
-		$climit = config( 'stream_chunk_limit', \STREAM_CHUNK_LIMIT, 'int' );
+		$climit = setting( 'stream_chunk_limit', \STREAM_CHUNK_LIMIT, 'int' );
 	
 		// Prepare resource if this is a large file
 		if ( $fsize > $climit ) {
@@ -8003,7 +8003,7 @@ function sendFileFinish( $path ) {
 			\header( "ETag: {$etag}", true );
 		}
 		
-		if ( config( 'show_modified', \SHOW_MODIFIED, 'int' ) ) {
+		if ( setting( 'show_modified', \SHOW_MODIFIED, 'int' ) ) {
 			$fmod	= $tags['fmod'];
 			if ( !empty( $fmod ) ) {
 				\header( 
@@ -8400,14 +8400,14 @@ function request( string $event, array $hook, array $params ) : array {
 	
 	// If posting isn't allowed files should be empty
 	if ( 
-		!config( 'allow_post', \ALLOW_POST, 'bool' ) && 
+		!setting( 'allow_post', \ALLOW_POST, 'bool' ) && 
 		!empty( $_FILES ) 
 	) {
 		sendBadMethod();
 	}
 	
 	// Request path hard limit
-	$lurl	= config( 'max_url_size', \MAX_URL_SIZE, 'int' );
+	$lurl	= setting( 'max_url_size', \MAX_URL_SIZE, 'int' );
 	if ( strsize( $path ) > $lurl ) {
 		visitorError( 414, 'Path' );
 		send( 414 );
@@ -8459,7 +8459,7 @@ function request( string $event, array $hook, array $params ) : array {
 function extGroups( string $group = '' ) : array {
 	// Default whitelist
 	$cs	= 
-	config( 'ext_whitelist', whiteLists( decode( \EXT_WHITELIST ), true ) );
+	setting( 'ext_whitelist', whiteLists( decode( \EXT_WHITELIST ), true ) );
 	
 	// Extend whitelist via hooks
 	hook( [ 'extwhitelist', [ 'whitelist' => $cs ] ] );
@@ -8573,7 +8573,7 @@ function getRoutePath(
 function routeMarkers( string $event, array $hook, array $params ) {
 	static $markers;
 	if ( !isset( $markers ) ) {
-		$markers = config( 'route_mark', \ROUTE_MARK, 'json' );
+		$markers = setting( 'route_mark', \ROUTE_MARK, 'json' );
 	}
 	return \array_merge( $hook, $markers );
 }
@@ -8759,7 +8759,7 @@ function sendPluginFile(
 	
 	// Plugin root and asset folders
 	$pr	= slashPath( \PLUGINS, true );
-	$pa	= slashPath( config( 'plugin_assets', \PLUGIN_ASSETS ), true );
+	$pa	= slashPath( setting( 'plugin_assets', \PLUGIN_ASSETS ), true );
 	
 	foreach ( $loaded as $p ) {
 		// Check if first path fragment is the same as the plugin name
@@ -8813,7 +8813,7 @@ function fileRequest(
 	$segs	= explode( '/', $path );
 	
 	// Check folder limits
-	$climit	= config( 'folder_limit', \FOLDER_LIMIT, 'int' );
+	$climit	= setting( 'folder_limit', \FOLDER_LIMIT, 'int' );
 	$c	= count( $segs );
 	if ( $c > $climit ) {
 		return false;
@@ -9193,7 +9193,7 @@ function loadPost(
 	}
 	
 	$pub	= getPub( $path );
-	$fline	= config( 'feature_lines', \FEATURE_LINES, 'int' );
+	$fline	= setting( 'feature_lines', \FEATURE_LINES, 'int' );
 	$tpl	= template( 'tpl_post' );
 	hook( [ 'formatpostprep', [ 
 		'feed'		=> false, 
@@ -9250,7 +9250,7 @@ function timeZoneOffset() : int {
 	}
 	
 	// Timezone from configuration
-	$tz = config( 'timezone', \TIMEZONE );
+	$tz = setting( 'timezone', \TIMEZONE );
 	$dt = new \DateTime( 'now', new \DateTimeZone( 'UTC' ) );
 	try {
 		$dz = new \DateTimeZone( $tz );
@@ -9413,7 +9413,7 @@ function extractTags( array $find ) : array {
 	}
 	
 	// Ensure tags don't exceed limit
-	$tl	= config( 'tag_limit', \TAG_LIMIT, 'int' );
+	$tl	= setting( 'tag_limit', \TAG_LIMIT, 'int' );
 	if ( count( $tags ) > $tl ) {
 		$tags = \array_slice( $tags, 0, $tl );
 	}
@@ -9446,7 +9446,7 @@ function extractType( array $find ) : string {
 	return 
 	lowercase( labelName( 
 		$find['label'] ?? 
-		config( 'post_type', \POST_TYPE )
+		setting( 'post_type', \POST_TYPE )
 	) );
 }
 
@@ -9647,13 +9647,13 @@ function loadPosts(
 	$posts	= [];
 	
 	// Pagination prep
-	$plimit	= config( 'page_limit', \PAGE_LIMIT, 'int' );
+	$plimit	= setting( 'page_limit', \PAGE_LIMIT, 'int' );
 	$start	= ( $page - 1 ) * $plimit;
 	$end	= $start + $plimit;
 	
 	$title	= '';
 	$tpl	= $feed ? template( 'tpl_item' ) : template( 'tpl_index_post' );
-	$fline	= config( 'feature_lines', \FEATURE_LINES, 'int' );
+	$fline	= setting( 'feature_lines', \FEATURE_LINES, 'int' );
 	
 	hook( [ 'formatpostprep', [ 
 		'feed'		=> $feed, 
@@ -9846,7 +9846,7 @@ function loadIndex(
 	$i		= 0;
 	$j		= 0;
 	
-	$fline		= config( 'feature_lines', \FEATURE_LINES, 'int' );
+	$fline		= setting( 'feature_lines', \FEATURE_LINES, 'int' );
 	$tpl		= template( 'tpl_post' );
 	
 	// Find the about view path to skip
@@ -10021,7 +10021,7 @@ function formatTags( array $tags, bool $index = false ) : string {
 function hasReadTime( string $type ) : bool {
 	static $rtypes;
 	if ( !isset( $rtypes ) ) {
-		$rtt		= config( 'readtime_types', \READTIME_TYPES );
+		$rtt		= setting( 'readtime_types', \READTIME_TYPES );
 		$default	= trimmedList( $rtt, true );
 		
 		// Send to hook for additional types
@@ -10214,13 +10214,14 @@ function formatPost(
  */
 function filterRequest( string $event, array $hook, array $params ) {
 	$now	= time();
-	$mpage	= config( 'max_page', \MAX_PAGE, 'int' );
-	$ys	= config( 'year_start', \YEAR_START, 'int' );
+	$mpage	= setting( 'max_page', \MAX_PAGE, 'int' );
+	$ys	= setting( 'year_start', \YEAR_START, 'int' );
 	$ye	= ( int ) \date( 'Y', $now );
 	
 	$filter	= [
 		'id'	=> [
 			'filter'	=> \FILTER_VALIDATE_INT,
+			'flags'		=> \FILTER_REQUIRE_SCALAR,
 			'options'	=> [
 				'min_range'	=> 1,
 				'default'	=> 0
@@ -10228,6 +10229,7 @@ function filterRequest( string $event, array $hook, array $params ) {
 		],
 		'page'	=> [
 			'filter'	=> \FILTER_VALIDATE_INT,
+			'flags'		=> \FILTER_REQUIRE_SCALAR,
 			'options'	=> [
 				'min_range'	=> 1,
 				'max_range'	=> $mpage,
@@ -10236,6 +10238,7 @@ function filterRequest( string $event, array $hook, array $params ) {
 		],
 		'year'	=> [
 			'filter'	=> \FILTER_SANITIZE_NUMBER_INT,
+			'flags'		=> \FILTER_REQUIRE_SCALAR,
 			'options'	=> [
 				'min_range'	=> $ys,
 				'max_range'	=> $ye,
@@ -10244,6 +10247,7 @@ function filterRequest( string $event, array $hook, array $params ) {
 		],
 		'month'	=> [
 			'filter'	=> \FILTER_SANITIZE_NUMBER_INT,
+			'flags'		=> \FILTER_REQUIRE_SCALAR,
 			'options'	=> [
 				'min_range'	=> 1,
 				'max_range'	=> 12,
@@ -10253,6 +10257,7 @@ function filterRequest( string $event, array $hook, array $params ) {
 		],
 		'day'	=> [
 			'filter'	=> \FILTER_SANITIZE_NUMBER_INT,
+			'flags'		=> \FILTER_REQUIRE_SCALAR,
 			'options'	=> [
 				'min_range'	=> 1,
 				'max_range'	=> 31,
@@ -10262,23 +10267,45 @@ function filterRequest( string $event, array $hook, array $params ) {
 		],
 		'tag'	=> [
 			'filter'	=> \FILTER_CALLBACK,
-			'options'	=> 'unifySpaces'
+			'options'	=> 
+			function( $v ) {
+				return \is_scalar( $v ) ? 
+					unifySpaces( ( string ) $v ) : '';
+			}
 		],
 		'slug'	=> [
 			'filter'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
+			'flags'		=> \FILTER_REQUIRE_SCALAR,
 			'options'	=> [ 'default' => '' ]
 		],
 		'find'	=> [
 			'filter'	=> \FILTER_CALLBACK,
-			'options'	=> 'unifySpaces'
+			'options'	=> 
+			function( $v ) {
+				return \is_scalar( $v ) ? 
+					unifySpaces( ( string ) $v ) : '';
+			}
 		],
 		'tree'	=> [
 			'filter'	=> \FILTER_CALLBACK,
-			'options'	=> 'cleanUrl'
+			'options'	=> 
+			function( $v ) {
+				return \is_scalar( $v ) ? 
+					cleanUrl( ( string ) $v ) : '';
+			}
 		],
-		'token'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
-		'nonce'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
-		'meta'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS
+		'token'	=> [
+			'filter'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
+			'flags'		=> \FILTER_REQUIRE_SCALAR
+		],
+		'nonce'	=> [
+			'filter'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
+			'flags'		=> \FILTER_REQUIRE_SCALAR
+		],
+		'meta'	=> [
+			'filter'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
+			'flags'		=> \FILTER_REQUIRE_SCALAR
+		]
 	];
 	
 	return 
@@ -10319,7 +10346,7 @@ function formatIndex(
 	sendOverride( 'renderindex' );
 	
 	// Default handler
-	$mlinks	= config( 'default_main_links', \DEFAULT_MAIN_LINKS );
+	$mlinks	= setting( 'default_main_links', \DEFAULT_MAIN_LINKS );
 	$heading = 
 	hookWrap( 
 		'beforepostindexheading',
@@ -10464,7 +10491,7 @@ function genNoncePair(
 	array		$fields		= [], 
 	bool		$reset		= false 
 ) : array {
-	$tb	= config( 'token_bytes', \TOKEN_BYTES, 'int' );
+	$tb	= setting( 'token_bytes', \TOKEN_BYTES, 'int' );
 	$ha	= hashAlgo( 'nonce_hash', \NONCE_HASH );
 	
 	$nonce	= genId( intRange( $tb, 8, 64 ) );
@@ -10528,13 +10555,13 @@ function verifyNoncePair(
 	if ( $chk ) {
 		// Check for flooding
 		$time	= time() - ( int ) $parts[0];
-		$fdelay	= config( 'form_delay', \FORM_DELAY, 'int' );
+		$fdelay	= setting( 'form_delay', \FORM_DELAY, 'int' );
 		if ( $time < $fdelay ) {
 			return \FORM_STATUS_FLOOD;
 		}
 		
 		// Check for form expiration
-		$fexp	= config( 'form_expire', \FORM_EXPIRE, 'int' );
+		$fexp	= setting( 'form_expire', \FORM_EXPIRE, 'int' );
 		if ( $time > $fexp ) {
 			return \FORM_STATUS_EXPIRED;
 		}
@@ -10564,9 +10591,18 @@ function validateForm(
 	array		$fields		= []
 ) : int {
 	$filter = [
-		'token'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
-		'nonce'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
-		'meta'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS
+		'token'	=> [
+			'filter'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
+			'flags'		=> \FILTER_REQUIRE_SCALAR
+		],
+		'nonce'	=>  [
+			'filter'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
+			'flags'		=> \FILTER_REQUIRE_SCALAR
+		],
+		'meta'	=>  [
+			'filter'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
+			'flags'		=> \FILTER_REQUIRE_SCALAR
+		]
 	];
 	
 	$data	= $get ? 
@@ -10740,7 +10776,7 @@ function searchData( string $find ) : string {
 	}
 	
 	// Limit maximum number of unique words to search
-	$sc	= config( 'max_search_words', \MAX_SEARCH_WORDS, 'int' );
+	$sc	= setting( 'max_search_words', \MAX_SEARCH_WORDS, 'int' );
 	if ( count( $fdata ) > $sc ) {
 		$fdata = \array_slice( $fdata, 0, $sc );
 	}
@@ -11005,7 +11041,7 @@ function getCommonWords( array $lines, bool $as_array = true ) {
 	// Preset stop words
 	if ( !isset( $stop ) ) {
 		// Configured stop words
-		$stop	= config( 'stop_words', $default, 'array' );
+		$stop	= setting( 'stop_words', $default, 'array' );
 		if ( empty( $stop ) ) {
 			$stop = $default;
 		}
@@ -11070,7 +11106,7 @@ function getRelated( string $path ) : string {
 	// Make search data with full title intact ( quotes removed )
 	$title	= \strtr( \current( $lines ), [ '"' => '' ] );
 	$data	= searchData( '"' . $title . '" ' . $words );
-	$rlimit	= config( 'related_limit', \RELATED_LIMIT, 'int' );
+	$rlimit	= setting( 'related_limit', \RELATED_LIMIT, 'int' );
 	
 	// Search for related content excluding current post
 	$search	= 
@@ -11133,7 +11169,7 @@ function collectBody( array $res ) : array {
 	if ( empty( $res ) ) {
 		return [];
 	}
-	$slvl	= config( 'summary_level', \SUMMARY_LEVEL, 'int' );
+	$slvl	= setting( 'summary_level', \SUMMARY_LEVEL, 'int' );
 	$posts	= [];
 	switch( $slvl ) {
 		case 1: 
@@ -11203,7 +11239,7 @@ function staticPage(
 	sendOverride( $label . 'render' );
 	
 	// Assemble page components
-	$slinks	= config( 'default_' . $label . '_links', $links );
+	$slinks	= setting( 'default_' . $label . '_links', $links );
 	$heading = 
 	hookWrap( 
 		'before' . $label . 'heading',
@@ -11345,7 +11381,7 @@ function showArchive( string $event, array $hook, array $params ) {
 	$stamp	= null;
 	$date	= [];
 	
-	$slvl	= config( 'summary_level', \SUMMARY_LEVEL, 'int' );
+	$slvl	= setting( 'summary_level', \SUMMARY_LEVEL, 'int' );
 	
 	// Full archive
 	if ( empty( $params['year'] ) ) {
@@ -11525,7 +11561,7 @@ function showFeed( string $event, array $hook, array $params ) {
 		loadIndex();
 	}
 	
-	$slvl	= config( 'summary_level', \SUMMARY_LEVEL, 'int' );
+	$slvl	= setting( 'summary_level', \SUMMARY_LEVEL, 'int' );
 	$posts	= loadPosts( 1, '', true, $slvl );
 	if ( empty( $posts ) ) {
 		sendNotFound();
@@ -11583,10 +11619,10 @@ function showPost( string $event, array $hook, array $params ) {
 	}
 	
 	// Related and sibling post settings
-	$sib	= config( 'show_siblings', \SHOW_SIBLINGS, 'int' ) ? 
+	$sib	= setting( 'show_siblings', \SHOW_SIBLINGS, 'int' ) ? 
 			getSiblings( $path ) : '';
 	
-	$rel	= config( 'show_related', \SHOW_RELATED, 'int' ) ? 
+	$rel	= setting( 'show_related', \SHOW_RELATED, 'int' ) ? 
 			getRelated( $path ) : '';
 	
 	$ptitle	= setting( 'page_title', \PAGE_TITLE );
@@ -11607,7 +11643,7 @@ function showPost( string $event, array $hook, array $params ) {
 	sendOverride( 'postrender' );
 	
 	// Default post render
-	$mlinks	= config( 'default_main_links', \DEFAULT_MAIN_LINKS );
+	$mlinks	= setting( 'default_main_links', \DEFAULT_MAIN_LINKS );
 	$heading = 
 	hookWrap( 
 		'beforepostpageheading',
@@ -11651,7 +11687,7 @@ function showPost( string $event, array $hook, array $params ) {
 function runIndex( string $event, array $hook, array $params ) {
 	// Pagination prep
 	$page	= ( int ) ( $params['page'] ?? 1 );
-	$ilimit	= config( 'index_limit', \INDEX_LIMIT, 'int' );
+	$ilimit	= setting( 'index_limit', \INDEX_LIMIT, 'int' );
 	$start	= ( $page - 1 ) * $ilimit;
 	
 	// Load index
@@ -11721,7 +11757,7 @@ function runIndex( string $event, array $hook, array $params ) {
 		[ 'items' => $out ] 
 	);
 	
-	$mlinks	= config( 'default_main_links', \DEFAULT_MAIN_LINKS );
+	$mlinks	= setting( 'default_main_links', \DEFAULT_MAIN_LINKS );
 	$heading = 
 	hookWrap( 
 		'beforearchiveheading',
@@ -11772,10 +11808,17 @@ function checkConfig( string $event, array $hook, array $params ) {
 	$ye = ( int ) \date( 'Y' );
 	
 	$filter	= [
-		'page_title'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
-		'page_sub'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
+		'page_title'	=> [
+			'filter'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
+			'flags'		=> \FILTER_REQUIRE_SCALAR
+		],
+		'page_sub'	=> [
+			'filter'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
+			'flags'		=> \FILTER_REQUIRE_SCALAR
+		],
 		'page_limit'	=> [
 			'filter'	=> \FILTER_VALIDATE_INT,
+			'flags'		=> \FILTER_REQUIRE_SCALAR,
 			'options'	=> [
 				'min_range'	=> 1,
 				'max_range'	=> 500,
@@ -11784,6 +11827,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 		],
 		'index_limit'	=> [
 			'filter'	=> \FILTER_VALIDATE_INT,
+			'flags'		=> \FILTER_REQUIRE_SCALAR,
 			'options'	=> [
 				'min_range'	=> 1,
 				'max_range'	=> 500,
@@ -11792,6 +11836,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 		],
 		'max_page' => [
 			'filter'	=> \FILTER_VALIDATE_INT,
+			'flags'		=> \FILTER_REQUIRE_SCALAR,
 			'options'	=> [
 				'min_range'	=> 1,
 				'max_range'	=> 5000,
@@ -11800,6 +11845,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 		],
 		'max_url_size' => [
 			'filter'	=> \FILTER_VALIDATE_INT,
+			'flags'		=> \FILTER_REQUIRE_SCALAR,
 			'options'	=> [
 				'min_range'	=> 255,
 				'max_range'	=> 2048,
@@ -11808,6 +11854,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 		],
 		'summary_level'	=> [
 			'filter'	=> \FILTER_VALIDATE_INT,
+			'flags'		=> \FILTER_REQUIRE_SCALAR,
 			'options'	=> [
 				'min_range'	=> 0,
 				'max_range'	=> 2,
@@ -11816,6 +11863,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 		],
 		'feature_lines'	=> [
 			'filter'	=> \FILTER_VALIDATE_INT,
+			'flags'		=> \FILTER_REQUIRE_SCALAR,
 			'options'	=> [
 				'min_range'	=> 1,
 				'max_range'	=> 10,
@@ -11825,6 +11873,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 		'timezone'	=> [
 			'filter'	=> \FILTER_SANITIZE_SPECIAL_CHARS,
 			'flags'		=> 
+				\FILTER_REQUIRE_SCALAR	|
 				\FILTER_FLAG_STRIP_LOW	| 
 				\FILTER_FLAG_STRIP_HIGH	| 
 				\FILTER_FLAG_STRIP_BACKTICK,
@@ -11837,6 +11886,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 		'date_nice'	=> [
 			'filter'	=> \FILTER_SANITIZE_SPECIAL_CHARS,
 			'flags'		=> 
+				\FILTER_REQUIRE_SCALAR	|
 				\FILTER_FLAG_STRIP_LOW	| 
 				\FILTER_FLAG_STRIP_HIGH	| 
 				\FILTER_FLAG_STRIP_BACKTICK 
@@ -11855,6 +11905,9 @@ function checkConfig( string $event, array $hook, array $params ) {
 		// Mail sender address
 		'mail_from'	=> [
 			'filter'	=> \FILTER_VALIDATE_EMAIL,
+			'flags'		=> 
+				\FILTER_REQUIRE_SCALAR	|
+				\FILTER_FLAG_EMAIL_UNICODE,
 			'options'	=> [
 				'default'	=> \MAIL_FROM
 			]
@@ -11863,12 +11916,15 @@ function checkConfig( string $event, array $hook, array $params ) {
 		// Mail receiver list
 		'mail_whitelist'=> [
 			'filter'	=> \FILTER_VALIDATE_EMAIL,
-			'flags'		=> \FILTER_REQUIRE_ARRAY
+			'flags'		=> 
+				\FILTER_REQUIRE_ARRAY	|
+				\FILTER_FLAG_EMAIL_UNICODE
 		],
 		
 		// Post tagging
 		'tag_limit'	=> [
 			'filter'	=> \FILTER_VALIDATE_INT,
+			'flags'		=> \FILTER_REQUIRE_SCALAR,
 			'options'	=> [
 				'min_range'	=> 1,
 				'max_range'	=> 50,
@@ -11879,6 +11935,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 		// Cache settings
 		'cache_ttl'	=> [
 			'filter'	=> \FILTER_VALIDATE_INT,
+			'flags'		=> \FILTER_REQUIRE_SCALAR,
 			'options'	=> [
 				'min_range'	=> 300,
 				'max_range'	=> 604800,
@@ -11889,6 +11946,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 		// Database connection timeout
 		'data_timeout'	=> [
 			'filter'	=> \FILTER_VALIDATE_INT,
+			'flags'		=> \FILTER_REQUIRE_SCALAR,
 			'options'	=> [
 				'min_range'	=> 1,
 				'max_range'	=> 60,
@@ -11899,6 +11957,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 		// Pagination
 		'year_start'	=> [
 			'filter'	=> \FILTER_VALIDATE_INT,
+			'flags'		=> \FILTER_REQUIRE_SCALAR,
 			'options'	=> [
 				'min_range'	=> \YEAR_START,
 				'max_range'	=> $ye,
@@ -11909,6 +11968,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 		// Related and sibling display
 		'related_limit'	=> [
 			'filter'	=> \FILTER_VALIDATE_INT,
+			'flags'		=> \FILTER_REQUIRE_SCALAR,
 			'options'	=> [
 				'min_range'	=> 1,
 				'max_range'	=> 20,
@@ -11917,6 +11977,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 		],
 		'show_siblings'	=> [
 			'filter'	=> \FILTER_VALIDATE_INT,
+			'flags'		=> \FILTER_REQUIRE_SCALAR,
 			'options'	=> [
 				'min_range'	=> 0,
 				'max_range'	=> 1,
@@ -11924,7 +11985,8 @@ function checkConfig( string $event, array $hook, array $params ) {
 			]
 		],
 		'show_related'	=> [
-			'filter'	=> \FILTER_VALIDATE_INT,
+			'filter'	=> \FILTER_VALIDATE_INT, 
+			'flags'		=> \FILTER_REQUIRE_SCALAR, 
 			'options'	=> [
 				'min_range'	=> 0,
 				'max_range'	=> 1,
@@ -11934,6 +11996,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 		'readtime_types'=> [
 			'filter'	=> \FILTER_SANITIZE_SPECIAL_CHARS,
 			'flags'		=> 
+				\FILTER_REQUIRE_SCALAR	|
 				\FILTER_FLAG_STRIP_LOW	| 
 				\FILTER_FLAG_STRIP_HIGH	| 
 				\FILTER_FLAG_STRIP_BACKTICK,
@@ -11952,20 +12015,29 @@ function checkConfig( string $event, array $hook, array $params ) {
 		
 		'sites_enabled'=> [
 			'filter'	=> \FILTER_CALLBACK,
-			'flags'		=> \FILTER_REQUIRE_ARRAY,
-			'options'	=> 'formatSites'
+			'options'	=> 
+			function( $v ) {
+				return 
+				\is_array( $v ) ? 
+					formatSites( $v ) : [];
+			}
 		], 
 		
 		// URL Markers
 		'route_mark'=> [
 			'filter'	=> \FILTER_CALLBACK,
-			'flags'		=> \FILTER_REQUIRE_ARRAY,
-			'options'	=> 'decode'
+			'options'	=> 
+			function( $v ) {
+				return 
+				\is_array( $v ) ? 
+					decode( $v ) : [];
+			}
 		], 
 		
 		// Log rollover size
 		'max_log_size'	=> [
 			'filter'	=> \FILTER_VALIDATE_INT,
+			'flags'		=> \FILTER_REQUIRE_SCALAR,
 			'options'	=> [
 				'min_range'	=> 1024,
 				'max_range'	=> 5000000,
