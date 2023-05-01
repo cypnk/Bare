@@ -4414,7 +4414,7 @@ function loadPlugins( string $event, array $hook, array $params ) {
 		die();
 	}
 	
-	$pl		= setting( 'plugins_enabled', \PLUGINS_ENABLED );
+	$pl		= config( 'plugins_enabled', \PLUGINS_ENABLED );
 	if ( empty( $pl ) ) {
 		// Nothing to load
 		return;
