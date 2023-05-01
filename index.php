@@ -3790,7 +3790,7 @@ function regionTags(
 	switch( $region ) {
 		// Render meta tags
 		case 'meta':
-			$i = config( 'meta_limit', \META_LIMIT, 'int' );
+			$i = setting( 'meta_limit', \META_LIMIT, 'int' );
 			foreach ( $rg['meta'] ?? [] as $k => $v ) {
 				if ( $i < 0 ) {
 					break;
@@ -4128,8 +4128,10 @@ function getDb( string $dsn, string $mode = 'get' ) {
 	
 	// Preemptive defense
 	$db[$dsn]->exec( 'PRAGMA quick_check;' );
-	$db[$dsn]->exec( 'PRAGMA trusted_schema = OFF;' );
 	$db[$dsn]->exec( 'PRAGMA cell_size_check = ON;' );
+	
+	// TODO: Workaround for virtual table functions marked SQLITE_VTAB_DIRECTONLY in new SQLite versions
+	$db[$dsn]->exec( 'PRAGMA trusted_schema = ON;' );
 	
 	// Prepare defaults if first run
 	if ( $first_run ) {
