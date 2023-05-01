@@ -39,7 +39,7 @@ The author's [personal blog](https://rc.sh2.us) is using Bare, also mirrored on 
 
 ## Requirements
 * Webserver capable of handling URL rewrites (Apache, Nginx etc...)
-* PHP Version 8+
+* PHP Version 8+ (8.2+ recommended)
 
 The following PHP extensions may need to be installed or enabled in **php.ini**:
 * pdo_sqlite (*required*)
@@ -59,7 +59,7 @@ If you prefer to use [Composer](https://getcomposer.org/) to handle your environ
 ```
 {
 	"require": {
-		"php": ">=8.0",
+		"php": ">=8.2",
 		"lib-iconv": "*",
 		"ext-pdo": "*",
 		"ext-pdo_sqlite": "*",
