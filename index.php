@@ -4128,6 +4128,7 @@ function getDb( string $dsn, string $mode = 'get' ) {
 	
 	// Preemptive defense
 	$db[$dsn]->exec( 'PRAGMA quick_check;' );
+	//$db[$dsn]->exec( 'PRAGMA trusted_schema = OFF;' );
 	$db[$dsn]->exec( 'PRAGMA cell_size_check = ON;' );
 	
 	// TODO: Workaround for virtual table functions marked SQLITE_VTAB_DIRECTONLY in new SQLite versions
@@ -7894,14 +7895,21 @@ function ifModified( $etag ) : bool {
  *  
  *  @param mixed	$stream		File resource or false if initializing
  *  @param string	$path		File path
+ *  @param string	$mode		File access mode
+ *  @param bool		$block		Set blocking mode (defaults to false)
  *  @return resource|false
  */
-function openStream( &$stream, string $path ) {
-	$stream = fopen( $path, 'rb' );
+function openStream( 
+		&$stream, 
+	string	$path,
+	string	$mode,
+	bool	$block	= false 
+) {
+	$stream = fopen( $path, $mode, false );
 	if ( false === $stream ) {
 		return;
 	}
-	\stream_set_blocking( $stream, false );
+	\stream_set_blocking( $stream, $block );
 }
 
 /**
@@ -7927,8 +7935,6 @@ function closeStream( &$stream ) {
  *  @param callable	$abr		Abort action
  */
 function streamChunks( &$stream, int $start, int $end, $flh, $abr ) {
-	// Default chunk size
-	$csize	= setting( 'stream_chunk_size', \STREAM_CHUNK_SIZE, 'int' );
 	$sent	= 0;
 	
 	$is_flh	= \is_callable( $flh );
@@ -7975,6 +7981,64 @@ function streamChunks( &$stream, int $start, int $end, $flh, $abr ) {
 }
 
 /**
+ *  Read and output file contents via stream
+ *  
+ *  @param string	$source Streaming source or read location
+ *  @param string	$dest	Output or write destination
+ *  @param int		$clen	Maximum content length to stream
+ *  @return total bytes read
+ */
+function streamFile( 
+	string	$source, 
+	string	$dest, 
+	int	$clen, 
+		$iter		= null, 
+		$abort		= null
+) : int {
+	
+	// Default chunk size
+	$chunk	= setting( 'stream_chunk_size', \STREAM_CHUNK_SIZE, 'int' );
+	$chunk	= intRange( $chunk, 2, 32768 );
+	
+	openStream( $from, $source, 'rb' );
+	if ( false === $from ) {
+		return 0;
+	}
+	
+	openStream( $to, $dest, 'w' );
+	if ( false === $dest ) {
+		closeStream( $to );
+		return 0;
+	}
+	
+	\stream_set_chunk_size( $from, $chunk );
+	
+	$total		= 0;
+	$start		= 0;
+	$end		= $chunk - 1;
+	
+	while( $total < $clen ) {
+		$read		= 
+		streamChunks( 
+			$from, $to, $start, $end, $iter, $abort 
+		);
+	
+		if ( empty( $read ) ) {
+			return $total;
+		}
+		
+		$total		+= $read;
+		$start		+= $read - 1;
+		$end		+= $start + $chunk;
+	}
+	
+	closeStream( $to );
+	closeStream( $from );
+	
+	return $read;
+}
+
+/**
  *  Finish file sending functionality
  *  
  *  @param string	$path		File path to send
@@ -7984,22 +8048,9 @@ function sendFileFinish( $path ) {
 	$tags	= genEtag( $path );
 	$fsize	= $tags['fsize'];
 	$etag	= $tags['etag'];
-	$stream = false;
+	$climit = setting( 'stream_chunk_limit', \STREAM_CHUNK_LIMIT, 'int' );
 	
 	if ( false !== $fsize ) {
-		$climit = setting( 'stream_chunk_limit', \STREAM_CHUNK_LIMIT, 'int' );
-	
-		// Prepare resource if this is a large file
-		if ( $fsize > $climit ) {
-			openStream( $stream, $path );
-			if ( false === $stream ) {
-				// Don't send error or this may loop
-				// Error handlers also use this function
-				shutdown( 'logError', 'Error opening ' . $path );
-				die();
-			}
-		}
-	
 		\header( "Content-Length: {$fsize}", true );
 		if ( !empty( $etag ) ) {
 			\header( "ETag: {$etag}", true );
@@ -8020,13 +8071,12 @@ function sendFileFinish( $path ) {
 	// Send any headers and end buffering
 	flushOutput( true );
 	
-	if ( ifModified( $etag ) ) {
-		if ( $stream === false ) {
+	if ( ifModified( $etag ) && $fsize !== false ) {
+		if ( $fsize <= $climit ) {
 			\readfile( $path );
 			return;
 		}
-		streamChunks( $stream, 0, $fsize, 'flushOutput', 'visitorAbort' );
-		closeStream( $stream );
+		streamFile( $path, 'php://output', $fsize, 'flushOutput', 'visitorAbort' );
 	}
 }
 
@@ -8689,11 +8739,24 @@ function sendFileRange( string $path, bool $dosend ) : bool {
 		return true;
 	}
 	
-	openStream( $stream, $path );
+	openStream( $stream, $path, 'rb' );
 	if ( false === $stream ) {
 		shutdown( 'logError', 'Error opening ' . $path );
 		sendError( 500, errorLang( "generic", \MSG_GENERIC ) );
 	}
+	
+	openStream( $out, 'php://output', 'w' );
+	if ( false === $out ) {
+		closeStream( $stream );
+		shutdown( 'logError', 'Error outputting ' . $path );
+		sendError( 500, errorLang( "generic", \MSG_GENERIC ) );
+	}
+	
+	// Default chunk size
+	$chunk	= setting( 'stream_chunk_size', \STREAM_CHUNK_SIZE, 'int' );
+	$chunk	= intRange( $chunk, 2, 32768 );
+	
+	\stream_set_chunk_size( $stream, $chunk );
 	
 	// Prepare partial content
 	sendFilePrep( $path, 206, false );
@@ -8728,10 +8791,11 @@ function sendFileRange( string $path, bool $dosend ) : bool {
 		}
 		
 		$limit = ( $r[1] > -1 ) ? $r[1] + 1 : $fsize;
-		streamChunks( $stream, $r[0], $limit, 'flushOutput', 'visitorAbort' );
+		streamChunks( $stream, $out, $r[0], $limit, 'flushOutput', 'visitorAbort' );
 	}
 	
 	closeStream( $stream );
+	closeStream( $out );
 	flushOutput( true );
 	return true;
 }
