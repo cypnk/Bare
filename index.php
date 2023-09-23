@@ -3431,7 +3431,7 @@ function pageRoutePath( ?string $path = null, ?string $default = null ) : string
 	
 	// Empty path? Use home link
 	if ( empty( $path ) ) {
-		$urls[$path] = website() . getRoot(); 
+		$urls[$path] = getRoot(); 
 		return $urls[$path];
 	}
 	
@@ -3439,7 +3439,7 @@ function pageRoutePath( ?string $path = null, ?string $default = null ) : string
 	
 	// Avoid placeholders E.G. :user, :page, :tag etc...
 	$st	= strstr( $rt, ':', true );
-	$urls[$path]	= website() . getRoot() . 
+	$urls[$path]	= getRoot() . 
 		( ( false === $st ) ? $rt : $st );
 	
 	return $urls[$path];
@@ -7164,21 +7164,20 @@ function httpCode( int $code ) {
 	// Special cases
 	switch( $code ) {
 		case 416:
-			\header( "$prot $code " . 'Range Not Satisfiable' );
+			\header( "$prot $code " . 'Range Not Satisfiable', true );
 			return;
 			
 		case 425:
-			\header( "$prot $code " . 'Too Early' );
+			\header( "$prot $code " . 'Too Early', true );
 			return;
 			
 		case 429:
-			\header( "$prot $code " . 
-				'Too Many Requests' );
+			\header( "$prot $code " . 'Too Many Requests', true );
 			return;
 			
 		case 431:
 			\header( "$prot $code " . 
-				'Request Header Fields Too Large' );
+				'Request Header Fields Too Large', true );
 			return;
 			
 		case 503:
@@ -8035,8 +8034,8 @@ function streamFile(
 		}
 		
 		$total		+= $read;
-		$start		+= $read - 1;
-		$end		+= $start + $chunk;
+		$start		+= $read;
+		$end		+= $start + $chunk - 1;
 	}
 	
 	closeStream( $to );
