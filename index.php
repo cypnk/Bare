@@ -7928,56 +7928,63 @@ function closeStream( &$stream ) {
 /**
  *  Stream content in chunks within starting and ending limits
  *  
- *  @param resource	$stream		Open file stream
+ *  @param resource	$instream	Source input content stream
+ *  @param resource	$outstream	Content destination stream
  *  @param int		$int		Starting offset
  *  @param int		$end		Ending offset or end of file
- *  @param callable	$flh		Flushing action
- *  @param callable	$abr		Abort action
+ *  @param callable	$iter		Optional iteration action
+ *  @param callable	$abort		Optional abort action
+ *  @return int
  */
-function streamChunks( &$stream, int $start, int $end, $flh, $abr ) {
-	$sent	= 0;
+function streamChunks( 
+		&$instream, 
+		&$outstream, 
+	int	$start, 
+	int	$end,
+		$iter		= null, 
+		$abort		= null
+) : int {
+	$is_iter	= \is_callable( $iter );
+	$is_abort	= \is_callable( $abort );
 	
-	$is_flh	= \is_callable( $flh );
-	$is_abr	= \is_callable( $abr );
+	// Total bytes read
+	$read		= 0;
 	
-	fseek( $stream, $start );
-	
-	while ( !feof( $stream ) ) {
-		
-		// Check for aborted connection between flushes
-		if ( \connection_aborted() ) {
-			closeStream( $stream );
-			if ( $is_abr ) {
-				\call_user_func( $abr );
-			}
-			break;
-		}
-		
-		// End reached
-		if ( $sent >= $end ) {
-			if ( $is_flh ) {
-				\call_user_func( $flh );
-			}
-			break;
-		}
-		
-		// Change chunk size when approaching the end of range
-		if ( $sent + $csize > $end ) {
-			$csize = ( $end + 1 ) - $sent;
-		}
-		
-		// Reset limit while streaming
-		\set_time_limit( 30 );
-		
-		$buf = fread( $stream, $csize );
-		echo $buf;
-		
-		$sent += strsize( $buf );
-		
-		if ( $is_flh ) {
-			\call_user_func( $flh );
-		}
+	// Seek to new start if not starting from the beginning
+	if ( 0 !== $start ) {
+		\rewind( $instream );
+		\fseek( $instream, $start, \SEEK_SET );
 	}
+	
+	// Check for aborted connection between flushes
+	if ( \connection_aborted() ) {
+		closeStream( $instream );
+		closeStream( $outstream );
+		if ( $is_abort ) {
+			\call_user_func( $abort );
+		}
+		return $read;
+	}
+			
+	// Reset limit while streaming
+	\set_time_limit( 20 );
+	
+	$buf		= 
+	\stream_copy_to_stream( $instream, $outstream, $end );
+	
+	if ( false === $buf ) {
+		if ( $is_iter ) {
+			\call_user_func( $iter );
+		}
+		return 0;
+	}
+	
+	$read += $buf;
+	if ( $is_iter ) {
+		\call_user_func( $iter );
+	}
+	
+	return $read;
 }
 
 /**
