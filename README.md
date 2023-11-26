@@ -396,8 +396,8 @@ extension=tidy
 Now enable and start PHP.  
 This is assuming 8.1, but other versions follow the same convention:
 ```
-doas rcctl enable php81_fpm
-doas rcctl start php81_fpm
+doas rcctl enable php82_fpm
+doas rcctl start php82_fpm
 ```
 
 **Note:** Although it shares the same comment style, httpd(8) [configuration](https://man.openbsd.org/httpd.conf.5) directives *do not* end in a semicolon(;) unlike Nginx settings.
@@ -470,13 +470,13 @@ Your new Bare blog is ready to be served.
 To ensure the server and PHP will run each time you (re)start your OpenBSD system, remember to add the following to **rc.conf.local**:
 ```
 httpd_flags=
-pkg_scripts=php80_fpm
+pkg_scripts=php82_fpm
 ```
 
 Or if you're hosting your blog over Tor, make sure that's added as well:
 ```
 httpd_flags=
-pkg_scripts=tor php80_fpm
+pkg_scripts=tor php82_fpm
 ```
 
 If you have already enabled firewall access to your site, you may skip this part.
