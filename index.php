@@ -7133,6 +7133,17 @@ function sendAllowHeader() {
 }
 
 /**
+ *  Helper to generate header with protocol and message
+ *  
+ *  @param int		$code		HTTP Status code
+ *  @param string	$msg		Header message
+ */
+function protocolHeader( int $code, string $msg ) {
+	$prot = getProtocol();
+	\header( "$prot $code $msg", true );
+}
+
+/**
  *  Create HTTP status code message
  *  
  *  @param int		$code		HTTP Status code
@@ -7150,43 +7161,22 @@ function httpCode( int $code ) {
 		\http_response_code( $code );
 		
 		// Some codes need additional headers
-		switch( $code ) {
-			case 405:
-				sendAllowHeader();
-				break;
+		if ( $code == 405 ) {
+			sendAllowHeader();
 		}
-		
 		return;
 	}
 	
-	$prot = getProtocol();
-	
 	// Special cases
-	switch( $code ) {
-		case 416:
-			\header( "$prot $code " . 'Range Not Satisfiable', true );
-			return;
-			
-		case 425:
-			\header( "$prot $code " . 'Too Early', true );
-			return;
-			
-		case 429:
-			\header( "$prot $code " . 'Too Many Requests', true );
-			return;
-			
-		case 431:
-			\header( "$prot $code " . 
-				'Request Header Fields Too Large', true );
-			return;
-			
-		case 503:
-			\header( "$prot $code " . 
-				'Service Unavailable' );
-			return;
-	}
-	
-	logError( 'Unknown status code "' . $code . '"' );
+	match( $code ) {
+		416	=> protocolHeader( 416, 'Range Not Satisfiable' ),
+		422	=> protocolHeader( 422, 'Unprocessable Entity' ),
+		425	=> protocolHeader( 425, 'Too Early' ),
+		429	=> protocolHeader( 429, 'Too Many Requests' ),
+		431	=> protocolHeader( 431, 'Request Header Fields Too Large' ),
+		503	=> protocolHeader( 503, 'Service Unavailable' ),
+		default	=> logError( 'Unknown status code "' . $code . '"' )
+	};
 	die();
 }
 
