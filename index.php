@@ -3942,7 +3942,7 @@ function render(
  *  @return string
  */
 function genId( int $bytes = 16 ) : string {
-	return \bin2hex( \random_bytes( intRange( $bytes, 1, 16 ) ) );
+	return \bin2hex( \random_bytes( intRange( $bytes, 1, 64 ) ) );
 }
 
 /**
@@ -10470,18 +10470,89 @@ function formatIndex(
  *  User input and form processing
  */
 
+
 /**
- *  Initiate field token or reset existing
+ *  Data integrity session flag helper
  *  
+ *  @param string	$reset		Renew the token flag if given
+ *  @param string	$label		Token identity defaults to 'token'
  *  @return string
  */ 
-function tokenKey( bool $reset = false ) : string {
+function tokenKey( bool $reset = false, string $label = 'token' ) : string {
 	sessionCheck();
-	if ( empty( $_SESSION['TOKEN_KEY'] ) || $reset ) {
-		$_SESSION['TOKEN_KEY'] = genId( 16 );
+	if ( empty( $_SESSION[$label] ) || $reset ) {
+		$_SESSION[$label] = genId();
 	}
 	
-	return $_SESSION['TOKEN_KEY'];
+	return $_SESSION[$label];
+}
+
+/**
+ *  Initiate anti-CSRF session flag holder
+ */
+function initCSRFSession() : void {
+	sessionCheck();
+	if ( empty( $_SESSION['csrf'] ) ) {
+		$_SESSION['csrf'] = [];
+	}
+}
+
+/**
+ *  Find form-specific anti-CSRF token
+ *  
+ *  @param string	$form	Per-session, form-specific, unique label
+ */
+function getCSRFToken( string $form ) : string {
+	initCSRFSession();
+	return $_SESSION['csrf'][$form] ?? '';
+}
+
+/**
+ *  Generate an anti-CSRF token
+ *  
+ *  @param string	$form	Form label specific to the session token
+ *  @return string
+ */
+function setCSRFToken( string $form ) {
+	initCSRFSession();
+	
+	$key				= genId( 32 );
+	$nonce				= genId( 6 );
+	$_SESSION['csrf'][$form]	= $key;
+	
+	return [ 
+		'nonce'	=> $nonce, 
+		'token' => \hash_hmac( 'tiger160,4', $key, $nonce )
+	];
+}
+
+/**
+ *  Verify anti-cross-site request forgery token
+ *  
+ *  @param string	$token	Raw token sent from user form
+ *  @param string	$nonce	Nonce taken from user form
+ *  @param string	$form	Form label specific to the session token
+ *  @return string
+ */
+function validateCSRFToken( string $token, string $nonce, string $form ) : bool {
+	
+	$ln	= strsize( $nonce );
+	$lt	= strsize( $token );
+	
+	// Sanity check
+	if ( 
+		$ln > 100 || 
+		$ln <= 10 || 
+		$lt > 350 || 
+		$lt <= 10
+	) {
+		return false;
+	}
+	
+	$key	= getCSRFToken( $form );
+	
+	return 
+	\hash_equals( $token, \hash_hmac( 'tiger160,4', $key, $nonce ) );
 }
 
 /**
