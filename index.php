@@ -10501,6 +10501,7 @@ function initCSRFSession() : void {
  *  Find form-specific anti-CSRF token
  *  
  *  @param string	$form	Per-session, form-specific, unique label
+ *  @return string
  */
 function getCSRFToken( string $form ) : string {
 	initCSRFSession();
@@ -10511,9 +10512,9 @@ function getCSRFToken( string $form ) : string {
  *  Generate an anti-CSRF token
  *  
  *  @param string	$form	Form label specific to the session token
- *  @return string
+ *  @return array
  */
-function setCSRFToken( string $form ) {
+function setCSRFToken( string $form ) : array {
 	initCSRFSession();
 	
 	$key				= genId( 32 );
@@ -10558,40 +10559,44 @@ function validateCSRFToken( string $token, string $nonce, string $form ) : bool 
 /**
  *  Generate a hash for meta data sent to HTML forms
  *  
- *  This function helps prevent tampering of metadata sent separately
+ *  This function helps reduce tampering of metadata sent separately
  *  to the user via other hidden fields
  *  
- *  @example genMetaKey( [ 'id=12','name=DoNotChange' ] ); 
+ *  @example genMetaKey( [ 'id' => 12,'name' => 'DoNotChange' ] ); 
  *  
  *  @param array	$args	Form field names sent to generate key
  *  @param bool		$reset	Reset any prior token key if true
+ *  @param bool		$enc	Encode to base64 if true (default)
  *  @return string
  */
-function genMetaKey( array $args, bool $reset = false ) : string {
+function genMetaKey( 
+	array	$data, 
+	bool	$reset	= false, 
+	bool	$enc	= true 
+) : string {
 	static $gen	= [];
-	$data		= \implode( ',', $args );
 	
-	if ( \array_key_exists( $data, $gen ) && !$reset ) {
-		return $gen[$data];
+	$params		= encode( $data );
+	$key		= \hash( 'tiger160,4', $params );
+	
+	if ( \array_key_exists( $key, $gen ) && !$reset ) {
+		return $enc ? \base64_encode( $gen[$key] ) : $gen[$key];
 	}
 	
-	$ha		= hashAlgo( 'nonce_hash', \NONCE_HASH );
-	$gen[$data]	= 
-	\base64_encode( 
-		\hash( $ha, $data . tokenKey( $reset ), true ) 
-	);
+	$gen[$key]	= 
+	\hash( 'tiger160,4', $params . tokenKey( $reset, 'metadata' ), true );
 	
-	return $gen[$data];
+	return $enc ? \base64_encode( $gen[$key] ) : $gen[$key];
 }
 
 /**
  *  Verify meta data key
  *  
  *  @param string	$key	Token key name
- *  @param array	$args	Original form field names sent to generate key
+ *  @param array	$data	Original form field names sent to generate key
  *  @return bool		True if token matched
  */
-function verifyMetaKey( string $key, array $args ) : bool {
+function verifyMetaKey( string $key, array $data ) : bool {
 	if ( empty( $key ) ) {
 		return false;
 	}
@@ -10601,14 +10606,99 @@ function verifyMetaKey( string $key, array $args ) : bool {
 		return false;
 	}
 	
-	$data	= \implode( ',', $args );
-	$ha	= hashAlgo( 'nonce_hash', \NONCE_HASH );
+	return \hash_equals( $info, genMetaKey( $data, false ) );
+}
+
+/**
+ *  Generate form fields using templates and built-in cross-site protection
+ *  
+ *  @param string	$ftype		Input form type
+ *  @param array	$meta		Fixed metadata which shouldn't be modified
+ *  @param string	$previous	Return link to redirect after processing
+ *  @return string
+ */
+function genForm( 
+	string	$ftype, 
+	array	$meta		= [], 
+	string	$previous	= '' 
+) : string {
+	$csrf	= setCSRFToken( $ftype );
 	
-	return 
-	\hash_equals( 
-		$info, 
-		\hash( $ha, $data . tokenKey(), true ) 
-	);
+	// Populate anti-CSRF inputs
+	$xsrf	= 
+	render( 'tpl_input_xsrf', [
+		'{token}'	=> $csrf['token'],
+		'{nonce}'	=> $csrf['nonce'],
+		'{return}'	=> $previous,
+		
+		// Default metadata to session token if none given
+		'{meta}'	=> 
+		empty( $meta ) ? 
+			genMetaKey( [ 'session' => tokenKey() ], true ) : 
+			genMetaKey( $meta, true )
+	] );
+	
+	return render( 'tpl_' . $ftype . '_form', [ '{xsrf}' => $xsrf ] );
+}
+
+/**
+ *  User input and environment data filtering helper
+ *  
+ *  @param string	$source		Data source type, defaults to 'get'
+ *  @param array	$filter		Input processing filters
+ */
+function inputData( string $source, array $filter ) : array {
+	$dtype	= 
+	match( \strtolower( $source ) ) {
+		'post'			=> \INPUT_POST,
+		'cookie'		=> \INPUT_COOKIE,
+		'server'		=> \INPUT_SERVER,
+		'env', 'environment'	=> \INPUT_ENV,
+		default			=> \INPUT_GET
+	};
+	
+	return \filter_input_array( $dtype, $filter, true );
+}
+
+/**
+ *  Validate submitted form field against XSRF behavior
+ *  
+ *  @param string	$form		Unique form name per session to verify
+ *  @param string	$itype		Data submission method
+ *  @return bool
+ */
+function validateForm( 
+	string	$form,
+	string	$itype, 
+	array	$fields	= [] 
+) : bool {
+	$data	= 
+	inputData( $itype, [
+		'token'	=> [
+			'filter'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
+			'flags'		=> \FILTER_REQUIRE_SCALAR
+		],
+		'nonce'	=> [
+			'filter'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
+			'flags'		=> \FILTER_REQUIRE_SCALAR
+		],
+		'meta'	=> [
+			'filter'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
+			'flags'		=> \FILTER_REQUIRE_SCALAR
+		]
+	] );
+	
+	if ( empty( $data['token'] ) || empty( $data['nonce'] ) ) {
+		return false;
+	}
+	
+	if ( validateCSRFToken( $data['token'], $data['nonce'], $form ) ) {
+		return 
+		empty( $fields ) ? 
+			true : verifyMetaKey( $data['meta'], $fields );
+	}
+	
+	return false;
 }
 
 /**
