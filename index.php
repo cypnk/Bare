@@ -8247,8 +8247,8 @@ function redirect(
 	// Fallback HTML refresh
 	$html = 
 	"<html><head>" . 
-	"<meta http-equiv=\"refresh\" content=\"0;url=\" . $path . \">".
-	"</head><body><a href=\" . $path . \">continue</a></body></html>";
+	"<meta http-equiv=\"refresh\" content=\"0;url=\"{$path}\">".
+	"</head><body><a href=\"{$path}\">continue</a></body></html>";
 	
 	logError( 'Headers already sent with code ' . $code . ' at  URL ' . $path );
 	die( $html );
@@ -10606,7 +10606,7 @@ function verifyMetaKey( string $key, array $data ) : bool {
 		return false;
 	}
 	
-	return \hash_equals( $info, genMetaKey( $data, false ) );
+	return \hash_equals( $info, genMetaKey( $data, false, false ) );
 }
 
 /**
@@ -10657,7 +10657,8 @@ function inputData( string $source, array $filter ) : array {
 		default			=> \INPUT_GET
 	};
 	
-	return \filter_input_array( $dtype, $filter, true );
+	$data	= \filter_input_array( $dtype, $filter, true );
+	return empty( $data ) ? [] : $data;
 }
 
 /**
@@ -10695,7 +10696,7 @@ function validateForm(
 	if ( validateCSRFToken( $data['token'], $data['nonce'], $form ) ) {
 		return 
 		empty( $fields ) ? 
-			true : verifyMetaKey( $data['meta'], $fields );
+			true : verifyMetaKey( $data['meta'] ?? '', $fields );
 	}
 	
 	return false;
