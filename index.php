@@ -465,15 +465,13 @@ HTML;
 
 // Form anti-XSRF hidden inputs (required on all forms)
 $templates['tpl_input_xsrf']	= <<<HTML
-{before_input_xsrf}
 <input type="hidden" name="nonce" value="{nonce}">
 <input type="hidden" name="token" value="{token}">
 <input type="hidden" name="meta" value="{meta}">
-{after_input_xsrf}
 HTML;
 
 // Search form
-$templates['tpl_searchform']	= <<<HTML
+$templates['tpl_search_form']	= <<<HTML
 {before_search_form}<form action="{home}" method="get" 
 	class="{form_classes} {search_form_classes}">
 	<fieldset class="{search_fieldset_classes}">
@@ -10800,59 +10798,6 @@ function verifyNoncePair(
 }
 
 /**
- *  Validate sent token/nonce pairs in sent form data
- *  
- *  @param string	$name	Form label to validate
- *  @param bool		$get	Validate get request if true
- *  @param bool		$chk	Check for form expiration if true
- *  @param array	$fields	If set, verify form anti-tampering token
- *  @return int
- */
-function validateForm(
-	string		$name, 
-	bool		$get		= true,
-	bool		$chk		= true,
-	array		$fields		= []
-) : int {
-	$filter = [
-		'token'	=> [
-			'filter'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
-			'flags'		=> \FILTER_REQUIRE_SCALAR
-		],
-		'nonce'	=>  [
-			'filter'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
-			'flags'		=> \FILTER_REQUIRE_SCALAR
-		],
-		'meta'	=>  [
-			'filter'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
-			'flags'		=> \FILTER_REQUIRE_SCALAR
-		]
-	];
-	
-	$data	= $get ? 
-	\filter_input_array( \INPUT_GET, $filter ) : 
-	\filter_input_array( \INPUT_POST, $filter );
-	
-	if ( empty( $data['token'] ) || empty( $data['nonce'] ) ) {
-		return \FORM_STATUS_INVALID;
-	}
-	
-	if ( empty( $fields ) ) {
-		return 
-		verifyNoncePair( $name, $data['token'], $data['nonce'], $chk );
-	}
-	
-	// If fields were set, meta key was generated
-	// Check if it's still there
-	if ( !verifyMetaKey( $data['meta'] ?? '', $fields ) ) {
-		return \FORM_STATUS_INVALID;
-	}
-	
-	return 
-	verifyNoncePair( $name, $data['token'], $data['nonce'], $chk );
-}
-
-/**
  *  Make text completely bland by stripping punctuation, 
  *  spaces and diacritics (for further processing)
  *  
@@ -11036,29 +10981,13 @@ function searchData( string $find ) : string {
  *  @return string
  */
 function searchForm() : string {
-	// Search form hidden fields
-	$pair	= genNoncePair( 'searchform' );
-	
-	// Send to xsrf hooks
-	$xsrf	= 
-	hookWrap( 
-		'beforesearchxsrf',
-		'aftersearchxsrf',
-		template( 'tpl_input_xsrf' ), 
-		[ 
-			'nonce'	=> $pair['nonce'], 
-			'token'	=> $pair['token'],
-			'meta'	=> '' // Search forms are cached
-		]
-	);
-	
 	// Send search form hook output
 	return
 	hookWrap( 
 		'beforesearchform',
 		'afterearchform',
-		template( 'tpl_searchform' ), 
-		[ 'xsrf' => $xsrf ]
+		genForm( 'search', [ 'session' => 'none' ] ), 
+		[ 'session' => 'none' ]
 	);
 }
 
@@ -11712,15 +11641,8 @@ function showSearch( string $event, array $hook, array $params ) {
 		loadIndex();
 	}
 	
-	$status		= validateForm( 'searchform', true, false );
-	switch( $status ) {
-		case FORM_STATUS_INVALID:
-		case FORM_STATUS_EXPIRED:
-			sendDenied( 'Expired', 'expired', \MSG_EXPIRED );
-		
-		case FORM_STATUS_FLOOD:
-			visitorError( 429, 'Flood' );
-			sendError( 429, errorLang( "toomany", \MSG_TOOMANY ) );
+	if ( !validateForm( 'search', 'get' ) ) {
+		sendDenied( 'Expired', 'expired', \MSG_EXPIRED );
 	}
 	
 	$find	= searchData( $params['find'] ?? '' );
