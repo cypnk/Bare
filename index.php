@@ -1399,21 +1399,6 @@ define( 'COOKIE_PREFIXED',	1 );
 
 
 
-/**
- *  Form settings
- */
-
-// Form submission delay in seconds
-define( 'FORM_DELAY',		30 );
-
-// Form submission expiration (2 hours)
-define( 'FORM_EXPIRE',		7200 );
-
-// Form check statuses (internal use)
-define( 'FORM_STATUS_VALID',	0 );
-define( 'FORM_STATUS_INVALID',	1 );
-define( 'FORM_STATUS_EXPIRED',	2 );
-define( 'FORM_STATUS_FLOOD',	3 );
 
 /**********************************************************************
  *                      Caution editing below
@@ -4600,6 +4585,16 @@ function cookiePrefix() : string {
 }
 
 /**
+ *  Generate application cookie prefix based on the current server
+ *  
+ *  @return string
+ */
+function appKey() : string {
+	return 
+	cookiePrefix() . \hash( 'tiger160,4', getHost() . getProtocol() );
+}
+
+/**
  *  Set the cookie options when defaults are/aren't specified
  *  
  *  @param array	$options	Additional cookie options
@@ -4637,7 +4632,7 @@ function defaultCookieOptions( array $options = [] ) : array {
  *  @return mixed
  */
 function getCookie( string $name, $default ) {
-	$app = cookiePrefix() . appName();
+	$app = appKey();
 	if ( !isset( $_COOKIE[$app] ) ) {
 		return $default;
 	}
@@ -4665,8 +4660,9 @@ function makeCookie( string $name, $data, array $options = [] ) : bool {
 		'data'		=> $data, 
 		'options'	=> $options 
 	] ] );
+	$app = appKey();
 	return 
-	\setcookie( cookiePrefix() . appName() . "[$name]", $data, $options );
+	\setcookie( "{$app}[{$name}]", $data, $options );
 }
 
 /**
@@ -4797,15 +4793,22 @@ function sessionWrite( $id, $data ) {
  *  @param string	$visit	Previous random visitation identifier
  */
 function sessionCanary( string $visit = '' ) {
-	$bt	= setting( 'session_bytes', \SESSION_BYTES, 'int' );
 	$exp	= setting( 'session_exp', \SESSION_EXP, 'int' );
+	if ( empty( $_SESSION['canary'] ) ) {
+		$_SESSION['canary']	= time() + $exp;
+		return;
 	
-	$_SESSION['canary'] = 
-	[
-		'exp'		=> time() + $exp,
-		'visit'		=> 
-		empty( $visit ) ? \genId( $bt ) : $visit
-	];
+	} 
+	if ( time() <= ( int ) $_SESSION['canary'] ) {
+		return;
+	}
+	
+	// Regenerate session
+	$restore		= $_SESSION;
+	\session_regenerate_id( true );
+	
+	$_SESSION		= $restore;
+	$_SESSION['canary']	= time() + $exp;
 }
 	
 /**
@@ -4815,17 +4818,7 @@ function sessionCanary( string $visit = '' ) {
  */
 function sessionCheck( bool $reset = false ) {
 	session( $reset );
-	
-	if ( empty( $_SESSION['canary'] ) ) {
-		sessionCanary();
-		return;
-	}
-	
-	if ( time() > ( int ) $_SESSION['canary']['exp'] ) {
-		$visit = $_SESSION['canary']['visit'];
-		\session_regenerate_id( true );
-		sessionCanary( $visit );
-	}
+	sessionCanary();
 }
 
 /**
@@ -4871,7 +4864,7 @@ function session( $reset = false ) {
 		\session_cache_limiter( '' );
 		
 		sessionCookieParams();
-		\session_name( cookiePrefix() . appName() );
+		\session_name( appKey() );
 		\session_start();
 		
 		hook( [ 'sessioncreated', [ 'id' => \session_id() ] ] );
@@ -10632,8 +10625,8 @@ function genForm(
 		// Default metadata to session token if none given
 		'{meta}'	=> 
 		empty( $meta ) ? 
-			genMetaKey( [ 'session' => tokenKey() ], true ) : 
-			genMetaKey( $meta, true )
+			genMetaKey( [ 'session' => tokenKey() ] ) : 
+			genMetaKey( $meta )
 	] );
 	
 	return render( 'tpl_' . $ftype . '_form', [ '{xsrf}' => $xsrf ] );
@@ -10700,102 +10693,6 @@ function validateForm(
 	return false;
 }
 
-/**
- *  Create a unique nonce and token pair for form validation and meta key
- *  
- *  @param string	$name	Form label for this pair
- *  @param array	$fields	If set, append form anti-tampering token
- *  @param bool		$reset	Reset any prior anti-tampering token key if true
- *  @return array
- */
-function genNoncePair( 
-	string		$name, 
-	array		$fields		= [], 
-	bool		$reset		= false 
-) : array {
-	$tb	= setting( 'token_bytes', \TOKEN_BYTES, 'int' );
-	$ha	= hashAlgo( 'nonce_hash', \NONCE_HASH );
-	
-	$nonce	= genId( intRange( $tb, 8, 64 ) );
-	$time	= time();
-	$data	= $name . $time;
-	$token	= "$time:" . \hash( $ha, $data . $nonce );
-	return [ 
-		'token' => \base64_encode( $token ), 
-		'nonce' => $nonce,
-		'meta'	=> 
-			empty( $fields ) ? '' : genMetaKey( $fields, $reset )
-	];
-}
-
-/**
- *  Verify form submission by checking sent token and nonce pair
- *  
- *  @param string	$name	Form label to validate
- *  @params string	$token	Sent token
- *  @params string	$nonce	Sent nonce
- *  @param bool		$chk	Check for form expiration if true
- *  @return int
- */
-function verifyNoncePair(
-	string		$name, 
-	string		$token, 
-	string		$nonce,
-	bool		$chk
-) : int {
-	
-	$ln	= \strlen( $nonce );
-	$lt	= \strlen( $token );
-	
-	// Sanity check
-	if ( 
-		$ln > 100 || 
-		$ln <= 10 || 
-		$lt > 350 || 
-		$lt <= 10
-	) {
-		return \FORM_STATUS_INVALID;
-	}
-	
-	// Open token
-	$token	= \base64_decode( $token, true );
-	if ( false === $token ) {
-		return \FORM_STATUS_INVALID;
-	}
-	
-	// Token parameters are intact?
-	if ( false === \strpos( $token, ':' ) ) {
-		return \FORM_STATUS_INVALID;
-	}
-	
-	$parts	= \explode( ':', $token );
-	$parts	= \array_filter( $parts );
-	if ( \count( $parts ) !== 2 ) {
-		return \FORM_STATUS_INVALID;
-	}
-	
-	if ( $chk ) {
-		// Check for flooding
-		$time	= time() - ( int ) $parts[0];
-		$fdelay	= setting( 'form_delay', \FORM_DELAY, 'int' );
-		if ( $time < $fdelay ) {
-			return \FORM_STATUS_FLOOD;
-		}
-		
-		// Check for form expiration
-		$fexp	= setting( 'form_expire', \FORM_EXPIRE, 'int' );
-		if ( $time > $fexp ) {
-			return \FORM_STATUS_EXPIRED;
-		}
-	}
-	
-	$ha	= hashAlgo( 'nonce_hash', \NONCE_HASH );
-	$data	= $name . $parts[0];
-	$check	= \hash( $ha, $data . $nonce );
-	
-	return \hash_equals( $parts[1], $check ) ? 
-		\FORM_STATUS_VALID : \FORM_STATUS_INVALID;
-}
 
 /**
  *  Make text completely bland by stripping punctuation, 
@@ -12231,22 +12128,6 @@ function checkConfig( string $event, array $hook, array $params ) {
 				\FILTER_FLAG_STRIP_LOW	| 
 				\FILTER_FLAG_STRIP_HIGH	| 
 				\FILTER_FLAG_STRIP_BACKTICK 
-		],
-		'form_delay'	=> [
-			'filter'	=> \FILTER_VALIDATE_INT,
-			'options'	=> [
-				'min_range'	=> 5, 
-				'max_range'	=> 14400, // 4 Hours
-				'default'	=> \FORM_DELAY
-			]
-		],
-		'form_expire'	=> [
-			'filter'	=> \FILTER_VALIDATE_INT,
-			'options'	=> [
-				'min_range'	=> 300, // 5 minutes
-				'max_range'	=> 604800, // 7 Days
-				'default'	=> \FORM_EXPIRE
-			]
 		],
 		
 		// Scurity and error settings
