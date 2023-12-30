@@ -10617,7 +10617,7 @@ function genForm(
 	
 	// Populate anti-CSRF inputs
 	$xsrf	= 
-	render( 'tpl_input_xsrf', [
+	\strtr( template( 'tpl_input_xsrf' ), [
 		'{token}'	=> $csrf['token'],
 		'{nonce}'	=> $csrf['nonce'],
 		'{return}'	=> $previous,
@@ -10629,7 +10629,8 @@ function genForm(
 			genMetaKey( $meta )
 	] );
 	
-	return render( 'tpl_' . $ftype . '_form', [ '{xsrf}' => $xsrf ] );
+	return 
+	\strtr( template( 'tpl_' . $ftype . '_form' ), [ '{xsrf}' => $xsrf ] );
 }
 
 /**
@@ -12268,9 +12269,9 @@ function addBlogRoutes( string $event, array $hook, array $params ) {
 	/**
 	 *  Searching
 	 */
-	[ 'get', '\\?nonce=:nonce&token=:token&meta=&find=:find',
+	[ 'get', '\\?nonce=:nonce&token=:token&meta=:meta&find=:find',
 						'search' ],
-	[ 'get', '\\?nonce=:nonce&token=:token&meta=&find=:find/page:page',	
+	[ 'get', '\\?nonce=:nonce&token=:token&meta=:meta&find=:find/page:page',	
 						'searchpaginate' ]
 	];
 }
