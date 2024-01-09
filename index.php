@@ -1610,7 +1610,7 @@ SQL
  *  @return array
  */
 function filterEmpty( array $data ) : array {
-	return \array_filter( \array_map( 'trim', $tlist ), 'strlen' );
+	return \array_filter( \array_map( 'trim', $data ), 'strlen' );
 }
 
 /**
