@@ -1385,17 +1385,16 @@ define( 'SESSION_BYTES',	12 );
  */
 
 // Base expiration
-define( 'COOKIE_EXP', 		86400 );
+define( 'COOKIE_EXP', 		604800 ); // 7 Days
+
+// Refresh if less than this left
+define( 'COOKIE_REFRESH',	86400 ); // 1 Day
 
 // Base domain path
 define( 'COOKIE_PATH',		'/' );
 
 // Restrict cookies to same-site origin (I.E. No third party can snoop)
 define( 'COOKIE_RESTRICT',	1 );
-
-// Use prefixed cookies for additional privacy
-// Leaving this on is highly recommended, but it may break some analytics/ad services
-define( 'COOKIE_PREFIXED',	1 );
 
 
 
@@ -1604,6 +1603,15 @@ SQL
  *  Helpers
  */
 
+/**
+ *  Clear empty content of spaces
+ *  
+ *  @param array	$data		Input contents from the user
+ *  @return array
+ */
+function filterEmpty( array $data ) : array {
+	return \array_filter( \array_map( 'trim', $tlist ), 'strlen' );
+}
 
 /**
  *  String to list helper
@@ -2488,6 +2496,54 @@ function logMessage(
 	
 	// PHP's built-in logger
 	return \error_log( $msg . "\n", 3, $dest );
+}
+
+/**
+ *  Capture error for logging
+ *  
+ *  @param mixed	$err	Error message or exception to store
+ *  @param bool		$app	Application error if true, visitor error if false	
+ */
+function error( $err, bool $app = true ) : void {
+	$msg	= 
+	match( true ) {
+		
+		// Thrown exception
+		( $err instanceof \Exception )	=> 
+		\strtr( 'Exception: {msg} in {file} on line {line}', [
+			'{msg}'		=> $err->getMessage(),
+			'{file}'	=> $err->getFile(),
+			'{line}'	=> $err->getLine()
+		] ), 
+		
+		// Generic capture from E.G. error_get_last()
+		\is_array( $err )		=> 
+		\strtr( '{type}: {msg} in {file} on line {line}', [
+			'{type}'	=> $err['type']		?? 'Unkown type',
+			'{msg}'		=> $err['message']	?? 'No message',
+			'{file}'	=> $err['file']		?? 'Unknown file',
+			'{line}'	=> $err['line']		?? 'Unkown line'
+		] ), 
+		
+		default				=> ( string ) $err	
+	};
+	
+	if ( $app ) {
+		// Send with existing data
+		logError( $msg, $app );
+		return;
+	}
+	
+	// Append visitor data
+	$mt	= getMethod();
+	$ua	= getUA();
+	
+	$ua	= logStr( empty( $mt ) ? 'unknown' : $ua );
+	$mt	= logStr( empty( $mt ) ? 'unknown' : $mt );
+	$uri	= logStr( getURI() );
+
+	logError( $msg . ' ' . getIP() . ' ' . $mt . ' ' . $msg . ' ' . 
+		$ua . ' ' . $uri, $app );
 }
 
 /**
@@ -4260,7 +4316,7 @@ function dataBatchExec (
 		
 		$stm	= statement( $db, $sql );
 		foreach ( $params as $p ) {
-			$res[]	= getDataResult( $db, $params, $rtype, $stm );
+			$res[]	= getDataResult( $db, $p, $rtype, $stm );
 		}
 		$stm->closeCursor();
 		$db->commit();
@@ -4369,7 +4425,7 @@ function getSingle(
 	string		$dsn		= \DATA
 ) : array {
 	$data	= getResults( $sql, [ ':id' => $id ], $dsn );
-	if ( empty( $data ) ) {
+	if ( !empty( $data ) ) {
 		return $data[0];
 	}
 	return [];
@@ -4570,10 +4626,6 @@ function cookiePrefix() : string {
 		return $prefix;
 	}
 	
-	if ( !setting( 'cookie_prefixed', \COOKIE_PREFIXED, 'bool' ) ) {
-		$prefix = '';
-		return '';
-	}
 	$cpath	= setting( 'cookie_path', \COOKIE_PATH );
 	
 	// Enable locking if connection is secure and path is '/'
@@ -4601,25 +4653,32 @@ function appKey() : string {
  *  @return array
  */
 function defaultCookieOptions( array $options = [] ) : array {
+	static $opts;
+	if ( empty( $options ) && isset( $opts ) ) {
+		return $opts;
+	}
+	
 	$cexp	= setting( 'cookie_exp', \COOKIE_EXP, 'int' );
 	$cpath	= setting( 'cookie_path', \COOKIE_PATH );
 	
-	$opts	= 
-	\array_merge( $options, [
+	$opts	=  [
 		'expires'	=> 
 			( int ) ( $options['expires'] ?? time() + $cexp ),
 		'path'		=> $cpath,
 		'samesite'	=> sameSiteCookie(),
 		'secure'	=> isSecure() ? true : false,
 		'httponly'	=> true
-	] );
+	];
 	
 	// Domain shouldn't be used when using '__Host-' prefixed cookies
 	$prefix = cookiePrefix();
 	if ( empty( $prefix ) || 0 === \strcmp( $prefix, '__Secure-' ) ) {
-		$opts['domain']	= getHost();
+		$opts['domain']	= '.' . \ltrim( getHost(), '.' );
 	}
 	
+	if ( !empty( $options ) ) {
+		$opts = \array_merge( $opts, $options );
+	}
 	hook( [ 'cookieparams', $opts ] );
 	return $opts;
 }
@@ -7657,6 +7716,38 @@ function sendPage(
 }
 
 /**
+ *  Send bad request page and log the visit
+ *  
+ *  @param string	$vlog		Logged error message
+ *  @param string	$msg		Language error sent to visitor
+ *  @param string	$default	Fallback language error message
+ */
+function sendBadRequest(
+	string	$vlog		= 'Host', 
+	string	$msg		= 'invalid',
+	string	$default	= \MSG_INVALID
+) {
+	visitorError( 400, $vlog );
+	sendError( 400, errorLang( $msg, $default ) );
+}
+
+/**
+ *  Send bad URI page and log the visit
+ *  
+ *  @param string	$vlog		Logged error message
+ *  @param string	$msg		Language error sent to visitor
+ *  @param string	$default	Fallback language error message
+ */
+function sendBadURI(
+	string	$vlog		= 'Path', 
+	string	$msg		= 'invalid',
+	string	$default	= \MSG_INVALID
+) {
+	visitorError( 414, $vlog );
+	send( 414, errorLang( $msg, $default ) );
+}
+
+/**
  *  Send access denied page and log the visit
  *  
  *  @param string	$vlog		Logged error message
@@ -8423,8 +8514,7 @@ function request( string $event, array $hook, array $params ) : array {
 	
 	// Empty host?
 	if ( empty( $host ) ) {
-		visitorError( 400, 'Host' );
-		sendError( 400, errorLang( "invalid", \MSG_INVALID ) );
+		sendBadRequest();
 	}
 	
 	// Sanity checks
@@ -8448,25 +8538,17 @@ function request( string $event, array $hook, array $params ) : array {
 	// Request path hard limit
 	$lurl	= setting( 'max_url_size', \MAX_URL_SIZE, 'int' );
 	if ( strsize( $path ) > $lurl ) {
-		visitorError( 414, 'Path' );
-		send( 414 );
+		sendBadURI();
 	}
 	
 	// Request path (simpler filter before proper XSS scan)
 	if ( 
-		false !== \strpos( $path, '..' ) || 
-		false !== \strpos( $path, '<' )	
-	) {
-		visitorError( 400, 'Path' );
-		sendError( 400, errorLang( "invalid", \MSG_INVALID ) );
-	}
-	
-	// Possible XSS, directory traversal
-	if ( 
-		\preg_match( RX_XSS3, $path ) || 
+		false !== \strpos( $path, '..' )	|| 
+		false !== \strpos( $path, '<' )		|| 
+		\preg_match( RX_XSS3, $path )		|| 
 		\preg_match( RX_XSS4, $path )
 	) {
-		sendDenied();
+		sendBadRequest( 'Path', 'invalid' );
 	}
 	
 	// Match whitelisted host and root path
