@@ -750,10 +750,12 @@ $templates['tpl_home']		= '{lang:nav:home}';
 $templates['tpl_feed']		= <<<XML
 <?xml version="1.0" encoding="UTF-8" ?>
 <rss version="2.0">
+<channel>
 	<title>{page_title}</title>
 	<link>{home}</link>
 	<pubDate>{date_gen}</pubDate>
 	{body}
+</channel>
 </rss>
 XML;
 
