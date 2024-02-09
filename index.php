@@ -767,6 +767,7 @@ $templates['tpl_item']		= <<<XML
 	<title>{title}</title>
 	<link>{permalink}</link>
 	<pubDate>{date_rfc}</pubDate>
+	<guid isPermaLink="true">{permalink}</guid>
 	<description><![CDATA[{body}]]></description>
 </item>
 XML;
