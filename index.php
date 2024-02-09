@@ -749,10 +749,12 @@ $templates['tpl_home']		= '{lang:nav:home}';
 // Feed index template
 $templates['tpl_feed']		= <<<XML
 <?xml version="1.0" encoding="UTF-8" ?>
-<rss version="2.0">
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
 <channel>
 	<title>{page_title}</title>
 	<link>{home}</link>
+	<description><![CDATA[{tagline}]]></description>
+	<atom:link href="{path}" rel="self" type="application/rss+xml" />
 	<pubDate>{date_gen}</pubDate>
 	{body}
 </channel>
@@ -761,12 +763,12 @@ XML;
 
 // Feed item template
 $templates['tpl_item']		= <<<XML
-<entry>
+<item>
 	<title>{title}</title>
-	<link rel="alternate" type="text/html" href="{permalink}"/>
-	<updated>{date_rfc}</updated>
-	<content type="html"><![CDATA[{body}]]></content>
-</entry>
+	<link>{permalink}</link>
+	<pubDate>{date_rfc}</pubDate>
+	<description><![CDATA[{body}]]></description>
+</item>
 XML;
 
 
@@ -11712,7 +11714,8 @@ function showFeed( string $event, array $hook, array $params ) {
 	$tpl	= [
 		'page_title'	=> $ptitle,
 		'tagline'	=> $psub,
-		'home'		=> pageRoutePath(),
+		'home'		=> website(),
+		'path'		=> fullURI(),
 		'date_gen'	=> dateRfc(),
 		'body'		=> \implode( '', $posts )
 	];
