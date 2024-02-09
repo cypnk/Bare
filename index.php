@@ -9035,10 +9035,6 @@ function getPosts( string $root = '' ) : array {
 	$pd	= getPostFileDir( 'posts' ) . $root;
 	if ( !\is_dir( $pd ) ) {
 		$st[$key] = [];
-		shutdown( 
-			'logError', 
-			'Error retrieving posts from ' . $pd
-		);
 		return $st[$key];
 	}
 	
