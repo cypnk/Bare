@@ -475,7 +475,6 @@ $templates['tpl_search_form']	= <<<HTML
 {before_search_form}<form action="{home}" method="get" 
 	class="{form_classes} {search_form_classes}">
 	<fieldset class="{search_fieldset_classes}">
-{xsrf}
 {before_search_input}<input type="search" name="find" 
 	placeholder="{lang:forms:search:placeholder}" 
 	class="{input_classes} {search_input_classes}" 
@@ -10980,10 +10979,7 @@ function searchForm() : string {
  */
 function searchPagePath( array $data ) : string {
 	return slashPath( pageRoutePath(), true ) . 
-		'?nonce=' . $data['nonce'] . 
-		'&token=' . $data['token'] . 
-		'&meta=' . $data['meta'] . 
-		'&find=' . $data['find'] . '/';
+		'?find=' . $data['find'] . '/';
 }
 
 
@@ -11620,10 +11616,6 @@ function showTag( string $event, array $hook, array $params ) {
 function showSearch( string $event, array $hook, array $params ) {
 	if ( internalState( 'prepareIndex' ) ) {
 		loadIndex();
-	}
-	
-	if ( !validateForm( 'search', 'get' ) ) {
-		sendDenied( 'Expired', 'expired', \MSG_EXPIRED );
 	}
 	
 	$find	= searchData( $params['find'] ?? '' );
@@ -12353,10 +12345,8 @@ function addBlogRoutes( string $event, array $hook, array $params ) {
 	/**
 	 *  Searching
 	 */
-	[ 'get', '\\?nonce=:nonce&token=:token&meta=:meta&find=:find',
-						'search' ],
-	[ 'get', '\\?nonce=:nonce&token=:token&meta=:meta&find=:find/page:page',	
-						'searchpaginate' ]
+	[ 'get', '\\?find=:find',			'search' ],
+	[ 'get', '\\?find=:find/page:page',		'searchpaginate' ]
 	];
 }
 
