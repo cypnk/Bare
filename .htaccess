@@ -9,6 +9,7 @@ RewriteCond %{REQUEST_URI} ^/cache [NC]
 
 # All requests to readme files
 RewriteCond %{REQUEST_URI} ^/readme [NC]
+RewriteRule ^.*$ /index.php [L,QSA]
 
 # All files and folders that don't exist
 RewriteCond %{REQUEST_FILENAME} !-f
