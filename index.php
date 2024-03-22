@@ -244,7 +244,7 @@ https://archive.org
 https://peertube.mastodon.host
 https://lbry.tv
 https://odysee.com
-https://utreon.com
+https://playeur.com
 
 LINES
 );
@@ -925,13 +925,13 @@ $templates['tpl_lbry']	= <<<HTML
 </div>
 HTML;
 
-// Utreon video wrapper
-$templates['tpl_utreon']	= <<<HTML
+// Playeur video wrapper
+$templates['tpl_playeur']	= <<<HTML
 <div class="media">
 	<iframe width="560" height="315" frameborder="0" 
 		sandbox="allow-same-origin allow-scripts" 
 		allow="encrypted-media;picture-in-picture"
-		src="https://utreon.com/embed/{src}?t={time}" 
+		src="https://playeur.com/embed/{src}?t={time}" 
 		loading="lazy" allowfullscreen></iframe>
 </div>
 HTML;
@@ -6500,8 +6500,8 @@ function hostedEmbeds() : array {
 			'{src_host}' => 'lbry.tv', '{slug}' => '$2', '{src}' => '$5' 
 		] ),
 		
-		'/\[utreon http(s)?\:\/\/(www)?\.?utreon\.com\/v\/([0-9a-z_\-]*)(?:\?t\=([\d]*))?\]/is'
-		=> \strtr( template( 'tpl_utreon' ), [ '{src}' => '$3', '{time}' => ( '$4' ?? '0' ) ] )
+		'/\[(?:utreon|playeur) (?:http(s)?\:\/\/(www\.)?)?(?:utreon|playeur)\.com\/v\/([0-9a-z_\-]*)(?:\?t\=([\d]*))?\]/is'
+		=> \strtr( template( 'tpl_playeur' ), [ '{src}' => '$3', '{time}' => ( '$4' ?? '0' ) ] )
 		
 	];
 	
