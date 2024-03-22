@@ -185,9 +185,6 @@ define( 'SHOW_RELATED',		1 );
 // Maximum number of related posts to show
 define( 'RELATED_LIMIT',	5 );
 
-// Send actual Last-Modified header for files 
-define( 'SHOW_MODIFIED',	0 );
-
 // Lines from the bottom of each post to search for features I.E. Summary and tags
 // I.E. "Search somewhere in the bottom X lines for features." Up to 10
 define( 'FEATURE_LINES',	5 );
@@ -8138,15 +8135,13 @@ function sendFileFinish( $path ) {
 			\header( "ETag: {$etag}", true );
 		}
 		
-		if ( setting( 'show_modified', \SHOW_MODIFIED, 'int' ) ) {
-			$fmod	= $tags['fmod'];
-			if ( !empty( $fmod ) ) {
-				\header( 
-					'Last-Modified: ', 
-					dateRfcFile( $fmod ), 
-					true
-				);
-			}
+		$fmod	= $tags['fmod'];
+		if ( !empty( $fmod ) ) {
+			\header( 
+				'Last-Modified: ', 
+				dateRfcFile( $fmod ), 
+				true
+			);
 		}
 	}
 	
@@ -12223,15 +12218,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 				'max_range'	=> 1,
 				'default'	=> \ALLOW_POST
 			]
-		], 
-		'show_modified' => [
-			'filter'	=> \FILTER_VALIDATE_INT,
-			'options'	=> [
-				'min_range'	=> 0,
-				'max_range'	=> 1,
-				'default'	=> \SHOW_MODIFIED
-			]
-		], 
+		],  
 		'frame_whitelist'=> [
 			'filter'	=> \FILTER_CALLBACK,
 			'flags'		=> \FILTER_REQUIRE_ARRAY,
