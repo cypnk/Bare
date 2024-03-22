@@ -243,7 +243,7 @@ Footnotes are fully written at the end of the post body
 [^Two]: Second footnote with a [link](https://example.com)
 ```
 
-HTML is filtered of potentially harmful tags, however embedding videos to YouTube, Vimeo, PeerTube, Archive.org, LBRY/Odysee, or Utreon is supported via shortcodes.
+HTML is filtered of potentially harmful tags, however embedding videos to YouTube, Vimeo, PeerTube, Archive.org, LBRY/Odysee, or Playeur/Utreon is supported via shortcodes.
 
 E.G. For uploaded audio files:
 ```
@@ -308,10 +308,12 @@ or
 [lbry https://lbry.tv/$/download/eevblog-1367-5-types-of-oscilloscope/2d70c817aa4e1f7ce6b66473b0c3b66fd09d9281]
 ```
 
-For Utreon:
+For Playeur (Utreon rebranded):
 ```
-[utreon https://utreon.com/v/gP3WmpEiTz2]
+[playeur https://playeur.com/v/gP3WmpEiTz2]
 ```
+Older embedded Utreon videos already in posts will still work as-is, as long as the original videos still exist on the platform.
+
 
 ## Custom errors (optional)
 
