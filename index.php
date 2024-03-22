@@ -8136,9 +8136,9 @@ function sendFileFinish( $path ) {
 		}
 		
 		$fmod	= $tags['fmod'];
-		if ( !empty( $fmod ) ) {
+		if ( $fmod ) {
 			\header( 
-				'Last-Modified: ', 
+				'Last-Modified: ' . 
 				dateRfcFile( $fmod ), 
 				true
 			);
