@@ -6530,10 +6530,10 @@ function embeds( string $html, string $prefix = ''  ) : string {
 	
 	if ( !isset( $media ) ) {
 		// Uploaded media embedding
-		$rx = '/(?:\[)(?<type>audio|video) ' . 
-			'(?:(?:\[)(?<captions>.*?)(?:\])(?:\s+)?)?' . 
-			'(?:\((?<preview>.*?)\)(?:\s+)?)?' . 
-			'(?<src>[^\[]+)(?:\])/s';
+		$rx = '/\[(?<type>audio|video) ' . 
+			'(?:\[(?<captions>(.*?))\]\s+?)?' . 
+			'(?:\((?<preview>.*?)\)\s+?)?' . 
+			'(?<src>[^\]]+)\]/s';
 		
 		$media	= [ $rx => 
 		
