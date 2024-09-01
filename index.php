@@ -11657,8 +11657,7 @@ function showSearch( string $event, array $hook, array $params ) {
 		'start'		=> $start,
 		'page'		=> $page,
 		'date'		=> [],
-		'results'	=> $res,
-		'status'	=> $status
+		'results'	=> $res
 	] ] );
 	
 	// Send result if hook returned content
