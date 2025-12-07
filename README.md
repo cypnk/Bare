@@ -39,9 +39,9 @@ The author's [personal blog](https://rc.sh2.us) is using Bare, also mirrored on 
 
 ## Requirements
 * Webserver capable of handling URL rewrites (Apache, Nginx etc...)
-* PHP Version 8+ (8.3+ recommended)
+* PHP Version 8.4+ supported, but may run on older versions. PHP 8.3 and lower are no longer tested.
 
-The following PHP extensions may need to be installed or enabled in **php.ini**:
+The following PHP extensions may need to be installed or enabled:
 * pdo_sqlite (*required*)
 * sqlite3 (*required*)
 * mbstring
@@ -59,7 +59,7 @@ If you prefer to use [Composer](https://getcomposer.org/) to handle your environ
 ```
 {
 	"require": {
-		"php": ">=8.3",
+		"php": ">=8.4",
 		"lib-iconv": "*",
 		"ext-pdo": "*",
 		"ext-pdo_sqlite": "*",
@@ -375,6 +375,10 @@ The *index.php* file should be in the subfolder you're hosting the blog from, if
 ### OpenBSD's httpd(8) web server
 
 The OpenBSD operating system comes with its own web server in the base installation. Previously, this was the Apache web server and then Nginx.
+```
+doas rcctl enable httpd
+doas rcctl start httpd
+```
 
 OpenBSD does not come with PHP and needs to be installed separately. Select the highest version after each command:
 ```
@@ -385,7 +389,9 @@ doas pkg_add php-intl
 ```
 If you're already logged in as root, skip the "[doas](https://man.openbsd.org/doas)" before each command.
 
-Edit **/etc/php-8.x.ini** (or the version of PHP you're running) and make sure the following extensions are enabled.
+PHP 8.4: Copy the contents of `/etc/php-8.4-sample/*` to `/etc/php-8.4/` after installing the required extensions. Then copy `/usr/local/share/examples/php-8.4/php.ini-production` to `/etc/php-8.4.ini`.
+
+PHP 8.3 and older: Edit **/etc/php-8.x.ini** (or the version of PHP you're running) and make sure the following extensions are enabled.
 ```
 extension=fileinfo
 extension=intl
@@ -396,15 +402,15 @@ extension=tidy
 ```
 
 Now enable and start PHP.  
-This is assuming 8.1, but other versions follow the same convention:
+This is assuming 8.4, but other versions follow the same convention:
 ```
-doas rcctl enable php82_fpm
-doas rcctl start php82_fpm
+doas rcctl enable php84_fpm
+doas rcctl start php84_fpm
 ```
 
 **Note:** Although it shares the same comment style, httpd(8) [configuration](https://man.openbsd.org/httpd.conf.5) directives *do not* end in a semicolon(;) unlike Nginx settings.
 
-The following configuration can be used if Bare is installed as the "example.com" website (tested on OpenBSD 7.5).
+The following configuration can be used if Bare is installed as the "example.com" website (tested on OpenBSD 7.8).
 
 Edit **/etc/httpd.conf** to add a custom server setting file:
 ```
@@ -498,12 +504,12 @@ table <flooders> persist counters
 # table <blocklist> persist file "/etc/pftables/blocked"
 
 # Web traffic serving with maximum connection rate and throttling
-websrv="(max 500, source-track rule, max-src-states 50, max-src-conn-rate 500/5, \
-	max-src-conn 50, overload <flooders> flush global)"
+websrv="(max 1000, source-track rule, max-src-states 200, max-src-conn-rate 1000/10, \
+	max-src-conn 100, overload <flooders> flush global)"
 
 # If you're also receiving email on the same server, uncomment the following
-#mailsrv="(max 500, source-track rule, max-src-states 5, max-src-conn-rate 5/10, \
-#	max-src-conn 3, overload <flooders> flush global)"
+#mailsrv="(max 500, source-track rule, max-src-states 10, max-src-conn-rate 10/15, \
+#	max-src-conn 5, overload <flooders> flush global)"
 
 # Note the slash at the end of the first line indicates the directive wraps
 # DO NOT add a space after that slash
@@ -535,7 +541,6 @@ block quick from { <flooders> }
 
 # Deny access in both directions by default
 block all
-block return
 
 # Spoof protection
 block in quick from urpf-failed to any
@@ -548,7 +553,12 @@ pass in on egress inet proto tcp from any to (egress) port { 80 443 } keep state
 #pass in on egress inet proto tcp from any to (egress) port { 25 } keep state $mailsrv
 
 # Pass TCP, UDP, ICMP
-pass out on egress proto { tcp, udp, icmp } all modulate state
+pass out on egress proto { tcp } all modulate state log
+pass out on egress proto { udp } all keep state
+
+# Select ICMP
+pass out on egress inet proto icmp all \
+	icmp-type { echoreq, echorep, unreach } keep state
 
 # The pf.conf that comes with OpenBSD has some other settings, which should be left as-is
 # Only add/modify what's needed to get your site up and running, but learn more about what these do
