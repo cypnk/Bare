@@ -1612,7 +1612,7 @@ SQL
  *  @param array	$data		Input contents from the user
  *  @return array
  */
-function filterEmpty( array $data ) : array {
+function util_filter_empty( array $data ) : array {
 	return \array_filter( \array_map( 'trim', $data ), 'strlen' );
 }
 
@@ -1622,10 +1622,118 @@ function filterEmpty( array $data ) : array {
  *  @param string	$text	Input text to break into items
  *  @param bool		$lower	Convert Mixed/Uppercase text to lowercase if true
  *  @param string	$sep	String delimiter, defaults to comma
+ *  @return array
  */
-function trimmedList( string $text, bool $lower = false, string $sep = ',' ) : array {
+function util_trimmed_list( string $text, bool $lower = false, string $sep = ',' ) : array {
 	$map = \array_map( 'trim', \explode( $sep, $text ) );
 	return $lower ? \array_map( 'strtolower', $map ) : $map;
+}
+
+/**
+ *  Get list of current user-defined functions
+ *  
+ *  @param bool		$update	Force cache refresh
+ *  @return array
+ */
+function util_functions_list( bool $update = false ) : array {
+	static $functions;
+	if ( $update || !\isset( $functions ) ) {
+		$functions = \get_defined_functions()['user'];
+	}
+	return $functions;
+}
+
+/**
+ *  Get formatted timestamp
+ *  
+ *  @param string	$format	Timestamp format
+ *  @return string
+ */
+function util_timestamp( string $format = 'Y-m-d H:i:s.u' ) : string {
+	$dt = \DateTime::createFromFormat( 
+		'U.u', \sprintf( '%.6F', \microtime( true ) ) 
+	);
+	return $dt ? $dt->format( $format ) : '';
+}
+
+/**
+ *  Generate a unique, sortable timestamp based on set label
+ *  
+ *  @param string	$label		Stamp descriptor for categories etc...
+ *  @param bool		$use_stamp	Use timestamp prefix, if true
+ *  @return string
+ */
+function util_get_id( string $label, bool $use_stamp = true ) : string {
+	$id	= ( string ) ( \getmypid() ?: uniqid() );
+	$stamp	= $use_stamp 
+		? \sprintf( '%.6F', \microtime( true ) ) . '_'
+		: '';
+	
+	return "{$stamp}{$label}_{$id}";
+}
+
+/**
+ *  Case insensitive array value search
+ *  
+ *  @param string	$value	Array value needle
+ *  @param array	$items	Searching haystack
+ *  @return bool
+ */
+function util_key_exists_ci( string $value, array $items ) : bool {
+	return \in_array( 
+		\strtolower( $value ), 
+		\array_map( 'strtolower', \array_keys( $items ) ) 
+	);
+}
+
+/**
+ *  Case insensitive array key search
+ *  
+ *  @param string	$key	Array key needle
+ *  @param array	$items	Searching haystack
+ *  @return bool
+ */
+function util_value_key_exists_ci( string $key, array $items ) : mixed {
+	foreach ( $items as $k => $v ) {
+		if ( 0 === \strcasecmp( $k, $key ) ) {
+			return $v;
+		}
+	}
+	return null;
+}
+
+/**
+ *  Attempt to detect text encoding
+ *  
+ *  @param string	$text		Searching block
+ *  @param array	$encodings	List of possible encodings
+ *  @return string
+ */
+function util_detect_encoding( string $text, array $encodings ) : string {
+	foreach ( $encodings as $enc ) {
+		if ( \mb_check_encoding( $text, $enc ) ) {
+			return $enc;
+		}
+	}
+	
+	return \mb_detect_encoding( $text, \mb_detect_order(), true ) ?: 'ISO-8859-1';
+}
+
+/**
+ *  Attempt to convert text to UTF-8
+ *  
+ *  @param string	$text Converting block
+ *  @return string
+ */
+function util_utf8( string $text, string $default = 'ISO-8859-1' ) : string {
+	static $pool	= 
+	[ 'UTF-8', 'ISO-8859-15', 'Windows-1252', 'Shift_JIS', 'EUC-JP', 
+		'GB2312', 'GBK', 'Big5', 'ASCII', 'MacRoman', 'KOI8-R', 
+		'UTF-16', 'UTF-32', 'ISO-8859-1'];
+	
+	$enc		= util_detect_encoding( $text, $pool ) ?? $default;
+	$out		= \mb_convert_encoding( $text, 'UTF-8', $enc );
+	return ( false === $out ) ? '' : $out;
 }
 
 /**
@@ -2435,7 +2543,7 @@ function mailMessage(
 	}
 	
 	// Format user input
-	$subj	= entities( unifySpaces( $res['subject'] ?? $subject ) );
+	$subj	= sanitize_escape_text( unifySpaces( $res['subject'] ?? $subject ) );
 	$msg	.= "\r\n\r\nReceived from: " . getIP() . "  \r\n" . getUA();
 	$msg	= html( $res['message'] ?? $msg, '', false, true );
 	
@@ -2732,7 +2840,7 @@ function decode( string $data = '', int $depth = 10 ) : array {
 	$depth	= intRange( $depth, 1, 50 );
 	$out	= 
 	\json_decode( 
-		\utf8_encode( $data ), true, $depth, 
+		\util_utf8( $data ), true, $depth, 
 		\JSON_BIGINT_AS_STRING
 	);
 	
@@ -5147,9 +5255,9 @@ function dateRfcFile( $stamp = null ) : string {
 function unifySpaces( string $text, string $rpl = ' ', bool $br = false ) : string {
 	return $br ?
 		\preg_replace( 
-			'/[ \t\v\f]+/', $rpl, pacify( $text ) 
+			'/[ \t\v\f]+/', $rpl, sanitize_filter( $text ) 
 		) : 
-		\preg_replace( '/[[:space:]]+/', $rpl, pacify( $text ) );
+		\preg_replace( '/[[:space:]]+/', $rpl, sanitize_filter( $text ) );
 }
 
 /**
@@ -5685,53 +5793,42 @@ function division( $n, $d, int $prec = 4 ) : float {
  */
 
 /**
- *  Apply uniform encoding of given text to UTF-8
- *  
- *  @param string	$text	Raw input
- *  @param bool		$ignore Discard unconvertable characters (default)
- *  @return string
- */
-function utf( string $text, bool $ignore = true ) : string {
-	$out = $ignore ? 
-		\iconv( 'UTF-8', 'UTF-8//IGNORE', $text ) : 
-		\iconv( 'UTF-8', 'UTF-8', $text );
-	
-	return ( false === $out ) ? '' : $out;
-}
-
-/**
  *  Strip unusable characters from raw text/html and conform to UTF-8
  *  
  *  @param string	$html	Raw content body to be cleaned
  *  @param bool		$entities Convert to HTML entities
  *  @return string
  */
-function pacify( 
+function sanitize_filter( 
 	string		$html, 
 	bool		$entities	= false 
 ) : string {
-	$html		= utf( \trim( $html ) );
+	static $filters	= [
 	
-	// Remove control chars except linebreaks/tabs etc...
-	$html		= 
-	\preg_replace(
-		'/[\x00-\x08\x0B\x0C\x0E-\x1F\x80-\x9F]/u', '', $html
-	);
-	
-	// Non-characters
-	$html		= 
-	\preg_replace(
-		'/[\x{fdd0}-\x{fdef}]/u', '', $html
-	);
-	
-	// UTF unassigned, formatting, and half surrogate pairs
-	$html		= 
-	\preg_replace(
-		'/[\p{Cs}\p{Cf}\p{Cn}]/u', '', $html
-	);
+		// Remove control chars except linebreaks/tabs etc...
+		'/[\x00-\x08\x0B\x0C\x0E-\x1F\x80-\x9F]/u',
 		
+		// Non-characters
+		'/[\x{fdd0}-\x{fdef}]/u',
+		'/[\x{FFFE}-\x{FFFF}]/u',
+		'/[\x{1FFFE}-\x{1FFFF}]/u',
+		
+		// UTF unassigned, formatting, and half surrogate pairs
+		'/[\p{Cs}\p{Cf}\p{Cn}]/u',
+		
+		// Invalid UTF-8 byte sequences
+		'/[\xC0-\xC1]|\xF5-\xFF/u',
+		
+		// Overlong 2, 3, and 4-byte sequences
+		'/[\xC2-\xDF](?![\x80-\xBF])/u',
+		'/[\xE0-\xEF](?![\x80-\xBF]{2})/u',
+		'/[\xF0-\xF4](?![\x80-\xBF]{3})/u'
+	];
+	$html		= util_utf8( \trim( $html ) );	// Convert to UTF-8
+	$html		= \preg_replace( $filters, '', $html );
+	
 	// Convert Unicode character entities?
-	if ( $entities && !missing( 'mb_convert_encoding' ) ) {
+	if ( $entities ) {
 		$html	= 
 		\mb_convert_encoding( 
 			$html, 'HTML-ENTITIES', 'UTF-8' 
@@ -5749,74 +5846,118 @@ function pacify(
  *  @param bool		$spaces	Convert spaces to "&nbsp;*" (defaults to true)
  *  @return string
  */
-function entities( 
-	string		$v, 
-	bool		$quotes	= true,
-	bool		$spaces	= true
+function sanitize_escape_text(
+	string		$text, 
+	bool		$quotes		= false, 
+	bool		$spaces		= true,
+	bool		$html		= true 
 ) : string {
-	if ( $quotes ) {
-		$v	=
-		\htmlentities( 
-			utf( $v, false ), 
-			\ENT_QUOTES | \ENT_SUBSTITUTE, 
-			'UTF-8'
-		);
-	} else {
-		$v =  \htmlentities( 
-			utf( $v, false ), 
-			\ENT_NOQUOTES | \ENT_SUBSTITUTE, 
-			'UTF-8'
-		);
-	}
-	if ( $spaces ) {
-		return 
-		\strtr( $v, [ 
+	$qflag	= $quotes ? \ENT_QUOTES : \ENT_NOQUOTES;
+	$hflag	= $html ? \ENT_HTML5 : 0;
+	$text	= sanitize_filter( $text );
+	
+	do {
+		$decoded	= \htmlspecialchars_decode( $text, $qflag );
+		$changed	= ( 0 !== \strcmp( $decoded, $text ) );
+		$text		= $decoded;
+	} while ( $changed );
+	
+	$text	= sanitize_filter( $text );
+	$flags	= $qflag | $hflag | \ENT_SUBSTITUTE;
+	$text	= \htmlspecialchars( $text, $flags, 'UTF-8' );
+	
+	return ( $spaces ) ? \strtr( $text, [ 
 			' ' => '&nbsp;',
 			'	' => '&nbsp;&nbsp;&nbsp;&nbsp;'
-		] );
-	}
-	return $v;
+		] ) : $text;
 }
 
 /**
- *  Filter URL
+ *  Cleaned URI with parsed path components
+ *  
+ *  @param string	$raw	Raw URI from source
+ *  @param string	$base	Prefix if required
+ *  @return string
+ */
+function sanitize_uri( string $raw, ?string $base = null ) : string|null {
+	$path	= \trim( \parse_url( $raw, \PHP_URL_PATH ) ?? '', '/' );
+	$depth	= 0;
+	$max_d	= 10;
+	
+	// Normalize
+	do {
+		$decoded	= sanitize_filter( \rawurldecode( $path ) );	// Invalid chars
+		$decoded	= \preg_replace( '#/{2,}#', '/', $decoded );	// Collapse
+		
+		$changed	= ( $decoded !== $path );
+		$path		= $decoded;
+		$depth++;
+		
+	} while( $changed && $depth < $max_d );
+	
+	if ( $changed && $depth >= $max_d ) { return null; }
+	
+	// Prevent directory traversal
+	$segments	= 
+	\array_filter( 
+		\explode( '/', $path ), 
+		fn( $seg ) => $seg !== '..' && $seg !== '.' 
+	);
+	$final		= \trim( \implode( '/', $segments ), '/' );
+	
+	if ( $base && !\str_starts_with( $final, $base ) ) {
+		return null;
+	}
+	return $final;
+}
+
+/**
+ *  Attempt to stop URI/URL injection
+ *  
+ *  @param string	$tex	Raw text input
+ *  @return string
+ */
+function sanitize_strip_xss( string $text ) : string {
+	static $patterns	= [
+		'/expression\s*\(.*?\)/i',			// Probably not needed
+		'/(\\~\/|\.\.|\\\\|\-\-)/sm',			// Directory traversal
+		'/(<(s(?:cript|tyle)).*?)/ism',			// Injection
+		'/(document\.|window\.|eval\(|\(\))/ism',	// Events and scripts
+		'/url\(\s*(?:javascript|jscript|livescript|vbscript|data)\s*[:&colon;][^\)]*\)/i'
+	];
+	
+	$text	= \trim( $text, "'\"" );
+	do {
+		$original = $text;
+		foreach ( $patterns as $rx ) {
+			$text = \preg_replace( $rx, '',  $text );
+		}
+	} while ( 0 !== \strcasecmp( $text, $original ) );
+	
+	return \trim( $text, "'\"" );
+}
+
+/**
+ *  Attempt to filter URL
  *  This is not a 100% foolproof method, but it's better than nothing
  *  
  *  @param string	$txt	Raw URL attribute value
  *  @param bool		$xss	Filter XSS possibilities
  *  @return string
  */
-function cleanUrl( 
-	string		$txt, 
-	bool		$xss		= true
-) : string {
+function sanitize_url( string $text, bool $xss = true ) : string {
 	// Nothing to clean
-	if ( empty( $txt ) ) {
-		return '';
-	}
+	if ( empty( $text ) ) { return ''; }
 	
 	// Default filter
 	if ( \filter_var( $txt, \FILTER_VALIDATE_URL ) ) {
-		// XSS filter
-		if ( $xss ) {
-			if ( !\preg_match( RX_URL, $txt ) ){
-				return '';
-			}	
-		}
-		
-		if ( 
-			\preg_match( RX_XSS2, $txt ) || 
-			\preg_match( RX_XSS3, $txt ) || 
-			\preg_match( RX_XSS4, $txt ) 
-		) {
-			return '';
-		}
-		
-		// Return as/is
-		return  $txt;
+		$text	= sanitize_uri( $text ) ?? '';
+		if ( empty( $text ) ) { return ''; }
 	}
 	
-	return entities( $txt, false, false );
+	$text = sanitized_escape_text( 
+		( $xss ? sanitize_strip_xss( $text ) : $text ), false, false 
+	);
 }
 
 /**
@@ -5840,7 +5981,7 @@ function cleanEmail( string $email ) : string {
 function prependPath( string $v, string $prefix ) : string {
 	$v = trim( $v, '"\'' );
 	return \preg_match( '/^\//', $v ) ?
-		cleanUrl( $prefix . $v ) : cleanUrl( $v );
+		sanitize_url( $prefix . $v ) : sanitize_url( $v );
 }
 
 /**
@@ -5929,7 +6070,7 @@ function cleanAttributes(
 					break;
 					
 				default:
-					$v = entities( $v, false, false );
+					$v = sanitize_escape_text( $v, false, false );
 			}
 			
 			$node->setAttribute( $n, $v );
@@ -5998,7 +6139,7 @@ function makeParagraphs( $val, $skipCode = false ) {
 			}
 			return 
 			\strtr( template( 'tpl_codeblock' ), [ 
-				'{code}' => entities( \trim( $m[1] ), false, false )
+				'{code}' => sanitize_escape_text( \trim( $m[1] ), false, false )
 			] );
 		}, $out );	
 	}
@@ -6059,7 +6200,7 @@ function makeParagraphs( $val, $skipCode = false ) {
 		function( $m ) {
 			return
 			\strtr( template( 'tpl_codeblock' ), [ 
-				'{code}' => entities( \trim( $m[1] ), false, false )
+				'{code}' => sanitize_escape_text( \trim( $m[1] ), false, false )
 			] );
 		}
 	];
@@ -6237,7 +6378,7 @@ function html(
 	$prefix		= trim( $prefix, '/' );
 	
 	// Preliminary cleaning
-	$html		= pacify( $value, true );
+	$html		= sanitize_filter( $value, true );
 	
 	// Nothing to format?
 	if ( empty( $html ) ) {
@@ -6807,14 +6948,14 @@ function markdown(
 			// If this is a plain link
 			if ( empty( $i ) ) {
 				return 
-				\sprintf( "<a href='%s'>%s</a>", $u, entities( $t ) );
+				\sprintf( "<a href='%s'>%s</a>", $u, sanitize_escape_text( $t ) );
 			}
 			
 			// This is an image
 			// Fix titles / alt text
-			$a = entities( \strtr( $m[4] ?? $t, [ '\"' => '"' ] ), false, false );
+			$a = sanitize_escape_text( \strtr( $m[4] ?? $t, [ '\"' => '"' ] ), false, false );
 			return
-			\sprintf( "<img src='%s' alt='%s' title='%s' />", $u, entities( $t ), $a );
+			\sprintf( "<img src='%s' alt='%s' title='%s' />", $u, sanitize_escape_text( $t ), $a );
 		},
 		
 		// Bold / Italic / Deleted / Quote text
@@ -6892,7 +7033,7 @@ function markdown(
 		function( $m ) {
 			return 
 			\strtr( template( 'tpl_codeinline' ), [ 
-				'{code}' => entities( \trim( $m[1] ), false, false )
+				'{code}' => sanitize_escape_text( \trim( $m[1] ), false, false )
 			] );
 		},
 		
@@ -6999,7 +7140,7 @@ function quoteSecAttr( string $atr ) : string {
 	
 	return 
 	\in_array( $atr, $allow ) ? 
-		$atr : '"' . cleanUrl( $atr ) . '"'; 
+		$atr : '"' . sanitize_url( $atr ) . '"'; 
 }
 
 /**
@@ -10423,7 +10564,7 @@ function filterRequest( string $event, array $hook, array $params ) {
 			'options'	=> 
 			function( $v ) {
 				return \is_scalar( $v ) ? 
-					cleanUrl( ( string ) $v ) : '';
+					sanitize_url( ( string ) $v ) : '';
 			}
 		],
 		'token'	=> [
