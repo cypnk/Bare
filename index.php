@@ -1602,6 +1602,79 @@ SQL
 
 
 
+
+
+/**
+ *  Errors and messaging
+ */
+
+/**
+ *  Debugging trace formatter
+ *  
+ *  @param string	$message	Context message
+ *  @param array	$context	Trace path or message detail
+ */
+function trace( string $message, array $context = [] ) : void {
+	$ctx	= 
+	empty( $context ) 
+		? ''
+		: ' ' . ( \json_encode( $context, \JSON_UNESCAPED_SLASHES ) ?: '{}' );
+	
+	\error_log( \sprintf(
+		"[TRACE] %s %s%s\n",
+		\date( 'Y-m-d H:i:s' ),
+		$message,
+		$ctx
+	) );
+}
+
+/**
+ *  Generic user-facing error
+ */
+function error_page() : void {
+	\http_response_code( 500 );
+	echo "An unexpected error occurred. Please try again later.";
+	exit;
+}
+
+/**
+ *  Centralized exception handler
+ *  
+ *  @param Throwable	$e	Generic capture
+ */
+function error_handle( Throwable $e ) : void {
+	static $handling	= false;
+	$class			= \get_class( $e );
+	
+	if ( $handling ) {
+		\error_log( 
+			"[FATAL] Recursive exception ( {$class} ): " . 
+			$e->getMessage()
+		);
+		exit( 1 );
+	}
+	
+	$handling		= true;
+	$log			= 
+	\sprintf(
+		"[ERROR] %s %s: %s in %s on line %d\nStack trace:\n%s\n",
+		\date( 'Y-m-d H:i:s' ),
+		$class,
+		$e->getMessage(),
+		$e->getFile(),
+		$e->getLine(),
+		$e->getTraceAsString()
+	);
+	$log	.= 
+	"Request: " . ( $_SERVER['REQUEST_METHOD'] ?? 'CLI' ) . " " .
+        \htmlspecialchars( $_SERVER['REQUEST_URI'] ?? '' ) . "\n";
+	
+	\error_log( $log );
+	error_page();
+}
+
+
+
 /**
  *  Helpers
  */
@@ -1703,6 +1776,222 @@ function util_value_key_exists_ci( string $key, array $items ) : mixed {
 }
 
 /**
+ *  Recursively convert array keys to lowercase
+ *  
+ *  @param array	$items	Collection to format
+ *  @return array
+ */
+function util_array_normalize_keys( array $items ) : array {
+	$normal	= [];
+	foreach( $items as $key => $value ) {
+		$lkey		= \is_string( $key ) ? \strtolower( $key ) : $key;
+		$normal[$lkey]	= 
+		\is_array( $value ) && !\array_is_list( $value )
+			? util_array_normalize_keys( $value ) 
+			: $value;
+	}
+	
+	return $normal;
+}
+
+/**
+ *  Ensure JSON content is valid
+ *  
+ *  @param array|string	$json	Raw field data
+ *  @param bool		$values	Return values only when true
+ *  @return array
+ */
+function util_json_array( array|string $json, bool $values = false ) : array {
+	if ( \is_array( $json ) ) {
+		return $values 
+			? \array_values( $json ) 
+			: $json;
+	}
+	
+	// Since PHP 8.3+
+	if ( !\json_validate( $json ) ) {
+		return [];
+	}
+	
+	$data = \json_decode( $json, true );
+	if ( \json_last_error() !== \JSON_ERROR_NONE ) {
+		return [];
+	}
+	return \is_array( $data ) 
+		? ( $values ? \array_values( $data ) : $data ) 
+		: [];
+}
+
+/**
+ *  Filter number within min and max range, inclusive
+ *  
+ *  @param mixed	$val		Given default value
+ *  @param int		$min		Minimum, returned if less than this
+ *  @param int		$max		Maximum, returned if greater than this
+ *  @return int
+ */
+function util_int_range( $val, int $min, int $max ) : int {
+	$out = ( int ) $val;
+	
+	return 
+	( $out > $max ) ? $max : ( ( $out < $min ) ? $min : $out );
+}
+
+/**
+ *  Generate a random string ID based on given random bytes
+ *  
+ *  @param int		$bytes		Size of random bytes
+ *  @param string	$prefix Random ID prefix
+ *  @return string
+ */
+function util_gen_key( int $len = 16, ?string $prefix = null ) : string {
+	$len	= util_int_range( 1, 64 );
+	$prefix ??= '';
+	return $prefix . \bin2hex( \random_bytes( \intdiv( $len, 2 ) ) );
+}
+
+/**
+ *  Generate globally unique identifier
+ *  
+ *  @param string	$mode	UUID mode, defaults to v7
+ *  @return string
+ */
+function util_gen_uuid( ?string $mode = null ) : string {
+	$mode	= \strtolower( $mode ?? 'v4' );
+	
+	if ( 'v4' == $mode ) {
+		$data	= \random_bytes( 16 );
+		$data[6]= \chr( ( \ord( $data[6] ) & 0x0f ) | 0x40 );
+		$data[8]= \chr( ( \ord( $data[8] ) & 0x3f ) | 0x80 );
+		
+		$out	= \str_split( \bin2hex( $data ), 4 );
+	} else {
+		$now	= ( int ) ( \microtime( true ) * 1000 );
+		$sub	= ( int ) ( \hrtime()[1] / 1_000_000 );
+		$stamp	= ( $now << 12 ) | ( $sub & 0x0FFF );
+		
+		$hex	= \str_pad( \dechex( $stamp ), 15, '0', \STR_PAD_LEFT );
+		$hex[12]= '7';
+		
+		$data	= \random_bytes( 8 );
+		$rdata	= \bin2hex( $data );
+		$pfx	= \substr( $rdata, 0, 4 );
+		$pfx[0]	= \dechex( ( \hexdec( $pfx[0] ) & 0x3 ) | 0x8 );
+		
+		$out	= \str_split( $hex . $pfx . \substr( $rdata, 4 ), 4 );
+	}
+	
+	return \vsprintf( '%s-%s-%s-%s-%s', $out );
+}
+
+/**
+ *  Random UUID shortcut
+ *  
+ *  @return string
+ */
+function util_gen_guid() : string {
+	return util_gen_uuid( 'v4' );
+}
+
+/**
+ *  Cached timezone list helper
+ *  
+ *  @return array
+ */
+function util_timezone_list() : array {
+	static $cache	= null;
+	$cache		??= \timezone_identifiers_list();
+	
+	return $cache;
+}
+
+/**
+ *  Check if given timezone is valid
+ *  
+ *  @param string	$tz	Raw timezone
+ *  @return bool
+ */
+function util_timezone_valid( string $tz ) : bool {
+	return \in_array( $tz, util_timezone_list(), true );
+}
+
+/**
+ *  Check if given date is in the future
+ *  
+ *  @param DateTime	$start	Sent stamp
+ *  @return bool
+ */
+function util_date_is_future( \DateTime $start ) : bool {
+	static $now	= null;
+	$now		??= new \DateTime();
+	
+	return $start > $now;
+}
+
+/**
+ *  Format request date format to archive limit range
+ *  
+ *  @param array	$params		Raw URL param
+ *  @param bool		$limit_now	Limit to current date, if true
+ *  @return array
+ */
+function util_date_range( array $params, bool $limit_now = false ) : array {
+	static $now	= null;
+	
+	$now	??= new \DateTime();
+	$year	= $params['year']	?? null;
+	$month	= $params['month']	?? null;
+	$day	= $params['day']	?? null;
+	$page	= ( int ) ( $params['page'] ?? 1 );
+	
+	if ( null === $year ) { 
+		return [];
+	}
+	
+	if ( !\ctype_digit( ( string ) $year ) || $year < 1 ) {
+		return [];
+	}
+	
+	if ( null !== $month && ( $month < 1 || $month > 12 ) ) {
+		return [];
+	}
+	
+	if ( null !== $day ) {
+		if ( null === $month || null === $year ) { return []; }
+		if ( !\checkdate( ( int ) $month, ( int ) $day, ( int ) $year ) ) {
+			return [];
+		}
+	}
+	
+	$start	= 
+	match( true ) {
+		( $year && $month && $day )	=> 
+			new \DateTime( "{$year}-{$month}-{$day} 00:00:00" ),
+		
+		( $year && $month )		=>
+			new \DateTime( "{$year}-{$month}-01 00:00:00" ),
+			
+		default				=> 
+			new \DateTime( "{$year}-01-01 00:00:00" )
+	};
+	
+	$limit	= 
+	match( true ) {
+		( $year && $month && $day )	=> 
+			( clone $start )->modify( '+1 day' ),
+		
+		( $year && $month )		=>
+			( clone $start )->modify( '+1 month' ),
+			
+		default				=> 
+			( clone $start )->modify( '+1 year' )
+	};
+	
+	$end = ( $limit_now && $limit > $now ) ? $now : $limit;
+	return [ $start, $end, $page ];
+}
+
+/**
  *  Attempt to detect text encoding
  *  
  *  @param string	$text		Searching block
@@ -1736,6 +2025,7 @@ function util_utf8( string $text, string $default = 'ISO-8859-1' ) : string {
 	return ( false === $out ) ? '' : $out;
 }
 
+
 /**
  *  Suhosin aware checking for function availability
  *  
@@ -1756,7 +2046,7 @@ function missing( $func ) : bool {
 		}
 		if ( !empty( $exts ) ) {
 			if ( !isset( $blocked ) ) {
-				$blocked = trimmedList( $exts, true );
+				$blocked = util_trimmed_list( $exts, true );
 			}
 			
 			$search		= \strtolower( $func );
@@ -1772,6 +2062,556 @@ function missing( $func ) : bool {
 	
 	return $fn[$func];
 }
+
+
+/**
+ * Sanitizing and Filtering
+ */
+
+/**
+ *  Strip unusable characters from raw text/html and conform to UTF-8
+ *  
+ *  @param string	$html	Raw content body to be cleaned
+ *  @param bool		$entities Convert to HTML entities
+ *  @return string
+ */
+function sanitize_filter( 
+	string		$html, 
+	bool		$entities	= false 
+) : string {
+	static $filters	= [
+	
+		// Remove control chars except linebreaks/tabs etc...
+		'/[\x00-\x08\x0B\x0C\x0E-\x1F\x80-\x9F]/u',
+		
+		// Non-characters
+		'/[\x{fdd0}-\x{fdef}]/u',
+		'/[\x{FFFE}-\x{FFFF}]/u',
+		'/[\x{1FFFE}-\x{1FFFF}]/u',
+		
+		// UTF unassigned, formatting, and half surrogate pairs
+		'/[\p{Cs}\p{Cf}\p{Cn}]/u',
+		
+		// Invalid UTF-8 byte sequences
+		'/[\xC0-\xC1]|\xF5-\xFF/u',
+		
+		// Overlong 2, 3, and 4-byte sequences
+		'/[\xC2-\xDF](?![\x80-\xBF])/u',
+		'/[\xE0-\xEF](?![\x80-\xBF]{2})/u',
+		'/[\xF0-\xF4](?![\x80-\xBF]{3})/u'
+	];
+	$html		= util_utf8( \trim( $html ) );	// Convert to UTF-8
+	$html		= \preg_replace( $filters, '', $html );
+	
+	// Convert Unicode character entities?
+	if ( $entities ) {
+		$html	= 
+		\mb_convert_encoding( 
+			$html, 'HTML-ENTITIES', 'UTF-8' 
+		);
+	}
+	
+	return \trim( $html );
+}
+
+/**
+ *  HTML safe character entities in UTF-8
+ *  
+ *  @param string	$v	Raw text to turn to HTML entities
+ *  @param bool		$quotes	Convert quotes (defaults to true)
+ *  @param bool		$spaces	Convert spaces to "&nbsp;*" (defaults to true)
+ *  @return string
+ */
+function sanitize_escape_text(
+	string		$text, 
+	bool		$quotes		= false, 
+	bool		$spaces		= true,
+	bool		$html		= true 
+) : string {
+	$qflag	= $quotes ? \ENT_QUOTES : \ENT_NOQUOTES;
+	$hflag	= $html ? \ENT_HTML5 : 0;
+	$text	= sanitize_filter( $text );
+	
+	do {
+		$decoded	= \htmlspecialchars_decode( $text, $qflag );
+		$changed	= ( 0 !== \strcmp( $decoded, $text ) );
+		$text		= $decoded;
+	} while ( $changed );
+	
+	$text	= sanitize_filter( $text );
+	$flags	= $qflag | $hflag | \ENT_SUBSTITUTE;
+	$text	= \htmlspecialchars( $text, $flags, 'UTF-8' );
+	
+	return ( $spaces ) ? \strtr( $text, [ 
+			' ' => '&nbsp;',
+			'	' => '&nbsp;&nbsp;&nbsp;&nbsp;'
+		] ) : $text;
+}
+
+/**
+ *  Cleaned URI with parsed path components
+ *  
+ *  @param string	$raw	Raw URI from source
+ *  @param string	$base	Prefix if required
+ *  @return string
+ */
+function sanitize_uri( string $raw, ?string $base = null ) : string|null {
+	$path	= \trim( \parse_url( $raw, \PHP_URL_PATH ) ?? '', '/' );
+	$depth	= 0;
+	$max_d	= 10;
+	
+	// Normalize
+	do {
+		$decoded	= sanitize_filter( \rawurldecode( $path ) );	// Invalid chars
+		$decoded	= \preg_replace( '#/{2,}#', '/', $decoded );	// Collapse
+		
+		$changed	= ( $decoded !== $path );
+		$path		= $decoded;
+		$depth++;
+		
+	} while( $changed && $depth < $max_d );
+	
+	if ( $changed && $depth >= $max_d ) { return null; }
+	
+	// Prevent directory traversal
+	$segments	= 
+	\array_filter( 
+		\explode( '/', $path ), 
+		fn( $seg ) => $seg !== '..' && $seg !== '.' 
+	);
+	$final		= \trim( \implode( '/', $segments ), '/' );
+	
+	if ( $base && !\str_starts_with( $final, $base ) ) {
+		return null;
+	}
+	return $final;
+}
+
+/**
+ *  Attempt to stop URI/URL injection
+ *  
+ *  @param string	$tex	Raw text input
+ *  @return string
+ */
+function sanitize_strip_xss( string $text ) : string {
+	static $patterns	= [
+		'/expression\s*\(.*?\)/i',			// Probably not needed
+		'/(\\~\/|\.\.|\\\\|\-\-)/sm',			// Directory traversal
+		'/(<(s(?:cript|tyle)).*?)/ism',			// Injection
+		'/(document\.|window\.|eval\(|\(\))/ism',	// Events and scripts
+		'/url\(\s*(?:javascript|jscript|livescript|vbscript|data)\s*[:&colon;][^\)]*\)/i'
+	];
+	
+	$text	= \trim( $text, "'\"" );
+	do {
+		$original = $text;
+		foreach ( $patterns as $rx ) {
+			$text = \preg_replace( $rx, '',  $text );
+		}
+	} while ( 0 !== \strcasecmp( $text, $original ) );
+	
+	return \trim( $text, "'\"" );
+}
+
+/**
+ *  Attempt to filter URL
+ *  This is not a 100% foolproof method, but it's better than nothing
+ *  
+ *  @param string	$txt	Raw URL attribute value
+ *  @param bool		$xss	Filter XSS possibilities
+ *  @return string
+ */
+function sanitize_url( string $text, bool $xss = true ) : string {
+	// Nothing to clean
+	if ( empty( $text ) ) { return ''; }
+	
+	// Default filter
+	if ( \filter_var( $txt, \FILTER_VALIDATE_URL ) ) {
+		$text	= sanitize_uri( $text ) ?? '';
+		if ( empty( $text ) ) { return ''; }
+	}
+	
+	$text = sanitized_escape_text( 
+		( $xss ? sanitize_strip_xss( $text ) : $text ), false, false 
+	);
+}
+
+/**
+ *  Check if given file name is reserved
+ *  
+ *  @param string	$name	Raw filename
+ *  @return bool
+ */
+function sanitize_is_reserved_name( string $name ) : bool {
+	static $reserved = [
+		'con', 'prn', 'aux', 'nul',
+		'com1','com2','com3','com4','com5','com6','com7','com8','com9',
+		'lpt1','lpt2','lpt3','lpt4','lpt5','lpt6','lpt7','lpt8','lpt9'
+	];
+	
+	$base	= \strtolower( \pathinfo( $name, \PATHINFO_FILENAME ) );
+	return '' !== $base && \in_array( $base, $reserved );
+}
+
+/**
+ *  Clean filename to safe format
+ *  
+ *  @param string $name Raw filename
+ *  @return string
+ */
+function sanitize_filename( string $name ) : string|null {
+	$name	= sanitize_filter( $name ); 
+	
+	$name	= \preg_replace( '/[\/\\\?\*\:\|"<>\x00-\x1F]/u', '_', $name );
+	$name	= \preg_replace( '/\_+/', '_', $name );
+	$name	= \preg_replace( '/[[:space:]]+/', ' ', $name );
+	$name	= \trim( $name, ". \t\n\r\0\x0B" );
+	
+	if ( '' === $name ) { return null; }
+	
+	if ( sanitize_is_reserved_name( $name ) ) {
+		$ext	= \pathinfo( $name, \PATHINFO_EXTENSION );
+		$base	= \pathinfo( $name, \PATHINFO_FILENAME );
+		$name	= $base . '_' . ( $ext ? '.' . $ext : '' );
+	}
+	
+	return $name;
+}
+
+/**
+ *  String basic password filtering (avoid removing special chars)
+ *  
+ *  @param string	$password	Raw sent password
+ *  @return string
+ */
+function sanitize_password( string $password ) : string {
+	$password = util_utf8( trim( $password ) );
+	if ( empty( $password ) ) {
+		throw new
+		\RuntimeException( 'Sanitizing password failed' );
+	}
+	return $password;
+}
+
+/**
+ *  Basic directory path filter
+ *  
+ *  @param string	$base_dir	Root directory
+ *  @param string	$filename	Raw file name
+ *  @param int		$max		Maximum file path with root included
+ *  @return bool
+ */
+function sanitize_is_valid_path( 
+	string	$base_dir, 
+	string	$filename, 
+	int	$max		= 255 
+) : bool {
+	$full_path	= $base_dir . \DIRECTORY_SEPARATOR . $filename;
+	return \strlen( $full_path ) <= $max;
+}
+
+/**
+ *  Filter slug to appropriate format
+ *  
+ *  @param string	$text		Raw slug or title
+ *  @param string	$prefix		Slug prefix if sanitizing failed
+ *  @return string
+ */
+function sanitize_slug( string $text, string $prefix = 'node-' ) : string {
+	$text	= \preg_replace( '/[^\pL\pN]+/u', '-', sanitize_filter( $text ) );
+	$text	= \preg_replace( '/-+/', '-', $text );
+	$text	= \mb_strtolower( $text, 'UTF-8' );
+	$text	= \trim( $text, '-' );
+	
+	return empty( $text ) ? $prefix . util_gen_key() : $text;
+}
+
+/**
+ *  Sanitize DOMNode
+ *  
+ *  @param DOMNode $node Element to filter 
+ *  @param DOMNode $parent Parent element
+ *  @return DOMNode
+ */
+function sanitize_escape_node( $node, $parent ) : DOMNode {
+	$name		= \strtolower( $node->tagName );
+	$inner_html	= '';
+	foreach ( $node->childNodes as $child ) {
+		$inner_html .= $node->ownerDocument->saveHTML( $child );
+	}
+	
+	$new_node	= $parent->createElement( $name );
+	$new_node->appendChild( 
+		$parent->createTextNode( sanitize_escape_text( $inner_html ) ) 
+	);
+	return $new_node;
+}
+
+function sanitize_text( string $text ) : string {
+	return sanitize_strip_xss( \strip_tags( sanitize_filter( $text ) ) );
+}
+
+function sanitize_int( string $text ) : int {
+	return ( int ) sanitize_text( $text );
+}
+
+function sanitize_bool( string $text ) : bool {
+	return ( bool ) sanitize_text( $text );
+}
+
+function sanitize_sizes( string $sizes ) : string {
+	static $rx_media	= 
+	'/^\(\s*(max|min)-width:\s*\d+(px|em|rem|%)\s*\)\s*\d+(vw|px)$/';
+	static $rx_size		= '/^\d+(vw|px)$/';
+	
+	$entries	= \explode( ',', $sizes );
+	$clean		= [];
+	
+	foreach ( $entries as $entry ) {
+		$entry = \trim( $entry );
+		
+		// Validate media condition
+		if ( \preg_match( $rx_media, $entry ) ) {
+			$clean[] = $entry;
+		
+		// Validate simple size-only values (E.G. '100vw')
+		} elseif ( \preg_match( $rx_size, $entry ) ) {
+			$clean[] = $entry;
+		}
+	}
+	
+	return implode( ', ', $clean );
+}
+
+function sanitize_srcset( string $srcset ) : string {
+	static $rx_fsize= '/^\d+(w|x)$/';
+	static $rx_file	= 
+	'/^\/[a-zA-Z0-9_\-\/]+\.(png|jpg|jpeg|gif|bmp|tif|tiff)$/';
+	
+	$entries	= \explode( ',', $srcset );
+	$clean		= [];
+	
+	foreach ( $entries as $entry ) {
+		// Splits URL and size descriptor
+		$entry			= \trim( \preg_replace( '/\s+/', ' ', $entry ) );
+		[ $url, $desc ]		= \preg_split( '/\s+/', $entry, 2 ) + [ '', '' ];
+		$desc			= \trim( $desc ?? '' );
+		$valid			= 
+			// Absolute URLs
+			( false !== \filter_var( $url, \FILTER_VALIDATE_URL ) ) || 
+			
+			// Relative paths limited to simple characters
+			( 1 === \preg_match( $rx_file, $url ) );
+		
+		// Skip invalid URL
+		if ( !$valid ) {
+			continue;
+		}
+		
+		// Validate size descriptor
+		$desc		= \preg_match( $rx_fsize, $desc ) ? $desc : '';
+		
+		// Store sanitized entry
+		$url		= sanitize_uri( $url ) ?: '';
+		$clean[]	= \trim( "{$url} {$desc}" );
+	}
+	
+	return \implode( ', ', $clean );
+}
+
+function sanitize_style( string $text, ?array $allowed = null ) : string {
+	static $css	= '/^[a-z0-9\s\(\)\#\.,%\-\[\]!:;\/]+$/i';
+	static $default = [ 
+		'color', 'background-color', 'font-size', 'font-weight',
+			'text-align', 'border', 'margin','padding', 'display'
+	];
+	
+	// Fallback set
+	$allowed	??= $default;
+	
+	// Problematic patterns
+	$text		= sanitize_strip_xss( $text );
+	
+	// Split styles into individual rules
+	$rules		= 
+	\array_filter( \array_map( 'trim', \explode( ';', $text ) ) );
+	
+	$sanitized	= [];
+	
+	// Evaluate each property and value
+	foreach ( $rules as $rule ) {
+		[ $property, $value ]	= 
+		\array_map( 'trim', \explode( ':', $rule, 2 ) + [ '', '' ] );
+	
+		// Empty, not in whitelist, or questionable? Skip property
+		if ( 
+			'' === $property			|| 
+			'' === $value				|| 
+			!\in_array( $property, $allowed, true )	|| 
+			!\preg_match( $css, $value )
+			
+		) { continue; }
+		
+		// Clean property and value
+		$sanitized[] = "{$property}: {$value}";
+	}
+	
+	// Return to CSS style="" syntax
+	return implode( '; ', $sanitized );
+}
+
+function sanitize_attribute( 
+	\DOMElement	$node, 
+	\DOMElement	$new_node, 
+	string		$attr, 
+	array		$rule 
+) : void {
+	$value		= $node->getAttribute( $attr );
+	
+	// Limited subset of allowed values
+	if ( isset( $rule['allowed'] ) ) {
+		if ( \is_array( $rule['allowed'] ) ) {
+			if ( \in_array( 
+				\strtolower( $value ), 
+				\array_map( 'strtolower', $rule['allowed'] ), 
+				false	
+			) ) {
+				$new_node->setAttribute( $attr, $value );
+			}
+			
+			return;
+		
+		} else {
+			if ( 0 === \strcasecmp( ( string ) $rule['allowed'], $value ) ) {
+				$new_node->setAttribute( $attr, $value );
+			}
+			return;
+		}
+	}
+	
+	$sanitizer	= match( true ) {
+		isset( $rule['filter'] ) && defined( $rule['filter'] ) 
+			=> function( $v ) use ( $rule ) {
+				$filter		= \constant( $rule['filter'] );
+				$options	= $rule['options'] ?? [];
+				$flags		= 0;
+				
+				if ( 
+					!empty( $rule['flags'] )	&& 
+					\is_array( $rule['flags'] ) 
+				) {
+					foreach ( $rule['flags'] as $flag ) {
+						if ( \defined( $flag ) ) {
+							$flags |= \constant( $flag );
+						}
+					}
+				}
+				
+				return
+				\filter_var( $v, $filter, [ 'flags' => $flags, 'options' => $options ] );
+			},
+		
+		isset( $rule['callback'] ) && \function_exists( $rule['callback'] ) 
+			=> fn( $v ) => \call_user_func( $rule['callback'], $v ),
+		
+		default	=> fn( $v ) => sanitize_escape_text( $v, false, false );
+	};
+	
+	$sanitized = $sanitizer( $value );
+	if ( $sanitized !== false && $sanitized !== null ) {
+		$new_node->setAttribute( $attr, $sanitized );
+	}
+}
+
+function sanitize_html( $html, $tag_map ) {
+	$doc	= new \DOMDocument();
+	\libxml_use_internal_errors( true );
+	
+	$doc->loadHTML(
+		$html,
+		\LIBXML_HTML_NOIMPLIED	|
+		\LIBXML_HTML_NODEFDTD	|
+		\LIBXML_NOERROR		|
+		\LIBXML_NOWARNING	|
+		\LIBXML_NOXMLDECL	|
+		\LIBXML_COMPACT		|
+		\LIBXML_NOCDATA		|
+		\LIBXML_NONET
+	);
+	
+	\libxml_clear_errors();
+	
+	$cleaned	= new \DOMDocument();
+	$cleaned->formatOutput = true;
+	
+	$clean_node	= 
+	function( $node ) use ( $cleaned, $tag_map, &$clean_node ) {
+		if ( $node instanceof \DOMText) {
+			return $cleaned->createTextNode( $node->nodeValue );
+		}
+		
+		if ( !$node instanceof \DOMElement ) { return null; }
+		
+		$tag		= null; // Default
+		$original_tag	= $node->tagName;
+		foreach ( $tag_map as $key => $rules ) {
+			if ( 
+				0 === \strcasecmp( $key, $original_tag )	|| 
+				\in_array( 
+					\strtolower( $original_tag ), 
+					\array_map( 'strtolower', $rules['alias'] ?? [] ), 
+					false
+				)
+			) {
+				$tag = $key; // Assign if valid
+				break;
+			}
+		}
+		
+		if ( null === $tag ) { return null; }
+		
+		if ( \in_array( \strtolower( $tag ), [ 'code', 'pre', 'kbd' ], true ) ) {
+			return sanitize_escape_node( $node, $cleaned );
+		}
+		
+		$new_node = $cleaned->createElement( \strtolower( $tag ) );
+		$attr_rules = $tag_map[$tag]['attributes'] ?? [];
+		
+		foreach ( $attr_rules as $attr => $rule ) {
+			// Skip if not in whitelist at all
+			if ( !$node->hasAttribute( $attr ) ) {
+				continue;
+			}
+			
+			sanitize_attribute( $node, $new_node, $attr, $rule );
+		}
+		
+		if ( $node->hasChildNodes() ) {
+			foreach ($node->childNodes as $child) {
+				$clean_child = $clean_node($child);
+				if ( $clean_child ) {
+					$new_node->appendChild($clean_child);
+				}
+			}
+		}
+		
+		return $new_node;
+	};
+	
+	foreach ( $doc->childNodes as $child ) {
+		if ( !( $child instanceof \DOMNode ) ) { continue; }
+		
+		$sanitized = $clean_node( $child );
+		if ( !$sanitized ) { continue; }
+		
+		$cleaned->appendChild( $sanitized );
+	}
+	
+	return $cleaned->saveHTML();
+}
+
+
+
 
 /**
  *  Store and send rendering templates
@@ -2360,21 +3200,6 @@ function getFileRange() : array {
  */
 
 /**
- *  Filter number within min and max range, inclusive
- *  
- *  @param mixed	$val		Given default value
- *  @param int		$min		Minimum, returned if less than this
- *  @param int		$max		Maximum, returned if greater than this
- *  @return int
- */
-function intRange( $val, int $min, int $max ) : int {
-	$out = ( int ) $val;
-	
-	return 
-	( $out > $max ) ? $max : ( ( $out < $min ) ? $min : $out );
-}
-
-/**
  *  Logging safe string
  */
 function logStr( $text, int $len = 255 ) : string {
@@ -2837,7 +3662,7 @@ function decode( string $data = '', int $depth = 10 ) : array {
 	if ( empty( $data ) ) {
 		return [];
 	}
-	$depth	= intRange( $depth, 1, 50 );
+	$depth	= util_int_range( $depth, 1, 50 );
 	$out	= 
 	\json_decode( 
 		\util_utf8( $data ), true, $depth, 
@@ -4092,7 +4917,7 @@ function render(
  *  @return string
  */
 function genId( int $bytes = 16 ) : string {
-	return \bin2hex( \random_bytes( intRange( $bytes, 1, 64 ) ) );
+	return \bin2hex( \random_bytes( util_int_range( $bytes, 1, 64 ) ) );
 }
 
 /**
@@ -4132,7 +4957,7 @@ function genAlphaNum() : string {
  *  @return string
  */
 function genCodeKey( int $size = 24 ) : string {
-	$size	= intRange( $size, 1, 24 );
+	$size	= util_int_range( $size, 1, 24 );
 	$code	= '';
 	while ( strsize( $code ) < $size ) {
 		$code .= genAlphaNum();
@@ -4553,7 +5378,7 @@ function pluginNames( $pl ) : array {
 	\is_array( $pl ) ? 
 		\array_map( 'strtolower', 
 			\array_map( 'labelName', $pl ) ) : 
-		\array_map( 'labelName', trimmedList( $pl, true ) );
+		\array_map( 'labelName', util_trimed_list( $pl, true ) );
 }
 
 /**
@@ -5341,7 +6166,7 @@ function whiteLists( array $groups, bool $lower = false ) : array {
 	
 	foreach ( $groups as $k => $v ) { 
 		$ext[labelName( $k )] = 
-		\implode( ',', trimmedList( $v, $lower ) );
+		\implode( ',', util_trimmed_list( $v, $lower ) );
 	}
 	
 	return $ext;
@@ -5451,20 +6276,20 @@ function enforceDates( array $args ) : array {
 	$ys	= setting( 'year_start', \YEAR_START, 'int' );
 	
 	// Enforce date ranges
-	$year	= intRange( $year, $ys, $y );
+	$year	= util_int_range( $year, $ys, $y );
 	
 	// Current year? Enforce month to current month or January of this year
 	$month	= ( $y == $year ) ? 
-			intRange( $month, 1, $m ) : 
-			intRange( $month, 1, 12 );
+			util_int_range( $month, 1, $m ) : 
+			util_int_range( $month, 1, 12 );
 	
 	// Days in requested year and month
 	$days	= ( int ) \date( 't', \mktime( 0, 0, 0, $month, 1, $year ) );
 	
 	// No more than the number of days in requested or current year/month
 	$day	= ( $year == $y && $month == $m ) ? 
-			intRange( $day, 1, $d ) : 
-			intRange( $day, 1, $days );
+			util_int_range( $day, 1, $d ) : 
+			util_int_range( $day, 1, $days );
 	
 	// Format date to string array
 	return [
@@ -5532,7 +6357,7 @@ function getForwarded() : array {
 	// Gather forwarded values
 	foreach ( $pt as $p ) {
 		// Break into comma delimited list, if any
-		$chain = trimmedList( $p );
+		$chain = util_trimmed_list( $p );
 		if ( empty( $chain ) ) {
 			continue;
 		}
@@ -5580,7 +6405,7 @@ function getProxyChain() : array {
 	}
 	
 	$chain = 
-	trimmedList( 
+	util_trimmed_list( 
 		$_SERVER['HTTP_X_FORWARDED_FOR'] ?? 
 		$_SERVER['HTTP_CLIENT_IP'] ?? 
 		$_SERVER['REMOTE_ADDR'] ?? '' 
@@ -5792,173 +6617,6 @@ function division( $n, $d, int $prec = 4 ) : float {
  *  Filtering
  */
 
-/**
- *  Strip unusable characters from raw text/html and conform to UTF-8
- *  
- *  @param string	$html	Raw content body to be cleaned
- *  @param bool		$entities Convert to HTML entities
- *  @return string
- */
-function sanitize_filter( 
-	string		$html, 
-	bool		$entities	= false 
-) : string {
-	static $filters	= [
-	
-		// Remove control chars except linebreaks/tabs etc...
-		'/[\x00-\x08\x0B\x0C\x0E-\x1F\x80-\x9F]/u',
-		
-		// Non-characters
-		'/[\x{fdd0}-\x{fdef}]/u',
-		'/[\x{FFFE}-\x{FFFF}]/u',
-		'/[\x{1FFFE}-\x{1FFFF}]/u',
-		
-		// UTF unassigned, formatting, and half surrogate pairs
-		'/[\p{Cs}\p{Cf}\p{Cn}]/u',
-		
-		// Invalid UTF-8 byte sequences
-		'/[\xC0-\xC1]|\xF5-\xFF/u',
-		
-		// Overlong 2, 3, and 4-byte sequences
-		'/[\xC2-\xDF](?![\x80-\xBF])/u',
-		'/[\xE0-\xEF](?![\x80-\xBF]{2})/u',
-		'/[\xF0-\xF4](?![\x80-\xBF]{3})/u'
-	];
-	$html		= util_utf8( \trim( $html ) );	// Convert to UTF-8
-	$html		= \preg_replace( $filters, '', $html );
-	
-	// Convert Unicode character entities?
-	if ( $entities ) {
-		$html	= 
-		\mb_convert_encoding( 
-			$html, 'HTML-ENTITIES', 'UTF-8' 
-		);
-	}
-	
-	return \trim( $html );
-}
-
-/**
- *  HTML safe character entities in UTF-8
- *  
- *  @param string	$v	Raw text to turn to HTML entities
- *  @param bool		$quotes	Convert quotes (defaults to true)
- *  @param bool		$spaces	Convert spaces to "&nbsp;*" (defaults to true)
- *  @return string
- */
-function sanitize_escape_text(
-	string		$text, 
-	bool		$quotes		= false, 
-	bool		$spaces		= true,
-	bool		$html		= true 
-) : string {
-	$qflag	= $quotes ? \ENT_QUOTES : \ENT_NOQUOTES;
-	$hflag	= $html ? \ENT_HTML5 : 0;
-	$text	= sanitize_filter( $text );
-	
-	do {
-		$decoded	= \htmlspecialchars_decode( $text, $qflag );
-		$changed	= ( 0 !== \strcmp( $decoded, $text ) );
-		$text		= $decoded;
-	} while ( $changed );
-	
-	$text	= sanitize_filter( $text );
-	$flags	= $qflag | $hflag | \ENT_SUBSTITUTE;
-	$text	= \htmlspecialchars( $text, $flags, 'UTF-8' );
-	
-	return ( $spaces ) ? \strtr( $text, [ 
-			' ' => '&nbsp;',
-			'	' => '&nbsp;&nbsp;&nbsp;&nbsp;'
-		] ) : $text;
-}
-
-/**
- *  Cleaned URI with parsed path components
- *  
- *  @param string	$raw	Raw URI from source
- *  @param string	$base	Prefix if required
- *  @return string
- */
-function sanitize_uri( string $raw, ?string $base = null ) : string|null {
-	$path	= \trim( \parse_url( $raw, \PHP_URL_PATH ) ?? '', '/' );
-	$depth	= 0;
-	$max_d	= 10;
-	
-	// Normalize
-	do {
-		$decoded	= sanitize_filter( \rawurldecode( $path ) );	// Invalid chars
-		$decoded	= \preg_replace( '#/{2,}#', '/', $decoded );	// Collapse
-		
-		$changed	= ( $decoded !== $path );
-		$path		= $decoded;
-		$depth++;
-		
-	} while( $changed && $depth < $max_d );
-	
-	if ( $changed && $depth >= $max_d ) { return null; }
-	
-	// Prevent directory traversal
-	$segments	= 
-	\array_filter( 
-		\explode( '/', $path ), 
-		fn( $seg ) => $seg !== '..' && $seg !== '.' 
-	);
-	$final		= \trim( \implode( '/', $segments ), '/' );
-	
-	if ( $base && !\str_starts_with( $final, $base ) ) {
-		return null;
-	}
-	return $final;
-}
-
-/**
- *  Attempt to stop URI/URL injection
- *  
- *  @param string	$tex	Raw text input
- *  @return string
- */
-function sanitize_strip_xss( string $text ) : string {
-	static $patterns	= [
-		'/expression\s*\(.*?\)/i',			// Probably not needed
-		'/(\\~\/|\.\.|\\\\|\-\-)/sm',			// Directory traversal
-		'/(<(s(?:cript|tyle)).*?)/ism',			// Injection
-		'/(document\.|window\.|eval\(|\(\))/ism',	// Events and scripts
-		'/url\(\s*(?:javascript|jscript|livescript|vbscript|data)\s*[:&colon;][^\)]*\)/i'
-	];
-	
-	$text	= \trim( $text, "'\"" );
-	do {
-		$original = $text;
-		foreach ( $patterns as $rx ) {
-			$text = \preg_replace( $rx, '',  $text );
-		}
-	} while ( 0 !== \strcasecmp( $text, $original ) );
-	
-	return \trim( $text, "'\"" );
-}
-
-/**
- *  Attempt to filter URL
- *  This is not a 100% foolproof method, but it's better than nothing
- *  
- *  @param string	$txt	Raw URL attribute value
- *  @param bool		$xss	Filter XSS possibilities
- *  @return string
- */
-function sanitize_url( string $text, bool $xss = true ) : string {
-	// Nothing to clean
-	if ( empty( $text ) ) { return ''; }
-	
-	// Default filter
-	if ( \filter_var( $txt, \FILTER_VALIDATE_URL ) ) {
-		$text	= sanitize_uri( $text ) ?? '';
-		if ( empty( $text ) ) { return ''; }
-	}
-	
-	$text = sanitized_escape_text( 
-		( $xss ? sanitize_strip_xss( $text ) : $text ), false, false 
-	);
-}
 
 /**
  *  Simple email address filter helper
@@ -6534,7 +7192,7 @@ function extractCC( string $cc, string $prefx = '' ) : string {
 	$p	= [];
 	
 	// Find multiple caption definitions if any
-	$defs	= trimmedList( $cc, false, '][' );
+	$defs	= util_trimmed_list( $cc, false, '][' );
 	
 	// Parse captions
 	foreach ( $defs as $d ) {
@@ -7481,7 +8139,7 @@ function getHost() : string {
 	if ( isset( $host ) ) { return $host; }
 	
 	$sk	= getSitesEnabled();
-	$sw	= trimmedList( implode( ',', array_keys( $sk ) ), true );
+	$sw	= util_trimmed_list( implode( ',', array_keys( $sk ) ), true );
 	
 	// Base host headers
 	$sh	= [ 'HTTP_HOST', 'SERVER_NAME', 'SERVER_ADDR' ];
@@ -8220,7 +8878,7 @@ function streamFile(
 	
 	// Default chunk size
 	$chunk	= setting( 'stream_chunk_size', \STREAM_CHUNK_SIZE, 'int' );
-	$chunk	= intRange( $chunk, 2, 32768 );
+	$chunk	= util_int_range( $chunk, 2, 32768 );
 	
 	openStream( $from, $source, 'rb' );
 	if ( false === $from ) {
@@ -8735,8 +9393,8 @@ function extGroups( string $group = '' ) : array {
 	$all	= \implode( ',', $ext );
 	
 	return empty( $group ) ? 
-		\array_unique( trimmedList( $all, true ) ) : 
-		\array_unique( trimmedList( $ext[$group] ?? '', true ) );
+		\array_unique( util_trimmed_list( $all, true ) ) : 
+		\array_unique( util_trimmed_list( $ext[$group] ?? '', true ) );
 }
 
 /**
@@ -8965,7 +9623,7 @@ function sendFileRange( string $path, bool $dosend ) : bool {
 	
 	// Default chunk size
 	$chunk	= setting( 'stream_chunk_size', \STREAM_CHUNK_SIZE, 'int' );
-	$chunk	= intRange( $chunk, 2, 32768 );
+	$chunk	= util_int_range( $chunk, 2, 32768 );
 	
 	\stream_set_chunk_size( $stream, $chunk );
 	
@@ -9678,7 +10336,7 @@ function extractSummary( array $find ) : string {
  */
 function extractTags( array $find ) : array {
 	// Clean tags
-	$tags	= \array_filter( trimmedList( $find['tags'] ?? '' ) );
+	$tags	= \array_filter( util_trimmed_list( $find['tags'] ?? '' ) );
 	
 	// No tags left after cleaning?
 	if ( empty( $tags ) ) {
@@ -10295,7 +10953,7 @@ function hasReadTime( string $type ) : bool {
 	static $rtypes;
 	if ( !isset( $rtypes ) ) {
 		$rtt		= setting( 'readtime_types', \READTIME_TYPES );
-		$default	= trimmedList( $rtt, true );
+		$default	= util_trimmed_list( $rtt, true );
 		
 		// Send to hook for additional types
 		hook( [ 'hasreadtime', [ 'types' => $default ] ] );
