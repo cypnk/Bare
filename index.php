@@ -3966,13 +3966,11 @@ function logStartup() {
 	$lib	= [ 
 	'required' => [
 		'libxml_clear_errors'	=> 'libxml',
-		'mime_content_type'	=> 'fileinfo',
-		'iconv'			=> 'iconv'
+		'mime_content_type'	=> 'fileinfo'
 	],
 	'optional' => [ 
 		'mb_strlen'		=> 'mbstring', 
-		'normalizer_normalize'	=> 'intl', 
-		'tidy_repair_string'	=> 'tidy',
+		'normalizer_normalize'	=> 'intl',
 		'imagecreatetruecolor'	=> 'GD',
 		'mail'			=> 'mail'
 	]];
