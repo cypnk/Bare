@@ -1168,73 +1168,392 @@ define( 'TPL_STYLE_TAG', '<link rel="stylesheet" href="{url}">' );
 // Whitelist of allowed HTML tags
 define( 'TAG_WHITE',	<<<JSON
 {
-	"p"		: [ "style", "class", "align", 
-				"data-pullquote", "data-video", 
-				"data-media" ],
-	
-	"div"		: [ "style", "class", "align" ],
-	"span"		: [ "style", "class" ],
-	"br"		: [ "style", "class" ],
-	"hr"		: [ "style", "class" ],
-	
-	"h1"		: [ "style", "class" ],
-	"h2"		: [ "style", "class" ],
-	"h3"		: [ "style", "class" ],
-	"h4"		: [ "style", "class" ],
-	"h5"		: [ "style", "class" ],
-	"h6"		: [ "style", "class" ],
-	
-	"strong"	: [ "style", "class" ],
-	"em"		: [ "style", "class" ],
-	"u"	 	: [ "style", "class" ],
-	"strike"	: [ "style", "class" ],
-	"del"		: [ "style", "class", "cite" ],
-	
-	"ol"		: [ "style", "class" ],
-	"ul"		: [ "style", "class" ],
-	"li"		: [ "style", "class" ],
-	
-	"code"		: [ "style", "class" ],
-	"pre"		: [ "style", "class" ],
-	
-	"sup"		: [ "style", "class" ],
-	"sub"		: [ "style", "class" ],
-	
-	"a"		: [ "style", "class", "rel", 
-				"title", "href" ],
-	"img"		: [ "style", "class", "src", "height", "width", 
-				"alt", "longdesc", "title", "hspace", 
-				"vspace", "srcset", "sizes",
-				"data-srcset", "data-src", 
-				"data-sizes" ],
-	"figure"	: [ "style", "class" ],
-	"figcaption"	: [ "style", "class" ],
-	"picture"	: [ "style", "class" ],
-	"table"		: [ "style", "class", "cellspacing", 
-					"border-collapse", 
-					"cellpadding" ],
-	
-	"thead"		: [ "style", "class" ],
-	"tbody"		: [ "style", "class" ],
-	"tfoot"		: [ "style", "class" ],
-	"tr"		: [ "style", "class" ],
-	"td"		: [ "style", "class", "colspan", 
-				"rowspan" ],
-	"th"		: [ "style", "class", "scope", 
-				"colspan", "rowspan" ],
-	
-	"caption"	: [ "style", "class" ],
-	"col"		: [ "style", "class" ],
-	"colgroup"	: [ "style", "class" ],
-	
-	"summary"	: [ "style", "class" ],
-	"details"	: [ "style", "class" ],
-	
-	"q"		: [ "style", "class", "cite" ],
-	"cite"		: [ "style", "class" ],
-	"abbr"		: [ "style", "class" ],
-	"blockquote"	: [ "style", "class", "cite" ],
-	"body"		: []
+	"p"		: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"title"		: { "callback"	: "sanitize_text" },
+			"data-pullquote": { "callback"	: "sanitize_text" },
+			"data-video"	: { "callback"	: "sanitize_text" },
+			"data-media"	: { "callback"	: "sanitize_text" },
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }, 
+			"align"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"div"		: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"title"		: { "callback"	: "sanitize_text" },
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }, 
+			"align"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"span"		: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"title"		: { "callback"	: "sanitize_text" },
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"br"		: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"hr"		: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"h1"		: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"title"		: { "callback"	: "sanitize_text" },
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"h2"		: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"title"		: { "callback"	: "sanitize_text" },
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"h3"		: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"title"		: { "callback"	: "sanitize_text" },
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"h4"		: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"title"		: { "callback"	: "sanitize_text" },
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"h5"		: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"title"		: { "callback"	: "sanitize_text" },
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"h6"		: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"title"		: { "callback"	: "sanitize_text" },
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"strong"	: {
+		"alias"	: [ "b", "bold" ],
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"title"		: { "callback"	: "sanitize_text" },
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"em"		: {
+		"alias"	: [ "i", "italic" ],
+		"attributes"	: {
+			"title"		: { "callback"	: "sanitize_text" },
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"u"		: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"title"		: { "callback"	: "sanitize_text" },
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"del"		: {
+		"alias" : [ "s", "strike" ],
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"title"		: { "callback"	: "sanitize_text" },
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" },
+			"cite"		: {
+				"filter"	: "FILTER_VALIDATE_URL",
+				"flags"		: [ "FILTER_FLAG_SCHEME_REQUIRED" ]
+			}, 
+			"datetime"	: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"ins"		: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"title"		: { "callback"	: "sanitize_text" },
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" },
+			"cite"		: {
+				"filter"	: "FILTER_VALIDATE_URL",
+				"flags"		: [ "FILTER_FLAG_SCHEME_REQUIRED" ]
+			}, 
+			"datetime"	: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"ol"		: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"title"		: { "callback"	: "sanitize_text" },
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"ul"		: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"title"		: { "callback"	: "sanitize_text" },
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"li"		: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"title"		: { "callback"	: "sanitize_text" },
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"code"		: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"title"		: { "callback"	: "sanitize_text" },
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"pre"		: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"title"		: { "callback"	: "sanitize_text" },
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"sup"		: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"sub"		: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"a"		: {
+		"attributes"	: {
+			"href"	: {
+				"filter"	: "FILTER_VALIDATE_URL",
+				"flags"		: [ "FILTER_FLAG_SCHEME_REQUIRED" ]
+			}, 
+			"target"	: { "allowed"	: [ "_self", "_blank", "_parent", "_top" ] },
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"title"		: { "callback"	: "sanitize_text" },
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"img"		: {
+		"attributes"	: {
+			"src"	: {
+				"filter"	: "FILTER_VALIDATE_URL",
+				"flags"		: [ "FILTER_FLAG_SCHEME_REQUIRED" ]
+			}, 
+			"data-src"	: {
+				"filter"	: "FILTER_VALIDATE_URL",
+				"flags"		: [ "FILTER_FLAG_SCHEME_REQUIRED" ]
+			},
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"alt"		: { "callback"	: "sanitize_text" },
+			"title"		: { "callback"	: "sanitize_text" },
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" },
+			"height"	: { "filter"	: "FILTER_SANITIZE_NUMBER_INT" },
+			"width"		: { "filter"	: "FILTER_SANITIZE_NUMBER_INT" },
+			"srcset"	: { "callback"	: "sanitize_srcset" },
+			"data-srcset"	: { "callback"	: "sanitize_srcset" },
+			"sizes"		: { "callback"	: "sanitize_sizes" },
+			"data-sizes"	: { "callback"	: "sanitize_sizes" },
+			"loading"	: { "allowed"	: [ "lazy", "eager" ] }
+		}
+	},
+	"figure"	: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"title"		: { "callback"	: "sanitize_text" },
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"figcaption"	: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"title"		: { "callback"	: "sanitize_text" },
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"picture"	: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"title"		: { "callback"	: "sanitize_text" },
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"table"		: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"title"		: { "callback"	: "sanitize_text" },
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" },
+			"cellspacing"	: { "filter"	: "FILTER_SANITIZE_NUMBER_INT" },
+			"cellpadding"	: { "filter"	: "FILTER_SANITIZE_NUMBER_INT" },
+			"border-collapse" : { "allowed"	: [ "separate", "collapse" ] }
+		}
+	},
+	"thead"		: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"title"		: { "callback"	: "sanitize_text" },
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"tbody"		:  {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"title"		: { "callback"	: "sanitize_text" },
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"tfoot"		: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"title"		: { "callback"	: "sanitize_text" },
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"tr"		: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"title"		: { "callback"	: "sanitize_text" },
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"td"		: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"title"		: { "callback"	: "sanitize_text" },
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" },
+			"colspan"	: { "filter"	: "FILTER_SANITIZE_NUMBER_INT" },
+			"rowspan"	: { "filter"	: "FILTER_SANITIZE_NUMBER_INT" }
+		}
+	},
+	"th"		: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"title"		: { "callback"	: "sanitize_text" },
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" },
+			"scope"		: { "allowed"	: [ "row", "col", "rowgroup", "colgroup" ] },
+			"colspan"	: { "filter"	: "FILTER_SANITIZE_NUMBER_INT" },
+			"rowspan"	: { "filter"	: "FILTER_SANITIZE_NUMBER_INT" }
+		}
+	},
+	"caption"	: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"col"		: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"span"		: { "filter"	: "FILTER_SANITIZE_NUMBER_INT" },
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"colgroup"	: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"address"	: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"title"		: { "callback"	: "sanitize_text" },
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"summary"	: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"title"		: { "callback"	: "sanitize_text" },
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"details"	: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"q"		: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"title"		: { "callback"	: "sanitize_text" },
+			"class"		: { "filter" 	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" },
+			"cite"		: {
+				"filter"	: "FILTER_VALIDATE_URL",
+				"flags"		: [ "FILTER_FLAG_SCHEME_REQUIRED" ]
+			}
+		}
+	},
+	"cite"		: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"abbr"		: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"title"		: { "callback"	: "sanitize_text" },
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"dfn"		: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"title"		: { "callback"	: "sanitize_text" },
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"blockquote"	: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" },
+			"cite"		: {
+				"filter"	: "FILTER_VALIDATE_URL",
+				"flags"		: [ "FILTER_FLAG_SCHEME_REQUIRED" ]
+			}
+		}
+	},
+	"ruby"		: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" },
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }					
+		}
+	},
+	"rp"		: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" },
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }					
+		}
+	},
+	"rt"		: {
+		"attributes"	: {
+			"style"		: { "callback"	: "sanitize_style" },
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }					
+		}
+	}
 }
 JSON
 );
@@ -1243,17 +1562,95 @@ JSON
 // It is strongly recommended that this list be kept small
 define( 'FORM_WHITE',	<<<JSON
 {
-	"form"		: [ "id", "method", "action", "enctype", "style", "class" ], 
-	"input"		: [ "id", "type", "name", "required", , "max", "min", 
-				"value", "size", "maxlength", "checked", 
-				"disabled", "style", "class" ],
-	"label"		: [ "id", "for", "style", "class" ], 
-	"textarea"	: [ "id", "name", "required", "rows", "cols",  
-				"style", "class" ],
-	"select"	: [ "id", "name", "required", "multiple", "size", 
-				"disabled", "style", "class" ],
-	"option"	: [ "id", "value", "disabled", "style", "class" ],
-	"optgroup"	: [ "id", "label", "style", "class" ]
+	"form"		: {
+		"attributes" : {
+			"id"		: { "callback"	: "sanitize_slug" },
+			"method"	: { "allowed"	: [ "get", "post" ] }, 
+			"action"	: {
+				"filter" : "FILTER_VALIDATE_URL"
+			}, 
+			"enctype"	: {
+				"allowed" : [
+					"multipart/form-data",
+					"application/x-www-form-urlencoded"
+				]
+			}, 
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" },
+		}
+	},		
+	"input"		: { 
+		"attributes"	: {
+			"id"		: { "callback"	: "sanitize_slug" },
+			"type"		: {
+				"allowed" : [
+					"text", "url", "search", "datetime-local", 
+					"radio", "checkbox", "number"
+				]
+			}, 
+			"name"		: { "callback"	: "sanitize_slug" }, 
+			"required"	: { "allowed" : [ "true", "" ] },
+			"max"		: { "callback" : "sanitize_int" }, 
+			"min"		: { "callback" : "sanitize_int" }, 
+			"value"		: { "callback" : "sanitize_text" }, 
+			"size"		: { "callback" : "sanitize_int" }, 
+			"maxlength"	: { "callback" : "sanitize_int" },
+			"checked"	: { "allowed" : [ "true", "" ] },
+			"disabled"	: { "allowed" : [ "true", "" ] },
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" },
+		}
+	},
+	"label"		: {
+		"attributes" : { 
+			"id"		: { "callback"	: "sanitize_slug" }, 
+			"for"		: { "callback"	: "sanitize_slug" }, 
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	}, 
+	"textarea"	: {
+		"attribures" : { 
+			"id"		: { "callback"	: "sanitize_slug" }, 
+			"name"		: { "callback"	: "sanitize_slug" },
+			"required"	: { "allowed" : [ "true", "" ] }, 
+			"disabled"	: { "allowed" : [ "true", "" ] }, 
+			"rows"		: { "callback" : "sanitize_int" },  
+			"cols"		: { "callback" : "sanitize_int" },
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},  
+	"select"	: { 
+		"attributes" : {
+			"id"		: { "callback"	: "sanitize_slug" }, 
+			"name"		: { "callback"	: "sanitize_slug" }, 
+			"required"	: { "allowed" : [ "true", "" ] }, 
+			"multiple"	: { "allowed" : [ "true", "" ] }, 
+			"size"		: { "callback" : "sanitize_int" },   
+			"disabled"	: { "allowed" : [ "true", "" ] },
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"option"	: {
+		"attributes" : {
+			"id"		: { "callback"	: "sanitize_slug" }, 
+			"name"		: { "callback"	: "sanitize_slug" }, 
+			"value"		: { "callback" : "sanitize_text" }, 
+			"disabled"	: { "allowed" : [ "true", "" ] }, 
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	},
+	"optgroup"	: { 
+		"attribute" : { 
+			"id"		: { "callback"	: "sanitize_slug" }, 
+			"value"		: { "callback" : "sanitize_text" }, 
+			"style"		: { "callback"	: "sanitize_style" }, 
+			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+		}
+	}
 }
 JSON
 );
@@ -7006,29 +7403,6 @@ function html(
 		return '';
 	}
 	
-	if ( !isset( $white['html'] ) ) {
-		$default_tags = setting( 'tag_white', \TAG_WHITE, 'json' );
-		
-		// Include form tags
-		$default_form = 
-		\array_merge_recursive( 
-			$default_tags, 
-			setting( 'form_white', \FORM_WHITE, 'json' )
-		);
-		
-		// Tag loader hook
-		hook( [ 'htmltags', [ 
-			'html'	=> $default_tags,
-			'form'	=> $default_form
-		] ] );
-		
-		$htags		= hookArrayResult( 'htmltags' );
-		
-		// Set custom tags or default tags
-		$white['html']	= $htags['html'] ?? $default_tags;
-		$white['form']	= $htags['form'] ?? $default_form;
-	}
-	
 	// Remove preceding/trailing slashes
 	$prefix		= trim( $prefix, '/' );
 	
@@ -7051,121 +7425,40 @@ function html(
 	// Format linebreaks and code
 	$html		= makeParagraphs( $html );
 	
-	// Clean up HTML
-	$html		= tidyup( $html );
-	
-	// Skip errors
-	$err		= \libxml_use_internal_errors( true );
-	
-	// HTML tag filter
-	$dom		= new \DOMDocument();
-	$lstate		= 
-	$dom->loadHTML( 
-		$html, 
-		\LIBXML_HTML_NOIMPLIED | \LIBXML_HTML_NODEFDTD | 
-		\LIBXML_NOERROR | \LIBXML_NOWARNING | 
-		\LIBXML_NOXMLDECL | \LIBXML_COMPACT | 
-		\LIBXML_NOCDATA | \LIBXML_NONET
-	);
-	
-	// Loading failed?
-	if ( !$lstate ) {
-		// Log last error if possible and return
-		$e = \libxml_get_last_error();
-		if ( false !== $e ) {
-			shutdown( 
-				'logError', 
-				$e->message ?? 'Error loading DOMDocument'
-			);
-		}
+	if ( !isset( $white ) ) {
+		$default_tags = setting( 'tag_white', \TAG_WHITE, 'json' );
 		
-		\libxml_clear_errors();
-		\libxml_use_internal_errors( $err );
-		return '';
-	}
-	
-	$domBody	= $dom->getElementsByTagName( 'body' );
-	
-	$flush		= [];
-	
-	// Iterate through every HTML element 
-	if ( !empty( $domBody->childNodes ) ) {
-		// Use form inclusive tags if this is a form page
-		$wtags	= $form ? $white['form'] : $white['html'];
-		foreach ( $domBody->childNodes as $node ) {
-			scrub( $node, $wtags, $prefix, $flush );
+		// Include form tags
+		$default_form = 
+		\array_merge_recursive( 
+			$default_tags, 
+			setting( 'form_white', \FORM_WHITE, 'json' )
+		);
+		
+		// Tag loader hook
+		hook( [ 'htmltags', [ 
+			'html'		=> $default_tags,
+			'form'		=> $default_form,
+		     	'form_enabled'	=> $form
+		] ] );
+		
+		$htags		= hookArrayResult( 'htmltags' );
+		
+		// Set custom tags or default tags
+		$white	= $htags['html'] ?? $default_tags;
+		if ( $form ) {
+			$white	= \array_merge( $white, $htags['form'] ?? $default_form );
 		}
 	}
 	
-	// Remove any tags not found in the whitelist
-	if ( !empty( $flush ) ) {
-		foreach( $flush as $node ) {
-			if ( $node->nodeName == '#text' ) {
-				continue;
-			}
-			// Replace tag with harmless text
-			$safe	= $dom->createTextNode( 
-					$dom->saveHTML( $node )
-				);
-			$node->parentNode
-				->replaceChild( $safe, $node );
-		}
-	}
-	
-	// Fix formatting
-	$dom->formatOutput	= true;
-	$clean			= $dom->saveHTML();
+	// Clean up HTML
+	$clean			= sanitize_html( $html, $white );
 	$clean			= makeParagraphs( $clean, true );
 	
-	// Final clean
-	$clean			= tidyup( $clean );
-	
-	\libxml_clear_errors();
-	\libxml_use_internal_errors( $err );
-	
-	if ( $sembed ) {
-		return $clean;
-	}
+	if ( $sembed ) { return $clean; }
 	
 	// Apply embedded media
 	return embeds( $clean, $prefix );
-}
-
-/**
- *  Tidy settings
- *  
- *  @param string	$text	Unformatted, unfiltered raw HTML
- *  @return string
- */
-function tidyup( string $text ) : string {
-	static $newtags;
-	if ( missing( 'tidy_repair_string' ) ) {
-		return $text;
-	}
-	
-	if ( !isset( $newtags ) ) {
-		$newtags = 'figure, figcaption, picture, summary, details';
-		
-		// Append custom tags
-		hook( [ 'tidynewtags', [ 'tags' => $newtags ] ] );
-		$newtags = 
-		hookArrayResult( 'tidynewtags' )['tags'] ?? $newtags;
-	}
-	
-	$opt = [
-		'bare'					=> 1,
-		'hide-comments' 			=> 1,
-		'drop-proprietary-attributes'		=> 1,
-		'fix-uri'				=> 1,
-		'join-styles'				=> 1,
-		'output-xhtml'				=> 1,
-		'merge-spans'				=> 1,
-		'show-body-only'			=> 1,
-		'new-blocklevel-tags'			=> $newtags,
-		'wrap'					=> 0
-	];
-	
-	return \trim( \tidy_repair_string( $text, $opt ) );
 }
 
 /**
