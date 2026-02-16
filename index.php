@@ -1795,34 +1795,6 @@ function util_array_normalize_keys( array $items ) : array {
 }
 
 /**
- *  Ensure JSON content is valid
- *  
- *  @param array|string	$json	Raw field data
- *  @param bool		$values	Return values only when true
- *  @return array
- */
-function util_json_array( array|string $json, bool $values = false ) : array {
-	if ( \is_array( $json ) ) {
-		return $values 
-			? \array_values( $json ) 
-			: $json;
-	}
-	
-	// Since PHP 8.3+
-	if ( !\json_validate( $json ) ) {
-		return [];
-	}
-	
-	$data = \json_decode( $json, true );
-	if ( \json_last_error() !== \JSON_ERROR_NONE ) {
-		return [];
-	}
-	return \is_array( $data ) 
-		? ( $values ? \array_values( $data ) : $data ) 
-		: [];
-}
-
-/**
  *  Filter number within min and max range, inclusive
  *  
  *  @param mixed	$val		Given default value
@@ -1835,6 +1807,75 @@ function util_int_range( $val, int $min, int $max ) : int {
 	
 	return 
 	( $out > $max ) ? $max : ( ( $out < $min ) ? $min : $out );
+}
+
+/**
+ *  Safely encode array to JSON
+ *  
+ *  @return string
+ */
+function util_json_encode( array $data = [] ) : string {
+	if ( empty( $data ) ) {  return ''; }
+	
+	$out = 
+	\json_encode( 
+		$data, 
+		\JSON_HEX_TAG | \JSON_HEX_APOS | \JSON_HEX_QUOT | 
+		\JSON_HEX_AMP | \JSON_UNESCAPED_UNICODE | 
+		\JSON_PRETTY_PRINT 
+	);
+	
+	return ( false === $out ) ? '' : $out;
+}
+
+/**
+ *  Safely decode JSON to array
+ */
+function util_json_decode( string $data	= '', int $depth = 10 ) : array {
+	if ( empty( $data ) ) { return []; }
+	
+	// Since PHP 8.3+
+	if ( !\json_validate( $json ) ) { return []; }
+	
+	$depth	= util_int_range( $depth, 1, 50 );
+	$out	= 
+	\json_decode( 
+		\util_utf8( $data ), true, $depth, 
+		\JSON_BIGINT_AS_STRING
+	);
+	
+	if ( \json_last_error() !== \JSON_ERROR_NONE ) {
+		return [];
+	}
+	
+	if ( empty( $out ) || false === $out ) {
+		return [];
+	}
+	
+	return $out;
+}
+
+/**
+ *  Ensure JSON content is valid
+ *  
+ *  @param array|string	$json	Raw field data
+ *  @param bool		$values	Return values only when true
+ *  @param int		$depth	Maximum decode depth, if parsing string
+ *  @return array
+ */
+function util_json_array( 
+	array|string	$json,
+	bool		$values	= false, 
+	int		$depth	= 10 
+) : array {
+	if ( \is_array( $json ) ) {
+		return $values 
+			? \array_values( $json ) 
+			: $json;
+	}
+	
+	$data = \util_json_decode( $json, $depth );
+	return $values ? \array_values( $data ) : $data;
 }
 
 /**
@@ -3633,50 +3674,6 @@ function logException( \Exception $e, ?string $msg = null ) {
 }
 
 /**
- *  Safely encode array to JSON
- *  
- *  @return string
- */
-function encode( array $data = [] ) : string {
-	if ( empty( $data ) ) {
-		return '';
-	}
-	
-	$out = 
-	\json_encode( 
-		$data, 
-		\JSON_HEX_TAG | \JSON_HEX_APOS | \JSON_HEX_QUOT | 
-		\JSON_HEX_AMP | \JSON_UNESCAPED_UNICODE | 
-		\JSON_PRETTY_PRINT 
-	);
-	
-	return ( false === $out ) ? '' : $out;
-}
-
-/**
- *  Safely decode JSON to array
- *  
- *  @return array
- */
-function decode( string $data = '', int $depth = 10 ) : array {
-	if ( empty( $data ) ) {
-		return [];
-	}
-	$depth	= util_int_range( $depth, 1, 50 );
-	$out	= 
-	\json_decode( 
-		\util_utf8( $data ), true, $depth, 
-		\JSON_BIGINT_AS_STRING
-	);
-	
-	if ( empty( $out ) || false === $out ) {
-		return [];
-	}
-	
-	return $out;
-}
-
-/**
  *  Path prefix slash (/) helper
  */
 function slashPath( string $path, bool $suffix = false ) : string {
@@ -4021,7 +4018,7 @@ function loadConfig( string $file, array $modify = [] ) : array {
 		return $params;
 	}
 	
-	$params	= decode( $data );
+	$params	= util_json_decode( $data );
 	
 	// Check for any modifications and run events/filters
 	if ( !empty( $modify ) ) {
@@ -4077,7 +4074,7 @@ function saveConfig() : bool {
 	
 	// Load new config from 
 	$params	= hook( [ 'configmodified', '' ] );
-	$data	= encode( $params );
+	$data	= util_json_encode( $params );
 	if ( empty( $data ) ) {
 		return false;
 	}
@@ -4131,7 +4128,7 @@ function configType(
 		
 		case 'json':
 			return \is_array( $value ) ? 
-				$value : decode( ( string ) $value );
+				$value : util_json_decode( ( string ) $value );
 			
 		case 'lines':
 			return 
@@ -4274,12 +4271,12 @@ function language() {
 	}
 	
 	// Set default language and append language file definitions
-	$terms	= decode( \DEFAULT_LANGUAGE );
+	$terms	= util_json_decode( \DEFAULT_LANGUAGE );
 	$lang	= setting( 'language', \LANGUAGE );
 	$file	= loadFile( $lang . '.json' );
 	if ( !empty( $file ) ) {
 		$terms	= 
-		\array_merge_recursive( $terms,  decode( $file ) );
+		\array_merge_recursive( $terms,  util_json_decode( $file ) );
 	}
 	
 	$data	= empty( $terms ) ? [] : $terms;
@@ -4514,7 +4511,7 @@ function renderNavLinks(
 			$def
 ) {
 	$links	= \is_array( $def ) ? $def : 
-			decode( $def )[ 'links'] ?? [];
+			util_json_decode( $def )[ 'links'] ?? [];
 	
 	$out	= '';
 	$tpl	= template( 'tpl_page_nav_link' );
@@ -4633,7 +4630,7 @@ function rsettings( string $area, array $modify = [] ) : array {
 				// Load custom meta tags
 				$meta	= setting( 'default_meta', \DEFAULT_META );
 				$meta	= 
-					\is_string( $meta ) ? decode( $meta ) : 
+					\is_string( $meta ) ? util_json_decode( $meta ) : 
 						[ 'meta' => $meta ];
 				
 				// Merge plugin meta tags
@@ -9380,7 +9377,7 @@ function request( string $event, array $hook, array $params ) : array {
 function extGroups( string $group = '' ) : array {
 	// Default whitelist
 	$cs	= 
-	setting( 'ext_whitelist', whiteLists( decode( \EXT_WHITELIST ), true ) );
+	setting( 'ext_whitelist', whiteLists( util_json_decode( \EXT_WHITELIST ), true ) );
 	
 	// Extend whitelist via hooks
 	hook( [ 'extwhitelist', [ 'whitelist' => $cs ] ] );
@@ -10367,7 +10364,7 @@ function extractTags( array $find ) : array {
  *  @return array
  */
 function extractMeta( array $find ) : array {
-	return decode( $find['all'] ?? '' );
+	return util_json_decode( $find['all'] ?? '' );
 }
 
 /**
@@ -11445,7 +11442,7 @@ function genMetaKey(
 ) : string {
 	static $gen	= [];
 	
-	$params		= encode( $data );
+	$params		= util_json_encode( $data );
 	$key		= \hash( 'tiger160,4', $params );
 	
 	if ( \array_key_exists( $key, $gen ) && !$reset ) {
@@ -12943,9 +12940,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 			'filter'	=> \FILTER_CALLBACK,
 			'options'	=> 
 			function( $v ) {
-				return 
-				\is_array( $v ) ? 
-					decode( $v ) : [];
+				return util_json_array( $v );
 			}
 		], 
 		
