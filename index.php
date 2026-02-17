@@ -2463,6 +2463,121 @@ function util_utf8( string $text, string $default = 'ISO-8859-1' ) : string {
 	return ( false === $out ) ? '' : $out;
 }
 
+/**
+ *  Get a list of tokens separated by spaces
+ *  
+ *  @param string	$text		Raw text containing repeated words
+ *  @return array
+ */
+function util_unique_terms( string $value ) : array {
+	return 
+	\array_unique( 
+		\preg_split( 
+			'/[[:space:]]+/', trim( $value ), -1, 
+			\PREG_SPLIT_NO_EMPTY 
+		) 
+	);
+}
+
+/**
+ *  Convert timestamp to int if it's not in integer format
+ *  
+ *  @return mixed
+ */
+function util_time_string( $stamp = null ) : string {
+	if ( empty( $stamp ) ) { return null; }
+	
+	if ( \is_numeric( $stamp ) ) {
+		return ( int ) $stamp;
+	}
+	
+	$st =  \ltrim( 
+		\preg_replace( '/[^0-9\/]+/', '', $stamp ), 
+		'/' 
+	);
+	
+	return \strtotime( empty( $st ) ? 'now' : $st );
+}
+
+/**
+ *  UTC timestamp
+ *  
+ *  @param mixed	$stamp	Plain timestamp or null to generate new
+ *  @return string
+ */
+function util_utc( $stamp = null ) : string {
+	return 
+	\gmdate( 'Y-m-d\TH:i:s', util_time_string( $stamp ?? 'now' ) );
+}
+
+/**
+ *  Feed timestamp
+ *  
+ *  @param mixed	$stamp		Optional timestamp, defaults to 'now'
+ *  @return string
+ */
+function util_rfc_date( $stamp = null ) : string {
+	return 
+	\gmdate( 'D, d M Y H:i:s O', util_time_string( $stamp ?? 'now' ) );
+}
+
+/**
+ *  File modified timestamp
+ *  
+ *  @param mixed	$stamp		Optional timestamp, defaults to 'now'
+ *  @return string
+ */
+function util_rfc_file_date( $stamp = null ) : string {
+	return 
+	\gmdate( 'D, d M Y H:i:s T', util_time_string( $stamp ?? 'now' ) );
+}
+
+/**
+ *  Check if a specific library or if PHP is the given version or above
+ *  
+ *  @param string	$spec		Minimum supported version
+ *  @param string	$lib		Optional library name, case sensitive
+ *  @return bool
+ */
+function util_lib_version( string $spec, ?string $lib ) : bool {
+	static $ext;
+	
+	// Fix for 7.4.0 etc... appearing higher than 7.4
+	$spec = \rtrim( $spec, '.0' );
+	
+	// Empty library? Check PHP
+	if ( empty( $lib ) ) {
+		return 
+		\version_compare( 
+			\rtrim( \PHP_VERSION, '.0' ), $spec, '>=' 
+		);
+	}
+	
+	// Currently running extensions
+	if ( empty( $ext ) ) {
+		$ext = \get_loaded_extensions();
+	}
+	
+	foreach ( $ext as $e ) {
+		if ( \str_starts_with( $e, $lib ) ) {
+			$lv = \phpversion( $e );
+			
+			// Error getting version?
+			if ( false === $lv ) {
+				return false;
+			}
+			
+			return 
+			\version_compare( 
+				\rtrim( $lv, '.0' ), $spec, '>=' 
+			);
+		}
+	}
+	
+	// Extension not found
+	return false;
+}
+
 
 /**
  *  Suhosin aware checking for function availability
@@ -2652,6 +2767,18 @@ function sanitize_strip_xss( string $text ) : string {
 }
 
 /**
+ *  Attempt to filter host name
+ *  
+ *  @param string	$txt	Raw host definition
+ */
+function sanitize_host( string $txt ) : string {
+	return \mb_strtolower( \rtrim( 
+		\parse_url( $txt, \PHP_URL_HOST ) ?? '', 
+		" \t\n\r\0\x0B." 
+	) );
+}
+
+/**
  *  Attempt to filter URL
  *  This is not a 100% foolproof method, but it's better than nothing
  *  
@@ -2746,6 +2873,22 @@ function sanitize_is_valid_path(
 ) : bool {
 	$full_path	= $base_dir . \DIRECTORY_SEPARATOR . $filename;
 	return \strlen( $full_path ) <= $max;
+}
+
+/**
+ *  Convert all spaces to single character
+ *  
+ *  @param string	$text		Raw text containting mixed space types
+ *  @param string	$rpl		Replacement space, defaults to ' '
+ *  @param string	$br		Preserve line breaks
+ *  @return string
+ */
+function sanitize_spaces( string $text, string $rpl = ' ', bool $br = false ) : string {
+	return $br ?
+		\preg_replace( 
+			'/[ \t\v\f]+/', $rpl, sanitize_filter( $text ) 
+		) : 
+		\preg_replace( '/[[:space:]]+/', $rpl, sanitize_filter( $text ) );
 }
 
 /**
@@ -3050,6 +3193,265 @@ function sanitize_html( $html, $tag_map ) {
 
 
 
+/**
+ *  Request and query
+ */
+
+/**
+ *  Time based unique request token generator
+ *  
+ *  @return string
+ */
+function request_id() : string {
+	static $id;
+	
+	$id	??= 
+	$_SERVER['REQUEST_TIME'] ?? time()  . '_' . 
+		\bin2hex( \random_bytes( 32 ) );
+	
+	return $id;
+}
+
+/**
+ *  Guess if current request is secure
+ *  
+ *  @return bool
+ */
+function request_is_tls() : bool {
+	static $tls;
+	
+	$tls	??= 
+	match( true ) {
+		// Secure header
+		( 
+			!empty( $_SERVER['HTTPS'] )
+			&& 0 !== \strcasecmp( $_SERVER['HTTPS'], 'off' ) 
+		),
+		
+		// Proxy/forwarded headers
+		( 
+			!empty( $_SERVER['HTTP_X_FORWARDED_PROTO'] )
+			&& 0 === \strcasecmp( $_SERVER['HTTP_X_FORWARDED_PROTO'], 'https' ) 
+		),
+		( 
+			!empty( $_SERVER['HTTP_X_FORWARDED_PROTOCOL'] )
+			&& 0 === \strcasecmp( $_SERVER['HTTP_X_FORWARDED_PROTOCOL'], 'https' ) 
+		),
+		( 
+			!empty( $_SERVER['HTTP_X_FORWARDED_SSL'] )
+			&& 0 === \strcasecmp( $_SERVER['HTTP_X_FORWARDED_SSL'], 'on' ) 
+		),
+		( 
+			!empty( $_SERVER['HTTP_X_URL_SCHEME'] )
+			&& 0 === \strcasecmp( $_SERVER['HTTP_X_URL_SCHEME'], 'https' ) 
+		),
+		
+		// Fallback
+		( 
+			!empty( $_SERVER['SERVER_PORT'] ) 
+			&& 443 === ( int ) $_SERVER['SERVER_PORT']
+		),
+
+		default	=> false,
+	};
+	
+	return $tls;
+}
+
+/**
+ *  Current client request method
+ *  
+ *  @return string
+ */
+function request_method() : string {
+	static $method;
+	
+	if ( isset( $method ) ) { return $method; }
+	
+	$supported	= 
+	[ 'get', 'post', 'put', 'delete', 'patch', 'options', 'head' ];
+	
+	$raw		= 
+	\strtolower( \trim( $_SERVER['REQUEST_METHOD'] ?? '' ) );
+	
+	$override	= 
+	\strtolower( \trim( 
+		$_SERVER['X-HTTP-Method-Override']	?? 
+		( $_POST['_method'] ?? '' )		?? '' 
+	) );
+	
+	$method		= 
+	match( true ) {
+		( 
+			'post' === $raw
+				&& '' !== $override
+				&& \in_array( $override, $supported, true ) 
+		)	=> $override,
+		
+		\in_array( $raw, $supported, true )
+			=> $raw,
+			
+		default	=> 'unsupported'
+	};
+	return $method;
+}
+
+/**
+ *  Forwarded HTTP header chain from load balancer
+ *  
+ *  @return array
+ */
+function request_forwarded() : array {
+	static $fwd;
+	
+	if ( isset( $fwd ) ) { return $fwd; }
+	
+	$header	= 
+		$_SERVER['HTTP_FORWARDED']	??
+		$_SERVER['FORWARDED']		??
+		$_SERVER['HTTP_X_FORWARDED']	?? '';
+	
+	if ( '' === $header ) { return $fwd; }
+	$fwd	= [];
+	
+	$terms	= explode( ',', $header );
+	foreach ( $terms as $element ) {
+		$sets	= explode( ';', $element );
+		
+		foreach( $sets as $pair ) {
+			$pair	= \trim( $pair );
+			if ( '' === $pair ) { continue; }
+			
+			[$key, $value]	= 
+			\array_map( 
+				fn( $v ) => sanitize_filter( $v ), 
+				explode( '=', $pair, 2 ) + ['', ''] 
+			);
+			
+			if ( '' === $key || '' === $value ) {
+				continue;
+			}
+			
+			$key	= \strtolower( $key );
+			$value	= \trim( $value, "\"'" );
+			
+			if ( isset( $fwd[$key] ) ) {
+				$fwd[$key]	= ( array ) $fwd[$key];
+				$fwd[$key][]	= $value;
+			} else {
+				$fwd[$key]	= $value;
+			}
+		}
+	}
+	
+	return $fwd;
+}
+
+/**
+ *  Current request host
+ *  
+ *  @param string	$sent	Checked host key
+ *  @return string
+ */
+function request_host( ?string $sent = null ) : string {
+	static $cache	= [];
+	$sent		??= 'default';
+	
+	if ( isset( $cache[$sent] ) ) { return $cache[$sent]; }
+	
+	if ( 'default' !== $sent ) {
+		return $cache[$sent]	= sanitize_host( $sent );
+	}
+	
+	$fwd	= request_forwarded();
+	if ( isset( $fwd['host'] ) && '' !== $fwd['host'] ) {
+		$host		= 
+		\is_array( $fwd['host'] ) 
+			? $fwd['host'][0] 
+			: $fwd['host'];
+		
+		$cache[$sent]	= sanitize_host( $host );
+		return $cache[$sent];
+	}
+	
+	$cache[$sent]	= 
+	match( true ) {
+		( !empty( $_SERVER['HTTP_HOST'] ) )
+			=> sanitize_host( $_SERVER['HTTP_HOST'] ),
+		( !empty( $_SERVER['SERVER_NAME'] ) )
+			=> sanitize_host( $_SERVER['SERVER_NAME'] ),
+		( !empty( $_SERVER['SERVER_ADDR'] ) )
+			=> sanitize_host( $_SERVER['SERVER_ADDR'] ),
+		default	=> ''
+	};
+	
+	return $cache[$sent];
+}
+
+/**
+ *  Get IP address (best guess)
+ *  
+ *  @return string
+ */
+function request_ip( bool $skip = false ) : string {
+	static $ip;
+	static $ip_unf;
+	
+	if ( $skip && isset( $ip_unf ) ) { return $ip_unf; }
+	if ( !$skip && isset( $ip ) ) { return $ip; }
+	
+	$fwd	= request_forwarded();
+	if ( isset( $fwd['for'] ) && '' !== $fwd['for'] ) {
+		$candidate	= 
+		\is_array( $fwd['for'] )
+			? $fwd['for'][0]
+			: $fwd['for'];
+	} else {
+		$raw = util_trimmed_list(
+		$_SERVER['HTTP_X_FORWARDED_FOR']	?? 
+			$_SERVER['HTTP_CLIENT_IP']	?? 
+			$_SERVER['REMOTE_ADDR']		?? '' 
+		);
+		
+		if ( empty( $raw ) ) { 
+			$ip = $ip_raw = '';
+			return	'';
+		}
+		$candidate	= \array_shift( $raw );
+	}
+	
+	$candidate	= \trim( $candidate, "\"'" );
+	$v_unf		= \filter_var( $candidate, \FILTER_VALIDATE_IP );
+	$v_ip		= 
+	\filter_var(
+		$candidate,
+		\FILTER_VALIDATE_IP,
+		\FILTER_FLAG_NO_PRIV_RANGE | \FILTER_FLAG_NO_RES_RANGE
+        );
+	
+	$ip	= $v_ip !== false ? $candidate : '';
+	return $skip ? $ip_unf : $ip;
+}
+
+/**
+ *  Get full request URI
+ *  
+ *  @return string
+ */
+function request_uri( ?string $sent = null ) : string {
+	static $uri	= [];
+	$sent		??= 'default';
+	
+	if ( isset( $uri[$sent] ) ) { return $uri[$sent]; }
+	
+	$raw		= 
+	$sent	=== 'default' 
+		? ( $_SERVER['REQUEST_URI'] ?? '' )
+		: $sent;
+	
+	$uri[$sent]	= sanitize_uri( $raw ) ?? '';
+	return $uri[$sent];
+}
 
 /**
  *  Store and send rendering templates
@@ -3067,52 +3469,6 @@ function template( string $label, array $reg = [] ) : string {
 	}
 	
 	return $tpl[$label] ?? '';
-}
-
-/**
- *  Check if a specific library or if PHP is the given version or above
- *  
- *  @param string	$spec		Minimum supported version
- *  @param string	$lib		Optional library name, case sensitive
- *  @return bool
- */
-function libVersion( string $spec, ?string $lib ) : bool {
-	static $ext;
-	
-	// Fix for 7.4.0 etc... appearing higher than 7.4
-	$spec = \rtrim( $spec, '.0' );
-	
-	// Empty library? Check PHP
-	if ( empty( $lib ) ) {
-		return 
-		\version_compare( 
-			\rtrim( \PHP_VERSION, '.0' ), $spec, '>=' 
-		);
-	}
-	
-	// Currently running extensions
-	if ( empty( $ext ) ) {
-		$ext = \get_loaded_extensions();
-	}
-	
-	foreach ( $ext as $e ) {
-		if ( \str_starts_with( $e, $lib ) ) {
-			$lv = \phpversion( $e );
-			
-			// Error getting version?
-			if ( false === $lv ) {
-				return false;
-			}
-			
-			return 
-			\version_compare( 
-				\rtrim( $lv, '.0' ), $spec, '>=' 
-			);
-		}
-	}
-	
-	// Extension not found
-	return false;
 }
 
 /**
@@ -3335,36 +3691,6 @@ function shutdown() {
 	}
 }
 
-/**
- *  Guess if current request is secure
- */
-function isSecure() : bool {
-	static $secure;
-	if ( isset( $secure ) ) {
-		return $secure;
-	}
-	
-	$ssl	= $_SERVER['HTTPS'] ?? '0';
-	$frd	= 
-		$_SERVER['HTTP_X_FORWARDED_PROTO'] ?? 
-		$_SERVER['HTTP_X_FORWARDED_PROTOCOL'] ?? 
-		$_SERVER['HTTP_X_URL_SCHEME'] ?? 'http';
-	
-	if ( 
-		0 === \strcasecmp( $ssl, 'on' )		|| 
-		0 === \strcasecmp( $ssl, '1' )		|| 
-		0 === \strcasecmp( $frd, 'https' )
-	) {
-		$secure = true;
-		return true;
-	}
-	
-	$secure = 
-	( 443 == ( int ) ( $_SERVER['SERVER_PORT'] ?? 80 ) ) ? 
-		true : false;
-	return $secure;
-}
-
 
 /**
  *  Standard request parameter helpers
@@ -3382,20 +3708,6 @@ function getUA() : string {
 	}
 	$ua	= trim( $_SERVER['HTTP_USER_AGENT'] ?? '' );
 	return $ua;
-}
-
-/**
- *  Get full request URI
- *  
- *  @return string
- */
-function getURI() : string {
-	static $uri;
-	if ( isset( $uri ) ) {
-		return $uri;
-	}
-	$uri	= $_SERVER['REQUEST_URI'] ?? '';
-	return $uri;
 }
 
 /**
@@ -3425,21 +3737,6 @@ function getQS() : string {
 	}
 	$qs	= $_SERVER['QUERY_STRING'] ?? '';
 	return $qs;
-}
-
-/**
- *  Current client request method
- *  
- *  @return string
- */
-function getMethod() : string {
-	static $method;
-	if ( isset( $method ) ) {
-		return $method;
-	}
-	$method = 
-	\strtolower( trim( $_SERVER['REQUEST_METHOD'] ?? '' ) );
-	return $method;
 }
 
 /**
@@ -3641,7 +3938,7 @@ function getFileRange() : array {
  *  Logging safe string
  */
 function logStr( $text, int $len = 255 ) : string {
-	return truncate( unifySpaces( ( string ) ( $text ?? '' ) ), 0, $len );
+	return truncate( sanitize_spaces( ( string ) ( $text ?? '' ) ), 0, $len );
 }
 
 /**
@@ -3754,6 +4051,7 @@ function mailMessage(
 	// HTML or plain text headers
 	$headers 	= $html ? $hheaders : $theaders;
 	$headers[]	= 'From: ' . $mfr;
+	$ip		= request_ip( true );
 	
 	// Mailer hook
 	hook( [ 'mailmessage', [ 
@@ -3762,7 +4060,7 @@ function mailMessage(
 		'recipients'	=> $rec,
 		'subject'	=> $subject,
 		'message'	=> $msg,
-		'senderip'	=> getIP(),
+		'senderip'	=> $ip,
 		'senderua'	=> getUA()
 	] ] );
 	
@@ -3806,8 +4104,8 @@ function mailMessage(
 	}
 	
 	// Format user input
-	$subj	= sanitize_escape_text( unifySpaces( $res['subject'] ?? $subject ) );
-	$msg	.= "\r\n\r\nReceived from: " . getIP() . "  \r\n" . getUA();
+	$subj	= sanitize_escape_text( sanitize_spaces( $res['subject'] ?? $subject ) );
+	$msg	.= "\r\n\r\nReceived from: " . $ip . "  \r\n" . getUA();
 	$msg	= html( $res['message'] ?? $msg, '', false, true );
 	
 	$ok	= 
@@ -3815,13 +4113,13 @@ function mailMessage(
 		\implode( ',', $names ), 
 		$subj, 
 		$html ? \base64_encode( $msg ) : \strip_tags( $msg ), 
-		\array_map( 'unifySpaces', $headers ) 
+		\array_map( 'sanitize_spaces', $headers ) 
 	);
 	
 	if ( $ok ) {
 		shutdown( 
 			'logNotice', 
-			'Email: Sent from ' . getIP() . ' Subject: ' . $subj
+			'Email: Sent from ' . $ip . ' Subject: ' . $subj
 		);
 		return true;
 	}
@@ -3909,14 +4207,14 @@ function error( $err, bool $app = true ) : void {
 	}
 	
 	// Append visitor data
-	$mt	= getMethod();
+	$mt	= request_method();
 	$ua	= getUA();
 	
 	$ua	= logStr( empty( $mt ) ? 'unknown' : $ua );
 	$mt	= logStr( empty( $mt ) ? 'unknown' : $mt );
-	$uri	= logStr( getURI() );
+	$uri	= logStr( $_SERVER['REQUEST_URI'] ?? '' );
 
-	logError( $msg . ' ' . getIP() . ' ' . $mt . ' ' . $msg . ' ' . 
+	logError( $msg . ' ' . request_ip( true ) . ' ' . $mt . ' ' . $msg . ' ' . 
 		$ua . ' ' . $uri, $app );
 }
 
@@ -3929,7 +4227,7 @@ function error( $err, bool $app = true ) : void {
  */
 function logError( string $err, bool $app = true ) : bool {
 	$file	= \CACHE . ( $app ? \ERROR : \ERROR_VISIT );
-	$err	= $app ? unifySpaces( $err ) : truncate( $err, 0, 2048 );
+	$err	= $app ? sanitize_spaces( $err ) : truncate( $err, 0, 2048 );
 	
 	// Visitor errors have more header fields
 	$fields = $app ? 
@@ -3949,7 +4247,7 @@ function logNotice( string $msg ) : bool {
 	logMessage( 
 		\CACHE . \NOTICE, 
 		'date, time, s-comment',
-		truncate( unifySpaces( $msg ), 0, 2048 ) 
+		truncate( sanitize_spaces( $msg ), 0, 2048 ) 
 	);
 }
 
@@ -4003,7 +4301,7 @@ function logStartup() {
 		logMessage( 
 			$log, 
 			'date, time, s-comment',
-			truncate( unifySpaces( $msg ), 0, 2048 ) 
+			truncate( sanitize_spaces( $msg ), 0, 2048 ) 
 		);
 	}
 	
@@ -4014,7 +4312,7 @@ function logStartup() {
 		logMessage( 
 			$log, 
 			'date, time, s-comment',
-			truncate( unifySpaces( $msg ), 0, 2048 ) 
+			truncate( sanitize_spaces( $msg ), 0, 2048 ) 
 		);
 	}
 }
@@ -4027,13 +4325,13 @@ function logStartup() {
  *  @return bool
  */
 function visitorError( int $code = 0, string $msg = '-' ) {
-	$mt	= getMethod();
+	$mt	= request_method();
 	
 	$ua	= logStr( $_SERVER['HTTP_USER_AGENT'] ?? '-' );
 	$me	= logStr( empty( $mt ) ? 'unknown' : $mt );
-	$uri	= logStr( getURI() );
+	$uri	= logStr( $_SERVER['REQUEST_URI'] ?? '' );
 	
-	$err	= $code . ' ' . getIP() . ' ' . $me . ' ' . $msg . ' ' . 
+	$err	= $code . ' ' . request_ip( true ) . ' ' . $me . ' ' . $msg . ' ' . 
 			$ua . ' ' . $uri;
 	
 	shutdown( 'logError', [ $err, false ] );
@@ -4582,7 +4880,7 @@ function setting(
 	$site	= getSitesEnabled()[getHost()];
 	
 	// Current path
-	$st	= explode( '/', getURI() );
+	$st	= explode( '/', request_uri() );
 	$p	= '';
 	
 	// Match to path
@@ -4966,7 +5264,7 @@ function loadClasses() : array {
 	// Add new or appened classes while removing duplicates
 	foreach( $cls as $k => $v ) {
 		$cv['{' . $k . '}'] = 
-			\implode( ' ', uniqueTerms( bland( $v, true ) ) );
+			\implode( ' ', util_unique_terms( bland( $v, true ) ) );
 	}
 	return $cv;
 }
@@ -5064,7 +5362,7 @@ function getClasses( string $name ) : array {
 		if ( 0 != \strcmp( $n , $k ) ) {
 			continue;
 		}
-		$va	= uniqueTerms( $v );
+		$va	= util_unique_terms( $v );
 		break;
 	}
 	
@@ -5940,7 +6238,7 @@ function sameSiteCookie() : string {
 		return 'Strict';
 	}
 	
-	return isSecure() ? 'None' : 'Lax';
+	return request_is_tls() ? 'None' : 'Lax';
 }
 
 /**
@@ -5958,8 +6256,8 @@ function cookiePrefix() : string {
 	
 	// Enable locking if connection is secure and path is '/'
 	$prefix	= 
-	( 0 === \strcmp( $cpath, '/' ) && isSecure() ) ? 
-		'__Host-' : ( isSecure() ? '__Secure-' : '' );
+	( 0 === \strcmp( $cpath, '/' ) && request_is_tls() ) ? 
+		'__Host-' : ( request_is_tls() ? '__Secure-' : '' );
 	
 	return $prefix;
 }
@@ -5994,7 +6292,7 @@ function defaultCookieOptions( array $options = [] ) : array {
 			( int ) ( $options['expires'] ?? time() + $cexp ),
 		'path'		=> $cpath,
 		'samesite'	=> sameSiteCookie(),
-		'secure'	=> isSecure() ? true : false,
+		'secure'	=> request_is_tls() ? true : false,
 		'httponly'	=> true
 	];
 	
@@ -6278,39 +6576,6 @@ function throttleDisabled( $path = null ) { return []; }
  */
 
 /**
- *  Convert timestamp to int if it's not in integer format
- *  
- *  @return mixed
- */
-function tstring( $stamp ) {
-	if ( empty( $stamp ) ) {
-		return null;
-	}
-	
-	if ( \is_numeric( $stamp ) ) {
-		return ( int ) $stamp;
-	}
-	
-	$st =  \ltrim( 
-		\preg_replace( '/[^0-9\/]+/', '', $stamp ), 
-		'/' 
-	);
-	
-	return \strtotime( empty( $st ) ? 'now' : $st );
-}
-
-/**
- *  UTC timestamp
- *  
- *  @param mixed	$stamp	Plain timestamp or null to generate new
- *  @return string
- */
-function utc( $stamp = null ) : string {
-	return 
-	\gmdate( 'Y-m-d\TH:i:s', tstring( $stamp ?? 'now' ) );
-}
-
-/**
  *  Length of given string
  *  
  *  @param string	$text	Raw input
@@ -6420,7 +6685,7 @@ function dateNice( $stamp = null, string $fmt = \DATE_NICE ) : string {
 		$dn	= 
 		langVar( 'date_nice', setting( 'date_nice', $fmt ) );
 	}
-	return \gmdate( $dn, tstring( $stamp ) );
+	return \gmdate( $dn, util_time_string( $stamp ) );
 }
 
 /**
@@ -6440,60 +6705,6 @@ function dateSlug( string $slug, string $stamp ) : string {
 }
 
 /**
- *  Feed timestamp
- *  
- *  @param mixed	$stamp		Optional timestamp, defaults to 'now'
- *  @return string
- */
-function dateRfc( $stamp = null ) : string {
-	return 
-	\gmdate( \DATE_RFC2822, tstring( $stamp ?? 'now' ) );
-}
-
-/**
- *  File modified timestamp
- *  
- *  @param mixed	$stamp		Optional timestamp, defaults to 'now'
- *  @return string
- */
-function dateRfcFile( $stamp = null ) : string {
-	return 
-	\gmdate( 'D, d M Y H:i:s T', tstring( $stamp ?? 'now' ) );
-}
-
-/**
- *  Convert all spaces to single character
- *  
- *  @param string	$text		Raw text containting mixed space types
- *  @param string	$rpl		Replacement space, defaults to ' '
- *  @param string	$br		Preserve line breaks
- *  @return string
- */
-function unifySpaces( string $text, string $rpl = ' ', bool $br = false ) : string {
-	return $br ?
-		\preg_replace( 
-			'/[ \t\v\f]+/', $rpl, sanitize_filter( $text ) 
-		) : 
-		\preg_replace( '/[[:space:]]+/', $rpl, sanitize_filter( $text ) );
-}
-
-/**
- *  Get a list of tokens separated by spaces
- *  
- *  @param string	$text		Raw text containing repeated words
- *  @return array
- */
-function uniqueTerms( string $value ) : array {
-	return 
-	\array_unique( 
-		\preg_split( 
-			'/[[:space:]]+/', trim( $value ), -1, 
-			\PREG_SPLIT_NO_EMPTY 
-		) 
-	);
-}
-
-/**
  *  Clean entry title
  *  
  *  @param mixed	$title	Raw title entered by the user
@@ -6507,7 +6718,7 @@ function title( $text, int $max = 255 ) : string {
 	
 	// Unify spaces, tabs, returns etc...
 	return 
-	smartTrim( unifySpaces( ( string ) $text ), $max );
+	smartTrim( sanitize_spaces( ( string ) $text ), $max );
 }
 
 /**
@@ -6538,7 +6749,7 @@ function normal( string $text ) : string {
  *  @return string
  */
 function labelName( string $text ) : string {
-	$text	= unifySpaces( $text, '_' );
+	$text	= sanitize_spaces( $text, '_' );
 	
 	return 
 	smartTrim( \preg_replace( 
@@ -6635,7 +6846,7 @@ function slugify(
 	if ( empty( $text ) ) {
 		$text = $title;
 	}
-	$text = lowercase( unifySpaces( $text ) );
+	$text = lowercase( sanitize_spaces( $text ) );
 	$text = 
 	\preg_replace( 
 		( $dot ? '~[^\\pL\d\.]+~u' : '~[^\\pL\d]+~u' ), ' ', $text 
@@ -6720,138 +6931,6 @@ function serverParamWhite( array $headers, array $terms, bool $case = false ) {
 		break;
 	}
 	return $found;
-}
-
-/**
- *  Forwarded HTTP header chain from load balancer
- *  
- *  @return array
- */
-function getForwarded() : array {
-	static $fwd;
-	if ( isset( $fwd ) ) {
-		return $fwd;
-	}
-	
-	$fwd	= [];
-	$terms	= 
-		$_SERVER['HTTP_FORWARDED'] ??
-		$_SERVER['FORWARDED'] ?? 
-		$_SERVER['HTTP_X_FORWARDED'] ?? '';
-	
-	// No headers forwarded
-	if ( empty( $terms ) ) {
-		return [];
-	}
-	
-	$pt	= explode( ';', $terms );
-	
-	// Gather forwarded values
-	foreach ( $pt as $p ) {
-		// Break into comma delimited list, if any
-		$chain = util_trimmed_list( $p );
-		if ( empty( $chain ) ) {
-			continue;
-		}
-		
-		foreach ( $chain as $c ) {
-			$k = explode( '=', $c );
-			// Skip empty or odd values
-			if ( count( $k ) != 2 ) {
-				continue;
-			}
-			
-			// Existing key?
-			if ( isset( $fwd[$k[0]] ) ) {
-				// Existing array? Append
-				if ( \is_array( $fwd[$k[0]] ) ) {
-					$fwd[$k[0]][] = $k[1];
-				
-				// Multiple values? 
-				// Convert to array and then append new
-				} else {
-					$tmp		= $fwd[$k[0]];
-					$fwd[$k[0]]	= [];
-					$fwd[$k[0]][]	= $tmp;
-					$fwd[$k[0]][]	= $k[1];
- 				}
-			// Fresh value
-			} else {
-				$fwd[$k[0]] = $k[1];
-			}
-		}
-	}
-	return $fwd;
-}
-
-/**
- *  Get the current IP address connection chain including given proxies
- *  
- *  @return array
- */
-function getProxyChain() : array {
-	static $chain;
-	
-	if ( isset( $chain ) ) {
-		return $chain;
-	}
-	
-	$chain = 
-	util_trimmed_list( 
-		$_SERVER['HTTP_X_FORWARDED_FOR'] ?? 
-		$_SERVER['HTTP_CLIENT_IP'] ?? 
-		$_SERVER['REMOTE_ADDR'] ?? '' 
-	);
-	
-	return $chain;
-}
-
-/**
- *  Get IP address (best guess)
- *  
- *  @return string
- */
-function getIP() : string {
-	static $ip;
-	
-	if ( isset( $ip ) ) {
-		return $ip;
-	}
-	
-	$fwd = getForwarded();
-	
-	// Get IP from reverse proxy, if set
-	if ( \array_key_exists( 'for', $fwd ) ) {
-		$ip = 
-		\is_array( $fwd['for'] ) ? 
-			\array_shift( $fwd['for'] ) : 
-			( string ) $fwd['for'];
-	
-	// Get from sent headers
-	} else {
-		$raw = getProxyChain();
-		if ( empty( $raw ) ) {
-			$ip = '';
-			return '';
-		}
-		
-		$ip	= \array_shift( $raw );
-	}
-		
-	$skip	= setting( 'skip_local', \SKIP_LOCAL, 'int' );
-	$va	=
-	( $skip ) ?
-	\filter_var( $ip, \FILTER_VALIDATE_IP ) : 
-	\filter_var(
-		$ip, 
-		\FILTER_VALIDATE_IP, 
-		\FILTER_FLAG_NO_PRIV_RANGE | 
-		\FILTER_FLAG_NO_RES_RANGE
-	);
-	
-	$ip = ( false === $va ) ? '' : $ip;
-	
-	return $ip;
 }
 
 /**
@@ -8082,7 +8161,7 @@ function getRoot( bool $err = false ) : string {
 function quoteSecAttr( string $atr ) : string {
 	// Safe allow list
 	static $allow	= [ 'self', 'src', 'none' ];
-	$atr		= \trim( unifySpaces( $atr ) );
+	$atr		= \trim( sanitize_spaces( $atr ) );
 	
 	return 
 	\in_array( $atr, $allow ) ? 
@@ -8428,22 +8507,9 @@ function getHost() : string {
 	
 	$sk	= getSitesEnabled();
 	$sw	= util_trimmed_list( implode( ',', array_keys( $sk ) ), true );
-	
-	// Base host headers
-	$sh	= [ 'HTTP_HOST', 'SERVER_NAME', 'SERVER_ADDR' ];
-	
-	// Get forwarded host info from reverse proxy
-	$fd	= getForwarded();
-	
-	// Check reverse proxy host name in whitelist
-	if ( \array_key_exists( 'host', $fd ) ) {
-		$lc	= lowercase( ( string ) $fd['host'] );
-		$host	= \in_array( $lc, $sw ) ? $lc : '';
-		
-	// Check base host headers
-	} else {
-		$host	= serverParamWhite( $sh, $sw, true ) ?? '';
-	}
+	$raw	= request_host();
+
+	$host	= isset( $sw[$raw] ) ? lowercase( $raw ) : '';
 	
 	// Call host hook
 	hook( [ 'gethost', [
@@ -8537,7 +8603,7 @@ function website() : string {
 		return $url;
 	}
 	
-	$url	= ( isSecure() ? 'https://' : 'http://' ) . getHost();
+	$url	= ( request_is_tls() ? 'https://' : 'http://' ) . getHost();
 	return $url;
 }
 
@@ -8545,7 +8611,7 @@ function website() : string {
  *  Current full URI including website
  */
 function fullURI() : string {
-	return website() . slashPath( getURI() );
+	return website() . slashPath( request_uri() ) );
 }
 
 /**
@@ -9228,7 +9294,7 @@ function sendFileFinish( $path ) {
 		if ( $fmod ) {
 			\header( 
 				'Last-Modified: ' . 
-				dateRfcFile( $fmod ), 
+				util_rfc_file_date( $fmod ), 
 				true
 			);
 		}
@@ -9606,8 +9672,8 @@ function request( string $event, array $hook, array $params ) : array {
 	}
 	
 	// Sanity checks
-	$path	= getURI();
-	$verb	= getMethod();
+	$path	= request_uri();
+	$verb	= request_method();
 	$safe	= getAllowedMethods( true );
 	
 	// Unrecognized method?
@@ -10502,7 +10568,7 @@ function getPub( $path ) : string {
 	$path	= \ltrim( $path, '/' );
 	$fr	= cutSlug( $path );
 	
-	return utc( empty( $fr ) ? 'now' : $fr );
+	return util_utc( empty( $fr ) ? 'now' : $fr );
 }
 
 /**
@@ -10543,8 +10609,8 @@ function postModified( $path, $mtime ) : bool {
 	}
 	
 	// Remove fine resolution issues
-	$ft = \strtotime( utc( $res[0]['updated'] ) );
-	$mt = \strtotime( utc( $mtime ) );
+	$ft = \strtotime( util_utc( $res[0]['updated'] ) );
+	$mt = \strtotime( util_utc( $mtime ) );
 	
 	return ( $mt > $ft ) ? false : true;
 }
@@ -10587,7 +10653,7 @@ function extractFeature(
 	$p = $c - 1;
 	$i = 0;
 	while ( $i < $lines && $p > 0 ) {
-		$line = \trim( unifySpaces( $post[$p] ) );
+		$line = \trim( sanitize_spaces( $post[$p] ) );
 		
 		// Nothing to find? Skip line
 		if ( empty( $line ) ) {
@@ -10969,7 +11035,7 @@ function insertPost(
 		':bare'		=> \strip_tags( $out ), 
 		':summary'	=> $summ, 
 		':type'		=> $type,		
-		':updated'	=> utc( $mtime ), 
+		':updated'	=> util_utc( $mtime ), 
 		':pub'		=> $pub
 	];
 	
@@ -11314,7 +11380,7 @@ function formatMeta(
 	return [
 		'title'		=> hookStringResult( 'formattitle', $title ),
 		'date_utc'	=> $pub,
-		'date_rfc'	=> dateRfc( $pub ),
+		'date_rfc'	=> util_rfc_date( $pub ),
 		'date_stamp'	=> hookStringResult( 'formatpublished', dateNice( $pub ) ),
 		'read_time'	=> hookStringResult( 'formatreadtime', $read ),
 		'tags'		=> formatTags( $tags, $index ),
@@ -11489,7 +11555,7 @@ function filterRequest( string $event, array $hook, array $params ) {
 			'options'	=> 
 			function( $v ) {
 				return \is_scalar( $v ) ? 
-					unifySpaces( ( string ) $v ) : '';
+					sanitize_spaces( ( string ) $v ) : '';
 			}
 		],
 		'slug'	=> [
@@ -11502,7 +11568,7 @@ function filterRequest( string $event, array $hook, array $params ) {
 			'options'	=> 
 			function( $v ) {
 				return \is_scalar( $v ) ? 
-					unifySpaces( ( string ) $v ) : '';
+					sanitize_spaces( ( string ) $v ) : '';
 			}
 		],
 		'tree'	=> [
@@ -11870,7 +11936,7 @@ function validateForm(
  *  @return string
  */
 function bland( string $text, bool $nospecial = false ) : string {
-	$text = \strip_tags( unifySpaces( $text ) );
+	$text = \strip_tags( sanitize_spaces( $text ) );
 	
 	if ( $nospecial ) {
 		return \preg_replace( 
@@ -12788,7 +12854,7 @@ function showFeed( string $event, array $hook, array $params ) {
 		'tagline'	=> $psub,
 		'home'		=> website(),
 		'path'		=> fullURI(),
-		'date_gen'	=> dateRfc(),
+		'date_gen'	=> util_rfc_date(),
 		'body'		=> \implode( '', $posts )
 	];
 	
