@@ -2464,6 +2464,27 @@ function util_utf8( string $text, string $default = 'ISO-8859-1' ) : string {
 }
 
 /**
+ *  Recursively convert array values to lowercase
+ *  
+ *  @param array	$tree	Raw catalog to process
+ *  @return array
+ */
+function util_normalize_array( array $tree ) : array {
+	$normal	= [];
+	
+	foreach ( $tree as $key => $value ) {
+		if ( \is_array( $value ) ) {
+			$normal[$key] = util_normalize_array( $value );
+		} elseif ( \is_string( $value ) ) {
+			$normal[$key] = \strtolower( $value );
+		} else {
+			$normal[$key] = $value;
+		}
+	}
+	
+	return $normal;
+}
+/**
  *  Get a list of tokens separated by spaces
  *  
  *  @param string	$text		Raw text containing repeated words
@@ -2799,6 +2820,81 @@ function sanitize_url( string $text, bool $xss = true ) : string {
 	$text = sanitized_escape_text( 
 		( $xss ? sanitize_strip_xss( $text ) : $text ), false, false 
 	);
+}
+
+/**
+ *  Attempt to decode encoded URLs
+ *  
+ *  @param string	$url	Raw URL string
+ *  @param int		$limit	Decoding depth limit
+ *  @return mixed
+ */
+function sanitize_urldecode( string $url, int $limit = 10 ) : ?string {
+	$url	= \trim( $url );
+	if ( '' === $url ) { return ''; }
+	
+	$prev		= '';
+	$current	= $url;
+	$depth		= 0;
+	
+	while ( $current !== $prev ) {
+		if ( $depth > $limit ) { return null; }
+		
+		$prev		= $current;
+		$current	= \urldecode( $prev );
+		$depth++;
+	}
+	
+	return $current;
+}
+
+/**
+ *  Filter and optionally parse query into usable segments
+ *  
+ *  @param bool $parsed Process into array
+ *  @param bool $lower_keys Make array keys lowercase, if true
+ *  @return mixed
+ */
+function sanitize_query( bool $parsed = false, bool $lower_keys = false ) : string|array {
+	static $query;
+	static $result;
+	static $result_lower;
+	
+	$query ??= $_SERVER['QUERY_STRING'] ?? '';
+	
+	if ( $parsed && isset( $result ) ) {
+		return $lower_keys ? $result_lower : $result;
+	} elseif ( !$parsed ) {
+		return $query;
+	}
+	
+	$result	= [];
+	$pairs	= \explode( '&', $query );
+	foreach ( $pairs as $pair ) {
+		if ( '' === $pair ) { continue; }
+		
+		[ $key, $value ] = 
+		\array_map( 
+			'sanitize_urldecode', 
+			\explode( '=', $pair, 2 ) + [ 1 => '' ] 
+		);
+		
+		if ( $key === '') { continue; }
+		
+		// Preserve duplicates
+		if ( isset( $result[$key] ) ) {
+			if ( \is_array( $result[$key] ) ) {
+				$result[$key][] = $value;
+			} else {
+				$result[$key] = [ $result[$key], $value ];
+			}
+		} else {
+			$result[$key] = $value;
+		}
+	}
+	
+	$result_lower = \array_change_key_case( $result, \CASE_LOWER );
+	return $result;
 }
 
 /**
@@ -3213,6 +3309,18 @@ function request_id() : string {
 }
 
 /**
+ *  Generic timer
+ *  
+ *  @return string
+ */
+function request_timestamp() : string {
+	static $stamp;
+	
+	$stamp ??= date( 'c' ); // ISO 8601 format
+	return $stamp;
+}
+
+/**
  *  Guess if current request is secure
  *  
  *  @return bool
@@ -3451,6 +3559,155 @@ function request_uri( ?string $sent = null ) : string {
 	
 	$uri[$sent]	= sanitize_uri( $raw ) ?? '';
 	return $uri[$sent];
+}
+
+/**
+ *  Get current request path
+ *  
+ *  @return string
+ */
+function request_path() : string {
+	static $path;
+	$path ??= '/' . \ltrim( request_uri(), '/' );
+	
+	return $path;
+}
+
+/**
+ *  Select between 'https' and 'http' for current request
+ *  
+ *  @return string
+ */
+function request_scheme() : string {
+	static $scheme;
+	$scheme ??= ( request_is_tls() ? 'https' : 'http' );
+	
+	return $scheme;
+}
+
+/**
+ *  Currently requested web realm
+ *  
+ *  @return string
+ */
+function request_origin() : string {
+	static $web;
+	if ( isset( $web ) ) { return $web; }
+	
+	$web	= request_scheme() . '://' . request_host();
+	$port	= $_SERVER['SERVER_PORT'] ?? null;
+	
+	if ( $port && !\in_array( $port, [ 80, 443 ] ) ) {
+		$web .= ':' . $port;
+	}
+	return $web;
+}
+
+/**
+ *  Browser User Agent
+ *  
+ *  @return string
+ */
+function request_ua() : string {
+	static $ua;
+	$ua ??= \trim( $_SERVER['HTTP_USER_AGENT'] ?? '' );
+	
+	return $ua;
+}
+
+/**
+ *  Get unparsed request query
+ */
+function request_query() : string {
+	string $qs;
+	$qs	??= sanitize_query( false ) ?? '';
+	
+	return $qs;
+	
+}
+
+/**
+ *  Complete request including host, path, and query
+ *  
+ *  @return string
+ */
+function request_url() : string {
+	$uri	= \ltrim( request_get_uri(), '/' );
+	$query	= request_query;
+	return request_origin() . '/' . $uri .  ( '' === $query ? '' : "?{$query}" );
+}
+
+/**
+ *  Check for current ETag in request
+ *  
+ *  @return string
+ */
+function request_none_match() : string {
+	static $etag;
+
+	$etag ??= $_SERVER['HTTP_IF_NONE_MATCH'] ?? '';
+	return $etag;
+}
+
+/**
+ *  Check If-None-Match header against given ETag
+ *  
+ *  @return true if header not set or if ETag doesn't match
+ */
+function request_modified( string $etag ) : bool {
+	$check	= request_none_match();
+	if ( empty( $check ) ) { return true; }
+	
+	return ( 0 !== \strcmp( $etag, $check ) );
+}
+
+/**
+ *  Time since request modified
+ *  
+ *  @return mixed
+ */
+function request_modified_since() : ?int {
+	static $init	= false;
+	static $since	= null;
+	
+	if ( $init ) { return $since; }
+	$init		= true;
+	
+	$header	= $_SERVER['HTTP_IF_MODIFIED_SINCE'] ?? null;
+	if ( !$header ) { return null; }
+	
+	$since	= \strtotime( $header ) ?: null;
+	return $since;
+}
+
+/**
+ *  Accept-* Header field sorter
+ *  
+ *  @param string	$header	Server header label
+ *  @return array
+ */
+function request_accept_header( string $header ) : array {
+	$accept	= trim( $_SERVER[$header] ?? '' );
+	if ( $accept === '' ) { return []; }
+	
+	$parsed = [];
+	foreach ( explode( ',', $accept ) as $part ) {
+		[ $term, $params ] = 
+		\array_pad( explode( ';', \trim( $part ), 2 ), 2, '' );
+		
+		if ( '' === $term ) { continue; }
+		
+		$quality	= 1.0;
+		if ( \preg_match('/q=([0-9.]+)/i', $params, $match ) ) {
+			$quality = ( float ) $match[1];
+		}
+		
+		$parsed[]	= [ 'term' => $term, 'q' => $quality ];
+	}
+	
+	usort( $parsed, fn( $a, $b ) => $b['q'] <=> $a['q'] );
+	
+	return \array_column( $parsed, 'term' );
 }
 
 /**
@@ -3697,20 +3954,6 @@ function shutdown() {
  */
 
 /**
- *  Browser User Agent
- *  
- *  @return string
- */
-function getUA() : string {
-	static $ua;
-	if ( isset( $ua ) ) {
-		return $ua;
-	}
-	$ua	= trim( $_SERVER['HTTP_USER_AGENT'] ?? '' );
-	return $ua;
-}
-
-/**
  *  Get or guess current server protocol
  *  
  *  @param string	$assume		Default protocol to assume if not given
@@ -3723,20 +3966,6 @@ function getProtocol( string $assume = 'HTTP/1.1' ) : string {
 	}
 	$pr = $_SERVER['SERVER_PROTOCOL'] ?? $assume;
 	return $pr;
-}
-
-/**
- *  Current querystring, if present
- *  
- *  @return string
- */
-function getQS() : string {
-	static $qs;
-	if ( isset( $qs ) ) {
-		return $qs;
-	}
-	$qs	= $_SERVER['QUERY_STRING'] ?? '';
-	return $qs;
 }
 
 /**
@@ -4061,7 +4290,7 @@ function mailMessage(
 		'subject'	=> $subject,
 		'message'	=> $msg,
 		'senderip'	=> $ip,
-		'senderua'	=> getUA()
+		'senderua'	=> request_ua()
 	] ] );
 	
 	// Load mail hook replacements
@@ -4105,7 +4334,7 @@ function mailMessage(
 	
 	// Format user input
 	$subj	= sanitize_escape_text( sanitize_spaces( $res['subject'] ?? $subject ) );
-	$msg	.= "\r\n\r\nReceived from: " . $ip . "  \r\n" . getUA();
+	$msg	.= "\r\n\r\nReceived from: " . $ip . "  \r\n" . request_ua();
 	$msg	= html( $res['message'] ?? $msg, '', false, true );
 	
 	$ok	= 
@@ -4208,7 +4437,7 @@ function error( $err, bool $app = true ) : void {
 	
 	// Append visitor data
 	$mt	= request_method();
-	$ua	= getUA();
+	$ua	= request_ua();
 	
 	$ua	= logStr( empty( $mt ) ? 'unknown' : $ua );
 	$mt	= logStr( empty( $mt ) ? 'unknown' : $mt );
@@ -9103,21 +9332,6 @@ function sendFilePrep(
 }
 
 /**
- *  Check If-None-Match header against given ETag
- *  
- *  @return true if header not set or if ETag doesn't match
- */
-function ifModified( $etag ) : bool {
-	$mod = $_SERVER['HTTP_IF_NONE_MATCH'] ?? '';
-	
-	if ( empty( $mod ) ) {
-		return true;
-	}
-	
-	return ( 0 !== \strcmp( $etag, $mod ) );
-}
-
-/**
  *  Open a file stream in binary mode and set blocking mode
  *  
  *  @param mixed	$stream		File resource or false if initializing
@@ -9303,7 +9517,7 @@ function sendFileFinish( $path ) {
 	// Send any headers and end buffering
 	flushOutput( true );
 	
-	if ( ifModified( $etag ) && $fsize !== false ) {
+	if ( request_modified( $etag ) && $fsize !== false ) {
 		if ( $fsize <= $climit ) {
 			\readfile( $path );
 			return;
@@ -9930,7 +10144,7 @@ function sendWithEtag( $path ) : bool {
 	}
 	
 	// Create return code based on returned ETag
-	$code	= ifModified( $tags['etag'] )? 200 : 304;
+	$code	= request_modified( $tags['etag'] )? 200 : 304;
 	
 	// Send on success
 	return sendFile( $path, false, true, $code );
