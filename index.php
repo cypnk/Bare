@@ -2485,6 +2485,39 @@ function util_normalize_array( array $tree ) : array {
 }
 
 /**
+ *  Flatten a multi-dimensional array into a path map
+ *  
+ *  @link https://stackoverflow.com/a/2703121
+ *  
+ *  @param array	$items		Raw item map (parsed JSON)
+ *  @param string	$delim		Phrase separator in E.G. {lang:}
+ *  @return array
+ */ 
+function util_flatten_array(
+	array		$items, 
+	string		$delim	= ':'
+) : array {
+	$it	= new \RecursiveIteratorIterator( 
+			new \RecursiveArrayIterator( $items )
+		);
+	
+	$out	= [];
+	foreach ( $it as $leaf ) {
+		$path = '';
+		foreach ( \range( 0, $it->getDepth() ) as $depth ) {
+			$path .= 
+			\sprintf( 
+				"$delim%s", 
+				$it->getSubIterator( $depth )->key() 
+			);
+		}
+		$out[$path] = $leaf;
+	}
+	
+	return $out;
+}
+
+/**
  *  Format a structured array into a URL query section
  *  
  *  @param array $query Presorted array
@@ -3389,6 +3422,19 @@ function request_timestamp() : string {
 }
 
 /**
+ *  Get or guess current server protocol
+ *  
+ *  @param string	$assume		Default protocol to assume if not given
+ *  @return string
+ */
+function request_protocol( string $assume = 'HTTP/1.1' ) : string {
+	static $pr;
+	$pr ??= $_SERVER['SERVER_PROTOCOL'] ?? $assume;
+	
+	return $pr;
+}
+
+/**
  *  Guess if current request is secure
  *  
  *  @return bool
@@ -3952,110 +3998,194 @@ function request_range_header( int $fsize ) : array {
 	return util_merge_ranges( $ranges );
 }
 
-/**
- *  Store and send rendering templates
- *  
- *  @param string	$lable		Template name to send back
- *  @param array	$reg		New templates to initiaize registry or override existing templates
- *  @return string
- */
-function template( string $label, array $reg = [] ) : string {
-	static $tpl	= [];
-	
-	// New templates? Append to current store
-	if ( !empty( $reg ) ) {
-		$tpl = \array_merge( $tpl, $reg );
-	}
-	
-	return $tpl[$label] ?? '';
-}
+
 
 /**
  *  Hooks and extensions
+ */
+
+/**
+ *  Main hook attribute
+ */
+#[Attribute( Attribute::TARGET_FUNCTION | Attribute::IS_REPEATABLE )]
+class Hook {
+	/**
+	 *  Hook constructor
+	 *  
+	 *  @param string	$name		Event name
+	 *  @param int		$priority	Execution order, higher > earlier
+	 */
+	public function __construct(
+		public readonly string	$name,
+		public int		$priority	= 0
+	) {}
+}
+
+/**
+ *  Consolidated hook system with execution priority and cumulative stored output
+ *  
+ *  @param string	$action		Switched behavior of the registry
+ *  @param string	$name		Event name in full string or partial event.* 
+ *  @param array	$args		Event arguments
+ *  @return mixed
+ */
+function hook_registry( string $action, string $name, ...$args ) : mixed {
+	static	$handlers	= [];
+	static	$output		= [];
+
+	// Normalize
+	$action	= \strtolower( $action );
+	$name	= \strtolower( $name );
+
+	// Match actions
+	return match( $action ) {
+		// Adding new hook
+		'add'		=> $handlers[$name][]	= [
+			'handler'	=> $args[0],
+			'priority'	=> $args[1] ?? 0
+		],
+		
+		// Execute hook and return mutated output
+		'run'		=> 
+		( function() use ( &$output, $name, $args ) {
+			$hooks	= hook_registry( 'get', $name );
+			$result	= $output[$name] ?? [];
+			foreach ( $hooks as $handler ) {
+				$result = 
+				( $handler['handler'] )(
+					$name,
+					$result,
+					...$args
+				) ?? [];
+			}
+			
+			$output[$name]	= $result;
+			return $output[$name];
+		} )(),
+		
+		// Search hooks by full or partial name
+		'get'		=> 
+		( function() use ( $handlers, $name ) {
+			$found	= [];
+			foreach ( $handlers as $group => $hooks ) {
+				// Exact match?
+				if ( $name === $group ) {
+					$found	= \array_merge( $found, $hooks );
+					continue;
+				}
+				
+				// No wildcard? Move on
+				if ( !\str_contains( $group, '*' ) ) { continue; }
+				
+				// Prefixed wildcard event
+				if ( \str_ends_with( $group, '*' ) ) {
+					if ( \str_starts_with( $name, \substr( $group, 0, -1 ) ) ) {
+						$found	= \array_merge( $found, $hooks );
+						continue;
+					}
+				}
+				
+				// Suffixed wildcard event
+				if ( \str_starts_with( $group, '*' ) ) {
+					if ( \str_ends_with( $name, \substr( $group, 1 ) ) ) {
+						$found	= \array_merge( $found, $hooks );
+						continue;
+					}
+				}
+				
+				// Clean pattern for matching everything else
+				$pat	= 
+				\preg_replace( '/\\\\\*/', '.*', \preg_quote( $group, '/' ) );
+				
+				if ( \preg_match(  '/^' . $pat  . '$/', $name ) ) {
+					$found	= \array_merge( $found, $hooks );
+				}
+			}
+			
+			// Reorder hooks by priority
+			\usort( 
+				$found, 
+				fn( $a, $b ) => $b['priority'] <=> $a['priority'] 
+			);
+			
+			return $found;
+		} )(),
+		
+		// Get execution result
+		'values'	=> $output[$name] ?? [],
+		
+		// Clear results
+		'clear'		=> unset( $output[$name] ),
+		
+		// Resort hooks by priority
+		'priority'	=> 
+		( function() use ( &$handlers, $args ) {
+			[ $hook, $priority ]	= $args;
+			foreach ( $handlers[$name] ?? [] as &$h ) {
+				if ( $hook === $h['handler'] ) {
+					$h['priority'] = $priority;
+				}
+			}
+			
+			return null;
+		} )(),
+		
+		// Nothing else to send
+		default		=> null
+	};
+}
+
+/**
+ *  Load event hooks from current script
+ */
+function hook_autoload() : void {
+	$functions = util_functions_list();
+	foreach ( $functions as $handler ) {
+		$ref	= 
+		\is_array( $handler ) 
+			? new \ReflectionMethod( $handler[0], $handler[1] )
+			: new \ReflectionFunction( $handler );
+		$attrs	= $ref->getAttributes( Hook::class );
+		
+		foreach ( $attrs as $attr ) {
+			$hook	= $attr->newInstance();
+			hook_registry( 
+				'add', 
+				$hook->name, 
+				$handler, 
+				$hook->priority 
+			);
+		}
+	}
+}
+
+/**
+ *  Execute or set hooks and extensions
  *  Append a hook handler in [ 'event', 'handler' ] format
  *  Call the hook event in [ 'event', args... ] format
  *  
  *  @param array	$params		[ 'event', 'handler' ]
  */
 function hook( array $params ) {
-	static $handlers	= [];
-	static $output		= [];
 	
 	// Nothing to add?
 	if ( empty( $params ) ) { return; }
 	
-	// First parameter is the event name
-	$name			= 
-	\strtolower( \array_shift( $params ) );
-	
-	// Prepare event to receive handlers
-	if ( !isset( $handlers[$name] ) ) {
-		$handlers[$name]	= [];
-	}
+	$event	= \strtolower( \array_shift( $params ) );
 	
 	// Adding a handler to the given event?
-	// Need an event name and a handler
-	if ( 
-		\is_string( $params[0] )	&& 
-		\is_callable( $params[0] )
-	) {
-		$handlers[$name][]	= $params[0];
-		
+	if ( \is_string( $params[0] ) && \is_callable( $params[0] ) ) {
+		return hook_registry( 'add', $event, $params[0], 0 );
+	}
+	
+	// Asking for hook-named output
+	if ( \is_string( $params[0] ) && empty( $params[0] ) ) {
+		return hook_registry( 'values', $event );
+	}
+	
 	// Handler being called with parameters, if any
-	} else {
-		// Asking for hook-named output?
-		if ( \is_string( $params[0] ) && empty( $params[0] ) ) {
-			return $output[$name] ?? [];
-		}
-		
-		// Execute handlers in order and store in output
-		foreach( $handlers[$name] as $handler ) {
-			$output[$name] = 
-			$handler( 
-				$name, $output[$name] ?? [], ...$params 
-			) ?? [];
-		}
-	}
+	return hook_registry( 'run', $event, ...$params );
 }
-
-/**
- *  Flatten a multi-dimensional array into a path map
- *  
- *  @link https://stackoverflow.com/a/2703121
- *  
- *  @param array	$items		Raw item map (parsed JSON)
- *  @param string	$delim		Phrase separator in E.G. {lang:}
- *  @return array
- */ 
-function flatten(
-	array		$items, 
-	string		$delim	= ':'
-) : array {
-	$it	= new \RecursiveIteratorIterator( 
-			new \RecursiveArrayIterator( $items )
-		);
-	
-	$out	= [];
-	foreach ( $it as $leaf ) {
-		$path = '';
-		foreach ( \range( 0, $it->getDepth() ) as $depth ) {
-			$path .= 
-			\sprintf( 
-				"$delim%s", 
-				$it->getSubIterator( $depth )->key() 
-			);
-		}
-		$out[$path] = $leaf;
-	}
-	
-	return $out;
-}
-
-
-
-/**
- *  Hook result rendering helpers
- */
 
 /**
  *  Check for non-empty string result from hook
@@ -4156,6 +4286,26 @@ function hookWrap(
 }
 
 
+
+/**
+ *  Store and send rendering templates
+ *  
+ *  @param string	$lable		Template name to send back
+ *  @param array	$reg		New templates to initiaize registry or override existing templates
+ *  @return string
+ */
+function template( string $label, array $reg = [] ) : string {
+	static $tpl	= [];
+	
+	// New templates? Append to current store
+	if ( !empty( $reg ) ) {
+		$tpl = \array_merge( $tpl, $reg );
+	}
+	
+	return $tpl[$label] ?? '';
+}
+
+
 /**
  *  Collection of functions to execute after content sent
  */
@@ -4194,21 +4344,6 @@ function shutdown() {
 /**
  *  Standard request parameter helpers
  */
-
-/**
- *  Get or guess current server protocol
- *  
- *  @param string	$assume		Default protocol to assume if not given
- *  @return string
- */
-function getProtocol( string $assume = 'HTTP/1.1' ) : string {
-	static $pr;
-	if ( isset( $pr ) ) {
-		return $pr;
-	}
-	$pr = $_SERVER['SERVER_PROTOCOL'] ?? $assume;
-	return $pr;
-}
 
 
 
@@ -5316,7 +5451,7 @@ function prefixReplace(
 		$content, $m 
 	);
 	// Convert data to :group:label... format
-	$terms	= flatten( $data );
+	$terms	= util_flatten_array( $data );
 	
 	// Replacements list
 	$rpl	= [];
@@ -6551,7 +6686,7 @@ function cookiePrefix() : string {
  */
 function appKey() : string {
 	return 
-	cookiePrefix() . \hash( 'tiger160,4', getHost() . getProtocol() );
+	cookiePrefix() . \hash( 'tiger160,4', getHost() . request_protocol() );
 }
 
 /**
@@ -8640,7 +8775,7 @@ function sendAllowHeader() {
  *  @param string	$msg		Header message
  */
 function protocolHeader( int $code, string $msg ) {
-	$prot = getProtocol();
+	$prot = request_protocol();
 	\header( "$prot $code $msg", true );
 }
 
