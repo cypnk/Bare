@@ -2550,6 +2550,25 @@ function util_merge_ranges( array $ranges ) : array {
 }
 
 /**
+ *  Check if given ranges have overlapping values
+ *  
+ *  @param array	$ranges	Raw range sets
+ *  @return bool
+ */
+function util_has_overlapping_ranges( array $ranges ) : bool {
+	\usort( $ranges, fn( $a, $b ) => $a[0] <=> $b[0] );
+	$rcount = count( $ranges );
+	
+	for ( $i = 1; $i < $rcount; $i++ ) {
+		if ( $ranges[$i][0] < $ranges[$i - 1][1] ) {
+			return true;
+		}
+	}
+	
+	return false;
+}
+
+/**
  *  Convert timestamp to int if it's not in integer format
  *  
  *  @return mixed
@@ -3870,21 +3889,26 @@ function request_lang() : array {
 	return $cache = $result;
 }
 
-function request_has_overlapping_ranges( array $ranges ) : bool {
-	\usort( $ranges, fn( $a, $b ) => $a[0] <=> $b[0] );
-	$rcount = count( $ranges );
-	
-	for ( $i = 1; $i < $rcount; $i++ ) {
-		if ( $ranges[$i][0] < $ranges[$i - 1][1] ) {
-			return true;
-		}
-	}
-	
-	return false;
+/**
+ *  Small helper to check if this is a ranged request
+ *  
+ *  @return Return description
+ *  
+ *  @details More details
+ */
+function request_is_ranged() : bool {
+	$range	= \trim( $_SERVER['HTTP_RANGE'] ?? '' );
+	return $range !== '';
 }
 
+/**
+ *  Validate and process requested ranges for a given file size
+ *  
+ *  @param int $fsize Requested file size in bytes
+ *  @return array
+ */
 function request_range_header( int $fsize ) : array {
-	$range	= trim( $_SERVER['HTTP_RANGE'] ?? '' );
+	$range	= \trim( $_SERVER['HTTP_RANGE'] ?? '' );
 	if ( empty( $range ) ) { return []; }
 	
 	$ranges	= [];
@@ -4184,106 +4208,6 @@ function getProtocol( string $assume = 'HTTP/1.1' ) : string {
 	}
 	$pr = $_SERVER['SERVER_PROTOCOL'] ?? $assume;
 	return $pr;
-}
-
-/**
- *  Get requested file range, return [-1] if range was invalid
- *  
- *  @return array
- */
-function getFileRange() : array {
-	static $ranges;
-	if ( isset( $ranges ) ) {
-		return $ranges;
-	}
-	
-	$fr = $_SERVER['HTTP_RANGE'] ?? '';
-	if ( empty( $fr ) ) {
-		return [];
-	}
-	
-	// Range(s) too long 
-	if ( strlen( $fr ) > 180 ) {
-		return [-1];
-	}
-	
-	// Check multiple ranges, if given
-	$rg = \preg_match_all( 
-		'/bytes=(^$)|(?<start>\d+)?(\s+)?-(\s+)?(?<end>\d+)?/is',
-		$fr,
-		$m
-	);
-	
-	// Invalid range syntax?
-	if ( false === $rg ) {
-		return [-1];
-	}
-	
-	$starting	= $m['start'] ?? [];
-	$ending		= $m['end'] ?? [];
-	$sc		= count( $starting );
-	
-	// Too many or too few ranges or starting / ending mismatch
-	if ( $sc > 10 || $sc == 0 || $sc != count( $ending ) ) {
-		return [-1];
-	}
-	
-	\asort( $starting );
-	\asort( $ending );
-	$rx = [];
-	
-	// Format ranges
-	foreach ( $ending as $k => $v ) {
-		
-		// Specify 0 for starting if empty and -1 if end of file
-		$rx[$k] = [ 
-			empty( $starting[$k] ) ? 0 : \intval( $starting[$k] ), 
-			empty( $ending[$k] ) ? -1 : \intval( $ending[$k] )
-		];
-		
-		// If start is larger or same as ending and not EOF...
-		if ( $rx[$k][0] >= $rx[$k][1] && $rx[$k][1] != -1 ) {
-			return [-1];
-		}
-	}
-	
-	// Sort by lowest starting value
-	usort( $rx, function( $a, $b ) {
-		return $a[0] <=> $b[0];
-	} );
-	
-	// End of file range found if true
-	$eof = 0;
-	
-	// Check for overlapping/redundant ranges (preserves bandwidth)
-	foreach ( $rx as $k => $v ) {
-		// Nothing to check yet
-		if ( !isset( $rx[$k-1] ) ) {
-			continue;
-		}
-		// Starting range is lower than or equal previous start
-		if ( $rx[$k][0] <= $rx[$k-1][0] ) {
-			return [-1];
-		}
-		
-		// Ending range lower than previous ending range
-		if ( $rx[$k][1] <= $rx[$k-1][1] ) {
-			// Special case EOF and it hasn't been found yet
-			if ( $rx[$k][1] == -1 && $eof == 0) {
-				$eof = 1;
-				continue;
-			}
-			return [-1];
-		}
-		
-		// Duplicate EOF ranges
-		if ( $rx[$k][1] == -1 && $eof == 1 ) {
-			return [-1];
-		}
-	}
-	
-	$ranges = $rx;
-	return $rx;
 }
 
 
@@ -8951,28 +8875,6 @@ function hostPathMatch( string $host, string $path ) : bool {
 }
 
 /**
- *  Current website with protocol prefix
- *  
- *  @return string
- */
-function website() : string {
-	static $url;
-	if ( isset( $url ) ) {
-		return $url;
-	}
-	
-	$url	= ( request_is_tls() ? 'https://' : 'http://' ) . getHost();
-	return $url;
-}
-
-/**
- *  Current full URI including website
- */
-function fullURI() : string {
-	return website() . slashPath( request_uri() ) );
-}
-
-/**
  *  Set expires header
  */
 function setCacheExp( int $ttl ) {
@@ -9061,7 +8963,7 @@ function send(
 	// Also save to cache?
 	if ( $cache ) {
 		$ex	= setting( 'cache_ttl', \CACHE_TTL, 'int' );
-		$full	= fullURI();
+		$full	= request_url();
 		
 		setCacheExp( $ex );
 		shutdown( 'saveCache', [ $full, $content ] );
@@ -9909,7 +9811,7 @@ function handleOptions() {
  *  @param string	$path	Current request path
  */
 function handleCache( string $path ) {
-	$cache	= getCache( fullURI() );
+	$cache	= getCache( request_url() );
 	
 	if ( empty( $cache ) ) {
 		return;
@@ -10287,23 +10189,25 @@ function sendWithEtag( $path ) : bool {
  *  @return bool
  */
 function sendFileRange( string $path, bool $dosend ) : bool {
-	$frange	= getFileRange();
-	$fsize	= filesize( $path );
+	$fsize	= \filesize( $path );
+	$frange	= request_range_header( $fsize );
+	if ( empty( $frange ) ) {
+		sendRangeError();
+	}
+	
 	$fend	= $fsize - 1;
 	$totals	= 0;
 	
 	// Check if any ranges are outside file limits
-	foreach ( $frange as $r ) {
-		if ( $r[0] >= $fend || $r[1] > $fend ) {
+	foreach ( $frange as [ $start, $end ] ) {
+		if ( $start > $end || $end > $fend ) {
 			sendRangeError();
 		}
-		$totals += ( $r[1] > -1 ) ? 
-			( $r[1] - $r[0] ) + 1 : ( $fend - $r[0] ) + 1;
+		
+		$totals += ( $end - $start ) + 1;
 	}
 	
-	if ( !$dosend ) {
-		return true;
-	}
+	if ( !$dosend ) { return true; }
 	
 	openStream( $stream, $path, 'rb' );
 	if ( false === $stream ) {
@@ -10347,17 +10251,13 @@ function sendFileRange( string $path, bool $dosend ) : bool {
 	
 	$limit = 0;
 	
-	foreach ( $frange as $r ) {
+	foreach ( $frange as [ $start, $end ] ) {
 		echo "\n--{$bound}";
 		echo "Content-Type: {$mime}";
-		if ( $r[1] == -1 ) {
-			echo "Content-Range: bytes {$r[0]}-{$fend}/{$fsize}\n";
-		} else {
-			echo "Content-Range: bytes {$r[0]}-{$r[1]}/{$fsize}\n";
-		}
+		echo "Content-Range: bytes {$start}-{$end}/{$fsize}\n";
 		
-		$limit = ( $r[1] > -1 ) ? $r[1] + 1 : $fsize;
-		streamChunks( $stream, $out, $r[0], $limit, 'flushOutput', 'visitorAbort' );
+		$limit = $end + 1;
+		streamChunks( $stream, $out, $start, $limit, 'flushOutput', 'visitorAbort' );
 	}
 	
 	closeStream( $stream );
@@ -10379,15 +10279,13 @@ function sendPluginFile(
 	$loaded	= loadedPlugins();
 	
 	// Nothing loaded to search?
-	if ( empty( $loaded ) ) {
-		return false;
-	}
+	if ( empty( $loaded ) ) { return false; }
 	
 	// Clip plugin name from path to prepare for asset searching
 	$path	= truncate( $path, strsize( $plugin ) - 1, strsize( $path ) );
 	
 	// Check if ranged request
-	$frange	= getFileRange();
+	$ranged	= request_is_ranged();
 	
 	// Plugin root and asset folders
 	$pr	= slashPath( \PLUGINS, true );
@@ -10402,6 +10300,11 @@ function sendPluginFile(
 		// Send first occurence of file within the assets of each plugin
 		$fpath = $pr . $p . DIRECTORY_SEPARATOR . $pa . $path;
 		if ( \file_exists( $fpath ) ) {
+			$frange = request_range_header( \filesize( $fpath ) );
+			if ( $ranged && empty( $frange ) ) {
+				sendRangeError();
+			}
+			
 			if ( empty( $frange ) ) {
 				return $dosend ? sendWithEtag( $fpath ) : true;
 			}
@@ -10412,6 +10315,11 @@ function sendPluginFile(
 		$fpath = 
 		getPostFileDir( 'plugin' ) . $p . DIRECTORY_SEPARATOR . $path;
 		if ( \file_exists( $fpath ) ) {
+			$frange = request_range_header( \filesize( $fpath ) );
+			if ( $ranged && empty( $frange ) ) {
+				sendRangeError();
+			}
+			
 			if ( empty( $frange ) ) {
 				return $dosend ? sendWithEtag( $fpath ) : true;
 			}
@@ -10452,17 +10360,17 @@ function fileRequest(
 	}
 	
 	// Check if ranged request
-	$frange	= getFileRange();
-	
-	// Range wasn't satisfiable
-	if ( \in_array( -1, $frange ) ) {
-		sendRangeError();
-	}
+	$ranged	= request_is_ranged();
 	
 	// Static file path
 	$fpath	= getPostFileDir( 'file' ) . $path;
 	
 	if ( \file_exists( $fpath ) ) {
+		$frange = request_range_header( \filesize( $fpath ) );
+		if ( $ranged && empty( $frange ) ) {
+			sendRangeError();
+		}
+		
 		return empty( $frange ) ?
 			( $dosend ? sendWithEtag( $fpath ) : true ) : 
 			sendFileRange( $fpath, $dosend );
@@ -11728,7 +11636,7 @@ function formatMeta(
 		'read_time'	=> hookStringResult( 'formatreadtime', $read ),
 		'tags'		=> formatTags( $tags, $index ),
 		'permalink'	=> 
-		website() . dateSlug( \basename( $path ), $pub )
+		request_origin() . dateSlug( \basename( $path ), $pub )
 	];
 }
 
@@ -13195,8 +13103,8 @@ function showFeed( string $event, array $hook, array $params ) {
 	$tpl	= [
 		'page_title'	=> $ptitle,
 		'tagline'	=> $psub,
-		'home'		=> website(),
-		'path'		=> fullURI(),
+		'home'		=> request_origin(),
+		'path'		=> request_url(),
 		'date_gen'	=> util_rfc_date(),
 		'body'		=> \implode( '', $posts )
 	];
