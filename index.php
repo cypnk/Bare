@@ -2521,6 +2521,35 @@ function util_unique_terms( string $value ) : array {
 }
 
 /**
+ *  Combine start, end ranges without overlap
+ *  
+ *  @param array	$ranges	Raw range sets
+ *  @return array
+ */
+function util_merge_ranges( array $ranges ) : array {
+	if ( empty( $ranges ) ) { return []; }
+	
+	\usort( $ranges, fn( $a, $b ) => $a[0] <=> $b[0] );
+	$merged	= [ $ranges[0] ];
+	
+	foreach ( \array_slice( $ranges, 1 ) as [ $start, $end ] ) {
+		[ $last_start, $last_end ] = end( $merged );
+		
+		if ( $start <= $last_end + 1 ) {
+			$last_index		= \array_key_last( $merged );
+			$merged[ $last_index ]	= 
+			[ $last_start, max( $last_end, $end ) ];
+			
+			continue;
+		}
+		
+		$merged[] = [ $start, $end ];
+	}
+	
+	return $merged;
+}
+
+/**
  *  Convert timestamp to int if it's not in integer format
  *  
  *  @return mixed
@@ -3839,6 +3868,64 @@ function request_lang() : array {
 	}
 	
 	return $cache = $result;
+}
+
+function request_has_overlapping_ranges( array $ranges ) : bool {
+	\usort( $ranges, fn( $a, $b ) => $a[0] <=> $b[0] );
+	$rcount = count( $ranges );
+	
+	for ( $i = 1; $i < $rcount; $i++ ) {
+		if ( $ranges[$i][0] < $ranges[$i - 1][1] ) {
+			return true;
+		}
+	}
+	
+	return false;
+}
+
+function request_range_header( int $fsize ) : array {
+	$range	= trim( $_SERVER['HTTP_RANGE'] ?? '' );
+	if ( empty( $range ) ) { return []; }
+	
+	$ranges	= [];
+	if ( !\preg_match( '/^bytes=/', $range ) ) { return $ranges; }
+	
+	[ $prefix, $value ] = 
+	\array_map( 'trim', \explode( '=', $range, 2 ) + [ '', '' ] );
+	
+	foreach ( \explode( ',', $value ) as $segment ) {
+		$segment = trim( $segment );
+		if ( empty( $segment ) ) { continue; }
+		
+		[ $start, $end ] = 
+		\array_map( 'trim', \explode( '-', $segment, 2 ) + [ '', '' ] );
+		
+		// Handle open-ended ranges
+		if ( $start === '' && \ctype_digit( $end ) ) {
+			$suffix	= min( $fsize, ( int ) $end );
+			$start	= $fsize - $suffix;
+			$end	= $fsize - 1;
+		} else {
+			$start	= $start === '' ? 0 : $start;
+			$end	= $end === '' ? $fsize - 1 : $end;
+		}
+		
+		if ( 
+			!\ctype_digit( ( string ) $start ) || 
+			!\ctype_digit( ( string ) $end ) 
+		) { continue; }
+		
+		$start		= ( int ) $start;
+		$end		= ( int ) $end;
+		
+		// Validate and normalize
+		if ( $start > $end || $start >= $fsize ) { continue; }
+		
+		$end		= \min( $end, $fsize - 1 );
+		$ranges[]	= [ $start, $end ];
+	}
+	
+	return util_merge_ranges( $ranges );
 }
 
 /**
