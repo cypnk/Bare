@@ -1706,7 +1706,6 @@ define(
 define( 'RX_XSS2',		'/(<(s(?:cript|tyle)).*?)/ism' );
 define( 'RX_XSS3',		'/(document\.|window\.|eval\(|\(\))/ism' );
 define( 'RX_XSS4',		'/(\\~\/|\.\.|\\\\|\-\-)/sm' );
-define( 'RX_ULANG',		'/(?P<lang>[^-;,\s]{2,8})(?:-(?P<locale>[^;,\s]{2,8}))?(?:;q=(?P<weight>[0-9]{1}(?:\.[0-9]{1})))?/is' );
 
 
 // URL routing placeholders
@@ -2484,6 +2483,27 @@ function util_normalize_array( array $tree ) : array {
 	
 	return $normal;
 }
+
+/**
+ *  Format a structured array into a URL query section
+ *  
+ *  @param array $query Presorted array
+ *  @return string
+ */
+function util_array_to_query( array $query ) : string {
+	$parts = [];
+	
+	foreach ( $query as $key => $value ) {
+		if ( '' === $key ) { continue; }
+		
+		foreach ( ( array ) $value as $v ) {
+			$parts[] = \urlencode( $key ) . '=' . \urlencode( $v ?? '' );
+		}
+	}
+	
+	return implode('&', $parts);
+}
+
 /**
  *  Get a list of tokens separated by spaces
  *  
@@ -2851,11 +2871,11 @@ function sanitize_urldecode( string $url, int $limit = 10 ) : ?string {
 /**
  *  Filter and optionally parse query into usable segments
  *  
- *  @param bool $parsed Process into array
- *  @param bool $lower_keys Make array keys lowercase, if true
+ *  @param bool		$parsed		Process into sanitized array
+ *  @param bool		$lower_keys	Make array keys lowercase, if true
  *  @return mixed
  */
-function sanitize_query( bool $parsed = false, bool $lower_keys = false ) : string|array {
+function sanitize_query( bool $parsed = true, bool $lower_keys = false ) : string|array {
 	static $query;
 	static $result;
 	static $result_lower;
@@ -3409,50 +3429,106 @@ function request_method() : string {
  *  
  *  @return array
  */
-function request_forwarded() : array {
-	static $fwd;
+function request_canonical_forwarded() : array {
+	static $data;
 	
-	if ( isset( $fwd ) ) { return $fwd; }
-	
-	$header	= 
-		$_SERVER['HTTP_FORWARDED']	??
-		$_SERVER['FORWARDED']		??
-		$_SERVER['HTTP_X_FORWARDED']	?? '';
-	
-	if ( '' === $header ) { return $fwd; }
-	$fwd	= [];
-	
-	$terms	= explode( ',', $header );
-	foreach ( $terms as $element ) {
-		$sets	= explode( ';', $element );
+	if ( isset( $data ) ) { return $data; }
+
+	$raw	= 
+		$_SERVER['HTTP_FORWARDED'] ??
+		$_SERVER['FORWARDED'] ?? 
+		$_SERVER['HTTP_X_FORWARDED'] ?? '';
 		
-		foreach( $sets as $pair ) {
-			$pair	= \trim( $pair );
-			if ( '' === $pair ) { continue; }
-			
-			[$key, $value]	= 
+	if ( empty( $raw ) ) { return []; }
+	
+	$parsed	= [];
+	
+	// Split by comma: each element is a proxy hop
+	$hops	= util_trimmed_list( $raw, false, ',' );
+	
+	// Gather forwarded values
+	foreach ( $hops as $hop ) {
+		$entry	= [];
+		$pairs	= util_trimmed_list( $hop, true, ';' );
+
+		foreach ( $pairs as $pair ) {
+			[ $key, $val ]	= 
 			\array_map( 
 				fn( $v ) => sanitize_filter( $v ), 
 				explode( '=', $pair, 2 ) + ['', ''] 
 			);
 			
-			if ( '' === $key || '' === $value ) {
-				continue;
-			}
 			
-			$key	= \strtolower( $key );
-			$value	= \trim( $value, "\"'" );
+			if ( '' === $key || '' === $val ) { continue; }
 			
-			if ( isset( $fwd[$key] ) ) {
-				$fwd[$key]	= ( array ) $fwd[$key];
-				$fwd[$key][]	= $value;
+			$val	= \trim( $val, "\"" ); // remove optional quotes
+			
+			// Fresh value?
+			if ( !isset( $entry[$key] ) ) {
+				$entry[$key] = $val;
+			
+			// Existing array? Append
+			} elseif ( \is_array( $entry[$key] ) ) {
+				$entry[$key][] = $val;
+			
+			// Multiple values? 
+			// Convert to array and then append new
 			} else {
-				$fwd[$key]	= $value;
+				$tmp		= $entry[$key];
+				$entry[$key]	= [];
+				$entry[$key][]	= $tmp;
+				$entry[$key][]	= $val;
+			}
+		}
+		
+		if ( !empty( $entry ) ) {
+			$parsed[] = $entry;
+		}
+	}
+	
+	$parsed		= \array_map( 'util_array_normalize_keys', $parsed );
+	$coarse_last	= [];
+	foreach ( $parsed as $entry ) {
+		foreach ( $entry as $k => $v) {
+			if ( \is_array( $v ) ) {
+				if ( count( $v ) > 0 ) {
+					$coarse_last[$k] = end( $v );
+				}
+			} else {
+				$coarse_last[$k] = $v;
 			}
 		}
 	}
 	
-	return $fwd;
+	$coarse_first	= [];
+	foreach ( $parsed as $entry ) {
+		foreach ( $entry as $k => $v) {
+			if ( !isset( $coarse_first[$k] ) ) {
+				$coarse_first[$k] = 
+				\is_array( $v ) ? current( $v ) : $v;
+			}
+		}
+	}
+	
+	$data		= [
+		'detail'	=> $parsed,
+		'coarse_first'	=> $coarse_first,
+		'coarse_last'	=> $coarse_last,
+		'summary'	=> \array_merge_recursive( ...$parsed )
+	];
+	return $data;
+}
+
+/**
+ *  Forwarded summary helper
+ *  
+ *  @return array
+ */
+function request_forwarded() : array {
+	static $all;
+	$all ??= request_canonical_forwarded()['all'] ?? [];
+	
+	return $all;
 }
 
 /**
@@ -3497,8 +3573,45 @@ function request_host( ?string $sent = null ) : string {
 }
 
 /**
+ *  Get client IP address from forwarded data
+ *  
+ *  @return array
+ */
+function request_canonical_ip() : array {
+	static $data;
+	if ( isset( $data ) ) { return $data; }
+	
+	$fwd	= request_canonical_forwarded();
+	$raw	= $fwd['coarse_last']['for'] ?? '';
+	
+	// Prefer last 'for' value from Forwarded header
+	if ( !empty( $raw ) ) {
+		if ( \preg_match( '/^\[?([a-fA-F0-9:.]+)\]?(:\d+)?$/', $raw, $match ) ) {
+			$ip	= $match[1];
+		} elseif ( 'unknown' === \strtolower( $raw ) ) {
+			$ip = 'unknown';
+		} else {
+			$ip	= $raw;
+		}
+		$data	= [
+			'ip'		=> $ip,
+			'source'	=> 'forwarded'
+		];
+		return $data;
+	}
+	
+	// Fallback to REMOTE_ADDR
+	$data	= [
+		'ip'		=> $_SERVER['REMOTE_ADDR'] ?? 'unknown',
+		'source'	=> 'remote_addr'
+	];
+	return $data;
+}
+
+/**
  *  Get IP address (best guess)
  *  
+ *  @param bool		$skip	Skip private range checking
  *  @return string
  */
 function request_ip( bool $skip = false ) : string {
@@ -3508,36 +3621,17 @@ function request_ip( bool $skip = false ) : string {
 	if ( $skip && isset( $ip_unf ) ) { return $ip_unf; }
 	if ( !$skip && isset( $ip ) ) { return $ip; }
 	
-	$fwd	= request_forwarded();
-	if ( isset( $fwd['for'] ) && '' !== $fwd['for'] ) {
-		$candidate	= 
-		\is_array( $fwd['for'] )
-			? $fwd['for'][0]
-			: $fwd['for'];
-	} else {
-		$raw = util_trimmed_list(
-		$_SERVER['HTTP_X_FORWARDED_FOR']	?? 
-			$_SERVER['HTTP_CLIENT_IP']	?? 
-			$_SERVER['REMOTE_ADDR']		?? '' 
-		);
-		
-		if ( empty( $raw ) ) { 
-			$ip = $ip_raw = '';
-			return	'';
-		}
-		$candidate	= \array_shift( $raw );
-	}
+	$info		= request_client_ip();
+	$candidate	= $info['ip'] ?? '';
 	
-	$candidate	= \trim( $candidate, "\"'" );
-	$v_unf		= \filter_var( $candidate, \FILTER_VALIDATE_IP );
-	$v_ip		= 
+	$ip_unf		= \filter_var( $candidate, \FILTER_VALIDATE_IP ) ?: '';
+	$ip		= 
 	\filter_var(
 		$candidate,
 		\FILTER_VALIDATE_IP,
 		\FILTER_FLAG_NO_PRIV_RANGE | \FILTER_FLAG_NO_RES_RANGE
-        );
+        ) ?: '';
 	
-	$ip	= $v_ip !== false ? $candidate : '';
 	return $skip ? $ip_unf : $ip;
 }
 
@@ -3633,7 +3727,12 @@ function request_query() : string {
  */
 function request_url() : string {
 	$uri	= \ltrim( request_get_uri(), '/' );
-	$query	= request_query;
+	$query	= sanitize_query( true, true ) ?? '';
+	$query	= 
+	\is_array( $query )
+		? util_array_to_query( $query ) 
+		: ( string ) $query;
+	
 	return request_origin() . '/' . $uri .  ( '' === $query ? '' : "?{$query}" );
 }
 
@@ -3708,6 +3807,38 @@ function request_accept_header( string $header ) : array {
 	usort( $parsed, fn( $a, $b ) => $b['q'] <=> $a['q'] );
 	
 	return \array_column( $parsed, 'term' );
+}
+
+/**
+ *  Visitor's preferred languages based on Accept-Language header
+ *  
+ *  @return array
+ */
+function request_lang() : array {
+	static $cache;
+	if ( isset( $cache ) ) { return $cache; }
+	
+	$terms	= request_accept_header( 'HTTP_ACCEPT_LANGUAGE' );
+	if ( empty( $terms ) ) {
+		return $cache = [];
+	}
+
+	$result	= [];
+	foreach ( $terms as $term ) {
+		if ( \preg_match( 
+			'/^([a-z]{2,8})(?:-([a-z0-9]{2,8}))?$/i', $term, $m 
+		) ) {
+			$result[] = [
+				'lang'		=> \strtolower( $m[1] ),
+				'locale'	=> 
+				isset( $m[2] ) 
+					? \strtoupper( $m[2] ) 
+					: ''
+			];
+		}
+	}
+	
+	return $cache = $result;
 }
 
 /**
@@ -3966,95 +4097,6 @@ function getProtocol( string $assume = 'HTTP/1.1' ) : string {
 	}
 	$pr = $_SERVER['SERVER_PROTOCOL'] ?? $assume;
 	return $pr;
-}
-
-/**
- *  Visitor's preferred languages based on Accept-Language header
- *  
- *  @return array
- */
-function getLang() : array {
-	static $found;
-	if ( isset( $found ) ) {
-		return $found;
-	}
-	
-	$found	= [];
-	$lang	= 
-	bland( httpheaders( true )['accept-language'] ?? '', true );
-	
-	// No header?
-	if ( empty( $lang ) ) {
-		return [];
-	}
-	
-	// Find languages by locale and priority
-	\preg_match_all( \RX_ULANG, $lang, $matches );
-	$matches =
-	\array_filter( 
-		$matches, 
-		function( $k ) {
-			return !\is_numeric( $k );
-		}, \ARRAY_FILTER_USE_KEY 
-	);
-	
-	if ( empty( $matches ) ) {
-		return [];
-	}
-	
-	// Re-arrange
-	$c	= count( $matches );
-	for ( $i = 0; $i < $c; $i++ ) {
-		
-		foreach ( $matches as $k => $v ) {
-			if ( !isset( $found[$i] ) ) {
-				$found[$i] = [];
-			}
-			
-			switch ( $k ) {
-				case 'lang':
-					$found[$i][$k] = 
-					empty( $v[$i] ) ? '*' : $v[$i];
-					break;
-					
-				case 'locale':
-					$found[$i][$k] = 
-					empty( $v[$i] ) ? '' : $v[$i];
-					break;
-					
-				case 'weight':
-					// Lower global or empty language priority
-					if ( 
-						empty( $matches['lang'][$i] ) ||
-						0 == \strcmp( $found[$i]['lang'], '*' )
-					) {
-						$found[$i][$k] = 
-						( float ) ( empty( $v[$i] ) ? 0 : $v[$i] );
-					} else {
-						$found[$i][$k] = 
-						( float ) ( empty( $v[$i] ) ? 1 : $v[$i] );						
-					}
-					break;
-			
-				default:
-					// Anything else, send as-is
-					$found[$i][$k] = 
-					empty( $v[$i] ) ? '' : $v[$i];
-			}
-		}
-	}
-	
-	// Sorting columns
-	$weight = \array_column( $found, 'weight' );
-	$locale	= \array_column( $found, 'locale' );
-	
-	// Sort by weight priority, followed by locale
-	return
-	\array_multisort( 
-		$weight, \SORT_DESC, 
-		$locale, \SORT_ASC, 
-		$found
-	) ? $found : [];
 }
 
 /**
