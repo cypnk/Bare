@@ -68,9 +68,9 @@ define( 'ERROR_ROOT',	PATH . 'errors/' );
 // define( 'ERROR_ROOT',	\realpath( \dirname( __FILE__, 2 ) ) . '/errors/' );
 
 // Plugins directory
-define( 'PLUGINS',	PATH . 'plugins/' );
+define( 'PLUGIN_DIR',	PATH . 'plugins/' );
 // Use this if you keep plugins outside the web root
-// define( 'PLUGINS',		\realpath( \dirname( __FILE__, 2 ) ) . '/plugins/' );
+// define( 'PLUGIN_DIR',	\realpath( \dirname( __FILE__, 2 ) ) . '/plugins/' );
 
 // Writable directory inside cache for plugin data (not directly browsable by visitors)
 define( 'PLUGIN_DATA',	CACHE . 'plugins/' );
@@ -2918,7 +2918,7 @@ function sanitize_url( string $text, bool $xss = true ) : string {
 		if ( empty( $text ) ) { return ''; }
 	}
 	
-	$text = sanitized_escape_text( 
+	$text = sanitize_escape_text( 
 		( $xss ? sanitize_strip_xss( $text ) : $text ), false, false 
 	);
 }
@@ -3086,6 +3086,15 @@ function sanitize_spaces( string $text, string $rpl = ' ', bool $br = false ) : 
 			'/[ \t\v\f]+/', $rpl, sanitize_filter( $text ) 
 		) : 
 		\preg_replace( '/[[:space:]]+/', $rpl, sanitize_filter( $text ) );
+}
+
+/**
+ *  Clean a directory or folder name
+ *  
+ *  @param string	$text		Viable folder name
+ */
+function sanitize_dir( string $text ) : bool {
+	return ( bool ) \preg_match( '/^[A-Za-z0-9_-]+$/', $text );
 }
 
 /**
@@ -3996,6 +4005,100 @@ function request_range_header( int $fsize ) : array {
 	}
 	
 	return util_merge_ranges( $ranges );
+}
+
+
+
+/**
+ *  Plugins and modules
+ */
+
+/**
+ *  Main plugin attribute
+ */
+#[Attribute( Attribute::TARGET_FUNCTION | Attribute::IS_REPEATABLE )]
+class Plugin {
+	
+	/**
+	 *  Main constructor
+	 *  
+	 *  @param string	$name		Unique plugin name
+	 *  @param string	$description	Brief plugin description
+	 *  @param int		$priority	Initialization order, higher = earlier
+	 *  @param stirng	$asset_dir	Files being served to the client
+	 *  @param string	$data_dir	Writable storage directory
+	 */
+	public function __construct(
+		public readonly string	$name,
+		public readonly string	$description	= '',
+		public int		$priority	= 0,
+		public readonly string	$asset_dir	= __DIR__ . '/assets/',
+		public readonly string	$data_dir	= PLUGIN_DATA
+	) {}
+}
+
+/**
+ *  Discover and load plugin files, limited by whitelist
+ *  
+ *  @return array
+ */
+function plugin_autoload() : array {
+	static $plugins;
+	if ( isset( $plugins ) ) { return $plugins; }
+	
+	$pl		= config( 'plugins_enabled', \PLUGINS_ENABLED );
+	
+	// Nothing to load
+	if ( empty( $pl ) ) { return []; }
+	
+	$dir		= \rtrim( PLUGIN_DIR, '/' ) . '/' ; // Trailing path
+	if ( !\is_dir( $dir ) ) { return []; }
+	
+	$files		=  \glob( $dir . '*/plugin.php' );
+	if ( empty( $files ) ) { return []; }
+	foreach ( $files as $plugin ) {
+		$base	= \basename( \dirname( $plugin ) );
+		if ( \in_array( $base, $pl  ) ) {
+			require_once $plugin;
+		}
+	}
+	
+	// Refresh loaded functions
+	$functions	= util_functions_list( true );
+	
+	$plugins	= [];
+	foreach ( $functions as $fn ) {
+		
+		// Can't initialize? skip
+		if ( !\is_callable( $fn ) ) { continue; }
+		
+		$ref	= new ReflectionFunction( $fn );
+		$attrs	= $ref->getAttributes( Plugin::class );
+		
+		foreach ( $attrs as $attr ) {
+			$meta	= $attr->newInstance(); 
+			$name	= sanitize_spaces( sanitize_escape_text( $meta->name ) );
+			
+			// Duplicate plugin name?
+			if ( isset( $plugins[$name] ) ) {
+				\error_log( "Plugin {$name} already exists" );
+				continue;
+			}
+			
+			$plugins[$name]	= [
+				'handler'	=> $fn,
+				'meta'		=> $meta
+			];
+		}
+	}
+	
+	// Sort by init order
+	\uasort( 
+		$plugins, 
+		fn( $a, $b ) => $a['meta']->priority <=> $b['meta']->priority 
+	);
+	
+	return $plugins;
 }
 
 
@@ -6474,82 +6577,6 @@ function getSingle(
 	return [];
 }
 
-/**
- *  Filter plugin names into usable array
- *  
- *  @param mixed	$pl	List of plugins as an array or string
- *  @return array
- */
-function pluginNames( $pl ) : array {
-	return 
-	\is_array( $pl ) ? 
-		\array_map( 'strtolower', 
-			\array_map( 'labelName', $pl ) ) : 
-		\array_map( 'labelName', util_trimed_list( $pl, true ) );
-}
-
-/**
- *  Plugin loading event handler
- */
-function loadPlugins( string $event, array $hook, array $params ) {
-	// This should be the first function called 
-	// so there shouldn't be any previous return data
-	if ( !empty( $hook ) ) {
-		logError( 'Out of order call. Check hooks.' );
-		die();
-	}
-	
-	$pl		= config( 'plugins_enabled', \PLUGINS_ENABLED );
-	if ( empty( $pl ) ) {
-		// Nothing to load
-		return;
-	}
-	
-	$plugins	= pluginNames( $pl );
-	$msg		= [];
-	$loaded		= [];
-	
-	// Preload templates
-	$templates	= $params['templates'] ?? [];
-	
-	// Plugin root
-	$pr	= slashPath( \PLUGINS, true );
-	
-	foreach ( $plugins as $p ) {
-		// Generate and check full plugin file path
-		$path = $pr . $p . DIRECTORY_SEPARATOR . $p . '.php';
-		if ( empty( filterDir( $path, $pr ) ) ) {
-			$msg[]		= $p;
-			continue;
-		}
-		
-		// Load plugin if it exists or add to failed list
-		if ( \file_exists( $path ) ) {
-			require( $path );
-			$loaded[]	= $p;
-		} else {
-			$msg[]		= $p;
-		}
-	}
-	
-	// Set plugin list
-	internalState( 'loadedPlugins', $loaded );
-	
-	// Register new templates or overwrite existing
-	template( '', $templates );
-	
-	if ( !empty( $msg ) ) {
-		shutdown( 
-			'logError', 
-			'Error loading plugins(s): ' . 
-				\implode( ', ', $msg ) . 
-				' From directory: ' . $pr
-		);
-	}
-	hook( [ 'pluginsLoaded', [ 'plugins' => $p, 'failed' => $msg ] ] );
-}
-
-
 
 /**
  *  Caching
@@ -6981,11 +7008,6 @@ function session( $reset = false ) {
 		hook( [ 'sessiondestroyed', [] ] );
 	}
 }
-
-/****
- *  @deprecated Left in place for some plugins (E.G. MonsterID)
- */
-function throttleDisabled( $path = null ) { return []; }
 
 
 /**
@@ -10283,19 +10305,6 @@ function routeMatch(
 }
 
 /**
- *  Get list of loaded plugins
- *  
- *  @return array
- */
-function loadedPlugins() : array {
-	$loaded	= internalState( 'loadedPlugins' );
-	if ( empty( $loaded ) || false === $loaded ) {
-		return [];
-	}
-	return \is_array( $loaded ) ? $loaded : [];
-}
-
-/**
  *  Send file with ETag data
  *  
  *  @param string	$path	File path after confirming it exists
@@ -10402,70 +10411,6 @@ function sendFileRange( string $path, bool $dosend ) : bool {
 }
 
 /**
- *  Get resource from plugin directory(ies)
- *  
- *  @param bool		$dosend	Send the file if found
- */
-function sendPluginFile( 
-	string		$plugin, 
-	string		$path, 
-	bool		$dosend		= false 
-) : bool {
-	$loaded	= loadedPlugins();
-	
-	// Nothing loaded to search?
-	if ( empty( $loaded ) ) { return false; }
-	
-	// Clip plugin name from path to prepare for asset searching
-	$path	= truncate( $path, strsize( $plugin ) - 1, strsize( $path ) );
-	
-	// Check if ranged request
-	$ranged	= request_is_ranged();
-	
-	// Plugin root and asset folders
-	$pr	= slashPath( \PLUGINS, true );
-	$pa	= slashPath( setting( 'plugin_assets', \PLUGIN_ASSETS ), true );
-	
-	foreach ( $loaded as $p ) {
-		// Check if first path fragment is the same as the plugin name
-		if ( 0 !== \strcasecmp( $p, $plugin ) ) {
-			continue;
-		}
-		
-		// Send first occurence of file within the assets of each plugin
-		$fpath = $pr . $p . DIRECTORY_SEPARATOR . $pa . $path;
-		if ( \file_exists( $fpath ) ) {
-			$frange = request_range_header( \filesize( $fpath ) );
-			if ( $ranged && empty( $frange ) ) {
-				sendRangeError();
-			}
-			
-			if ( empty( $frange ) ) {
-				return $dosend ? sendWithEtag( $fpath ) : true;
-			}
-			return sendFileRange( $fpath, $dosend );
-		}
-		
-		// File written by plugin?
-		$fpath = 
-		getPostFileDir( 'plugin' ) . $p . DIRECTORY_SEPARATOR . $path;
-		if ( \file_exists( $fpath ) ) {
-			$frange = request_range_header( \filesize( $fpath ) );
-			if ( $ranged && empty( $frange ) ) {
-				sendRangeError();
-			}
-			
-			if ( empty( $frange ) ) {
-				return $dosend ? sendWithEtag( $fpath ) : true;
-			}
-			return sendFileRange( $fpath, $dosend );
-		}
-	}
-	
-	return false;
-}
-
-/**
  *  Check path for file request
  *  
  *  @param string	$verb	Request method should be get
@@ -10511,13 +10456,7 @@ function fileRequest(
 			sendFileRange( $fpath, $dosend );
 	}
 	
-	// If there's no prefix, there's no plugin folder to check 
-	if ( $c < 2 ) {
-		return false;
-	}
-	
-	// If direct path doesn't exist, try to send it via plugin asset path
-	return sendPluginFile( $segs[0], $path, $dosend );
+	return false;
 }
 
 /**
@@ -10675,95 +10614,6 @@ function prefixPath(
 	
 	// Avoid duplicates?
 	return $overwrite ? $fname : dupRename( $fname );
-}
-
-
-/**
- *  Check if path exists in the given plugin writable directory
- *  
- *  @param string	$name	Plugin name to search writable directory
- *  @param string	$prefix	File name prefix
- *  @param string	$path	File path
- *  @return bool
- */
-function pluginFileExists(
-	string	$name, 
-	string	$path, 
-	string	$prefix		= '' 
-) : bool {
-	$ld = loadedPlugins();
-	
-	// Only check currently loaded plugins
-	if ( !\in_array( $name, $ld ) ) {
-		shutdown( 
-			'logError', 
-			'Attempt to search unloaded plugin directory: ' . $name 
-		);
-		return false;
-	}
-	
-	$root	= getPostFileDir( 'plugin' ) . $name;
-	$fpath	= prefixPath( $root . $path, $prefix );
-	if ( empty( filterDir( $fpath, $root ) ) ) {
-		shutdown(
-			'logError',
-			'Invalid file path search: ' . $path
-		);
-		return false;
-	}
-	
-	return \file_exists( $fpath );
-}
-
-/**
- *  Prepare writable file path directory for specified plugin
- *  
- *  @param string	$name		Plugin name to find writable directory
- *  @param string	$path		Relative path within plugin writable directory
- *  @param string	$prefix		File name prefix
- *  @param bool		$create		Create subfolders if they don't exist
- *  @param bool		$overwrite	Rename path if given file name already exists
- *  @return mixed
- */
-function pluginWritePath( 
-	string	$name, 
-	string	$path, 
-	string	$prefix		= '',
-	bool	$create		= false, 
-	bool	$overwrite	= false 
-) {
-	$ld = loadedPlugins();
-	
-	// Only write to currently loaded plugins;
-	if ( !\in_array( $name, $ld ) ) {
-		shutdown( 
-			'logError', 
-			'Attempt to write to unloaded plugin directory: ' . $name 
-		);
-		return null;
-	}
-	
-	// Prepare plugin write path
-	$root	= getPostFileDir( 'plugin' ) . $name;
-	$fpath	= prefixPath( $root . $path, $prefix, $overwrite );
-	
-	if ( empty( filterDir( $fpath, $root ) ) ) {
-		shutdown(
-			'logError',
-			'Invalid file path search: ' . $path
-		);
-		return null;
-	}
-	
-	// Create plugin writable directory in cache
-	$dir = \dirname( $fpath );
-	
-	if ( $create && !\is_dir( $dir ) ) {
-		\mkdir( $dir, 0755, true );
-		\chmod( $dir, 0755 );
-	}
-	
-	return $fpath;
 }
 
 /**
@@ -13815,11 +13665,11 @@ function checkConfig( string $event, array $hook, array $params ) {
 		$data['nonce_hash']	= 
 		hashAlgo( ( string ) $data['nonce_hash'], \NONCE_HASH );
 	}
-	
-	if ( isset( $data['plugins_enabled'] ) ) {
+
+ 	if ( isset( $data['plugins_enabled'] ) ) {
 		$data['plugins_enabled'] = 
-			pluginNames( $data['plugins_enabled'] );
-	}
+			\array_filter( $data['plugins_enabled'], 'sanitize_dir' );
+ 	}
 	
 	return \array_merge( $hook, $data );
 }
@@ -13916,7 +13766,6 @@ hook( [ 'dbcreated',	'reloadIndex' ] );
 
 // Register request, route, and plugin load handlers
 hook( [ 'requesturl',	'filterRequest' ] );
-hook( [ 'begin',	'loadPlugins' ] );
 hook( [ 'begin',	'request' ] );
 hook( [ 'begin',	'route' ] );
 
