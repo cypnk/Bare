@@ -4101,6 +4101,37 @@ function plugin_autoload() : array {
 	return $plugins;
 }
 
+/**
+ *  Initialize plugin system
+ *  
+ *  @param bool		$run	Autoload and initialize each plugin (default)
+ */
+function plugin_init( bool $run = true ) : void {
+	static $plugins
+	
+	$plugins	??= plugin_autoload();
+	
+	if ( !$run ) { return; }
+	
+	foreach ( $plugins as $plugin ) {
+		$fn	= $plugin['handler'];
+		$meta	= $plugin['meta'];
+		$ref	= new ReflectionFunction( $fn );
+		
+		try {
+			// Pass metadata, if it's allowed
+			if ( $ref->getNumberOfParameters() === 1 ) {
+				$fn( $meta );
+			} else { $fn(); }
+			
+		} catch( \Throwable $e ) {
+			\error_log( 
+				"Plugin {$meta->name} failed initialization: " . 
+				$e->getMessage() 
+			);
+		}
+	}
+}
 
 
 /**
