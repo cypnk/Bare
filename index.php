@@ -3398,6 +3398,467 @@ function sanitize_html( $html, $tag_map ) {
 }
 
 
+/**
+ *  Storage, reading, and writing
+ */
+
+/**
+ *  Storage configuration settings helper
+ *  
+ *  @param array $new_options Override presets
+ *  @return array
+ */
+function storage_options( ?array $new_options = null ) : array {
+	static $options	= [
+		'write_depth'	=> 6,
+		'tmp_ext'	=> '.tmp',
+		'bkp_ext'	=> '.bkp',
+		'lock_type'	=> 'file',
+		'lock_tries'	=> 3,
+		'lock_wait'	=> 10,
+		'lock_stale'	=> 600,
+		'temp_stale'	=> 3600,
+		'writable'	=> [ 'data', 'storage', 'uploads', 'media' ]
+	];
+	
+	if( !empty( $new_options ) ) {
+		$options = \array_replace_recursive( $options, $new_options );
+	}
+	
+	return $options;
+}
+
+/**
+ *  Generate unique write key
+ *  
+ *  @return string
+ */
+function storage_get_id() : string {
+	return util_get_id( 'storage', true );
+}
+
+/**
+ *  Obtains directory type exclusive lock with retry
+ *  
+ *  @param string	$lock_file	File location for lock
+ *  @param int		$tries		Number tries before abandoning lock
+ *  @return bool
+ */
+function storage_dirtype_lock( string $lock_file, int $tries = 3 ) : bool {
+	$lock_dir	= $lock_file . '.lockdir';
+	$start		= time();
+	
+	while ( $tries > 0 ) {
+		// Try to acquire lock atomically
+		if ( @\mkdir( $lock_dir, 0777 ) ) {
+			\register_shutdown_function( function() use ( $lock_dir ) {
+				@\rmdir( $lock_dir );
+			} );
+			return true;
+		}
+		
+		$tries--;
+		\time_nanosleep( 0, 100000 );
+	}
+	
+	return false;
+}
+
+/**
+ *  Obtains an exclusive file lock with retry
+ *  
+ *  @param resource	$handle		File resource
+ *  @param int		$tries		Number of attempts
+ *  @return bool			True on success
+ */
+function storage_filetype_lock( $handle, int $tries = 3 ) : bool {
+	$locked	= false;
+	for ( $i = 0; $i < $tries; $i++ ) {
+		if ( \flock( $handle, \LOCK_EX ) ) {
+			$locked = true;
+			break;
+		}
+		\time_nanosleep( 0, 100000 );
+	}
+	
+	return $locked;
+}
+
+/**
+ *  Remove stale locks that are no longer needed
+ *  
+ *  @param string	$lock_file	Original file location for lock
+ *  @param string	$type		File or directory lock selector
+ *  @param int		$max_age	Maximum age before lock is considered stale
+ */
+function storage_clean_stale_lock(
+	string		$lock_file, 
+	string		$type, 
+	int		$max_age 
+) : void {
+	$check = 
+	( 0 === \strcasecmp( 'file', $type ) ) 
+		? $lock_file 
+		: $lock_file . '.lockdir';
+	
+	$mtime = @\filemtime( $check );
+	if ( $mtime !== false && $mtime < time() - $max_age ) {
+		if ( \is_dir( $check ) ) {
+			@\rmdir( $check );
+		} else {
+			@\unlink( $check );
+		}
+		\error_log( "Stale lock for '{$lock_file}' removed" );
+	}
+}
+
+/**
+ *  Remove directory of filetype lock
+ *  
+ *  @param resource	$handle		File resource
+ *  @param string	$lock_file	File lock path
+ */
+function storage_release_lock( $handle, string $lock_file ) : void {
+	$ltype	= storage_options()['lock_type'];
+	if ( 0 === \strcasecmp( 'file', $ltype ) ) {
+		if ( \is_resource( $handle ) ) {
+			@\flock( $handle, \LOCK_UN );
+			@\fclose( $handle );
+		}
+		return;
+	}
+	
+	$lock_dir	= $lock_file . '.lockdir';
+	
+	if ( \is_dir( $lock_dir ) ) { @\rmdir( $lock_dir ); }
+}
+
+/**
+ *  Close any given open file streams
+ *  
+ *  @param array	$files		List of file resources
+ */
+function storage_close_files( array $files ) : void {
+	foreach( $files as $item ) {
+		if ( 
+			\is_resource( $item )				&& 
+			\get_resource_type( $item ) === 'stream' 
+		) {
+			\fclose( $item );
+		}
+	}
+}
+
+/**
+ *  Check wait time before lock timeout
+ *  
+ *  @param string	$lock_file	File lock path
+ *  @param int		$start Time	start in seconds
+ *  @param int		$max_wait	Maximum wait time in seconds before timing out
+ *  @return bool
+ */
+function storage_check_wait( string $lock_file, int $start, int $max_wait ) : bool {
+	if ( time() - $start > $max_wait ) {
+		\error_log( "Timeout while waiting for lock: {$lock_file}" );
+		return false;
+	}
+	
+	sleep( 1 );
+	return true;		
+}
+
+/**
+ *  Obtain file lock (directory of filetype) with a given access mode
+ *  
+ *  @param stiring 	$lock_file	File lock path
+ *  @param string	$mode		File open mode
+ *  @return mixed
+ */
+function storage_lock_file( string $lock_file, string $mode ) : false|resource {
+	$options	= storage_options();
+	$tries		= $options['lock_tries'];
+	$type		= $options['lock_type'];
+	
+	$max_wait	= $options['lock_wait'];
+	$max_age	= $options['lock_stale'];
+	$start		= time();
+	
+	$handle		= null;
+	
+	// Clean any previous locks
+	storage_clean_stale_lock( $lock_file, $type, $max_age );
+	
+	$get_lock	= 
+	( 0 === \strcasecmp( 'file', $type ) )
+		? function() use( &$handle, $tries ) { return storage_filetype_lock( $handle, $tries ); }
+		: function() use( $lock_file, $tries ) { return storage_dirtype_lock( $lock_file, $tries ); }
+	
+	// Attempt lock
+	while ( true ) {
+		$handle =\fopen( $lock_file, $mode );
+		if ( $handle && $get_lock() ) {
+			return $handle;
+		}
+			
+		if ( !storage_check_wait( $lock_file, $start, $max_wait ) ) {
+			storage_release_lock( $handle, $lock_file );
+			return false; 
+		}
+	}
+}
+
+/**
+ *  Traverse upward from starting path to obtain a writable directory
+ *  
+ *  @param string	$start		Starting path. Stops if this is already writable
+ *  @param string|array	$target		List of directory names
+ *  @param int		$max_depth	Maximum traversal depth
+ *  @return string|null			Found writable or defaults to system temp dir
+ */
+function storage_find_writable(
+	string		$start, 
+	string|array	$target, 
+	int		$max_depth	= 6 
+) : ?string {
+	if ( empty( $target ) ) { return null; }
+	
+	$names = 
+	\array_filter(
+		\is_array( $target ) ? $target : [ $target ],
+		fn( $name ) => \is_string( $name ) && '' !== $name
+	);
+	
+	if ( empty( $names ) ) { return null; }
+	
+	$depth	= $max_depth;
+	$dir	= \realpath( $start );
+	while ( 
+		false !== $dir			&& 
+		\DIRECTORY_SEPARATOR !== $dir	&& 
+		$depth > 0 
+	) {
+		foreach ( $names as $check ) {
+			$child = $dir . \DIRECTORY_SEPARATOR . $check;
+			if ( \is_dir( $child ) && \is_writable( $child ) ) {
+				return $child;
+			}
+		}
+		
+		$parent = \dirname( $dir );
+		
+		// Reached root?
+		if ( $parent === $dir ) { break; }
+		
+		$dir = $parent;
+		$depth--;
+	}
+	
+	return \sys_get_temp_dir();
+}
+
+/**
+ *  Main writable directory
+ *  
+ *  @return string
+ */
+function storage_base() : string {
+	$options	= storage_options();
+	$dirs		= 
+	$options['writable'] ?? [ 'data', 'storage', 'uploads', 'media' ];
+	
+	if ( isset( $options['storage_dir'] ) ) {
+		return $options['storage_dir'];
+	}
+	
+	if ( defined( 'STORAGE_DIR' ) ) { 
+		$storage_dir = 
+		\rtrim( STORAGE_DIR, '\\/' ) . \DIRECTORY_SEPARATOR; 
+		
+		storage_options( [ 'storage_dir' => $storage_dir ] );
+		return $storage_dir;
+	}
+	
+	$env_storage	= \getenv( 'STORAGE_DIR' );
+	$storage	= ( $env_storage && \is_writable( $env_storage ) )
+		? $env_storage
+		: storage_find_writable( __DIR__, $dirs );
+	
+	if ( empty( $storage ) ) {
+		$dlist	= \implode( ', ', $dirs );
+		$msg	= 
+		"Storage directory not defined. " . 
+		"Set STORAGE_DIR constant or create writable folder named one of: {$dlist}";
+		
+		\error_log( $msg );
+		throw new
+		\RuntimeException( 'Unable to discover storage directory' );
+	}
+	
+	$storage_dir	= \rtrim( $storage, '\\/' ) . \DIRECTORY_SEPARATOR;
+	storage_options( [ 'storage_dir' => $storage_dir ] );
+	return $storage_dir;
+}
+
+/**
+ *  Create a backup file name of given file
+ *  
+ *  @param string	$name	Target file name
+ *  @return string		Backup file path
+ */
+function storage_backup_path( string $name ) : string {
+	$ext	= storage_options()['bkp_ext'];
+	$base	= \basename( $name );
+	do {
+		$bkp = storage_base() 
+			. $base . '.'
+			. util_timestamp( 'Y-m-d_H-i-s_' )
+			. \uniqid() . $ext;
+	} while ( \file_exists( $bkp ) );
+	
+	return $bkp;
+}
+
+/**
+ *  Clean any temporary files in storage location
+ *  
+ *  @param string	$path	Sub path in base storage location
+ */
+function storage_temp_cleanup( string $path ) : void {
+	static $cleanup	= [];
+	if ( isset( $cleanup[$path] ) ) { return; }
+	
+	$options	= storage_options();
+	$stale		= $options['temp_stale'];
+	$cleanup[$path]	= true;
+	$pattern	= $path . '.*' . $options['tmp_ext'];
+	
+	\register_shutdown_function( function() use( $pattern, $stale ) {
+		try {
+			foreach ( \glob( $pattern, \GLOB_NOSORT ) as $file ) {
+				$mtime = \filemtime( $file );
+				if ( false !== $mtime && $mtime < time() - $stale ) { 
+					@\unlink( $file );
+				}
+			}
+		} catch( \Throwable $e ) {
+			\error_log( 
+				"Error deleting temp {$pattern}: {$e->getMessage()}" 
+			);
+		}
+	} );
+}
+
+/**
+ *  Append data to given file with optional lock
+ *  
+ *  @param string	$path	Writable file location
+ *  @param string	$data	New data to append
+ *  @param string	$block	Obtain lock, if true
+ *  @return bool		True on success
+ */
+function storage_append( string $path, string $data, bool $block = false ) : bool {
+	$id	= storage_get_id();
+	$handle	= \@fopen( $path, 'a' );
+	if ( !$handle || !\is_resource( $handle ) ) {
+		\error_log( "Unable to open log file '{$path}' by {$id}" );
+		return false;
+	}
+	
+	$mode	= $block ? \LOCK_EX : \LOCK_EX | \LOCK_NB;
+	if ( !@\flock( $handle, $mode ) ) {
+		if ( !\is_resource( $handle ) ) {
+			\fclose( $handle );
+		}
+		\error_log( "Unable to acquire lock on log file '{$path}' by {$id}" );
+		return false;
+	}
+	
+	$result	= \@fwrite( $handle, $data . PHP_EOL );
+	if ( \is_resource( $handle ) ) {
+		\flock( $handle, \LOCK_UN );
+		\fclose( $handle );
+	}
+	
+	return false !== $result;
+}
+
+/**
+ *  Write new data to file with lock
+ *  
+ *  @param string	$path	Writable file location
+ *  @param string	$data	New data to write
+ *  @return bool		True on success
+ */
+function storage_write_file( string $path, string $data ) : bool {
+	$options	= storage_options();
+	$lock_file	= $path . '.lock';
+	$tries		= $options['lock_tries'];
+	
+	// Wait for lock to clear
+	while( $tries > 0 ) {
+		if ( !\file_exists( $lock_file ) ) { break; }
+		
+		$tries--;
+		\time_nanosleep( 0, 100000 );
+	}
+	
+	// Something else was trying to write at the same time
+	if ( $tries <= 0 && \file_exists( $lock_file ) ) {
+		\error_log( "Parallel write to {$path} found by {$id}" );
+		return false;
+	}
+	
+	// Unique lock signature
+	$id		= storage_get_id();
+	$tmp_file	= 
+	$path . '.' . $id . '.' . 
+	\bin2hex( \random_bytes( 4 ) ) . $options['tmp_ext'];
+	
+	$lock_handle	= storage_lock_file( $lock_file, 'c+' );
+	if ( !$lock_handle ) {
+		\error_log( "Unable to acquire lock for '{$lock_file}' by {$id}" );
+		
+		throw new 
+		\RuntimeException( "Unable to acquire lock" );
+	}
+	
+	$tmp_handle	= \fopen( $tmp_file, 'c' );
+	if ( !$tmp_handle ) {
+		storage_release_lock( $lock_handle, $lock_file );
+		\error_log( "Unable to create temp file '{$tmp_file}' by {$id}" );
+		
+		throw new 
+		\RuntimeException( "Unable to open temp file" );
+	}
+	
+	// Write and finish
+	\fwrite( $tmp_handle, $data );
+	\fclose( $tmp_handle );
+	
+	// Cleanup
+	if ( \file_exists( $path ) && !\is_writable( $path ) ) {
+		storage_release_lock( $lock_handle, $lock_file );
+		\error_log( "Target file '{$path}' is not writable by {$id}" );
+		
+		throw new 
+		\RuntimeException( "Target file is not writable" );
+	}
+	
+	// Move temp to permanent location
+	if ( !\rename( $tmp_file, $path ) ) {
+		storage_release_lock( $lock_handle, $lock_file );
+		\error_log( "Failed to replace '{$path}' with '{$tmp_file}' by {$id}" );
+		
+		throw new 
+		\RuntimeException( "Failed to replace file" );
+	}
+	
+	storage_release_lock( $lock_handle, $lock_file );
+	storage_temp_cleanup( $path );
+	return true;
+}
+
+
 
 /**
  *  Request and query
