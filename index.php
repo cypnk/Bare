@@ -90,6 +90,11 @@ define( 'NOTICE',	'notices.log' );
 // A log file created when Bare is first run with information about its enviornment
 define( 'STARTUP',	'startup.log' );
 
+// Default content file extension
+define( 'ENTRY_EXT', 'md' );
+
+// Maximum number of lines to read metadata from each file (top and bottom)
+define( 'ENTRY_META_LINES', 6 );
 
 /**
  *  The following settings can be overridden in config.json:
@@ -4878,6 +4883,201 @@ function hookWrap(
 	
 	// Send any replaced HTML or already rendered HTML
 	return hookHTML( $after, $html );
+}
+
+
+/**
+ *  Content entry discovery and parsing
+ */
+
+/**
+ *  Process entry extension
+ *  
+ *  @return string
+ */
+function entry_ext() : string {
+	static $ext;
+	$ext		??= '.' . \ltrim( \strtolower( ENTRY_EXT ), '.' );
+	
+	return $ext;
+}
+
+/**
+ *  Load entries
+ *  
+ *  @param string	$base	Search directory
+ *  @return array
+ */
+function entry_files( string $base ) : array {
+	$base		= \rtrim( $base,  '/\\' );
+	if ( !\is_dir( $base ) || !\is_readable( $base ) ) { 
+		return [];
+	}
+	
+	$files		= [];
+	$ext		= entry_ext();
+	$eext		= \ltrim( $ext, '.' );
+	
+	$dir		= 
+	new \RecursiveDirectoryIterator( 
+		$base, 
+		\FilesystemIterator::FOLLOW_SYMLINKS	| 
+		\FilesystemIterator::KEY_AS_FILENAME	| 
+		\FilesystemIterator::SKIP_DOTS
+	);
+		
+	$iterator	= 
+	new \RecursiveIteratorIterator( 
+		$dir, 
+		\RecursiveIteratorIterator::LEAVES_ONLY,
+		\RecursiveIteratorIterator::CATCH_GET_CHILD 
+	);
+	
+	foreach ( $iterator as $finfo ) {
+		if (
+			$finfo->isFile() && 
+			0 === \strcasecmp( $finfo->getExtension(), $eext )
+		) {
+			$files[] = [
+				'slug'		=> $finfo->getBasename( $ext ),
+				'path'		=> $finfo->getPathname(),
+				'mtime'		=> $finfo->getMTime(),
+			];
+		}
+	}
+	
+	return $files;
+}
+
+/**
+ *  Process metadata from a given line as an array
+ *  
+ *  @param string	$line	Raw line entry
+ *  @param array	$meta	Metadata storage
+ *  @return			True if this line contained metadata
+ */
+function entry_meta( string $line, array &$meta ) : bool {
+	if ( false === \strpos( $line, ':' ) ) { return false; }
+	
+	[ $key, $value ] = \array_map( 'trim', \explode( ':', $line, 2 ) );
+	if ( '' === $key  ) { return false; }
+	
+	$value		??= '';
+	$key		=  \strtolower( $key );
+	
+	if ( isset( $meta[$key] ) ) {
+		$meta[$key]	= ( array ) $meta[$key];
+		$meta[$key][]	= $value;
+		return true;
+	}
+	
+	$meta[$key]	= $value;
+	return true;
+}
+
+/**
+ *  Load file information, including metadata
+ *  
+ *  @param string	$path	Full file location
+ *  @return array
+ */
+function entry_import( string $path ) : ?array {
+	if ( !\is_file( $path ) || !\is_readable( $path ) ) { 
+		return null; 
+	}
+	
+	$raw	= \file( $path, \FILE_IGNORE_NEW_LINES );
+	if ( false === $raw ) { return null; }
+	
+	$meta	= [];
+	$start	= 0;	// Body start
+	
+	$rcount	= count( $raw );
+	$mcount	= \min( ENTRY_META_LINES, $rcount );
+	
+	// Top metadata
+	for ( $i = 1; $i < $mcount; $i++ ) {
+		$line	= \trim( $raw[$i] );
+		if ( '' === $line ) {
+			$start = $i + 1;
+			break;
+		}
+		
+		if ( entry_meta( $line, $meta ) ) { continue; }
+		
+		$start = $i;
+		break;
+	}
+	
+	// Bottom metadata
+	$cut = $rcount;
+	for ( $i = $rcount - 1; $i >= 0; $i-- ) {
+		$line	= \trim( $raw[$i] );
+		if ( '' === $line ) { continue; }
+		
+		if ( entry_meta( $line, $meta ) ) {
+			$cut = $i;
+			continue;
+		}
+		
+		break;
+	}
+	
+	// Ensure title exists at least as the first line, if not explicitly set
+	$meta['title']	??= $raw[0] ?? '(Untitled)';
+	
+	// Path as slug
+	$meta['slug']	= \pathinfo( $path, \PATHINFO_FILENAME );
+	
+	$body		= 
+	\implode( "\n", \array_slice( $raw, $start, $cut - $start ) );
+	
+	return [
+		'meta'	=> $meta,
+		'body'	=> $body
+	];
+}
+
+/**
+ *  Paged entry index with detailed info
+ *  
+ *  @param string	$dir	Search directory
+ *  @param int		$page	Current page index, defaults to 1
+ *  @param int		$limit	Maximum number of files
+ *  @return array
+ */
+function entry_index( string $dir, int $page, int $limit ) : array {
+	$files		= entry_files( $dir );
+	if ( empty( $files ) ) { 
+		return [
+			'entries'	=> [],
+			'total_entries'	=> 0,
+			'total_pages'	=> 1,
+		]; 
+	}
+	
+	// Sort newest -> oldest
+	usort( $files, fn( $a, $b ) => $b['mtime'] <=> $a['mtime'] );
+	
+	$page	= \min( 1, $page );
+	$total	= count( $files );
+	$pcount	= \max( 1, ( int ) \ceil( $total / $limit ) );
+	
+	$offset	= ( $page - 1 ) * $limit;
+	$slice	= \array_slice( $files, $offset, $limit );
+	
+	// Load only the entries needed for this page
+	$entries = 
+	\array_values( \array_filter(
+		\array_map( fn( $f ) => entry_import( $f['path'] ), $slice ),
+		fn( $e ) => $e !== null
+	));
+	
+	return [
+		'entries'	=> $entries,
+		'total_entries'	=> $total,
+		'total_pages'	=> $pcount,
+	];
 }
 
 
