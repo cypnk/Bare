@@ -2894,6 +2894,27 @@ function sanitize_strip_xss( string $text ) : string {
 }
 
 /**
+ *  User input and environment data filtering helper
+ *  
+ *  @param string	$source		Data source type, defaults to 'get'
+ *  @param array	$filter		Input processing filters
+ */
+function sanitize_input_array( string $source, array $filter ) : array {
+	$dtype	= 
+	match( \strtolower( $source ) ) {
+		'post'			=> \INPUT_POST,
+		'cookie'		=> \INPUT_COOKIE,
+		'server'		=> \INPUT_SERVER,
+		'env', 'environment'	=> \INPUT_ENV,
+		
+		default			=> \INPUT_GET
+	};
+	
+	$data	= \filter_input_array( $dtype, $filter, true );
+	return empty( $data ) ? [] : $data;
+}
+
+/**
  *  Attempt to filter host name
  *  
  *  @param string	$txt	Raw host definition
@@ -3958,6 +3979,262 @@ function storage_write_file( string $path, string $data ) : bool {
 	storage_release_lock( $lock_handle, $lock_file );
 	storage_temp_cleanup( $path );
 	return true;
+}
+
+
+
+/**
+ *  Logging and message handling
+ */
+
+/**
+ *  Generate a unique log ID
+ *  
+ *  @return string
+ */
+function log_get_id() : string {
+	return util_get_id( 'log', false );
+}
+
+/**
+ *  Set or get default logging level threshold for detail
+ *  
+ *  @param string	$level	Logging level
+ *  @return mixed
+ */
+function log_check_level( string $level ) : ?string {
+	static $priority	= [ 
+		'DEBUG'		=> 0, 
+		'INFO'		=> 1, 
+		'NOTICE'	=> 2, 
+		'WARN'		=> 3, 
+		'ERROR'		=> 4 
+	];
+	
+	// Change to info or above in production
+	if( !\defined( 'LOG_LEVEL' ) ) {
+		define( 'LOG_LEVEL', 'DEBUG' );
+	}
+	
+	$level		= \strtoupper( $level );
+	if ( !\array_key_exists( $level, $priority ) ) {
+		$level = 'INFO';
+	}
+	
+	$threshold	= $priority[LOG_LEVEL] ?? 1;
+	return $priority[$level] >= $threshold ? $level : null;
+}
+
+/**
+ *  Full log file storage location
+ *  
+ *  @return string
+ */
+function log_file() : string {
+	static $file;
+	if ( !isset( $file ) ) {
+		$file	= storage_base() . 
+		defined( 'LOG_FILE' ) 
+			? LOG_FILE : 
+			'messages.log';
+	}
+	return $file;
+}
+
+/**
+ *  Check if custom log file location is valid. I.E. Within the storage folder
+ *  
+ *  @param string	$path		Storage path on disk
+ *  @return bool
+ */
+function log_file_valid( string $path ) : bool {
+	static $root	= \realpath( storage_base() );
+	$rpath		= @\realpath( $path );
+	
+	return ( false !== $rpath ) && ( 0 === \strpos( $rpath, $root ) );
+}
+
+/**
+ *  Remove stale log files rotated into archives
+ *  
+ *  @param string	$log_file	Base log file, rotated
+ */
+function log_cleanup( string $log_file ) : void {
+	static $ret;
+	
+	$ret	??= 
+	defined( 'LOG_MAX_RETENTION' )
+		? LOG_MAX_RETENTION
+		: 7;
+	
+	$files		= \glob( $log_file . '.*.log' );
+	if ( !$files ) { return; }
+	
+	$threshold	= time() - ( $ret * 86400 );
+	foreach ( $files as $old ) {
+		if ( !\is_file( $old ) || !\is_writable( $old ) ) {
+			continue;
+		}
+		
+		$mtime = \filemtime( $old );
+		if ( !$mtime ) { continue; }
+		
+		if ( $mtime < $threshold ) {
+			if ( !@\unlink( $old ) ) {
+				\error_log( "Failed to delete old log file: {$old}" );
+			}
+		}
+	}
+}
+
+/**
+ *  Rotate given log file
+ *  
+ *  @param string $log_file Target log file location on disk
+ */
+function log_rotate( string $log_file ) : void {
+	static $max_size;
+	
+	$max_size ??= 
+	defined( 'LOG_MAX_SIZE' ) 
+		? LOG_MAX_SIZE
+		: 5242880;
+	
+	if ( !\is_readable( $log_file ) ) { return; }
+	
+	$fsize	= \filesize( $log_file );
+	if ( !$fsize ) { return; }
+	
+	if ( $fsize > $max_size ) {
+		$stamp		= date( 'Ymd_His' );
+		$archive	= "{$log_file}.{$stamp}.log";
+		if ( !\rename( $log_file, $archive ) ) {
+			\error_log( "Failed to archive log: {$log_file}" );
+			return;
+		}
+	}
+	
+	// Retention cleanup
+	log_cleanup( $log_file );
+}
+
+/**
+ *  Core log writer
+ *  
+ *  @param string	$pair		Log file loaction and message combination
+ */
+function log_message_write( ?array $pair = null ) : void {
+	static $reg	= false;
+	static $cache	= [];
+	
+	if ( !$reg ) {
+		$reg = true;
+		\register_shutdown_function( 'log_message_write' );
+	}
+	
+	if ( null !== $pair ) {
+		[ $msg_file, $entry ] = $pair;
+		
+		if ( empty( $entry ) || empty( $msg_file ) ) { return; }
+		if ( !\is_string( $entry ) || !\is_string( $msg_file ) ) { return; }
+		
+		$cache[] = [ $msg_file, $entry ];
+		return;
+	}
+	
+	// Shutdown action
+	$grouped = [];
+	foreach ( $cache as [ $file, $entry ] ) {
+		$grouped[$file][] = $entry;
+	}
+	
+	$base	= storage_base();
+	foreach ( $grouped as $file => $entries ) {
+		if ( !log_file_valid( $file ) ) {
+			\error_log( "Log file {$file} is not within storage {$base}" );
+			continue; 
+		}
+		
+		log_rotate( $file );
+		$data	= \implode( \PHP_EOL, $entries ) . \PHP_EOL;
+		
+		if ( !storage_append( $file, $data, true ) ) {
+			\error_log( "Failed to append batched messages to {$file} in {$base}" );
+		}
+	}
+}
+
+/**
+ *  Format log entry into useful and consistent format
+ *  
+ *  @param string	$msg		Base log message
+ *  @param string	$level		Priority level
+ *  @return string
+ */
+function log_format( string $msg, string $level = 'INFO' ) : string {
+	$id		= log_get_id();
+	$script		= \basename( $_SERVER['SCRIPT_NAME'] ?? 'unknown' );
+	$timestamp	= util_timestamp();
+	
+	$entry			= <<<MSG
+[{$timestamp}] [ID:{$id}] [{$script}] [{$label}]
+{$msg}
+
+---
+
+MSG;
+}
+
+/**
+ *  Main log message handler
+ *  
+ *  @param array|string		$context	Logging context detail
+ *  @param string		$level		Logging level
+ *  @param string		$file		Optional log file location, defaults to log_file()
+ */
+function log_msg( 
+	string|array	$context, 
+	string		$level		= 'INFO', 
+	?string		$file		= null 
+) : void {
+	if ( empty( log_check_level( $level ) ) ) {
+		return;
+	}
+	
+	if ( \is_array( $context ) ) {
+		$msg =
+		\json_encode( 
+			$context, 
+			\JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE
+		);
+		
+		// Since PHP 8.3 
+		if ( !\json_validate( $msg ) ) {
+			\error_log( "Invalid JSON generated for log context" );
+			return;
+		}
+	} else {
+		$msg = $context;
+	}
+	
+	$entry	= log_format( $msg, $level );
+	log_message_write( [ $file ?? log_file(), $entry ] );
+}
+
+function log_info( string|array $context, ?string $file = null ) : void {
+	log_msg( $context, 'INFO', $file );
+}
+
+function log_warn( string|array $msg, ?string $file = null ) : void {
+	log_msg( $context, 'WARN', $file );
+}
+
+function log_error( string|array $msg, ?string $file = null ) : void {
+	log_msg( $context, 'ERROR', $file );
+}
+
+function log_debug( string|array $msg, ?string $file = null ) : void {
+	log_msg( $context, 'DEBUG', $file );
 }
 
 
@@ -13513,26 +13790,6 @@ function genForm(
 }
 
 /**
- *  User input and environment data filtering helper
- *  
- *  @param string	$source		Data source type, defaults to 'get'
- *  @param array	$filter		Input processing filters
- */
-function inputData( string $source, array $filter ) : array {
-	$dtype	= 
-	match( \strtolower( $source ) ) {
-		'post'			=> \INPUT_POST,
-		'cookie'		=> \INPUT_COOKIE,
-		'server'		=> \INPUT_SERVER,
-		'env', 'environment'	=> \INPUT_ENV,
-		default			=> \INPUT_GET
-	};
-	
-	$data	= \filter_input_array( $dtype, $filter, true );
-	return empty( $data ) ? [] : $data;
-}
-
-/**
  *  Validate submitted form field against XSRF behavior
  *  
  *  @param string	$form		Unique form name per session to verify
@@ -13545,7 +13802,7 @@ function validateForm(
 	array	$fields	= [] 
 ) : bool {
 	$data	= 
-	inputData( $itype, [
+	sanitize_input_array( $itype, [
 		'token'	=> [
 			'filter'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
 			'flags'		=> \FILTER_REQUIRE_SCALAR
