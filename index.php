@@ -5472,6 +5472,284 @@ function response_xml(
 
 
 /**
+ *  Configuration settings and options
+ */
+
+/**
+ *  Core file location builder
+ *  
+ *  @param string	$constant	Defined constant path
+ *  @param string	$name		File name
+ *  @param bool		$is_dir		Constant is a directory location, if true
+ *  @return string
+ */
+function config_core_path( string $constant, string $name, bool $is_dir = false ) : string {
+	$path	= 
+	defined( $constant ) 
+		? constant( $constant ) 
+		: storage_base() . $name;
+	
+	return $is_dir 
+		? \rtrim( $path, '\\/' ) . \DIRECTORY_SEPARATOR 
+		: $path;
+}
+
+/**
+ *  Main configuration file location
+ *  
+ *  @return string
+ */
+function config_file() : string {
+	static $conf_file;
+	if ( isset( $conf_file ) ) {
+		return $conf_file;
+	}
+	
+	$conf_file = config_core_path( 'CONFIG_FILE', 'config.json' );
+	return $conf_file;
+}
+
+/**
+ *  Config related log file location
+ *  
+ *  @return string
+ */
+function config_message_file() : string {
+	static $mssage_log;
+	if ( isset( $message_log ) ) {
+		return $message_log;
+	}
+	$message_log	= config_core_path( 'CONFIG_LOG', 'config_messages.log' );
+	return $message_log;
+}
+
+/**
+ *  Check storage location sub-path
+ *  
+ *  @param string	$path	Storage location checker
+ *  @return bool		True if valid location within CONFIG_DIR
+ */
+function config_store_valid( string $path ) : bool {
+	static $root	= \realpath( storage_base() );
+	$path		= \realpath( $path );
+	
+	return ( false !== $path ) && ( 0 === \strpos( $path, $root ) );
+}
+
+/**
+ *  Global info writer
+ *  
+ *  @param string	$msg		Main content body
+ *  @param string	$label		Optional tag
+ *  @param string	$msg_file	Description for $msg_file
+ *  @return void
+ */
+function config_message( 
+	string	$msg, 
+	string	$label		= 'INFO', 
+	?string	$msg_file	= null
+) : void {
+	log_msg( $msg, $label, config_message_file() );
+}
+
+/**
+ *  Expand defined constants into configuration scope
+ *  
+ *  @param array	$confi		Loaded configuration
+ *  @param bool		$reparse	Reload configuration settings, if true
+ *  @return array
+ */
+function config_expand_constants( array $config, bool $reparse = false ) : array {
+	static $constants;
+	
+	if ( !isset( $constants ) || $reparse ) {
+		$constants	??= [];
+		$temp		= \get_defined_constants( true )['user'] ?? [];
+		if ( empty( $temp ) ) { return $constants; };
+		
+		foreach ( $temp as $key => $value ) {
+			$nkey = '{{' . $key . '}}';
+			$constants[$nkey] = $value;
+		}
+	}
+	
+	\array_walk_recursive( $config, function( &$value ) use ( $constants ) {
+		if ( !\is_string( $value ) ) { return; }
+		$value = 
+		\str_replace( 
+			\array_keys( $constants ), 
+			\array_values( $constants ), 
+			$value
+		);
+	} );
+	
+	return $config;
+}
+
+/**
+ *  Load configuration JSON file
+ *  
+ *  @param string	$file	Location on disk
+ *  @return array
+ */
+function config_load_json( string $file ) : array {
+	if ( !\is_readable( $file ) ) {
+		config_message( "Config file is not readable: {$file}", 'ERROR' );
+		
+		throw new 
+		\RuntimeException( "Config file is not readable." );
+	}
+	
+	$raw	= \file_get_contents( $file );
+	if ( false === $raw ) {
+		config_message( "Unable to read config file: {$file}", 'ERROR' );
+		
+		throw new 
+		\RuntimeException( "Unable to read config file." );
+	}
+	
+	if ( !\json_validate( $raw ) ) { // Since PHP 8.3
+		config_message( "Invalid JSON found in config file: {$file}", 'ERROR' );
+		
+		throw new 
+		\RuntimeException( "Invalid JSON format" );
+	}
+	
+	$config = \json_decode( $raw, true );
+	if ( \json_last_error() !== \JSON_ERROR_NONE ) {
+		config_message( 
+			"Invalid JSON found in config file: {$file} - " . 
+				"JSON decode error [Code " . \json_last_error() . "]: " . 
+				\json_last_error_msg(), 
+			'ERROR' 
+		);
+		
+		throw new 
+		\RuntimeException( "Invalid JSON in config file" );
+	}
+	
+	return $config;
+}
+
+/**
+ *  Generate backup config file name
+ *  
+ *  @return string
+ */
+function config_backup_name() : string {
+	return storage_backup_path( config_file() );
+}
+
+/**
+ *  Create a configuration backup file
+ *  
+ *  @return bool		True on success
+ */
+function config_backup() : bool {
+	$bkp	= config_backup_name();
+	
+	if ( !copy( config_file(), $bkp ) ) {
+		config_message( "Config backup failed: {$bkp}", 'ERROR' );
+		
+		throw new 
+		\RuntimeException( "Config backup failed" );
+	}
+	
+	return true;
+}
+
+/**
+ *  Write parsed configuration settings to config file
+ *  
+ *  @param string	$json		JSON formatted configuration settings
+ *  @return bool			True on success
+ */
+function config_write( string $json ) : bool {
+	return storage_write_file( config_file(), $json );
+}
+
+/**
+ *  Processed configuration settings
+ *  
+ *  @param array	$new_settings	Optional new settings to merge with existing ones
+ *  @return array
+ */
+function config_parsed( ?array $new_settings = null ) : array {
+	static $settings	= [];
+	static $reg		= false;
+	
+	// Skip first load
+	if ( !$reg ) {
+		$reg = true;
+		if ( empty( $settings ) ) {
+			$settings = 
+			config_expand_constants( 
+				config_load_json( config_file() ), true
+			);
+		}
+		
+		// Save changes at shutdown
+		\register_shutdown_function( function() {
+			config_backup();
+			config_save( null, $_SERVER['REMOTE_USER'] ?? 'system' );
+		} );
+	}
+	
+	
+	if ( null === $new_settings ) {
+		return $settings;
+	}
+	
+	$settings	= \array_replace_recursive( $settings, $new_settings );
+	$settings	= config_expand_constants( $settings );
+	
+	return $settings;
+}
+
+/**
+ *  Save parsed or preloaded configuation settings
+ *  
+ *  @param array	$settings	Optional new settings
+ *  @param string	$modified_by	Modification source, defaults to 'system'
+ *  @return bool			True on success
+ */
+function config_save( ?array $settings = null, string $modified_by = 'system' ) : bool {
+	$settings		??= config_parsed();
+	$settings['_meta']	= [
+		'last_saved'	=> date( 'c' ),
+		'modified_by'	=> $modified_by
+	];
+	
+	$json	= 
+	\json_encode( $settings, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES );
+	
+	if ( false === $json ) {
+		config_message( 
+			"Invalid JSON format [Code " . 
+				\json_last_error() . "]: " . 
+				\json_last_error_msg(), 
+			'ERROR' 
+		);
+		
+		throw new 
+		\RuntimeException( "Invalid JSON format for settings" );
+	}
+	
+	return config_write( $json );
+}
+
+/**
+ *  Helper to change a single configuration setting in the root config
+ *  
+ *  @param string	$key	Main configuration key
+ *  @param bool		$value	New replaement 
+ */
+function config_edit( string $key, mixed $value ) : void {
+	config_parsed( [ $key => $value ] );
+}
+
+
+/**
  *  Plugins and modules
  */
 
