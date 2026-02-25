@@ -4695,35 +4695,6 @@ function response_send_headers(
 }
 
 /**
- *  Reseponse output content type header helper
- *  
- *  @param string	$body		Output content
- *  @param string	$ct_sent	Send 'Content-Type' if false
- */
-function response_body( mixed $body, bool $ct_sent ) : void {
-	if ( null === $body ) { return; }
-	
-	$is_json	= ( \is_array( $body ) || \is_object( $body ) );
-	$is_html	= !$is_json && \preg_match( '/<[^>]+>/', ( string ) $body );
-	
-	if ( !$ct_sent ) {
-		\header( match( true ) {
-			$is_json	=> 'Content-Type: application/json; charset=utf-8',
-			$is_html	=> 'Content-Type: text/html; charset=utf-8',
-			default		=> 'Content-Type: text/plain; charset=utf-8'
-		}, true );
-	}
-	
-	echo match( true ) {
-		$is_json	=> 
-		\json_encode( $body, 
-			\JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES
-		),
-		default		=> $body
-	};
-}
-
-/**
  *  Create a file etag
  *  
  *  @param int		$size	File size in bytes
@@ -5116,6 +5087,109 @@ function response_file(
 	} finally {
 		if ( \is_resource( $handle ) ) { \fclose( $handle ); }
 	}
+	exit;
+}
+
+/**
+ *  Response output content type header helper
+ *  
+ *  @param string	$body		Output content
+ *  @param string	$ct_sent	Send 'Content-Type' if false
+ */
+function response_body( mixed $body, bool $ct_sent ) : void {
+	if ( null === $body ) { return; }
+	
+	$is_json	= ( \is_array( $body ) || \is_object( $body ) );
+	$is_html	= !$is_json && \preg_match( '/<[^>]+>/', ( string ) $body );
+	
+	if ( !$ct_sent ) {
+		\header( match( true ) {
+			$is_json	=> 'Content-Type: application/json; charset=utf-8',
+			$is_html	=> 'Content-Type: text/html; charset=utf-8',
+			default		=> 'Content-Type: text/plain; charset=utf-8'
+		}, true );
+	}
+	
+	echo match( true ) {
+		$is_json	=> 
+		\json_encode( $body, 
+			\JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES
+		),
+		default		=> $body
+	};
+}
+
+/**
+ *  Main content response handler
+ *  
+ *  @param int		$code	HTTP status code
+ *  @param mixed	$body	Content body
+ */
+function response( int $code, array $headers = [], $body = null ) : void {
+	if ( $code < 100 || $code > 599 ) {
+		throw new 
+		InvalidArgumentException( "Invalid HTTP status code: {$code}" );
+	}
+	
+	$ct_sent	= false;
+	$lo_sent	= false;
+	$is_redir	= ( $code >= 300 && $code < 400 );
+	
+	response_status( $code );
+	response_headers( $headers, $ct_sent, $lo_sent );
+	response_body( $body, $ct_sent );
+	
+	if ( $is_redir && $lo_sent ) { exit; }
+}
+
+function response_html( string $html, int $status = 200, array $headers = [] ) : void {
+	$headers['Content-Type'] ??= 'text/html; charset=UTF-8';
+	response( $status, $headers, $html );
+	exit;
+}
+
+function response_json( array $data, int $status = 200, array $headers = [] ) : void {
+	$headers['Content-Type'] ??= 'application/json; charset=UTF-8';
+	response( $status, $headers, $data );
+	exit;
+}
+
+function response_text( string $text, int $status = 200, array $headers = []) : void {
+	$headers['Content-Type'] ??= 'text/plain; charset=UTF-8';
+	response( $status, $headers, $text );
+	exit;
+}
+
+/**
+ *  OPTIONS header response helper
+ */
+function response_options( array $headers = [] ) : void {
+	$method	= request_method();
+	if ( 0 === \strcasecmp( 'options', $method ) ) {
+		response( 204, $headers );
+		exit;
+	}
+}
+
+/**
+ *  XML Output response helper
+ *  
+ *  @param string	$xml	Raw XML content
+ *  @param int		$status	HTTP status code
+ */
+function response_xml( 
+	string	$xml, 
+	int	$status		= 200,
+	string	$type		= 'application/xml', 
+	array	$headers	= []
+) : void {
+	$headers = \array_replace_recursive( $headers, response_xmlrpc_headers() );
+	$headers['Content-Type'] ??= "{$type}; charset=UTF-8";
+	
+	// Handle CORS preflight request E.G. XML-RPC request
+	response_options( $headers );
+	
+	response( $status, $headers, $xml );
 	exit;
 }
 
