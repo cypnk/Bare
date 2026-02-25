@@ -3078,6 +3078,22 @@ function sanitize_is_valid_path(
 }
 
 /**
+ *  Normalize file opening modes
+ *  
+ *  @param string	$mode	File open mode
+ *  @return mixed
+ */
+function sanitize_normalize_fmode( string $mode ) : ?string  {
+	if ( !\preg_match( '/^(r|w|a|x|c)(\+)?([bt]{0,2})$/i', $mode, $m ) ) {
+		return null;
+	}
+	
+	$flags	= \array_unique( \str_split( $m[3] ?? '' ) );
+	\sort( $flags );
+	return $m[1] . ( $m[2] ?? '' ) . \implode( '', $flags );
+}
+
+/**
  *  Convert all spaces to single character
  *  
  *  @param string	$text		Raw text containting mixed space types
@@ -3440,6 +3456,87 @@ function storage_options( ?array $new_options = null ) : array {
  */
 function storage_get_id() : string {
 	return util_get_id( 'storage', true );
+}
+
+/**
+ *  File size helper
+ *  
+ *  @param string	$fpath	Location on disk
+ *  @return int
+ */
+function storage_filesize( string $fpath ) : int {
+	$fsize		= @\filesize( $fpath );
+	if ( false === $fsize ) { return 0; }
+	
+	return $fsize;
+}
+
+/**
+ *  Last modified time helper
+ *  
+ *  @param string	$fpath	Location on disk
+ *  @return int
+ */
+function storage_filemtime( string $fpath ) : int {
+	return ( int )( @\filemtime( $fpath ) ?: 0 );
+}
+
+/**
+ *  File opening helper
+ *  
+ *  @param string	$fpath	Location on disk
+ *  @param strring	$mode	File opening mode
+ *  @return resource
+ */
+function storage_file_open( string $fpath, string $mode = 'rb' ) {
+	$mode = sanitize_normalize_fmode( $mode );
+	if ( empty( $mode ) )  {
+		throw new 
+		\InvalidArgumentException( 'Invalid file open mode' );
+	}
+		
+	$handle		= \fopen( $fpath, $mode );
+	if ( false === $handle ) {
+		throw new 
+		\RuntimeException( 'Error obtaining file read handle' );
+	}
+	return $handle;
+}
+
+/**
+ *  Generate an in-memory file hash
+ *  
+ *  @param string $fpath	Location on disk
+ *  @return mixed		String hash on success or false
+ */
+function storage_file_hash( string $fpath ) : string|false {
+	if ( !\is_readable( $fpath ) ) {
+		return false;
+	}
+	
+	$handle	= @\fopen( $fpath, 'rb' );
+	if ( !$handle ) { return false; }
+	
+	$out	= '';
+	try {
+		$ctx	= \hash_init( 'sha256' );
+		while( true ) {
+			$chunk = \fread( $handle, 8192 );
+			if ( false === $chunk ) {
+				throw new 
+				\RuntimeException( "Error reading file during hashing" );
+			}
+			
+			if ( '' === $chunk ) { break; }
+			\hash_update( $ctx, $chunk );
+		}
+		
+		$out = \hash_final( $ctx );
+		
+	} finally {
+		if ( \is_resource( $handle ) ) { \fclose( $handle ); }
+	}
+	return $out;
 }
 
 /**
@@ -4473,6 +4570,554 @@ function request_range_header( int $fsize ) : array {
 	return util_merge_ranges( $ranges );
 }
 
+
+/**
+ *  Response and output handling
+ */
+
+/**
+ *  Helper to generate header with protocol and message
+ *  
+ *  @param int		$code		HTTP Status code
+ */
+function response_status( int $code ) : void {
+	static $green	= [
+		200, 201, 202, 204, 205, 206, 
+		300, 301, 302, 303, 304,
+		400, 401, 403, 404, 405, 406, 407, 409, 410, 411, 412, 
+			413, 414, 415,
+		500, 501
+	];
+	
+	static	$custom	= [
+		416	=> 'Range Not Satisfiable',
+		422	=> 'Unprocessable Entity',
+		425	=> 'Too Early',
+		429	=> 'Too Many Requests',
+		431	=> 'Request Header Fields Too Large',
+		503	=> 'Service Unavailable',
+	];
+	
+	if ( \headers_sent() ) { return; }
+	
+	if ( \in_array( $code, $green, true ) ) {
+		\http_response_code( $code );
+		if ( $code == 405 ) {
+			\header( 'Allow: OPTIONS, GET, HEAD, POST' );
+		}
+		return;
+	
+	} 
+	
+	// Special cases
+	if ( isset( $custom[$code] ) ) {
+		$prot	= request_protocol();
+		$msg	= $custom[$code];
+		\header( "$prot $code $msg" );
+		return;
+	}
+	
+	throw new 
+	\InvalidArgumentException( "Code {$code} unsupported" );
+}
+
+/**
+ *  Set ignore user abort for large output streams
+ */
+function response_ignore_user_abort() : void {
+	static $ignore	= false;
+	if ( $ignore ) { return; }
+	
+	if ( !\ignore_user_abort() ) {
+		\ignore_user_abort( true );
+	}		
+	$ignore		= true;
+}
+
+/**
+ *  Putput response header helper
+ *  
+ *  @param array	$headers	Set headers
+ *  @param bool		$ct_sent	Flag true if output is set via 'Content-Type'
+ *  @param bool		$lo_sent	Flag true if 'Location' is set
+ */
+function response_headers( array $headers, &$ct_sent, &$lo_sent ) : void {
+	foreach ( $headers as $key => $value ) {
+		if ( 0 === \strcasecmp( $key, 'content-type' ) ) {
+			$ct_sent = true;
+		}
+		if ( 0 === \strcasecmp( $key, 'location' ) ) {
+			$lo_sent = true;
+		}
+		
+		$key	= \str_replace( ["\r", "\n"], '', $key );
+		$value	= \str_replace( ["\r", "\n"], '', $value );
+		\header( "{$key}: {$value}" );
+	}
+}
+
+/**
+ *  XML-RPC response-specific header list
+ *  
+ *  @param string	$origin		Request origin realm
+ *  @return array
+ */
+function response_xmlrpc_headers( ?string $origin = null ) : array {
+	$origin ??= request_origin();
+	
+	return [
+		'Access-Control-Allow-Origin'      => $origin,
+		'Access-Control-Allow-Methods'     => 'POST',
+		'Access-Control-Allow-Headers'     => 
+		'Content-Type, Authorization, X-Requested-With',
+		
+		'Access-Control-Allow-Credentials' => 'true',
+		'Content-Security-Policy'          => 
+		"default-src 'self'; frame-ancestors 'none';",
+		
+		'X-Frame-Options'                  => 'DENY',
+		'X-Content-Type-Options'           => 'nosniff',
+		'Referrer-Policy'                  => 'same-origin',
+		'Strict-Transport-Security'        => 
+		'max-age=31536000; includeSubDomains; preload'
+	];
+}
+
+/**
+ *  Header sending helper
+ */
+function response_send_headers(
+	array	$headers, 
+		&$ct_sent	= false, 
+		&$lo_sent	= false 
+) : void {
+	response_headers( $headers, $ct_sent, $lo_sent );
+}
+
+/**
+ *  Reseponse output content type header helper
+ *  
+ *  @param string	$body		Output content
+ *  @param string	$ct_sent	Send 'Content-Type' if false
+ */
+function response_body( mixed $body, bool $ct_sent ) : void {
+	if ( null === $body ) { return; }
+	
+	$is_json	= ( \is_array( $body ) || \is_object( $body ) );
+	$is_html	= !$is_json && \preg_match( '/<[^>]+>/', ( string ) $body );
+	
+	if ( !$ct_sent ) {
+		\header( match( true ) {
+			$is_json	=> 'Content-Type: application/json; charset=utf-8',
+			$is_html	=> 'Content-Type: text/html; charset=utf-8',
+			default		=> 'Content-Type: text/plain; charset=utf-8'
+		}, true );
+	}
+	
+	echo match( true ) {
+		$is_json	=> 
+		\json_encode( $body, 
+			\JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES
+		),
+		default		=> $body
+	};
+}
+
+/**
+ *  Create a file etag
+ *  
+ *  @param int		$size	File size in bytes
+ *  @param int		$mtime	Last modified date in seconds
+ *  @return string
+ */
+function response_generate_etag( int $size, int $mtime ) : string {
+	$raw = \hash( 'sha256', $size . '-' . $mtime );
+	return "\"{$raw}\"";
+}
+
+/**
+ *  Generate string content etag header
+ *  
+ *  @param stirng	$content	Client output content
+ *  @param bool		$wetag		Set weak etag if true
+ */
+function response_content_etag( string $content, bool $wetag = true ) : void {
+	$prefix	= $wetag ? 'W/' : '';
+	$tag	= \hash( 'sha256', $content );
+	\header( "ETag: {$prefix}\"{$tag}\"", true );
+}
+
+/**
+ *  Check sent etag data against current file information for staleness
+ *  
+ *  @param string	$etag		Current file etag
+ *  @param int		$mtime		File last modified time in seconds
+ *  @param string	$client_etag	Client sent etag(s)
+ *  @param int		$client_mtime	File last modified time sent by client
+ *  @return bool
+ */
+function response_check_not_modified(
+	string		$etag,
+	int		$mtime,
+	?string		$client_etag	= null,
+	?int		$client_mtime	= null
+) : bool {
+	$clean	= trim( $etag, "\"" );
+	
+	if( $client_etag ) {
+		$tags	= 
+		\array_map(
+			function ( $tag ) {
+				$tag	= trim( $tag, " \t\n\r\0\x0B\"" );
+				if ( \str_starts_with( $tag, 'W/' ) ) {
+					$tag	= \substr( $tag, 2 );
+				}
+				return $tag;
+			}, 
+			\explode( ',', $client_etag ) 
+		);
+		
+		if ( \in_array( $clean, $tags, true ) ) {
+			response_status(304);
+			return true;
+		}
+		if ( 1 === count( $tags ) && '*' === $tags[0] ) {
+			response_status( 304 );
+			return true;
+		}
+		
+		// Didn't match If-None-Match
+		return false;
+	}
+	
+	// Try If-Modified-Since
+	if ( $client_mtime && $mtime <= $client_mtime ) {
+		response_status( 304 );
+		return true;
+	}
+	return false;
+}
+
+/**
+ *  Static file metadata cache path
+ *  
+ *  @param string	$fpath File location on disk
+ *  @return string
+ */
+function response_meta_cache_path( string $fpath ) : string {
+	static $tmp;
+	
+	$tmp	??= storage_base() . "/tmp/";
+	if ( !\is_dir( $tmp ) && !\mkdir( $tmp, 0777, true ) ) {
+		throw new 
+		\RuntimeException( "Failed to create cache directory: {$tmp}" );
+	}
+	
+	$hash	= \hash( 'sha256', $fpath );
+	return "{$tmp}/meta_{$hash}.cache.tmp";
+}
+
+/**
+ *  Get any cached metadata for a given file path
+ *  
+ *  @param string	$fpath	Location of file on disk
+ *  @return mixed
+ */
+function response_get_meta_cache( string $fpath ) : array|null {
+	$fcache	= response_meta_cache_path( $fpath );
+	if ( !\is_readable( $fcache ) ) { return null; }
+	
+	if ( !isset( $meta['mtime'], $meta['content_length'] ) ) {
+		return null;
+	}
+	
+	try {
+		$data		= \file_get_contents( $fcache );
+		if ( false === $data ) { return null; }
+		
+		$meta		= 
+		\json_decode( 
+			$data, true, 2, 
+				\JSON_UNESCAPED_SLASHES | 
+				\JSON_INVALID_UTF8_IGNORE |
+				\JSON_THROW_ON_ERROR 
+		);
+		
+		if ( !\is_array( $meta ) ) { return null; }
+		
+		$curr_mtime	= response_filemtime( $fpath );
+		$curr_size	= response_file_size( $fpath );
+		
+	} catch ( \Throwable $e ) {
+		\error_log( "Meta cache error: " . $e->getMessage() );
+		return null;
+	}
+	
+	if ( 
+		$meta['mtime']		=== $curr_mtime && 
+		$meta['content_length']	=== $curr_size
+	) {
+		return $meta;
+	}
+	return null;
+}
+
+/**
+ *  Cache static file metadata
+ *  
+ *  @param string	$fpath	Location on disk
+ *  @param array	$meta	File metadata
+ */
+function response_save_meta_cache( string $fpath, array $meta ) : void {
+	$fcache	= response_meta_cache_path( $fpath );
+	$tmp	= $fcache . '.' . \bin2hex( \random_bytes( 4 ) );
+	
+	try {
+		$data	= 
+		\json_encode( $meta, 
+			\JSON_UNESCAPED_SLASHES | 
+			\JSON_UNESCAPED_UNICODE | 
+			\JSON_THROW_ON_ERROR 
+		);
+		
+		if ( false === \file_put_contents( $tmp, $json, \LOCK_EX ) ) {
+			throw new 
+			\RuntimeException( "Failed to write temp cache file" );
+		}
+		if ( !\rename( $tmp, $fcache ) ) {
+			throw new 
+			\RuntimeException("Failed to replace cache file");
+		}
+	} catch ( \Throwable $e ) {
+		\error_log( "Meta cache error: " . $e->getMessage() );
+	}
+}
+
+/**
+ *  Generate static file metadata
+ *  
+ *  @param string	$path	Location on disk
+ *  @return array
+ */
+function response_file_metadata( string $path ) : array {
+	static $cache = [];
+	$fpath	= \realpath( $path ) ?: $path;
+	
+	// Local cache?
+	if ( isset( $cache[$fpath] ) ) {
+		return $cache[$fpath];
+	}
+	
+	// File cache?
+	$fcache	= response_get_meta_cache( $fpath );
+	if ( \is_array( $fcache ) ) {
+		$cache[$fpath]	= $fcache;
+		return $fcache;
+	}
+	
+	if ( !\is_file( $fpath ) ) {
+		throw new 
+		\RuntimeException( "File to be cached not found");
+	}
+	
+	$fsize	= storage_filesize( $fpath );
+	$mtime	= storage_filemtime( $fpath );
+	$mime	= @\mime_content_type( $fpath ) ?: 'application/octet-stream';
+	
+	$etag	= response_generate_etag( $etag, $mtime );
+	$lmod	= \gmdate( 'D, d M Y H:i:s', $mtime ) . ' GMT';
+	
+	$meta	= [
+		'etag'           => "\"{$etag}\"",
+		'last_modified'  => $lmod,
+		'content_type'   => $mime,
+		'content_length' => $fsize,
+		'mtime'          => $mtime
+	];
+	
+	response_save_meta_cache( $fpath, $meta );
+	$cache[$fpath] = $meta;
+	return $meta;
+}
+
+/**
+ *  Generate file response headers
+ *  
+ *  @param string	$fpath		Location on disk
+ *  @param bool		$wetag		Create weak prefix for etag
+ *  @param bool		$size		Include file size
+ *  @param bool		$stype		Include sending 'Content-Type'
+ *  @return array
+ */
+function response_file_headers( 
+	string	$fpath, 
+	bool	$wetag	= false, 
+	bool	$size	= true,
+	bool	$stype	= true
+) : array {
+	$meta		= response_file_metadata( $fpath );
+	$prefix		= $wetag ? 'W/' : '';
+	$headers	= [
+		"ETag"		=> "{$prefix}{$meta['etag']}",
+		"Last-Modified"	=> $meta['last_modified']
+	];
+	
+	if ( $size ) {
+		$headers["Content-Length"]	= $meta['content_length'];
+	}
+	if ( $stype ) {
+		$headers["Content-Type"]	= $meta['content_type'];
+	}
+	
+	return $headers;
+}
+
+/**
+ *  Direct stream or otherwise output file
+ *  
+ *  @param array	$meta		File metadata
+ *  @param resource	$handle		Opened file resource
+ *  @param string	$fpath		Location on disk
+ *  @param bool		$download	Force download if true
+ */
+function response_file_stream( 
+	array	$meta, 
+		&$handle, 
+	string	$fpath, 
+	bool	$download	= false 
+) : void {
+	$headers	= [ "Accept-Ranges" => "bytes" ];
+	
+	if ( $download ) {
+		$headers["Content-Disposition"] = 
+		"attachment; filename=\"" . \basename( $fpath ) . "\"";
+	}
+	
+	$headers	= 
+	\array_merge( 
+		$headers, 
+		response_file_headers( $fpath, false, true, true ) 
+	);
+	
+	response_status( 200 );
+	response_send_headers( $headers );
+	if ( $meta['content_length'] <= 65536 ) {
+		\readfile( $handle );
+	} else {
+		while ( !\feof( $handle ) ) {
+			if ( \connection_aborted() ) { break; }
+			
+			echo \fread( $handle, 8192 );
+			\flush();
+		}
+	}
+}
+
+/**
+ *  Output requested range stream
+ *  
+ *  @param array	$meta		File metadata
+ *  @param resource	$handle		Opened file resource
+ *  @param string	$fpath		Location on disk
+ *  @param array	$ranges		List of streaming ranges in [ start, end ] format
+ */
+function response_file_range( 
+	array	$meta, 
+		&$handle, 
+	string	$fpath, 
+	array	$ranges 
+) : void {
+	$boundary	= \bin2hex( \random_bytes( 6 ) );	
+	$headers	= 
+	\array_merge( [
+		"Content-Type"	=> "multipart/byteranges; boundary={$boundary}",
+		"Accept-Ranges"	=> "bytes"
+	], response_file_headers( $fpath, true, false, false ) );
+	
+	response_status( 206 );
+	response_send_headers( $headers );
+	
+	foreach ( $ranges as [ $start, $end ] ) {
+		
+		if ( \connection_aborted() ) { break; }
+		
+		$start	= \max( 0, $start );
+		$end	= \min( $meta['content_length'] - 1, $end );
+		if ( $start > $end || $start >= $meta['content_length'] ) {
+			continue;
+		}
+		
+		$length	= $end - $start + 1;
+		$chunk	= $length;
+		
+		echo "--{$boundary}\r\n";
+		echo "Content-Type: {$meta['content_type']}\r\n";
+		echo "Content-Length: {$length}\r\n";
+		echo "Content-Range: bytes {$start}-{$end}/{$meta['content_length']}\r\n\r\n";
+		
+		\fseek( $handle, $start );
+		while( $chunk > 0 && !\feof( $handle ) ) {
+			if ( \connection_aborted() ) {
+				break;
+			}
+			
+			$rsize	= \min( 8192, $chunk );
+			echo \fread( $handle, $rsize );
+			\flush();
+			
+			$chunk	-= $rsize;
+		}
+		echo "\r\n";
+	}
+	
+	echo "--{$boundary}--\r\n";
+}
+
+/**
+ *  Main file response output
+ *  
+ *  @param string	$fpath		Location on disk
+ *  @param bool		$download	Force download if true
+ *  @param string	$client_etag	Client sent etag(s)
+ *  @param int		$client_mtime	File last modified time sent by client
+ *  @param array	$ranges		Requested ranges
+ */
+function response_file(
+	string	$fpath, 
+	bool	$download	= false, 
+	?string	$client_etag	= null,
+	?int	$client_mtime	= null,
+	?array	$ranges		= null
+) : void {
+	response_end_buffers();
+	response_ignore_user_abort();
+	
+	$meta		= response_file_metadata( $fpath );
+	$etag		= $meta['etag'];
+	$mtime		= $meta['mtime'];
+	$handle		= null;
+	if ( response_check_not_modified( 
+		$etag, $mtime, $client_etag, $client_mtime 
+	) ) {
+		exit;
+	}
+	
+	try {
+		$handle = response_file_open( $fpath );
+		if ( $ranges ) {
+			response_file_range( $meta, $handle, $fpath, $ranges );
+		} else {
+			response_file_stream( $meta, $handle, $fpath, $download );
+		}
+	} catch( \Throwable $e ) {
+		\error_log( "File response error: " . $e->getMessage() );
+		response_status( 500 );
+		echo "File response error";
+	} finally {
+		if ( \is_resource( $handle ) ) { \fclose( $handle ); }
+	}
+	exit;
+}
 
 
 /**
