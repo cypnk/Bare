@@ -1,0 +1,956 @@
+{	
+	"realms"	: [
+		{
+			"domain"	: "localhost",
+			"alias"		: [ "test.local", "test.dev" ],
+			
+			"main_links"	: [
+				{ "url" : "{home}about", "text" : "{lang:nav:about}" },
+				{ "url" : "{home}archive", "text" : "{lang:nav:archive}" },
+				{ "url" : "{feedlink}", "text" : "{lang:nav:feed}" }
+			],
+			
+			"about_links" : [
+				{ "url" : "{home}", "text" : "{lang:nav:home}" },
+				{ "url" : "{home}archive", "text" : "{lang:nav:archive}" },
+				{ "url" : "{feedlink}", "text" : "{lang:nav:feed}" }
+			], 
+			
+			"footer_links" : [
+				{ "url" : "{home}about", "text" : "{lang:nav:about}" },
+				{ "url" : "{home}archive", "text" : "{lang:nav:archive}" },
+				{ "url" : "{feedlink}", "text" : "{lang:nav:feed}" }
+			], 
+			
+			"meta_links"	: [
+				{ 
+					"name"		: "generator", 
+					"content"	: "Bare; https:\/\/github.com\/cypnk\/Bare" 
+				}
+			],
+		}
+	],
+	
+	"defaults" : {
+		"app"			: "Bare",
+		"author"		: "admin",
+		"storage_dir"		: "cache",
+		"post_dir"		: "posts",
+		"template_dir"		: "templates",
+		"date_format"		: "l, F j, Y",
+		"related_limit"		: 5,
+		"max_page"		: 500,
+		"max_posts"		: 1000,
+		"posts_per_page"	: 10,
+		"cache_ttl"		: 3600,
+		"max_log_size"		: 5000000,
+		"entry_ext"		: "md",
+		"entry_meta_lines"	: 10,
+		"entry_fields"		: [ "title", "tags", "summary", "author", "updated" ],
+		"session_regen"		: 1800,
+		"mail_from"		: "domain@localhost",
+		"timezone"		: "America\/New_York",
+		"language"		: "en-US",
+		"static_ext"		: {
+			"text"		: [ "css", "js", "txt", "html", "vtt" ],
+			"images"	: [ "ico", "jpg", "jpeg", "gif", "bmp", "png", "tif", "tiff", "svg", "webp" ], 
+			"fonts"		: [ "ttf", "otf", "woff", "woff2" ],
+			"audio"		: [ "ogg", "oga", "mpa", "mp3", "m4a", "wav", "wma", "flac" ],
+			"video"		: [ "avi", "mp4", "mkv", "mov", "ogg", "ogv" ],
+			"documents"	: [ "doc", "docx", "ppt", "pptx", "pdf", "epub" ],
+			"archives"	: [ "zip", "rar", "gz", "tar" ]
+		},
+		"frame_whitelist" : [
+			"https:\/\/www.youtube.com",
+			"https:\/\/player.vimeo.com",
+			"https:\/\/archive.org",
+			"https:\/\/lbry.tv",
+			"https:\/\/odysee.com",
+			"https:\/\/playeur.com"
+		],
+		"headers"	: {
+			"Permissions-Policy" : {
+				"separator"	: ", ",
+				"joiner"	: "=",
+				"items"		: {
+					"accelerometer"		: "(none)",
+					"camera"		: "(none)",
+					"fullscreen"		: "(self)",
+					"geolocation"		: "(none)",
+					"gyroscope"		: "(none)",
+					"interest-cohort"	: "()",
+					"payment"		: "(none)",
+					"usb"			: "(none)",
+					"microphone"		: "(none)",
+					"magnetometer"		: "(none)"
+				}
+			},
+			"Content-Security-Policy": [
+				"default-src 'self'",
+				"script-src 'self'",
+				"style-src 'self'",
+				"img-src 'self' data:",
+				"font-src 'self'",
+				"object-src 'none'",
+				"frame-ancestors 'none'"
+			],
+			"Referrer-Policy" : [
+				"no-referrer",
+				"strict-origin-when-cross-origin"
+			],
+			"Strict-Transport-Security" : [
+				"max-age=63072000",
+				"includeSubDomains"
+			],
+			"X-Content-Type-Options" : "nosniff",
+			"X-Frame-Options" : "SAMEORIGIN",
+			"X-XSS-Protection" : [
+				"1",
+				"mode=block"
+			]
+		},
+		
+		"tag_map"	: {
+			"p"		: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"title"		: { "callback"	: "sanitize_text" },
+					"data-pullquote": { "callback"	: "sanitize_text" },
+					"data-video"	: { "callback"	: "sanitize_text" },
+					"data-media"	: { "callback"	: "sanitize_text" },
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }, 
+					"align"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"div"		: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"title"		: { "callback"	: "sanitize_text" },
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }, 
+					"align"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"span"		: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"title"		: { "callback"	: "sanitize_text" },
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"br"		: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"hr"		: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"h1"		: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"title"		: { "callback"	: "sanitize_text" },
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"h2"		: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"title"		: { "callback"	: "sanitize_text" },
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"h3"		: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"title"		: { "callback"	: "sanitize_text" },
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"h4"		: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"title"		: { "callback"	: "sanitize_text" },
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"h5"		: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"title"		: { "callback"	: "sanitize_text" },
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"h6"		: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"title"		: { "callback"	: "sanitize_text" },
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"strong"	: {
+				"alias"	: [ "b", "bold" ],
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"title"		: { "callback"	: "sanitize_text" },
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"em"		: {
+				"alias"	: [ "i", "italic" ],
+				"attributes"	: {
+					"title"		: { "callback"	: "sanitize_text" },
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"u"		: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"title"		: { "callback"	: "sanitize_text" },
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"del"		: {
+				"alias" : [ "s", "strike" ],
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"title"		: { "callback"	: "sanitize_text" },
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" },
+					"cite"		: {
+						"filter"	: "FILTER_VALIDATE_URL",
+						"flags"		: [ "FILTER_FLAG_SCHEME_REQUIRED" ]
+					}, 
+					"datetime"	: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"ins"		: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"title"		: { "callback"	: "sanitize_text" },
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" },
+					"cite"		: {
+						"filter"	: "FILTER_VALIDATE_URL",
+						"flags"		: [ "FILTER_FLAG_SCHEME_REQUIRED" ]
+					}, 
+					"datetime"	: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"ol"		: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"title"		: { "callback"	: "sanitize_text" },
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"ul"		: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"title"		: { "callback"	: "sanitize_text" },
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"li"		: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"title"		: { "callback"	: "sanitize_text" },
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"code"		: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"title"		: { "callback"	: "sanitize_text" },
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"pre"		: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"title"		: { "callback"	: "sanitize_text" },
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"sup"		: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"sub"		: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"a"		: {
+				"attributes"	: {
+					"href"	: {
+						"filter"	: "FILTER_VALIDATE_URL",
+						"flags"		: [ "FILTER_FLAG_SCHEME_REQUIRED" ]
+					}, 
+					"target"	: { "allowed"	: [ "_self", "_blank", "_parent", "_top" ] },
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"title"		: { "callback"	: "sanitize_text" },
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"img"		: {
+				"attributes"	: {
+					"src"	: {
+						"filter"	: "FILTER_VALIDATE_URL",
+						"flags"		: [ "FILTER_FLAG_SCHEME_REQUIRED" ]
+					}, 
+					"data-src"	: {
+						"filter"	: "FILTER_VALIDATE_URL",
+						"flags"		: [ "FILTER_FLAG_SCHEME_REQUIRED" ]
+					},
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"alt"		: { "callback"	: "sanitize_text" },
+					"title"		: { "callback"	: "sanitize_text" },
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" },
+					"height"	: { "filter"	: "FILTER_SANITIZE_NUMBER_INT" },
+					"width"		: { "filter"	: "FILTER_SANITIZE_NUMBER_INT" },
+					"srcset"	: { "callback"	: "sanitize_srcset" },
+					"data-srcset"	: { "callback"	: "sanitize_srcset" },
+					"sizes"		: { "callback"	: "sanitize_sizes" },
+					"data-sizes"	: { "callback"	: "sanitize_sizes" },
+					"loading"	: { "allowed"	: [ "lazy", "eager" ] }
+				}
+			},
+			"figure"	: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"title"		: { "callback"	: "sanitize_text" },
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"figcaption"	: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"title"		: { "callback"	: "sanitize_text" },
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"picture"	: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"title"		: { "callback"	: "sanitize_text" },
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"table"		: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"title"		: { "callback"	: "sanitize_text" },
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" },
+					"cellspacing"	: { "filter"	: "FILTER_SANITIZE_NUMBER_INT" },
+					"cellpadding"	: { "filter"	: "FILTER_SANITIZE_NUMBER_INT" },
+					"border-collapse" : { "allowed"	: [ "separate", "collapse" ] }
+				}
+			},
+			"thead"		: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"title"		: { "callback"	: "sanitize_text" },
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"tbody"		:  {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"title"		: { "callback"	: "sanitize_text" },
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"tfoot"		: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"title"		: { "callback"	: "sanitize_text" },
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"tr"		: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"title"		: { "callback"	: "sanitize_text" },
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"td"		: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"title"		: { "callback"	: "sanitize_text" },
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" },
+					"colspan"	: { "filter"	: "FILTER_SANITIZE_NUMBER_INT" },
+					"rowspan"	: { "filter"	: "FILTER_SANITIZE_NUMBER_INT" }
+				}
+			},
+			"th"		: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"title"		: { "callback"	: "sanitize_text" },
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" },
+					"scope"		: { "allow"	: [ "row", "col", "rowgroup", "colgroup" ] },
+					"colspan"	: { "filter"	: "FILTER_SANITIZE_NUMBER_INT" },
+					"rowspan"	: { "filter"	: "FILTER_SANITIZE_NUMBER_INT" }
+				}
+			},
+			"caption"	: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"col"		: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"span"		: { "filter"	: "FILTER_SANITIZE_NUMBER_INT" },
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"colgroup"	: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"address"	: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"title"		: { "callback"	: "sanitize_text" },
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"summary"	: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"title"		: { "callback"	: "sanitize_text" },
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"details"	: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"q"		: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"title"		: { "callback"	: "sanitize_text" },
+					"class"		: { "filter" 	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" },
+					"cite"		: {
+						"filter"	: "FILTER_VALIDATE_URL",
+						"flags"		: [ "FILTER_FLAG_SCHEME_REQUIRED" ]
+					}
+				}
+			},
+			"cite"		: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"abbr"		: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"title"		: { "callback"	: "sanitize_text" },
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"dfn"		: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"title"		: { "callback"	: "sanitize_text" },
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"blockquote"	: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" },
+					"cite"		: {
+						"filter"	: "FILTER_VALIDATE_URL",
+						"flags"		: [ "FILTER_FLAG_SCHEME_REQUIRED" ]
+					}
+				}
+			},
+			"ruby"		: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" },
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }					
+				}
+			},
+			"rp"		: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" },
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }					
+				}
+			},
+			"rt"		: {
+				"attributes"	: {
+					"style"		: { "callback"	: "sanitize_style" },
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }					
+				}
+			}
+		},
+		
+		"form_tag_map" : {
+			"form"		: {
+				"attributes" : {
+					"id"		: { "callback"	: "sanitize_slug" },
+					"method"	: { "allowed"	: [ "get", "post" ] }, 
+					"action"	: {
+						"filter" : "FILTER_VALIDATE_URL"
+					}, 
+					"enctype"	: {
+						"allowed" : [
+							"multipart/form-data",
+							"application/x-www-form-urlencoded"
+						]
+					}, 
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" },
+				}
+			},		
+			"input"		: { 
+				"attributes"	: {
+					"id"		: { "callback"	: "sanitize_slug" },
+					"type"		: {
+						"allowed" : [
+							"text", "url", "search", "datetime-local", 
+							"radio", "checkbox", "number"
+						]
+					}, 
+					"name"		: { "callback"	: "sanitize_slug" }, 
+					"required"	: { "allowed"	: [ "true", "" ] },
+					"max"		: { "callback"	: "sanitize_int" }, 
+					"min"		: { "callback"	: "sanitize_int" }, 
+					"value"		: { "callback"	: "sanitize_text" }, 
+					"size"		: { "callback"	: "sanitize_int" }, 
+					"maxlength"	: { "callback"	: "sanitize_int" },
+					"checked"	: { "allowed"	: [ "true", "" ] },
+					"disabled"	: { "allowed"	: [ "true", "" ] },
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" },
+				}
+			},
+			"label"		: {
+				"attributes" : { 
+					"id"		: { "callback"	: "sanitize_slug" }, 
+					"for"		: { "callback"	: "sanitize_slug" }, 
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			}, 
+			"textarea"	: {
+				"attribures" : { 
+					"id"		: { "callback"	: "sanitize_slug" }, 
+					"name"		: { "callback"	: "sanitize_slug" },
+					"required"	: { "allowed"	: [ "true", "" ] }, 
+					"disabled"	: { "allowed"	: [ "true", "" ] }, 
+					"rows"		: { "callback"	: "sanitize_int" },  
+					"cols"		: { "callback"	: "sanitize_int" },
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},  
+			"select"	: { 
+				"attributes" : {
+					"id"		: { "callback"	: "sanitize_slug" }, 
+					"name"		: { "callback"	: "sanitize_slug" }, 
+					"required"	: { "allowed"	: [ "true", "" ] }, 
+					"multiple"	: { "allowed"	: [ "true", "" ] }, 
+					"size"		: { "callback"	: "sanitize_int" },   
+					"disabled"	: { "allowed"	: [ "true", "" ] },
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"option"	: {
+				"attributes" : {
+					"id"		: { "callback"	: "sanitize_slug" }, 
+					"name"		: { "callback"	: "sanitize_slug" }, 
+					"value"		: { "callback"	: "sanitize_text" }, 
+					"disabled"	: { "allowed"	: [ "true", "" ] }, 
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			},
+			"optgroup"	: { 
+				"attribute" : { 
+					"id"		: { "callback"	: "sanitize_slug" }, 
+					"value"		: { "callback"	: "sanitize_text" }, 
+					"style"		: { "callback"	: "sanitize_style" }, 
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
+				}
+			}
+		},
+		
+		"css_properties"	: [
+			"color",
+			"background-color",
+			"font-size",
+			"font-weight",
+			"text-align",
+			"border",
+			"margin",
+			"padding",
+			"display"
+		]
+	},
+	
+	"db_profiles" : {
+		"sessions"	: {
+			"dsn"		: "sqlite:{{STORAGE_DIR}}/sessions.sqlite",
+			"installed"	: false,
+			"version"	: "1.0.0",
+			"schema"	: "{{STORAGE_DIR}}/schema/sessions.sqlite.sql",
+			"username"	: null,
+			"password"	: null,
+			"options"	: {
+				"ATTR_TIMEOUT"			: "{{DB_TIMEOUT}}",
+				"ATTR_DEFAULT_FETCH_MODE"	: "FETCH_ASSOC",
+				"ATTR_PERSISTENT"		: false,
+				"ATTR_EMULATE_PREPARES"		: false,
+				"ATTR_ERRMODE"			: "ERRMODE_EXCEPTION"
+			},
+			"pre_exec"	: [
+				"PRAGMA journal_mode	= WAL;",
+				"PRAGMA busy_timeout	= {{DB_TIMEOUT}};",
+				"PRAGMA trusted_schema	= OFF;",
+				"PRAGMA synchronous	= FULL;",
+				"PRAGMA locking_mode	= NORMAL;"
+			],
+			"init_exec"	: [
+				"PRAGMA encoding	= \"UTF-8\";",
+				"PRAGMA auto_vacuum	= 2;",
+				"PRAGMA temp_store	= 2;",
+				"PRAGMA secure_delete	= 1;"
+			],
+			"post_exec": [
+				"PRAGMA foreign_keys = ON;"
+			],
+			"maint_exec": [
+				"ANALYZE", 
+				"PRAGMA quick_check;"
+			]
+		},
+		"cache"		: {
+			"dsn"		: "sqlite:{{STORAGE_DIR}}/cache.sqlite",
+			"installed"	: false,
+			"version"	: "1.0.0",
+			"schema"	: "{{STORAGE_DIR}}/schema/cache.sqlite.sql",
+			"username"	: null,
+			"password"	: null,
+			"options"	: {
+				"ATTR_TIMEOUT"			: "{{DB_TIMEOUT}}",
+				"ATTR_DEFAULT_FETCH_MODE"	: "FETCH_ASSOC",
+				"ATTR_PERSISTENT"		: false,
+				"ATTR_EMULATE_PREPARES"		: false,
+				"ATTR_ERRMODE"			: "ERRMODE_EXCEPTION"
+			},
+			"pre_exec"	: [
+				"PRAGMA journal_mode	= WAL;",
+				"PRAGMA busy_timeout	= {{DB_TIMEOUT}};",
+				"PRAGMA trusted_schema	= OFF;",
+				"PRAGMA synchronous	= FULL;",
+				"PRAGMA locking_mode	= NORMAL;"
+			],
+			"init_exec"	: [
+				"PRAGMA encoding	= \"UTF-8\";",
+				"PRAGMA auto_vacuum	= 2;",
+				"PRAGMA temp_store	= 2;",
+				"PRAGMA secure_delete	= 1;"
+			],
+			"post_exec": [
+				"PRAGMA foreign_keys = ON;"
+			],
+			"maint_exec": [
+				"ANALYZE", 
+				"PRAGMA quick_check;",
+				"PRAGMA wal_checkpoint(FULL);"
+			]
+		}
+	}, 
+	
+	
+	"http_supported" : [ "get", "head", "post", "options", "put", "delete", "patch" ],
+	"http_status": {
+		"200": { 
+			"status"	: "OK",
+			"verbs"		: [ "*" ] 
+		},
+		"201": { 
+			"status"	: "Created",
+			"verbs"		: [ "post", "put", "patch" ]
+		},
+		"204": { 
+			"status"	: "No Content",
+			"verbs"		: [ "delete", "put", "patch" ]
+		},
+		"301": { 
+			"status"	: "Moved Permanently",
+			"verbs"		: [ "head", "get" ]
+		},
+		"302": { 
+			"status"	: "Found",
+			"verbs"		: [ "head", "get" ]
+		},
+		"307": { 
+			"status"	: "Temporary Redirect",
+			"verbs"		: [ "head", "get", "post", "put", "delete" ]
+		},
+		"308": { 
+			"status"	: "Permanent Redirect",
+			"verbs"		: [ "head", "get", "post", "put", "delete" ]
+		},
+		"400": { 
+			"status"	: "Bad Request",
+			"verbs"		: [ "*" ]
+		},
+		"401": {
+			"status"	: "Unauthorized",
+			"verbs"		: [ "*" ]
+		},
+		"403": { 
+			"status"	: "Forbidden",
+			"verbs"		: [ "*" ]
+		},
+		"404": { 
+			"status"	: "Not Found",
+			"verbs"		: [ "*" ]
+		},
+		"405": {
+			"status"	: "Method Not Allowed",
+			"verbs"		: [ "*" ]
+		},
+		"406": {
+			"status"	: "Not Acceptable",
+			"verbs"		: [ "*" ]
+		},
+		"500": {
+			"status"	: "Internal Server Error",
+			"verbs"		: [ "*" ]
+		}
+	},
+	
+	"languages" : [
+		{ "code" : "abk",	"name" : "Аԥсуа",		"label" : "Abkhazian" }, 
+		{ "code" : "arb",	"name" : "العربية",		"label" : "Arabic" },  
+		{ "code" : "bel",	"name" : "беларуская",		"label" : "Belarusian" }, 
+		{ "code" : "ben",	"name" : "বাংলা",		"label" : "Bengali" }, 
+		{ "code" : "bod",	"name" : "བོད་ཡིག",			"label" : "Tibetan" }, 
+		{ "code" : "cat",	"name" : "Català",		"label" : "Catalan" }, 
+		{ "code" : "ckb",	"name" : "سۆرانی",		"label" : "Central Kurdish" }, 
+		{ "code" : "ces",	"name" : "Čeština",		"label" : "Czech" }, 
+		{ "code" : "cmn",	"name" : "普通话",		"label" : "Mandarin" },
+		{ "code" : "cmn-bj",	"name" : "北京话",		"label" : "Beijing Mandarin" },
+		{ "code" : "cmn-nm",	"name" : "东北话",		"label" : "Northeastern Mandarin" },
+		{ "code" : "cmn-sw",	"name" : "西南官话",		"label" : "Southwestern Mandarin" },
+		{ "code" : "cmn-jl",	"name" : "冀鲁官话",		"label" : "Ji–Lu Mandarin" },
+		{ "code" : "cmn-jh",	"name" : "江淮官话",		"label" : "Jianghuai Mandarin" },
+		{ "code" : "cmn-zy",	"name" : "中原官话",		"label" : "Zhongyuan Mandarin" },
+		{ "code" : "cmn-ly",	"name" : "兰银官话",		"label" : "Lan–Yin Mandarin" },
+		{ "code" : "dan",	"name" : "Dansk",		"label" : "Danish" },
+		{ "code" : "deu",	"name" : "Deutsch",		"label" : "German" }, 
+		{ "code" : "din",	"name" : "Thuɔŋjäŋ",		"label" : "Dinka" },  
+		{ "code" : "doi",	"name" : "डोगरी",		"label" : "Dogri" },  
+		{ "code" : "ell",	"name" : "Ελληνικά",		"label" : "Greek" }, 
+		{ "code" : "eng",	"name" : "English",		"label" : "English" }, 
+		{ "code" : "epo",	"name" : "Esperanto",		"label" : "Esperanto" },
+		{ "code" : "est",	"name" : "Eesti",		"label" : "Estonian" }, 
+		{ "code" : "fas",	"name" : "فارسی",		"label" : "Persian" },
+		{ "code" : "fin",	"name" : "Suomi",		"label" : "Finnish" }, 
+		{ "code" : "fra",	"name" : "Français",		"label" : "French" },
+		{ "code" : "guj",	"name" : "ગુજરાતી",		"label" : "Gujarati" }, 
+		{ "code" : "heb",	"name" : "עִבְרִית",		"label" : "Hebrew" }, 
+		{ "code" : "hin",	"name" : "हिन्दी",			"label" : "Hindi" }, 
+		{ "code" : "hin-awd",	"name" : "अवधी",		"label" : "Awadhi Hindi" },
+		{ "code" : "hin-bho",	"name" : "भोजपुरी",		"label" : "Bhojpuri Hindi" },
+		{ "code" : "hin-mar",	"name" : "मारवाड़ी",		"label" : "Marwari Hindi" },
+		{ "code" : "hin-bra",	"name" : "ब्रज",			"label" : "Braj Hindi" },
+		{ "code" : "hrv",	"name" : "Hrvatski",		"label" : "Croatian" }, 
+		{ "code" : "hun",	"name" : "Magyar",		"label" : "Hungarian" }, 
+		{ "code" : "hye",	"name" : "Հայերեն",		"label" : "Armenian" }, 
+		{ "code" : "ina",	"name" : "Interlingua",		"label" : "Interlingua" },  
+		{ "code" : "gle",	"name" : "Gaeilge",		"label" : "Irish" }, 
+		{ "code" : "ita",	"name" : "Italiano",		"label" : "Italian" }, 
+		{ "code" : "jpn",	"name" : "日本語",		"label" : "Japanese" }, 
+		{ "code" : "jpn-fuk",	"name" : "福岡弁",		"label" : "Fukuoka Japanese" },
+		{ "code" : "jpn-hak",	"name" : "博多弁",		"label" : "Hakata Japanese" }, 
+		{ "code" : "jpn-kan",	"name" : "関西弁",		"label" : "Kansai Japanese" }, 
+		{ "code" : "jpn-hok",	"name" : "北海道弁",		"label" : "Hokkaido Japanese" },
+		{ "code" : "jpn-toh",	"name" : "東北弁",		"label" : "Tohoku Japanese" },
+		{ "code" : "jpn-okn",	"name" : "沖縄方言",		"label" : "Okinawan Japanese" },
+		{ "code" : "jav",	"name" : "ꦧꦱꦗꦮ",		"label" : "Javanese" }, 
+		{ "code" : "kat",	"name" : "ქართული",		"label" : "Georgian" }, 
+		{ "code" : "kan",	"name" : "ಕನ್ನಡ",		"label" : "Kannada" }, 
+		{ "code" : "kaz",	"name" : "Қазақ тілі",		"label" : "Kazakh" }, 
+		{ "code" : "kfa",	"name" : "ಕೊಡವ",		"label" : "Kodava" }, 
+		{ "code" : "khm",	"name" : "ខ្មែរ",			"label" : "Khmer" }, 
+		{ "code" : "khm-phn",	"name" : "ភាសាខ្មែរក្រុង",		"label" : "Phnom Penh Khmer" },
+		{ "code" : "khm-nor",	"name" : "ភាសាខ្មែរខាងជើង",	"label" : "Northern Khmer" },
+		{ "code" : "khm-sou",	"name" : "ភាសាខ្មែរខាងត្បូង",	"label" : "Southern Khmer" },
+		{ "code" : "khm-kar",	"name" : "ភាសាខ្មែរការបូរ",	"label" : "Cardamom Khmer" },
+		{ "code" : "khm-bat",	"name" : "ភាសាខ្មែរបាត់ដំបង",	"label" : "Battambang Khmer" },
+		{ "code" : "khm-lit",	"name" : "ភាសាខ្មែរ​សិល្បៈ",		"label" : "Literary Khmer" },
+		{ "code" : "kir",	"name" : "Кыргыз",		"label" : "Kyrgyz" }, 
+		{ "code" : "knn",	"name" : "ಕೊಂಕಣಿ",		"label" : "Konkani Specific" }, 
+		{ "code" : "kok",	"name" : "कोंकणी",		"label" : "Konkani Generic" }, 
+		{ "code" : "kor",	"name" : "한국어",		"label" : "Korean" }, 
+		{ "code" : "kor-jeju",	"name" : "제주어",		"label" : "Jeju Korean" }, 
+		{ "code" : "kur",	"name" : "کوردی",		"label" : "Kurdish" }, 
+		{ "code" : "lao",	"name" : "ພາສາລາວ",		"label" : "Lao" }, 
+		{ "code" : "lav",	"name" : "Latviešu valoda",	"label" : "Latvian" }, 
+		{ "code" : "lit",	"name" : "Lietuvių",		"label" : "Lithuanian" }, 
+		{ "code" : "mal",	"name" : "മലയാളം",		"label" : "Malayalam" }, 
+		{ "code" : "mar",	"name" : "मराठी",		"label" : "Marathi" },
+		{ "code" : "mkd",	"name" : "македонски",		"label" : "Macedonian" },		
+		{ "code" : "mni",	"name" : "ꯃꯩꯇꯩꯂꯣꯟ",		"label" : "Meitei" }, 
+		{ "code" : "mon",	"name" : "Монгол хэл",		"label" : "Mongolian" }, 
+		{ "code" : "mri",	"name" : "te reo Māori",	"label" : "Maori" }, 
+		{ "code" : "msa",	"name" : "Bahasa Melayu",	"label" : "Malay" },
+		{ "code" : "mya",	"name" : "မြန်မာစာ",		"label" : "Burmese" }, 
+		{ "code" : "nep",	"name" : "नेपाली",		"label" : "Nepali" }, 
+		{ "code" : "nld",	"name" : "Nederlands",		"label" : "Dutch" }, 
+		{ "code" : "nor",	"name" : "Norsk",		"label" : "Norwegian" }, 
+		{ "code" : "oji",	"name" : "ᐊᓂᔑᓇᐯᒧᐎᓐ",		"label" : "Ojibwa" }, 
+		{ "code" : "ori",	"name" : "ଓଡ଼ିଆ",		"label" : "Oriya" }, 
+		{ "code" : "pan",	"name" : "ਪੰਜਾਬੀ",		"label" : "Punjabi" }, 
+		{ "code" : "pan-sar",	"name" : "سرائیکی",		"label" : "Saraiki Punjabi" },
+		{ "code" : "por",	"name" : "Português",		"label" : "Portuguese" }, 
+		{ "code" : "pol",	"name" : "Polski",		"label" : "Polish" }, 
+		{ "code" : "rom",	"name" : "रोमानो",		"label" : "Romany" }, 
+		{ "code" : "ron",	"name" : "Română",		"label" : "Romanian" }, 
+		{ "code" : "rus",	"name" : "Русский",		"label" : "Russian" }, 
+		{ "code" : "slk",	"name" : "Slovenčina",		"label" : "Slovak" }, 
+		{ "code" : "slv",	"name" : "Slovenščina",		"label" : "Slovenian" }, 
+		{ "code" : "sin",	"name" : "සිංහල",		"label" : "Sinhalese" }, 
+		{ "code" : "srp",	"name" : "Srpski",		"label" : "Serbian" },  
+		{ "code" : "spa",	"name" : "Español",		"label" : "Spanish" },  
+		{ "code" : "sqi",	"name" : "Shqip",		"label" : "Albanian" },  
+		{ "code" : "swe",	"name" : "Svenska",		"label" : "Swedish" }, 
+		{ "code" : "swa",	"name" : "کِسْوَهِيلِ",		"label" : "Swahili" },
+		{ "code" : "syr",	"name" : "ܣܘܪܝܐܝܐ",		"label" : "Syriac" },
+		{ "code" : "tgk",	"name" : "Тоҷикӣ",		"label" : "Tajik" },
+		{ "code" : "tgl",	"name" : "Tagálog",		"label" : "Tagalog" },
+		{ "code" : "tgl-bik",	"name" : "Bikol",		"label" : "Bikol Tagalog" },
+		{ "code" : "tam",	"name" : "தமிழ்",		"label" : "Tamil" }, 
+		{ "code" : "tam-jaff",	"name" : "யாழ்ப்பாணம் தமிழ்","label" : "Jaffna Tamil" },
+		{ "code" : "tel",	"name" : "తెలుగు",		"label" : "Telugu" }, 
+		{ "code" : "tha",	"name" : "ภาษาไทย",		"label" : "Thai" }, 
+		{ "code" : "tha-isan",	"name" : "ภาษาอีสาน",		"label" : "Isan Thai" },
+		{ "code" : "tuk",	"name" : "Түркменче",		"label" : "Turkmen" }, 
+		{ "code" : "tur",	"name" : "Türkçe",		"label" : "Turkish" }, 
+		{ "code" : "ukr",	"name" : "Українська",		"label" : "Ukrainian" }, 
+		{ "code" : "urd",	"name" : "اردو",			"label" : "Urdu" }, 
+		{ "code" : "urd-dakh",	"name" : "دکنی",		"label" : "Dakhni Urdu" },
+		{ "code" : "uzb",	"name" : "Ўзбек",		"label" : "Uzbek" }, 
+		{ "code" : "vie",	"name" : "Tiếng Việt",		"label" : "Vietnamese" }, 
+		{ "code" : "xal",	"name" : "Хальмг",		"label" : "Kalmyk" }, 
+		{ "code" : "yid",	"name" : "אידיש",		"label" : "Yiddish" },
+		{ "code" : "yue",	"name" : "粤语",			"label" : "Cantonese" },
+		{ "code" : "yue-gz",	"name" : "广州话",		"label" : "Guangzhou Cantonese" },
+		{ "code" : "yue-hk",	"name" : "香港粤语",		"label" : "Hong Kong Cantonese" },
+		{ "code" : "yue-tsh",	"name" : "台山话",		"label" : "Taishanese Cantonese" },
+		{ "code" : "yue-xg",	"name" : "新会话",		"label" : "Xinhui Cantonese" },
+		{ "code" : "yor",	"name" : "Yorùbá",		"label" : "Yoruba" },
+		{ "code" : "zho",	"name" : "中文",			"label" : "Chinese" }
+	],
+	
+	"lang_selection" : {
+		"cmn"	: [ "cmn", "cmn-bj", "cmn-nm", "cmn-sw", "cmn-jl", "cmn-jh", "cmn-zy", "cmn-ly", "zh" ],
+		"yue"	: [ "yue-gz", "yue-hk", "yue-tsh", "yue-xg", "yue" ],
+		"zho"	: [ "zho", "zh-hans", "zh-hant", "zh" ],
+		"jpn"	: [ "jpn-fuk", "jpn-hak", "jpn-kan", "jpn-hok", "jpn-toh", "jpn-okn", "jpn", "ja" ],
+		"hin"	: [ "hin-awd", "hin-bho", "hin-mar", "hin-bra", "hin", "hi" ],
+		"kor"	: [ "kor-jeju", "kor", "ko" ],
+		"khm"	: [ "khm-phn", "khm-nor", "khm-sou", "khm-kar", "khm-bat", "khm-lit", "khm", "km" ],
+		"arb"	: [ "arb", "ar" ], 
+		"ita"	: [ "ita", "it" ],
+		"deu"	: [ "deu", "de" ],
+		"fra"	: [ "fra", "fr" ],
+		"spa"	: [ "spa", "es" ],
+		"abk"	: [ "abk", "ab" ],
+		"bel"	: [ "bel", "be" ],
+		"ben"	: [ "ben", "bn" ],
+		"bod"	: [ "bod", "bo" ],
+		"cat"	: [ "cat", "ca" ],
+		"ckb"	: [ "ckb", "ku" ],
+		"ces"	: [ "ces", "cs" ],
+		"dan"	: [ "dan", "da" ],
+		"din"	: [ "din" ],
+		"doi"	: [ "doi" ],
+		"ell"	: [ "ell", "el" ],
+		"eng"	: [ "eng", "en" ],
+		"epo"	: [ "epo" ],
+		"est"	: [ "est", "et" ],
+		"fas"	: [ "fas", "fa" ],
+		"fin"	: [ "fin", "fi" ],
+		"guj"	: [ "guj", "gu" ],
+		"heb"	: [ "heb", "he" ],
+		"hrv"	: [ "hrv", "hr" ],
+		"hun"	: [ "hun", "hu" ],
+		"hye"	: [ "hye", "hy" ],
+		"ina"	: [ "ina" ],
+		"gle"	: [ "gle", "ga" ],
+		"jav"	: [ "jav", "jv" ],
+		"kat"	: [ "kat", "ka" ],
+		"kan"	: [ "kan", "kn" ],
+		"kaz"	: [ "kaz", "kk" ],
+		"kfa"	: [ "kfa" ],
+		"kir"	: [ "kir", "ky" ],
+		"knn"	: [ "knn" ],
+		"kok"	: [ "kok" ],
+		"kur"	: [ "kur", "ku" ],
+		"lao"	: [ "lao", "lo" ],
+		"lav"	: [ "lav", "lv" ],
+		"lit"	: [ "lit", "lt" ],
+		"mal"	: [ "mal", "ml" ],
+		"mar"	: [ "mar", "mr" ],
+		"mkd"	: [ "mkd", "mk" ],
+		"mni"	: [ "mni" ],
+		"mon"	: [ "mon", "mn" ],
+		"mri"	: [ "mri", "mi" ],
+		"msa"	: [ "msa", "ms" ],
+		"mya"	: [ "mya", "my" ],
+		"nep"	: [ "nep", "ne" ],
+		"nld"	: [ "nld", "nl" ],
+		"nor"	: [ "nor", "no" ],
+		"oji"	: [ "oji" ],
+		"ori"	: [ "ori", "or" ],
+		"pan"	: [ "pan", "pan-sar", "pa" ],
+		"pol"	: [ "pol", "pl" ],
+		"por"	: [ "por", "pt" ],
+		"rom"	: [ "rom" ],
+		"ron"	: [ "ron", "ro" ],
+		"rus"	: [ "rus", "ru" ],
+		"slk"	: [ "slk", "sk" ],
+		"slv"	: [ "slv", "sl" ],
+		"sin"	: [ "sin", "si" ],
+		"srp"	: [ "srp", "sr" ],
+		"sqi"	: [ "sqi", "sq" ],
+		"swe"	: [ "swe", "sv" ],
+		"swa"	: [ "swa", "sw" ],
+		"syr"	: [ "syr" ],
+		"tgk"	: [ "tgk", "tg" ],
+		"tgl"	: [ "tgl", "tgl-bik", "tl" ],
+		"tam"	: [ "tam", "tam-jaff", "ta" ],
+		"tel"	: [ "tel", "te" ],
+		"tha"	: [ "tha", "tha-isan", "th" ],
+		"tuk"	: [ "tuk", "tk" ],
+		"tur"	: [ "tur", "tr" ],
+		"ukr"	: [ "ukr", "uk" ],
+		"urd"	: [ "urd", "urd-dakh", "ur" ],
+		"uzb"	: [ "uzb", "uz" ],
+		"vie"	: [ "vie", "vi" ],
+		"xal"	: [ "xal" ],
+		"yid"	: [ "yid", "yi" ],
+		"yor"	: [ "yor", "yo" ]
+	}
+}
