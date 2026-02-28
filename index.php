@@ -1163,502 +1163,11 @@ JSON
 );
 
 
-
 // Meta, script, and stylesheet tag templates
 define( 'TPL_META_TAG',	'<meta name="{name}" content="{content}">' );
 define( 'TPL_SCRIPT_TAG', '<script src="{url}"></script>' );
 define( 'TPL_SCRIPT_NONCE_TAG', '<script src="{url}" nonce="{nonce}"></script>' );
 define( 'TPL_STYLE_TAG', '<link rel="stylesheet" href="{url}">' );
-
-// Whitelist of allowed HTML tags
-define( 'TAG_WHITE',	<<<JSON
-{
-	"p"		: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"title"		: { "callback"	: "sanitize_text" },
-			"data-pullquote": { "callback"	: "sanitize_text" },
-			"data-video"	: { "callback"	: "sanitize_text" },
-			"data-media"	: { "callback"	: "sanitize_text" },
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }, 
-			"align"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"div"		: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"title"		: { "callback"	: "sanitize_text" },
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }, 
-			"align"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"span"		: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"title"		: { "callback"	: "sanitize_text" },
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"br"		: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"hr"		: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"h1"		: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"title"		: { "callback"	: "sanitize_text" },
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"h2"		: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"title"		: { "callback"	: "sanitize_text" },
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"h3"		: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"title"		: { "callback"	: "sanitize_text" },
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"h4"		: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"title"		: { "callback"	: "sanitize_text" },
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"h5"		: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"title"		: { "callback"	: "sanitize_text" },
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"h6"		: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"title"		: { "callback"	: "sanitize_text" },
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"strong"	: {
-		"alias"	: [ "b", "bold" ],
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"title"		: { "callback"	: "sanitize_text" },
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"em"		: {
-		"alias"	: [ "i", "italic" ],
-		"attributes"	: {
-			"title"		: { "callback"	: "sanitize_text" },
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"u"		: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"title"		: { "callback"	: "sanitize_text" },
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"del"		: {
-		"alias" : [ "s", "strike" ],
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"title"		: { "callback"	: "sanitize_text" },
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" },
-			"cite"		: {
-				"filter"	: "FILTER_VALIDATE_URL",
-				"flags"		: [ "FILTER_FLAG_SCHEME_REQUIRED" ]
-			}, 
-			"datetime"	: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"ins"		: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"title"		: { "callback"	: "sanitize_text" },
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" },
-			"cite"		: {
-				"filter"	: "FILTER_VALIDATE_URL",
-				"flags"		: [ "FILTER_FLAG_SCHEME_REQUIRED" ]
-			}, 
-			"datetime"	: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"ol"		: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"title"		: { "callback"	: "sanitize_text" },
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"ul"		: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"title"		: { "callback"	: "sanitize_text" },
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"li"		: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"title"		: { "callback"	: "sanitize_text" },
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"code"		: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"title"		: { "callback"	: "sanitize_text" },
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"pre"		: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"title"		: { "callback"	: "sanitize_text" },
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"sup"		: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"sub"		: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"a"		: {
-		"attributes"	: {
-			"href"	: {
-				"filter"	: "FILTER_VALIDATE_URL",
-				"flags"		: [ "FILTER_FLAG_SCHEME_REQUIRED" ]
-			}, 
-			"target"	: { "allowed"	: [ "_self", "_blank", "_parent", "_top" ] },
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"title"		: { "callback"	: "sanitize_text" },
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"img"		: {
-		"attributes"	: {
-			"src"	: {
-				"filter"	: "FILTER_VALIDATE_URL",
-				"flags"		: [ "FILTER_FLAG_SCHEME_REQUIRED" ]
-			}, 
-			"data-src"	: {
-				"filter"	: "FILTER_VALIDATE_URL",
-				"flags"		: [ "FILTER_FLAG_SCHEME_REQUIRED" ]
-			},
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"alt"		: { "callback"	: "sanitize_text" },
-			"title"		: { "callback"	: "sanitize_text" },
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" },
-			"height"	: { "filter"	: "FILTER_SANITIZE_NUMBER_INT" },
-			"width"		: { "filter"	: "FILTER_SANITIZE_NUMBER_INT" },
-			"srcset"	: { "callback"	: "sanitize_srcset" },
-			"data-srcset"	: { "callback"	: "sanitize_srcset" },
-			"sizes"		: { "callback"	: "sanitize_sizes" },
-			"data-sizes"	: { "callback"	: "sanitize_sizes" },
-			"loading"	: { "allowed"	: [ "lazy", "eager" ] }
-		}
-	},
-	"figure"	: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"title"		: { "callback"	: "sanitize_text" },
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"figcaption"	: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"title"		: { "callback"	: "sanitize_text" },
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"picture"	: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"title"		: { "callback"	: "sanitize_text" },
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"table"		: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"title"		: { "callback"	: "sanitize_text" },
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" },
-			"cellspacing"	: { "filter"	: "FILTER_SANITIZE_NUMBER_INT" },
-			"cellpadding"	: { "filter"	: "FILTER_SANITIZE_NUMBER_INT" },
-			"border-collapse" : { "allowed"	: [ "separate", "collapse" ] }
-		}
-	},
-	"thead"		: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"title"		: { "callback"	: "sanitize_text" },
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"tbody"		:  {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"title"		: { "callback"	: "sanitize_text" },
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"tfoot"		: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"title"		: { "callback"	: "sanitize_text" },
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"tr"		: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"title"		: { "callback"	: "sanitize_text" },
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"td"		: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"title"		: { "callback"	: "sanitize_text" },
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" },
-			"colspan"	: { "filter"	: "FILTER_SANITIZE_NUMBER_INT" },
-			"rowspan"	: { "filter"	: "FILTER_SANITIZE_NUMBER_INT" }
-		}
-	},
-	"th"		: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"title"		: { "callback"	: "sanitize_text" },
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" },
-			"scope"		: { "allowed"	: [ "row", "col", "rowgroup", "colgroup" ] },
-			"colspan"	: { "filter"	: "FILTER_SANITIZE_NUMBER_INT" },
-			"rowspan"	: { "filter"	: "FILTER_SANITIZE_NUMBER_INT" }
-		}
-	},
-	"caption"	: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"col"		: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"span"		: { "filter"	: "FILTER_SANITIZE_NUMBER_INT" },
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"colgroup"	: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"address"	: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"title"		: { "callback"	: "sanitize_text" },
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"summary"	: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"title"		: { "callback"	: "sanitize_text" },
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"details"	: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"q"		: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"title"		: { "callback"	: "sanitize_text" },
-			"class"		: { "filter" 	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" },
-			"cite"		: {
-				"filter"	: "FILTER_VALIDATE_URL",
-				"flags"		: [ "FILTER_FLAG_SCHEME_REQUIRED" ]
-			}
-		}
-	},
-	"cite"		: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"abbr"		: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"title"		: { "callback"	: "sanitize_text" },
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"dfn"		: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"title"		: { "callback"	: "sanitize_text" },
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"blockquote"	: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" },
-			"cite"		: {
-				"filter"	: "FILTER_VALIDATE_URL",
-				"flags"		: [ "FILTER_FLAG_SCHEME_REQUIRED" ]
-			}
-		}
-	},
-	"ruby"		: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" },
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }					
-		}
-	},
-	"rp"		: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" },
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }					
-		}
-	},
-	"rt"		: {
-		"attributes"	: {
-			"style"		: { "callback"	: "sanitize_style" },
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }					
-		}
-	}
-}
-JSON
-);
-
-// Whitelist of limited form HTML tags for plugins
-// It is strongly recommended that this list be kept small
-define( 'FORM_WHITE',	<<<JSON
-{
-	"form"		: {
-		"attributes" : {
-			"id"		: { "callback"	: "sanitize_slug" },
-			"method"	: { "allowed"	: [ "get", "post" ] }, 
-			"action"	: {
-				"filter" : "FILTER_VALIDATE_URL"
-			}, 
-			"enctype"	: {
-				"allowed" : [
-					"multipart/form-data",
-					"application/x-www-form-urlencoded"
-				]
-			}, 
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" },
-		}
-	},		
-	"input"		: { 
-		"attributes"	: {
-			"id"		: { "callback"	: "sanitize_slug" },
-			"type"		: {
-				"allowed" : [
-					"text", "url", "search", "datetime-local", 
-					"radio", "checkbox", "number"
-				]
-			}, 
-			"name"		: { "callback"	: "sanitize_slug" }, 
-			"required"	: { "allowed" : [ "true", "" ] },
-			"max"		: { "callback" : "sanitize_int" }, 
-			"min"		: { "callback" : "sanitize_int" }, 
-			"value"		: { "callback" : "sanitize_text" }, 
-			"size"		: { "callback" : "sanitize_int" }, 
-			"maxlength"	: { "callback" : "sanitize_int" },
-			"checked"	: { "allowed" : [ "true", "" ] },
-			"disabled"	: { "allowed" : [ "true", "" ] },
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" },
-		}
-	},
-	"label"		: {
-		"attributes" : { 
-			"id"		: { "callback"	: "sanitize_slug" }, 
-			"for"		: { "callback"	: "sanitize_slug" }, 
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	}, 
-	"textarea"	: {
-		"attribures" : { 
-			"id"		: { "callback"	: "sanitize_slug" }, 
-			"name"		: { "callback"	: "sanitize_slug" },
-			"required"	: { "allowed" : [ "true", "" ] }, 
-			"disabled"	: { "allowed" : [ "true", "" ] }, 
-			"rows"		: { "callback" : "sanitize_int" },  
-			"cols"		: { "callback" : "sanitize_int" },
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},  
-	"select"	: { 
-		"attributes" : {
-			"id"		: { "callback"	: "sanitize_slug" }, 
-			"name"		: { "callback"	: "sanitize_slug" }, 
-			"required"	: { "allowed" : [ "true", "" ] }, 
-			"multiple"	: { "allowed" : [ "true", "" ] }, 
-			"size"		: { "callback" : "sanitize_int" },   
-			"disabled"	: { "allowed" : [ "true", "" ] },
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"option"	: {
-		"attributes" : {
-			"id"		: { "callback"	: "sanitize_slug" }, 
-			"name"		: { "callback"	: "sanitize_slug" }, 
-			"value"		: { "callback" : "sanitize_text" }, 
-			"disabled"	: { "allowed" : [ "true", "" ] }, 
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	},
-	"optgroup"	: { 
-		"attribute" : { 
-			"id"		: { "callback"	: "sanitize_slug" }, 
-			"value"		: { "callback" : "sanitize_text" }, 
-			"style"		: { "callback"	: "sanitize_style" }, 
-			"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
-		}
-	}
-}
-JSON
-);
 
 // Content Security and Permissions Policy headers
 define( 'SECURITY_POLICY',	<<<JSON
@@ -5570,7 +5079,7 @@ function config_message(
 /**
  *  Expand defined constants into configuration scope
  *  
- *  @param array	$confi		Loaded configuration
+ *  @param array	$config		Loaded configuration
  *  @param bool		$reparse	Reload configuration settings, if true
  *  @return array
  */
@@ -5761,6 +5270,156 @@ function config_save( ?array $settings = null, string $modified_by = 'system' ) 
  */
 function config_edit( string $key, mixed $value ) : void {
 	config_parsed( [ $key => $value ] );
+}
+
+/**
+ *  Config merging helper for overriding defaults with realm-specific settings
+ *  
+ *  @return array
+ */
+function config_realm() : array {
+	$config	= config_parsed();
+	if ( 
+		!\is_array( $config['defaults'] ?? null ) ||	// Global settings
+		!\is_array( $config['realms'] ?? null )		// Per-domain settings
+	) {
+		config_message( 
+			"Invalid configuration file structure: " . $conf, 
+			'ERROR' 
+		);
+		
+		throw new 
+		\RuntimeException( "Invalid config structure." );
+	}
+	
+	// Detect current host
+	$host	= \strtolower( request_host() );
+	$realm	= [];
+	
+	// Match realm first
+	foreach ( $config['realms'] ?? [] as $r ) {
+		if ( !\is_array( $r ) ) { continue; }
+		if (
+			$r['domain'] === $host	|| 
+			\in_array( $host, $r['alias'] ?? [], true ) 
+		) {
+			$realm = $r;
+			break;
+		}
+	}
+	
+	$merged = \array_merge( $config['defaults'] ?? [], $realm ?? [] );
+	return $merged;
+}
+
+/**
+ *  Config value array filter application helper
+ *  
+ *  @param array $lines Extracted configuration lines
+ *  @param [in] $filter Optional callable
+ *  @return array
+ */
+function config_lines( array $lines, $filter = null ) : array {
+	$lines	= \array_unique( $lines );
+	
+	return ( !empty( $filter ) && \is_callable( $filter ) )
+		? \array_map( $filter, $lines ) 
+		: $lines;
+}
+
+/**
+ *  Config definition content-type filtering
+ *  
+ *  @param mixed	$value		Base configuration value
+ *  @param string	$type		Format data type
+ *  @param mixed	$filter		Optional filter
+ *  @param 
+ */
+function config_value_format( mixed $value, string $type, $filter = null ) : mixed {
+	if ( \is_array( $value ) ) {
+		return config_lines( $value, $filter );
+	}
+	
+	return match( \strtolower( $type ) ) {
+		'int', 'integer'	=> sanitize_int( ( string ) $value ),
+		'bool', 'boolean'	=> sanitize_bool( ( string ) $value ),
+		'lines'			=> ( function() use ( $value, $filter ) {
+			$lines	= 
+			\preg_split( 
+				'/\s*\R\s*/', 
+				trim( ( string ) $value ), 
+				-1, 
+				\PREG_SPLIT_NO_EMPTY 
+			);
+			
+			return config_lines( $lines, $filter );
+		} )(),
+		
+		'json'			=> util_json_decode( ( string ) $value ),
+		default			=> sanitize_text( $value )
+	};
+}
+
+/**
+ *  Get stored configuration settings or get default
+ *  
+ *  @param string	$name		Configuration setting name
+ *  @param mixed	$default	If not set, fallback value
+ *  @param string	$type		String, integer, json, or boolean
+ *  @param string	$filter		Optional parse function
+ *  @return mixed
+ */
+function config( 
+	?string		$key		= null, 
+			$default	= null, 
+	string		$type		= 'string',
+	string		$filter		= '' 
+) : mixed {
+	static $merged	= null;
+	
+	$merged ??= config_realm();
+	
+	// Fallback to defaults or send full config on empty key
+	
+	if ( null === $key ) { return $merged; }
+	
+	$value	= $merged[$key] ?? $default;
+	return empty( $filter ) 
+		? $value 
+		: config_value_format( $value, $type, $filter );
+}
+
+/**
+ *  Database configuration profile
+ *  
+ *  @param string $profile Database name
+ *  @param array $updates Override configuration presets
+ */
+function config_edit_db_profile( string $profile, array $updates ) : void {
+	$profiles = config( 'db_profiles' ) ?? [];
+	if ( !isset( $profiles[$profile] ) ) {
+		config_message(
+			"New database profile {$profile} created",
+			'INFO'
+		);
+	} else {
+		config_message(
+			"Database profile {$profile} edited",
+			'INFO'
+		);
+	}
+	
+	$profiles[$profile] = 
+	\array_replace_recursive( $profiles[$profile] ?? [], $updates );
+	
+	config_parsed( [ 'db_profiles' => $profiles ] );
+}
+
+/**
+ *  @deprecated
+ */
+function setting( string $name, $default, string $type, string $filter = '' ) {
+	return config( $name, $default, $type, $filter );
 }
 
 
@@ -7872,60 +7531,6 @@ function loadArray(
 }
 
 /**
- *  Helper to trigger configmodified event on parameter change
- *  
- *  @param array	$params		Configuration settings
- *  @param array	$modify		Changed parameters
- *  @return array
- */
-function modifiedConfig( array $params, array $modify ) : array {
-	if ( count( $modify ) ) {
-		$params = \array_merge( $params, $modify );
-		hook( [ 'configmodified', $params ] );
-	}
-	
-	// Call configuration checking event
-	hook( [ 'checkconfig', $params ] );
-	
-	// Send filtered params from event
-	return hook( [ 'checkconfig', '' ] );
-}
-
-/**
- *  Load JSON formatted configuration file
- *  
- *  @param string	$file		File name
- *  @param array	$modify		New settings
- *  @return array
- */
-function loadConfig( string $file, array $modify = [] ) : array {
-	static $params;
-	
-	if ( isset( $params ) ) {
-		// Modifying after params were already loaded?
-		if ( !empty( $modify ) ) {
-			$params = modifiedConfig( $params, $modify );
-		}
-		return $params;
-	}
-	
-	$data	= loadFile( $file );
-	if ( empty( $data ) ) {
-		$params = [];
-		return $params;
-	}
-	
-	$params	= util_json_decode( $data );
-	
-	// Check for any modifications and run events/filters
-	if ( !empty( $modify ) ) {
-		$params = modifiedConfig( $params, $modify );
-	}
-	
-	return $params;
-}
-
-/**
  *  File saving helper with auto backup
  *  
  *  @param string	$name		Destination file name
@@ -7959,27 +7564,6 @@ function saveFile(
 }
 
 /**
- *  Save configuration to config.json
- *  
- *  @param array	$params		Configuration settings
- *  @return bool
- */
-function saveConfig() : bool {
-	if ( !internalState( 'configModified' ) ) {
-		return false;
-	}
-	
-	// Load new config from 
-	$params	= hook( [ 'configmodified', '' ] );
-	$data	= util_json_encode( $params );
-	if ( empty( $data ) ) {
-		return false;
-	}
-	
-	return saveFile( CONFIG, $data, 1 );
-}
-
-/**
  *  Register or get internal state
  *  
  *  @param string	$name		State name
@@ -7992,121 +7576,6 @@ function internalState( string $name, $value = null ) {
 	}
 	
 	$state[$name] = $value;
-}
-
-/**
- *  Set to fire when configuration has been changed
- */
-function configModified( string $event, array $hook, array $params ) {	
-	internalState( 'configModified', true );
-}
-
-/**
- *  Type convert setting value with given format
- *  
- *  @param mixed	$value		Setting value
- *  @param string	$type		String, integer, or boolean
- *  @param string	$filter		Optional parse function
- *  @return mixed
- */
-function configType( 
-		$value, 
-	string	$type, 
-	string	$filter		= ''  
-) {
-	switch( $type ) {
-		case 'int':
-		case 'integer':
-			return ( int ) $value;
-			
-		case 'bool':
-		case 'boolean':
-			return ( bool ) $value;
-		
-		case 'json':
-			return \is_array( $value ) ? 
-				$value : util_json_decode( ( string ) $value );
-			
-		case 'lines':
-			return 
-			\is_array( $value ) ? 
-				$value : 
-				lineSettings( ( string ) $value, $filter );
-		
-		default:
-			return $value ?? $default;
-	}
-}
-
-/**
- *  Get configuration setting or default value
- *  
- *  @param string	$name		Configuration setting name
- *  @param mixed	$default	If not set, fallback value
- *  @param string	$type		String, integer, or boolean
- *  @param string	$filter		Optional parse function
- *  @return mixed
- */
-function config( 
-	string	$name, 
-		$default, 
-	string	$type		= 'string',
-	string	$filter		= '' 
-) {
-	$config = loadConfig( \CONFIG );
-	
-	// Set self-save
-	if ( !internalState( 'configsaveset' ) ) {
-		shutdown( 'saveConfig' );
-		internalState( 'configsaveset', true );
-	}
-	
-	return 
-	configType( $config[$name] ?? $default ?? '', $type, $filter );
-}
-
-/**
- *  Get per-site configuration setting or default to core config
- *  @return mixed
- */
-function setting( 
-	string	$name, 
-		$default, 
-	string	$type		= 'string',
-	string	$filter		= '' 
-) {
-	static	$setting	= [];
-	if ( isset( $setting[$name] ) ) {
-		return $setting[$name];
-	}
-	
-	// Load site detail from current host configuration
-	$site	= getSitesEnabled()[getHost()];
-	
-	// Current path
-	$st	= explode( '/', request_uri() );
-	$p	= '';
-	
-	// Match to path
-	foreach( $st as $k => $v ) {
-		$p .= slashPath( $v );
-		foreach ( $site as $s ) {
-			if ( 0 == \strcasecmp( $p, $s['basepath'] ) ) {
-				$setting[$name] = 
-				configType( 
-					$s['settings'][$name] ?? $default ?? '', 
-					$type, 
-					$filter 
-				);
-				
-				return $setting[$name];
-			}
-		}
-	}
-	
-	// Fallback
-	$setting[$name] = config( $name, $default, $type, $filter );
-	return $setting[$name];
 }
 
 /**
@@ -10626,13 +10095,13 @@ function html(
 	$html		= makeParagraphs( $html );
 	
 	if ( !isset( $white ) ) {
-		$default_tags = setting( 'tag_white', \TAG_WHITE, 'json' );
+		$default_tags = config( 'tag_map', '{}', 'json' );
 		
 		// Include form tags
 		$default_form = 
 		\array_merge_recursive( 
 			$default_tags, 
-			setting( 'form_white', \FORM_WHITE, 'json' )
+			config( 'form_tag_map', '{}', 'json' )
 		);
 		
 		// Tag loader hook
@@ -11342,9 +10811,10 @@ function securityPolicy( string $policy ) : string {
 			
 			// Common header override
 			$cfj = 
-			linedConfig( 
+			config 
 				'common-policy', 
 				$p['common-policy'] ?? [], 
+				'array',
 				'bland' 
 			);
 			$r['common'] = \implode( "\n", $cfj );
@@ -11384,9 +10854,10 @@ function securityPolicy( string $policy ) : string {
 			// Approved frame ancestors ( for embedding media )
 			$frm = 
 			\implode( ' ', 
-				linedConfig( 
+				config 
 					'frame_whitelist', 
 					\FRAME_WHITELIST, 
+				 	'array',
 					'cleanUrl' 
 				) 
 			);
@@ -11614,7 +11085,7 @@ function getSitesEnabled() : array {
 	}
 	$sw	= 
 	formatSites(
-		config( 'sites_enabled', \SITES_ENABLED, 'json' )
+		config( '', \SITES_ENABLED, 'json' )
 	);
 	
 	return $sw;
@@ -16398,7 +15869,6 @@ logStartup();
 
 // Configuration load
 hook( [ 'checkconfig',	'checkConfig' ] );
-hook( [ 'configmodified','configModified' ] );
 
 // Home and archive event handlers
 hook( [ 'home',		'showHome' ] );
