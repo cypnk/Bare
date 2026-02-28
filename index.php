@@ -5315,12 +5315,13 @@ function config_realm() : array {
 /**
  *  Config value array filter application helper
  *  
- *  @param array $lines Extracted configuration lines
- *  @param [in] $filter Optional callable
+ *  @param array	$lines		Extracted configuration lines
+ *  @param bool		$un		Unique values, if true
+ *  @param callable	$filter		Optional callable
  *  @return array
  */
-function config_lines( array $lines, $filter = null ) : array {
-	$lines	= \array_unique( $lines );
+function config_lines( array $lines, bool $un = false, $filter = null ) : array {
+	if ( $un ) { $lines	= \array_unique( $lines ); }
 	
 	return ( !empty( $filter ) && \is_callable( $filter ) )
 		? \array_map( $filter, $lines ) 
@@ -5337,7 +5338,7 @@ function config_lines( array $lines, $filter = null ) : array {
  */
 function config_value_format( mixed $value, string $type, $filter = null ) : mixed {
 	if ( \is_array( $value ) ) {
-		return config_lines( $value, $filter );
+		return config_lines( $value, false, $filter );
 	}
 	
 	return match( \strtolower( $type ) ) {
@@ -5352,7 +5353,7 @@ function config_value_format( mixed $value, string $type, $filter = null ) : mix
 				\PREG_SPLIT_NO_EMPTY 
 			);
 			
-			return config_lines( $lines, $filter );
+			return config_lines( $lines, true, $filter );
 		} )(),
 		
 		'json'			=> util_json_decode( ( string ) $value ),
