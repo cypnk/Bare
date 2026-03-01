@@ -72,8 +72,8 @@ define( 'PLUGIN_DIR',	PATH . 'plugins/' );
 // Use this if you keep plugins outside the web root
 // define( 'PLUGIN_DIR',	\realpath( \dirname( __FILE__, 2 ) ) . '/plugins/' );
 
-// Writable directory inside cache for plugin data (not directly browsable by visitors)
-define( 'PLUGIN_DATA',	CACHE . 'plugins/' );
+// Writable directory inside  for plugin data (not directly browsable by visitors)
+define( 'PLUGIN_DATA',	 . 'plugins/' );
 
 // Configuration filename (optional, overrides most constants here)
 define( 'CONFIG',	'config.json' );
@@ -2214,14 +2214,13 @@ function util_lib_version( string $spec, ?string $lib ) : bool {
 	return false;
 }
 
-
 /**
  *  Suhosin aware checking for function availability
  *  
  *  @param string	$func	Function name
  *  @return bool		True If the function isn't available 
  */
-function missing( $func ) : bool {
+function util_missing( $func ) : bool {
 	static $exts;
 	static $blocked;
 	static $fn	= [];
@@ -2946,6 +2945,20 @@ function sanitize_html( $html, $tag_map ) {
 	}
 	
 	return $cleaned->saveHTML();
+}
+
+function sanitize_cast_to_string( mixed $value ) : string {
+	if ( \is_object( $value ) ) {
+		if ( \method_exists( $value, '__toString' ) ) {
+			return ( string ) $value;
+		}
+		return '';
+	}
+	return ( string ) $value;
+}
+
+function sanitize_cast_to_int( mixed $value ) : int {
+	return ( int ) sanitize_cast_to_string( $value );
 }
 
 
@@ -4625,7 +4638,7 @@ function response_get_meta_cache( string $fpath ) : array|null {
 		$curr_size	= response_file_size( $fpath );
 		
 	} catch ( \Throwable $e ) {
-		\error_log( "Meta cache error: " . $e->getMessage() );
+		log_msg( "Meta cache error: {$e->getMessage()}", 'ERROR' );
 		return null;
 	}
 	
@@ -4665,7 +4678,7 @@ function response_save_meta_cache( string $fpath, array $meta ) : void {
 			\RuntimeException("Failed to replace cache file");
 		}
 	} catch ( \Throwable $e ) {
-		\error_log( "Meta cache error: " . $e->getMessage() );
+		log_msg( "Meta cache error: {$e->getMessage()}", 'ERROR' );
 	}
 }
 
@@ -4886,7 +4899,7 @@ function response_file(
 			response_file_stream( $meta, $handle, $fpath, $download );
 		}
 	} catch( \Throwable $e ) {
-		\error_log( "File response error: " . $e->getMessage() );
+		log_msg( "File response error: {$e->getMessage()}", 'ERROR' );
 		response_status( 500 );
 		echo "File response error";
 	} finally {
@@ -4933,7 +4946,7 @@ function response_body( mixed $body, bool $ct_sent ) : void {
 function response( int $code, array $headers = [], $body = null ) : void {
 	if ( $code < 100 || $code > 599 ) {
 		throw new 
-		InvalidArgumentException( "Invalid HTTP status code: {$code}" );
+		\InvalidArgumentException( "Invalid HTTP status code: {$code}" );
 	}
 	
 	$ct_sent	= false;
@@ -5214,8 +5227,10 @@ function config_parsed( ?array $new_settings = null ) : array {
 		
 		// Save changes at shutdown
 		\register_shutdown_function( function() {
+			$user	= sanitize_string( $_SERVER['REMOTE_USER'] ?? 'system' );
+			
 			config_backup();
-			config_save( null, $_SERVER['REMOTE_USER'] ?? 'system' );
+			config_save( null, $user );
 		} );
 	}
 	
@@ -5421,417 +5436,6 @@ function config_edit_db_profile( string $profile, array $updates ) : void {
  */
 function setting( string $name, $default, string $type, string $filter = '' ) {
 	return config( $name, $default, $type, $filter );
-}
-
-
-/**
- *  Plugins and modules
- */
-
-/**
- *  Main plugin attribute
- */
-#[Attribute( Attribute::TARGET_FUNCTION | Attribute::IS_REPEATABLE )]
-class Plugin {
-	
-	/**
-	 *  Main constructor
-	 *  
-	 *  @param string	$name		Unique plugin name
-	 *  @param string	$description	Brief plugin description
-	 *  @param int		$priority	Initialization order, higher = earlier
-	 *  @param stirng	$asset_dir	Files being served to the client
-	 *  @param string	$data_dir	Writable storage directory
-	 */
-	public function __construct(
-		public readonly string	$name,
-		public readonly string	$description	= '',
-		public int		$priority	= 0,
-		public readonly string	$asset_dir	= __DIR__ . '/assets/',
-		public readonly string	$data_dir	= PLUGIN_DATA
-	) {}
-}
-
-/**
- *  Discover and load plugin files, limited by whitelist
- *  
- *  @return array
- */
-function plugin_autoload() : array {
-	static $plugins;
-	if ( isset( $plugins ) ) { return $plugins; }
-	
-	$pl		= config( 'plugins_enabled', \PLUGINS_ENABLED );
-	
-	// Nothing to load
-	if ( empty( $pl ) ) { return []; }
-	
-	$dir		= \rtrim( PLUGIN_DIR, '/' ) . '/' ; // Trailing path
-	if ( !\is_dir( $dir ) ) { return []; }
-	
-	$files		=  \glob( $dir . '*/plugin.php' );
-	if ( empty( $files ) ) { return []; }
-	foreach ( $files as $plugin ) {
-		$base	= \basename( \dirname( $plugin ) );
-		if ( \in_array( $base, $pl  ) ) {
-			require_once $plugin;
-		}
-	}
-	
-	// Refresh loaded functions
-	$functions	= util_functions_list( true );
-	
-	$plugins	= [];
-	foreach ( $functions as $fn ) {
-		
-		// Can't initialize? skip
-		if ( !\is_callable( $fn ) ) { continue; }
-		
-		$ref	= new ReflectionFunction( $fn );
-		$attrs	= $ref->getAttributes( Plugin::class );
-		
-		foreach ( $attrs as $attr ) {
-			$meta	= $attr->newInstance(); 
-			$name	= sanitize_spaces( sanitize_escape_text( $meta->name ) );
-			
-			// Duplicate plugin name?
-			if ( isset( $plugins[$name] ) ) {
-				\error_log( "Plugin {$name} already exists" );
-				continue;
-			}
-			
-			$plugins[$name]	= [
-				'handler'	=> $fn,
-				'meta'		=> $meta
-			];
-		}
-	}
-	
-	// Sort by init order
-	\uasort( 
-		$plugins, 
-		fn( $a, $b ) => $a['meta']->priority <=> $b['meta']->priority 
-	);
-	
-	return $plugins;
-}
-
-/**
- *  Initialize plugin system
- *  
- *  @param bool		$run	Autoload and initialize each plugin (default)
- */
-function plugin_init( bool $run = true ) : void {
-	static $plugins
-	
-	$plugins	??= plugin_autoload();
-	
-	if ( !$run ) { return; }
-	
-	foreach ( $plugins as $plugin ) {
-		$fn	= $plugin['handler'];
-		$meta	= $plugin['meta'];
-		$ref	= new ReflectionFunction( $fn );
-		
-		try {
-			// Pass metadata, if it's allowed
-			if ( $ref->getNumberOfParameters() === 1 ) {
-				$fn( $meta );
-			} else { $fn(); }
-			
-		} catch( \Throwable $e ) {
-			\error_log( 
-				"Plugin {$meta->name} failed initialization: " . 
-				$e->getMessage() 
-			);
-		}
-	}
-}
-
-
-/**
- *  Hooks and extensions
- */
-
-/**
- *  Main hook attribute
- */
-#[Attribute( Attribute::TARGET_FUNCTION | Attribute::IS_REPEATABLE )]
-class Hook {
-	/**
-	 *  Hook constructor
-	 *  
-	 *  @param string	$name		Event name
-	 *  @param int		$priority	Execution order, higher > earlier
-	 */
-	public function __construct(
-		public readonly string	$name,
-		public int		$priority	= 0
-	) {}
-}
-
-/**
- *  Consolidated hook system with execution priority and cumulative stored output
- *  
- *  @param string	$action		Switched behavior of the registry
- *  @param string	$name		Event name in full string or partial event.* 
- *  @param array	$args		Event arguments
- *  @return mixed
- */
-function hook_registry( string $action, string $name, ...$args ) : mixed {
-	static	$handlers	= [];
-	static	$output		= [];
-
-	// Normalize
-	$action	= \strtolower( $action );
-	$name	= \strtolower( $name );
-
-	// Match actions
-	return match( $action ) {
-		// Adding new hook
-		'add'		=> $handlers[$name][]	= [
-			'handler'	=> $args[0],
-			'priority'	=> $args[1] ?? 0
-		],
-		
-		// Execute hook and return mutated output
-		'run'		=> 
-		( function() use ( &$output, $name, $args ) {
-			$hooks	= hook_registry( 'get', $name );
-			$result	= $output[$name] ?? [];
-			foreach ( $hooks as $handler ) {
-				$result = 
-				( $handler['handler'] )(
-					$name,
-					$result,
-					...$args
-				) ?? [];
-			}
-			
-			$output[$name]	= $result;
-			return $output[$name];
-		} )(),
-		
-		// Search hooks by full or partial name
-		'get'		=> 
-		( function() use ( $handlers, $name ) {
-			$found	= [];
-			foreach ( $handlers as $group => $hooks ) {
-				// Exact match?
-				if ( $name === $group ) {
-					$found	= \array_merge( $found, $hooks );
-					continue;
-				}
-				
-				// No wildcard? Move on
-				if ( !\str_contains( $group, '*' ) ) { continue; }
-				
-				// Prefixed wildcard event
-				if ( \str_ends_with( $group, '*' ) ) {
-					if ( \str_starts_with( $name, \substr( $group, 0, -1 ) ) ) {
-						$found	= \array_merge( $found, $hooks );
-						continue;
-					}
-				}
-				
-				// Suffixed wildcard event
-				if ( \str_starts_with( $group, '*' ) ) {
-					if ( \str_ends_with( $name, \substr( $group, 1 ) ) ) {
-						$found	= \array_merge( $found, $hooks );
-						continue;
-					}
-				}
-				
-				// Clean pattern for matching everything else
-				$pat	= 
-				\preg_replace( '/\\\\\*/', '.*', \preg_quote( $group, '/' ) );
-				
-				if ( \preg_match(  '/^' . $pat  . '$/', $name ) ) {
-					$found	= \array_merge( $found, $hooks );
-				}
-			}
-			
-			// Reorder hooks by priority
-			\usort( 
-				$found, 
-				fn( $a, $b ) => $b['priority'] <=> $a['priority'] 
-			);
-			
-			return $found;
-		} )(),
-		
-		// Get execution result
-		'values'	=> $output[$name] ?? [],
-		
-		// Clear results
-		'clear'		=> unset( $output[$name] ),
-		
-		// Resort hooks by priority
-		'priority'	=> 
-		( function() use ( &$handlers, $args ) {
-			[ $hook, $priority ]	= $args;
-			foreach ( $handlers[$name] ?? [] as &$h ) {
-				if ( $hook === $h['handler'] ) {
-					$h['priority'] = $priority;
-				}
-			}
-			
-			return null;
-		} )(),
-		
-		// Nothing else to send
-		default		=> null
-	};
-}
-
-/**
- *  Load event hooks from current script
- */
-function hook_autoload() : void {
-	$functions = util_functions_list();
-	foreach ( $functions as $handler ) {
-		$ref	= 
-		\is_array( $handler ) 
-			? new \ReflectionMethod( $handler[0], $handler[1] )
-			: new \ReflectionFunction( $handler );
-		$attrs	= $ref->getAttributes( Hook::class );
-		
-		foreach ( $attrs as $attr ) {
-			$hook	= $attr->newInstance();
-			hook_registry( 
-				'add', 
-				$hook->name, 
-				$handler, 
-				$hook->priority 
-			);
-		}
-	}
-}
-
-/**
- *  Execute or set hooks and extensions
- *  Append a hook handler in [ 'event', 'handler' ] format
- *  Call the hook event in [ 'event', args... ] format
- *  
- *  @param array	$params		[ 'event', 'handler' ]
- */
-function hook( array $params ) {
-	
-	// Nothing to add?
-	if ( empty( $params ) ) { return; }
-	
-	$event	= \strtolower( \array_shift( $params ) );
-	
-	// Adding a handler to the given event?
-	if ( \is_string( $params[0] ) && \is_callable( $params[0] ) ) {
-		return hook_registry( 'add', $event, $params[0], 0 );
-	}
-	
-	// Asking for hook-named output
-	if ( \is_string( $params[0] ) && empty( $params[0] ) ) {
-		return hook_registry( 'values', $event );
-	}
-	
-	// Handler being called with parameters, if any
-	return hook_registry( 'run', $event, ...$params );
-}
-
-/**
- *  Check for non-empty string result from hook
- *  
- *  @param string	$event		Hook event name
- *  @param string	$default	Fallback content
- *  @return array
- */
-function hookStringResult( string $event, string $default = '' ) : string {
-	$sent	= hook( [ $event, '' ] );
-	return 
-	( !empty( $sent ) && \is_string( $sent ) ) ? $sent : $default;
-}
-
-/**
- *  Check for non-empty array result from hook
- *  
- *  @param string	$event		Hook event name
- *  @param array	$default	Fallback content
- *  @return array
- */
-function hookArrayResult( string $event, array $default = [] ) : array {
-	$sent	= hook( [ $event, '' ] );
-	return 
-	( !empty( $sent ) && \is_array( $sent ) ) ? $sent : $default;
-}
-
-/**
- *  Get HTML from hook result, if sent
- *  
- *  @param string	$event		Hook event name
- *  @param string	$default	Fallback html content
- *  @return string
- */
-function hookHTML( string $event, string $default = '' ) : string {
-	return hookArrayResult( $event )['html'] ?? $default;
-}
-
-/**
- *  Get HTML render template from hook result, if sent
- *  
- *  @param string	$event		Hook event name
- *  @param string	$default	Fallback template
- *  @param array	$input		Component to apply template to
- *  @param bool		$full		Render full regions
- *  @return string
- */
-function hookTemplateRender( 
-	string	$event, 
-	string	$default,
-	array	$input,
-	bool	$full	= false
-) : string {
-	return 
-	render( 
-		hookArrayResult( $event )['template'] ?? 
-		hookStringResult( $event, $default ), $input, $full
-	);
-}
-
-/**
- *  Wrap component region in 'before' and 'after' event hooks and their output
- *  
- *  @param string	$before		Before template parsing event
- *  @param string	$after		After template parsing event
- *  @param string	$tpl		Base component template
- *  @param array	$input		Raw component data
- *  @param bool		$full		Render full regions
- *  @return string
- */
-function hookWrap( 
-	string		$before, 
-	string		$after, 
-	string		$tpl		= '', 
-	array		$input		= [],
-	bool		$full		= false
-) {
-	// Call "before" event hook
-	hook( [ $before, [ 
-		'data' => $input, 'template' => $tpl, 'full' => $full 
-	] ] );
-	
-	// Prepend any HTML output and render the new ( or old ) template
-	$html	= hookHTML( $before ) . 
-			hookTemplateRender( $before, $tpl, $input, $full );
-	
-	// Call "after" event hook
-	hook( [ $after, [ 
-		'data'		=> $input,	// Raw component data
-		'before'	=> $before,	// Event called before
-		'html'		=> $html,	// Current HTML
-		'full'		=> $full,	// Full region render
-		'template'	=> $tpl		// New or previously replaced
-	] ] );
-	
-	// Send any replaced HTML or already rendered HTML
-	return hookHTML( $after, $html );
 }
 
 
@@ -6754,6 +6358,1112 @@ function template( string $label, array $reg = [] ) : string {
 
 
 /**
+ *  Plugins and modules
+ */
+
+/**
+ *  Main plugin attribute
+ */
+#[Attribute( Attribute::TARGET_FUNCTION | Attribute::IS_REPEATABLE )]
+class Plugin {
+	
+	/**
+	 *  Main constructor
+	 *  
+	 *  @param string	$name		Unique plugin name
+	 *  @param string	$description	Brief plugin description
+	 *  @param int		$priority	Initialization order, higher = earlier
+	 *  @param stirng	$asset_dir	Files being served to the client
+	 *  @param string	$data_dir	Writable storage directory
+	 */
+	public function __construct(
+		public readonly string	$name,
+		public readonly string	$description	= '',
+		public int		$priority	= 0,
+		public readonly string	$asset_dir	= __DIR__ . '/assets/',
+		public readonly string	$data_dir	= PLUGIN_DATA
+	) {}
+}
+
+/**
+ *  Discover and load plugin files, limited by whitelist
+ *  
+ *  @return array
+ */
+function plugin_autoload() : array {
+	static $plugins;
+	if ( isset( $plugins ) ) { return $plugins; }
+	
+	$pl		= config( 'plugins_enabled', \PLUGINS_ENABLED );
+	
+	// Nothing to load
+	if ( empty( $pl ) ) { return []; }
+	
+	$dir		= \rtrim( PLUGIN_DIR, '/' ) . '/' ; // Trailing path
+	if ( !\is_dir( $dir ) ) { return []; }
+	
+	$files		=  \glob( $dir . '*/plugin.php' );
+	if ( empty( $files ) ) { return []; }
+	foreach ( $files as $plugin ) {
+		$base	= \basename( \dirname( $plugin ) );
+		if ( \in_array( $base, $pl  ) ) {
+			require_once $plugin;
+		}
+	}
+	
+	// Refresh loaded functions
+	$functions	= util_functions_list( true );
+	
+	$plugins	= [];
+	foreach ( $functions as $fn ) {
+		
+		// Can't initialize? skip
+		if ( !\is_callable( $fn ) ) { continue; }
+		
+		$ref	= new ReflectionFunction( $fn );
+		$attrs	= $ref->getAttributes( Plugin::class );
+		
+		foreach ( $attrs as $attr ) {
+			$meta	= $attr->newInstance(); 
+			$name	= sanitize_spaces( sanitize_escape_text( $meta->name ) );
+			
+			// Duplicate plugin name?
+			if ( isset( $plugins[$name] ) ) {
+				\error_log( "Plugin {$name} already exists" );
+				continue;
+			}
+			
+			$plugins[$name]	= [
+				'handler'	=> $fn,
+				'meta'		=> $meta
+			];
+		}
+	}
+	
+	// Sort by init order
+	\uasort( 
+		$plugins, 
+		fn( $a, $b ) => $a['meta']->priority <=> $b['meta']->priority 
+	);
+	
+	return $plugins;
+}
+
+/**
+ *  Initialize plugin system
+ *  
+ *  @param bool		$run	Autoload and initialize each plugin (default)
+ */
+function plugin_init( bool $run = true ) : void {
+	static $plugins
+	
+	$plugins	??= plugin_autoload();
+	
+	if ( !$run ) { return; }
+	
+	foreach ( $plugins as $plugin ) {
+		$fn	= $plugin['handler'];
+		$meta	= $plugin['meta'];
+		$ref	= new ReflectionFunction( $fn );
+		
+		try {
+			// Pass metadata, if it's allowed
+			if ( $ref->getNumberOfParameters() === 1 ) {
+				$fn( $meta );
+			} else { $fn(); }
+			
+		} catch( \Throwable $e ) {
+			\error_log( 
+				"Plugin {$meta->name} failed initialization: " . 
+				$e->getMessage() 
+			);
+		}
+	}
+}
+
+
+/**
+ *  Hooks and extensions
+ */
+
+/**
+ *  Main hook attribute
+ */
+#[Attribute( Attribute::TARGET_FUNCTION | Attribute::IS_REPEATABLE )]
+class Hook {
+	/**
+	 *  Hook constructor
+	 *  
+	 *  @param string	$name		Event name
+	 *  @param int		$priority	Execution order, higher > earlier
+	 */
+	public function __construct(
+		public readonly string	$name,
+		public int		$priority	= 0
+	) {}
+}
+
+/**
+ *  Consolidated hook system with execution priority and cumulative stored output
+ *  
+ *  @param string	$action		Switched behavior of the registry
+ *  @param string	$name		Event name in full string or partial event.* 
+ *  @param array	$args		Event arguments
+ *  @return mixed
+ */
+function hook_registry( string $action, string $name, ...$args ) : mixed {
+	static	$handlers	= [];
+	static	$output		= [];
+
+	// Normalize
+	$action	= \strtolower( $action );
+	$name	= \strtolower( $name );
+
+	// Match actions
+	return match( $action ) {
+		// Adding new hook
+		'add'		=> $handlers[$name][]	= [
+			'handler'	=> $args[0],
+			'priority'	=> $args[1] ?? 0
+		],
+		
+		// Execute hook and return mutated output
+		'run'		=> 
+		( function() use ( &$output, $name, $args ) {
+			$hooks	= hook_registry( 'get', $name );
+			$result	= $output[$name] ?? [];
+			foreach ( $hooks as $handler ) {
+				$result = 
+				( $handler['handler'] )(
+					$name,
+					$result,
+					...$args
+				) ?? [];
+			}
+			
+			$output[$name]	= $result;
+			return $output[$name];
+		} )(),
+		
+		// Search hooks by full or partial name
+		'get'		=> 
+		( function() use ( $handlers, $name ) {
+			$found	= [];
+			foreach ( $handlers as $group => $hooks ) {
+				// Exact match?
+				if ( $name === $group ) {
+					$found	= \array_merge( $found, $hooks );
+					continue;
+				}
+				
+				// No wildcard? Move on
+				if ( !\str_contains( $group, '*' ) ) { continue; }
+				
+				// Prefixed wildcard event
+				if ( \str_ends_with( $group, '*' ) ) {
+					if ( \str_starts_with( $name, \substr( $group, 0, -1 ) ) ) {
+						$found	= \array_merge( $found, $hooks );
+						continue;
+					}
+				}
+				
+				// Suffixed wildcard event
+				if ( \str_starts_with( $group, '*' ) ) {
+					if ( \str_ends_with( $name, \substr( $group, 1 ) ) ) {
+						$found	= \array_merge( $found, $hooks );
+						continue;
+					}
+				}
+				
+				// Clean pattern for matching everything else
+				$pat	= 
+				\preg_replace( '/\\\\\*/', '.*', \preg_quote( $group, '/' ) );
+				
+				if ( \preg_match(  '/^' . $pat  . '$/', $name ) ) {
+					$found	= \array_merge( $found, $hooks );
+				}
+			}
+			
+			// Reorder hooks by priority
+			\usort( 
+				$found, 
+				fn( $a, $b ) => $b['priority'] <=> $a['priority'] 
+			);
+			
+			return $found;
+		} )(),
+		
+		// Get execution result
+		'values'	=> $output[$name] ?? [],
+		
+		// Clear results
+		'clear'		=> unset( $output[$name] ),
+		
+		// Resort hooks by priority
+		'priority'	=> 
+		( function() use ( &$handlers, $args ) {
+			[ $hook, $priority ]	= $args;
+			foreach ( $handlers[$name] ?? [] as &$h ) {
+				if ( $hook === $h['handler'] ) {
+					$h['priority'] = $priority;
+				}
+			}
+			
+			return null;
+		} )(),
+		
+		// Nothing else to send
+		default		=> null
+	};
+}
+
+/**
+ *  Load event hooks from current script
+ */
+function hook_autoload() : void {
+	$functions = util_functions_list();
+	foreach ( $functions as $handler ) {
+		$ref	= 
+		\is_array( $handler ) 
+			? new \ReflectionMethod( $handler[0], $handler[1] )
+			: new \ReflectionFunction( $handler );
+		$attrs	= $ref->getAttributes( Hook::class );
+		
+		foreach ( $attrs as $attr ) {
+			$hook	= $attr->newInstance();
+			hook_registry( 
+				'add', 
+				$hook->name, 
+				$handler, 
+				$hook->priority 
+			);
+		}
+	}
+}
+
+/**
+ *  Execute or set hooks and extensions
+ *  Append a hook handler in [ 'event', 'handler' ] format
+ *  Call the hook event in [ 'event', args... ] format
+ *  
+ *  @param array	$params		[ 'event', 'handler' ]
+ */
+function hook( array $params ) {
+	
+	// Nothing to add?
+	if ( empty( $params ) ) { return; }
+	
+	$event	= \strtolower( \array_shift( $params ) );
+	
+	// Adding a handler to the given event?
+	if ( \is_string( $params[0] ) && \is_callable( $params[0] ) ) {
+		return hook_registry( 'add', $event, $params[0], 0 );
+	}
+	
+	// Asking for hook-named output
+	if ( \is_string( $params[0] ) && empty( $params[0] ) ) {
+		return hook_registry( 'values', $event );
+	}
+	
+	// Handler being called with parameters, if any
+	return hook_registry( 'run', $event, ...$params );
+}
+
+/**
+ *  Check for non-empty string result from hook
+ *  
+ *  @param string	$event		Hook event name
+ *  @param string	$default	Fallback content
+ *  @return array
+ */
+function hookStringResult( string $event, string $default = '' ) : string {
+	$sent	= hook( [ $event, '' ] );
+	return 
+	( !empty( $sent ) && \is_string( $sent ) ) ? $sent : $default;
+}
+
+/**
+ *  Check for non-empty array result from hook
+ *  
+ *  @param string	$event		Hook event name
+ *  @param array	$default	Fallback content
+ *  @return array
+ */
+function hookArrayResult( string $event, array $default = [] ) : array {
+	$sent	= hook( [ $event, '' ] );
+	return 
+	( !empty( $sent ) && \is_array( $sent ) ) ? $sent : $default;
+}
+
+/**
+ *  Get HTML from hook result, if sent
+ *  
+ *  @param string	$event		Hook event name
+ *  @param string	$default	Fallback html content
+ *  @return string
+ */
+function hookHTML( string $event, string $default = '' ) : string {
+	return hookArrayResult( $event )['html'] ?? $default;
+}
+
+/**
+ *  Get HTML render template from hook result, if sent
+ *  
+ *  @param string	$event		Hook event name
+ *  @param string	$default	Fallback template
+ *  @param array	$input		Component to apply template to
+ *  @param bool		$full		Render full regions
+ *  @return string
+ */
+function hookTemplateRender( 
+	string	$event, 
+	string	$default,
+	array	$input,
+	bool	$full	= false
+) : string {
+	return 
+	render( 
+		hookArrayResult( $event )['template'] ?? 
+		hookStringResult( $event, $default ), $input, $full
+	);
+}
+
+/**
+ *  Wrap component region in 'before' and 'after' event hooks and their output
+ *  
+ *  @param string	$before		Before template parsing event
+ *  @param string	$after		After template parsing event
+ *  @param string	$tpl		Base component template
+ *  @param array	$input		Raw component data
+ *  @param bool		$full		Render full regions
+ *  @return string
+ */
+function hookWrap( 
+	string		$before, 
+	string		$after, 
+	string		$tpl		= '', 
+	array		$input		= [],
+	bool		$full		= false
+) {
+	// Call "before" event hook
+	hook( [ $before, [ 
+		'data' => $input, 'template' => $tpl, 'full' => $full 
+	] ] );
+	
+	// Prepend any HTML output and render the new ( or old ) template
+	$html	= hookHTML( $before ) . 
+			hookTemplateRender( $before, $tpl, $input, $full );
+	
+	// Call "after" event hook
+	hook( [ $after, [ 
+		'data'		=> $input,	// Raw component data
+		'before'	=> $before,	// Event called before
+		'html'		=> $html,	// Current HTML
+		'full'		=> $full,	// Full region render
+		'template'	=> $tpl		// New or previously replaced
+	] ] );
+	
+	// Send any replaced HTML or already rendered HTML
+	return hookHTML( $after, $html );
+}
+
+
+/**
+ *  Database access
+ */
+
+/**
+ *  SQL parameter builder
+ *  
+ *  @param array $params Execution parameters
+ *  @param array $vals Keyed data
+ *  @return string
+ */
+function db_params_in( array &$params, array $vals ) : string {
+	foreach ( $vals as $idx => $value ) {
+		$key		= ":param_{$idx}";
+		$params[$key]	= $value;
+	}
+	return implode( ',', \array_keys( $params ) );
+}
+
+/**
+ *  Get or create cached PDO Statements
+ *  
+ *  @param PDO		$db	Database connection
+ *  @param string	$sql	Query string or statement
+ *  @return mixed
+ */
+function db_stmt( ?\PDO $dbh, string $sql ) {
+	static $cache = [];
+	if ( empty( $dbh ) && empty( $sql ) ) {
+		\array_map( 
+			function( $v ) { return null; }, 
+			$cache 
+		);
+		return null;
+	}
+	
+	$key = \sha1( \spl_object_hash( $dbh ) . ':' . $sql );
+	
+	if ( isset( $cache[$key] ) ) {
+		return $cache[$key];
+	}
+	
+	try {
+		$stmt		= $dbh->prepare( $sql );
+		$cache[$key]	= $stmt;
+		return $stmt;
+		
+	} catch ( \PDOException $e ) {
+		log_msg( 
+			"Failed to prepare statement with {$sql}: {$e->getMessage()}", 
+			'ERROR' 
+		);
+		
+		throw new 
+		\RuntimeException( "Database statement preparation failed" );
+	}
+}
+
+/**
+ *  Execute prepared statement
+ *  
+ *  @param PDOStatement		$stmt		Prepared statement
+ *  @param array		$params		Any prepared values in [':param' => value ] format
+ *  @param array		$context	Execution context data
+ *  @return bool				True on success
+ */
+function db_exec( \PDOStatement $stmt, array $params, string $context ) : bool {
+	try {
+		$result = 
+		count( $params ) > 0
+			? $stmt->execute( $params ) 
+			: $stmt->execute();
+		
+		log_msg( $context, 'DEBUG' );
+		return $result;
+		
+	} catch( \Throwable $e ) {
+		$trace	= \debug_backtrace();
+		$func	= $trace[1]['function']		?? 'global scope';
+		$file	= $trace[1]['file']		?? 'unknown file';
+		$line	= $trace[1]['line']		?? 'unknown line';
+		log_msg(
+			"Error in db_exec: {$context} — {$e->getMessage()} " .
+			"called by {$func} on line {$line} in {$file}",
+			'ERROR'
+		);
+		
+		throw new 
+		\RuntimeException( "Error executing PDO statement" );
+	}
+	
+	return false;
+}
+
+function db_exec_batch( \PDO $dbh, string $sql, string $context = 'Batch SQL' ) : bool {
+	if ( empty( trim( $sql ) ) ) {
+		log_msg( "Empty SQL passed to db_exec_batch", 'WARN' );
+		return false;
+	}
+	
+	try {
+		$dbh->beginTransaction();
+		$dbh->exec( $sql );
+		$dbh->commit();
+		log_msg( $context, 'DEBUG' );
+		return true;
+
+	} catch ( \PDOException $e ) {
+		$dbh->rollback();
+		
+		log_msg( 
+			"Batch execution failed for SQL " . 
+				\mb_substr( $sql, 0, 100 ) . 
+				": {$e->getMessage()}", 
+			'ERROR' 
+		);
+		
+		throw new 
+		\RuntimeException( "Error executing PDO statement" );
+	}
+	
+	return false;
+}
+
+function db_get_property( \PDO $dbh, int $attribute, $default = null ) : mixed {
+	try {
+		$value = $dbh->getAttribute( $attribute );
+		return ( false !== $value && null !== $value ) ? $value : $default;
+		
+	} catch ( \PDOException $e ) {
+		log_msg( "Failed to get PDO attribute {$attribute}: {$e->getMessage()}", 'WARN');
+		return $default;
+	}
+}
+
+function db_get_driver( \PDO $dbh ) : string {
+	static $supported = [ 'pgsql', 'sqlite', 'mysql' ];
+	
+	$driver = db_get_property( $dbh, \PDO::ATTR_DRIVER_NAME );
+	if ( null === $driver ) {
+		log_msg( "Unable to determine DB driver", 'WARN' );
+		return 'unknown';
+	}
+	
+	if ( !\in_array( $driver, $supported, true ) ) {
+		log_msg( "Unsupported DB driver: {$driver}", 'WARN' );
+	}
+
+	return \strtolower( $driver );
+}
+
+/**
+ *  SQL Timestamps format helper for comparisons
+ *  
+ *  @param PDO		$dbh		PDO Database handle
+ *  @return string			
+ */
+function db_now_unix( \PDO $dbh, ?string $column = null ) : string {
+	$driver	= db_get_driver( $dbh );
+	$column	??= 'now';
+	$column	= \preg_replace( '/^[\w_]/', '', $column );
+	
+	return match( $driver ) {
+		'sqlite'		=> "strftime( '%s','now' )",
+		'mysql','pgsql'		=> "UNIX_TIMESTAMP()",
+		//'sqlsrv'		=> "DATEDIFF(second, '1970-01-01', GETUTCDATE())"
+		default			=> 
+			throw new 
+			\RuntimeException( "Unsupported DB driver: {$driver}" )
+	};
+}
+
+/**
+ *  SQL Datetime format helper
+ *  
+ *  @param PDO		$dbh		PDO Database handle
+ *  @return string
+ */
+function db_now_datetime( \PDO $dbh ) : string {
+	$driver = db_get_driver( $dbh );
+	return match( $driver ) {
+		'sqlite'		=> "datetime( 'now' )",
+		'mysql','pgsql'		=> "NOW()",
+		//'sqlsrv'		=> "GETUTCDATE()",
+		default			=> 
+			throw new 
+			\RuntimeException( "Unsupported DB driver: {$driver}" )
+	};
+}
+
+function db_now_value( \PDO $dbh ) : string {
+	$stmt = $dbh->query( "SELECT " . db_now_datetime( $dbh ) );
+	return $stmt ? $stmt->fetchColumn() : '';
+}
+
+function db_sql_now_diff( \PDO $dbh, string $column = 'last_run' ) : string {
+	$now	= db_now_unix( $dbh );
+	return \sprintf( "%s - %s", $now, $column);
+}
+
+/**
+ *  Database profile settings from config JSON file
+ *  
+ *  @param PDO		$dbh		PDO Database handle
+ *  @param string	$profile	Database profile in config
+ *  @return array
+ */
+function db_profile_info( \PDO $dbh, string $profile = 'main' ) : array {
+	static $cache	= [];
+
+	// Load saved profile config
+	if ( empty( $cache ) ) {
+		$cache = config( 'db_profiles' );
+	}
+
+	$config = $cache[$profile] ?? null;
+	if ( !$config ) {
+		log_msg( "Unknown DB profile: {$profile}", 'ERROR' );
+		throw new 
+		\InvalidArgumentException( "Unknown DB profile" );
+	}
+	
+	
+	// Gather connection metadata
+	return [
+		'profile'		=> $profile,
+		'driver'		=> db_get_driver( $dbh ),
+		
+		'server_version'	=> 
+		db_get_property( $dbh, \PDO::ATTR_SERVER_VERSION, 'unknown' ),
+		
+		'client_version'	=> 
+		db_get_property( $dbh, \PDO::ATTR_CLIENT_VERSION, 'unknown' ),
+		
+		'dsn'			=> $config['dsn']		?? null,
+		'username'		=> $config['username']		?? null,
+		'installed'		=> $config['installed'] 	?? false,
+		'schema'		=> $config['schema']		?? null,
+		'version'		=> $config['version']		?? null,
+		'migrations'		=> $config['migrations']	?? null,
+		'pre_exec'		=> $config['pre_exec']		?? [],
+		'post_exec'		=> $config['post_exec']		?? []
+	];
+}
+
+/**
+ *  PDO Connection attribute options
+ *  
+ *  @param array	$settings	Presets config settings
+ *  @return array
+ */
+function db_get_options( array $settings ) : array {
+	static $definitions	= [
+		'ATTR_TIMEOUT'			=> \PDO::ATTR_TIMEOUT,
+		'ATTR_DEFAULT_FETCH_MODE'	=> \PDO::ATTR_DEFAULT_FETCH_MODE,
+		'ATTR_PERSISTENT'		=> \PDO::ATTR_PERSISTENT,
+		'ATTR_EMULATE_PREPARES'		=> \PDO::ATTR_EMULATE_PREPARES,
+		'ATTR_ERRMODE'			=> \PDO::ATTR_ERRMODE,
+		'ATTR_CASE'			=> \PDO::ATTR_CASE,
+		'ATTR_STRINGIFY_FETCHES'	=> \PDO::ATTR_STRINGIFY_FETCHES,
+		'FETCH_ASSOC'			=> \PDO::FETCH_ASSOC,
+		'ERRMODE_EXCEPTION'		=> \PDO::ERRMODE_EXCEPTION
+	];
+	
+	if ( empty( $settings ) ) {
+		// Set some basic defaults
+		return [
+			\PDO::ATTR_DEFAULT_FETCH_MODE	=> \PDO::FETCH_ASSOC,
+			\PDO::ATTR_PERSISTENT		=> false,
+			\PDO::ATTR_EMULATE_PREPARES	=> false,
+			\PDO::ATTR_ERRMODE		=> \PDO::ERRMODE_EXCEPTION
+		];
+	}
+	
+	$options	= [];
+	foreach ( $settings as $key => $value ) {
+		if ( !isset( $definitions[$key] ) ) {
+			continue;
+		}
+		
+		$options[$definitions[$key]] = $definitions[$value] ?? $value;
+	}
+	return $options;
+}
+
+/**
+ *  Batch execute .sql file based on current database schema version
+ *  
+ *  @param PDO		$dbh		Database connection
+ *  @param string	$schema		Database installation schema file
+ *  @param string	$ver		Schema version
+ */
+function db_batch_schema(
+	\PDO		$dbh, 
+	string		$schema,
+	string		$ver, 
+	string		$comment	= 'Database initialization with base tables',
+	?string		$sql_file	= null
+) : void {
+	static $sql	= 
+	"INSERT INTO schema_meta ( version, comments, created_at ) 	
+		VALUES ( :version, :comment, CURRENT_TIMESTAMP )";
+	
+	$info		= \pathinfo( $schema );
+	$sql_file	??= $info['dirname'] . '/' . $info['filename'] . '.sql';
+	$sql_file	= \realpath( $sql_file );
+	
+	if ( !$sql_file || !\is_readable( $sql_file ) ) {
+		log_msg( "Invalid schema file: {$sql_file} for database: {$schema}", 'ERROR' );
+		
+		throw new 
+		\RuntimeException( "Invalid schema file for database" );
+	}
+	
+	$found		= false;
+	for ( $i = 0; $i < 3; $i++ ) { // Adapt to momentary IO glitches
+		try {
+			$found		= \file_get_contents( $sql_file );
+			if ( false !== $found ) { break; }
+		
+		} catch ( \Throwable $e ) {
+			log_msg( 
+				"Error getting SQL data from {$sql_file}. Retrying", 
+				'ERROR' 
+			);
+			
+			\usleep( 100000 );
+			continue;
+		}
+	}
+	
+	if ( false === $found ) {
+		log_msg( "Failed to read schema file: {$sql_file}", 'ERROR' );
+		
+		throw new 
+		\RuntimeException( "Unable to load schema file" );
+	}
+	
+	if ( empty( trim( $found ) ) ) {
+		log_msg( "Schema file is empty: {$sql_file}", 'ERROR' );
+		
+		throw new 
+		\RuntimeException( "Schema file is empty" );
+	}
+	
+	try {
+		$dbh->beginTransaction();
+		$dbh->exec( $found );
+		
+		db_exec( db_stmt( $dbh, $sql ), [
+			':version'	=> $ver,
+			':comment'	=> $comment
+		] );
+		
+		$dbh->commit();
+		
+		 
+	} catch( \Throwable $e ) {
+		$dbh->rollback();
+		log_msg( 
+			"Error loading database schema file: {$sql_file} " . 
+				$e->getMessage(), 'ERROR' );
+		
+		throw new 
+		\RuntimeException( "Error loading database schema file" );
+	}
+}
+
+/**
+ *  Database schema migration helper
+ *  
+ *  @param string $mi_dir Migration schema file location
+ *  @return iterable
+ */
+function db_get_migrations( string $mi_dir ) : iterable {
+	// No migrations set
+	if ( !\is_dir( $mi_dir ) ) {
+		log_msg( "Called db_migrate() with no migrations", 'DEBUG' );
+		return [];
+	}
+	
+	// Get all .sql files
+	$files = \glob( $mi_dir . '/*.sql' );
+	if ( !$files ) {
+		log_msg( "No migration files found in {$mi_dir}", 'DEBUG' );
+		return [];
+	}
+	
+	// Extract version from filename
+	foreach ( $files as $file ) {
+		if ( \preg_match(
+			'/(\d+\.\d+\.\d+(?:-[\w.-]+)?(?:\+[\w.-]+)?)/', 
+				$file, $match 
+		) ) {
+			yield [ 'file' => $file, 'version' => $match[1] ];
+		} else {
+			log_msg( 
+				"Skipping file with no valid version: {$file} in {$mi_dir}", 
+				'DEBUG'
+			);
+		}
+	}
+}
+
+/**
+ *  Run maintenance on selected database
+ *  
+ *  @param PDO		$dbh	Database connection
+ *  @param array 	$config	Maintenance settings
+ */
+function db_maintenance( \PDO $dbh, array $config ) : void {
+	static $db_maint;
+	static $sql	=  
+	"SELECT settings FROM maintenance_meta 
+		WHERE maintenance_id = (
+			SELECT MAX( maintenance_id ) FROM maintenance_meta 
+		);";
+	
+	$db_maint	??= 
+	defined( 'DB_MAINT' )
+		? DB_MAINT
+		: 7;
+	
+	$maint		= $db_maint * 86400;
+	$settings	= $dbh->query( $sql )->fetchColumn();
+	
+	if ( false === $settings ) {
+		log_msg( "No database maintenance settings found", 'INFO' );
+		$settings	= '{ "last_maintenance" : 0 }'; // Fallback
+	}
+	
+	// Since PHP 8.3
+	if ( !\json_validate( $settings ) ) {
+		log_msg( "Error decoding maintenance settings", 'ERROR' );
+		return;
+	}
+	
+	$info	= \json_decode( $settings, true );
+	if ( false === $info || !\is_array( $info ) ) {
+		log_msg( "Invalid JSON in maintenance settings", 'ERROR' );
+		return;
+	}
+	
+	$last_maint	= $info['last_maintenance'] ?? 0;
+	$now		= time();
+	
+	// Skip if not needed
+	if ( ( $now - $last_maint ) < $maint ) {
+		log_msg( "Maintenance not required yet", 'DEBUG' );
+		return;
+	}
+	
+	$commands	= $config['maint_exec'] ?? [];
+	if ( !\is_array( $commands ) || empty( $commands ) ) {
+		log_msg( "No maintenance commands configured", 'WARN' );
+		return;
+	}
+	foreach ( $commands as $cmd ) {
+		try {
+			$dbh->exec( $cmd );
+			log_msg( "Executed maintenance command: {$cmd}", 'INFO' );
+		} catch ( \PDOException $e ) {
+			log_msg( "Maintenance command failed: {$cmd} — {$e->getMessage()}", 'ERROR' );
+		}
+	}
+	
+	$new_settings	= \json_encode( [ 'last_maintenance' => $now ] );
+	$insert_sql	= 
+	"INSERT INTO maintenance_meta ( settings ) 
+		VALUES ( :settings )";
+	
+	db_exec( db_stmt( $dbh, $insert_sql ), [ 
+		':settings' => $new_settings 
+	], "Initiating database maintenance" );
+	
+	log_msg( "Database maintenance completed", 'INFO' );
+}
+
+/**
+ *  Automatic database schema upgrades
+ *  
+ *  @param PDO		$dbh	Database connection
+ */
+function db_migrate( \PDO $dbh, string $profile ) : void {
+	// Get current schema version
+	$curr_ver	= $dbh
+		->query( "SELECT version FROM schema_meta ORDER BY created_at DESC LIMIT 1" )
+		->fetchColumn() ?? '0.0.0';
+	
+	$mi_dir		= storage_base() . '/migrations/' . $profile;
+	$migrations	= [];
+	foreach ( db_get_migrations( $mi_dir ) as $m ) {
+		if ( \version_compare( $m['version'], $curr_ver ) <= 0 ) {
+			log_msg( 
+				"Skipping migration {$m['version']} (current version is newer)", 
+				'DEBUG' 
+			);
+			continue;
+		}
+		$migrations[] = $m;
+	}
+	
+	usort( $migrations, fn( $a, $b ) => 
+		\version_compare( $a['version'], $b['version'] ) );
+	
+	// Apply migrations
+	foreach ( $migrations as $m ) {
+		try {
+			db_batch_schema( $dbh, $m['file'], $m['version'], "Applied migration from {$m['file']}" );
+			log_msg( "Migration {$m['version']} applied successfully", 'INFO' );
+		
+		} catch ( \Throwable $e ) {
+			log_msg( "Migration {$m['version']} from {$m['file']} failed: {$e->getMessage()}", 'ERROR' );
+			throw new 
+			\RuntimeException( "Migration failed: {$m['version']}" );
+		}
+	}
+}
+
+/**
+ *  Run maintenance on selected database
+ *  
+ *  @param PDO		$dbh	Database connection
+ *  @param array 	$config	Maintenance settings
+ */
+function db_maintenance( \PDO $dbh, array $config ) : void {
+	static $db_maint;
+	static $sql	=  
+	"SELECT settings FROM maintenance_meta 
+		WHERE maintenance_id = (
+			SELECT MAX( maintenance_id ) FROM maintenance_meta 
+		);";
+	
+	$db_maint	??= 
+	defined( 'DB_MAINT' )
+		? DB_MAINT
+		: 7;
+	
+	$maint		= $db_maint * 86400;
+	$settings	= $dbh->query( $sql )->fetchColumn();
+	
+	if ( false === $settings ) {
+		log_msg( "No database maintenance settings found", 'INFO' );
+		$settings	= '{ "last_maintenance" : 0 }'; // Fallback
+	}
+	
+	// Since PHP 8.3
+	if ( !\json_validate( $settings ) ) {
+		log_msg( "Error decoding maintenance settings", 'ERROR' );
+		return;
+	}
+	
+	$info	= \json_decode( $settings, true );
+	if ( false === $info || !\is_array( $info ) ) {
+		log_msg( "Invalid JSON in maintenance settings", 'ERROR' );
+		return;
+	}
+	
+	$last_maint	= $info['last_maintenance'] ?? 0;
+	$now		= time();
+	
+	// Skip if not needed
+	if ( ( $now - $last_maint ) < $maint ) {
+		log_msg( "Maintenance not required yet", 'DEBUG' );
+		return;
+	}
+	
+	$commands	= $config['maint_exec'] ?? [];
+	if ( !\is_array( $commands ) || empty( $commands ) ) {
+		log_msg( "No maintenance commands configured", 'WARN' );
+		return;
+	}
+	foreach ( $commands as $cmd ) {
+		try {
+			$dbh->exec( $cmd );
+			log_msg( "Executed maintenance command: {$cmd}", 'INFO' );
+		} catch ( \PDOException $e ) {
+			log_msg( "Maintenance command failed: {$cmd} — {$e->getMessage()}", 'ERROR' );
+		}
+	}
+	
+	$new_settings	= \json_encode( [ 'last_maintenance' => $now ] );
+	$insert_sql	= 
+	"INSERT INTO maintenance_meta ( settings ) 
+		VALUES ( :settings )";
+	
+	db_exec( db_stmt( $dbh, $insert_sql ), [ 
+		':settings' => $new_settings 
+	], "Initiating database maintenance" );
+	
+	log_msg( "Database maintenance completed", 'INFO' );
+}
+
+/**
+ *  Run callable with PDO transaction
+ *  
+ *  @param PDO		$dbh	Database connection
+ *  @param callable	$fn	Execution handler
+ *  @return mixed
+ */
+function db_with_transaction( \PDO $dbh, callable $fn ) : mixed {
+	
+	try {
+		$dbh->beginTransaction();
+		$result	= $fn( $dbh );
+		$dbh->commit();
+		
+		return $result;
+		
+	} catch ( \Throwable $e ) {
+		if ( $dbh->inTransaction() ) {
+			$dbh->rollBack();
+		}
+		
+		log_msg( "Error completing transaction via callable", 'ERROR' );
+		return false;
+	}
+}
+
+/**
+ *  Create config profile-based PDO database connection
+ *  
+ *  @param string	$profile	Connection profile label in configuration
+ *  @param array	$new_profiles	Override connection profile
+ *  @return PDO
+ */
+function db_get( string $profile = 'main', ?array $new_profiles = null ) : \PDO {
+	static $dbh	= [];
+	static $saved	= [];
+	if ( isset( $dbh[$profile] ) ) {
+		return $dbh[$profile];
+	}
+	
+	if ( !empty( $new_profiles ) ) {
+		$saved	= \array_replace_recursive( $saved, $new_profiles );
+	}
+	
+	if ( empty( $saved ) ) {
+		$saved	= config( 'db_profiles' );
+	}
+	
+	$config		= $saved[$profile] ?? null;
+	if ( !$config ) {
+		throw new 
+		\InvalidArgumentException( "Unknown DB profile: {$profile}" );
+	}
+	
+	$create		= $config['installed'];
+	
+	try {
+		// Create a new PDO instance
+		$dbh = new \PDO(
+			$config['dsn'], 
+			$config['username'], 
+			$config['password'], 
+			db_get_options( $config['options'] ?? [] )
+		);
+		
+		foreach ( $config['pre_exec'] ?? [] as $cmd ) {
+			$dbh->exec( $cmd );
+		}
+		
+		if ( $create ) {
+			foreach ( $config['init_exec'] ?? [] as $cmd ) {
+				$dbh->exec( $cmd );
+			}
+			
+			db_batch_schema( 
+				$dbh, 
+				$saved[$profile]['schema'], 
+				$saved[$profile]['version'] ?? '1.0.0'
+			);
+			
+			$saved[$profile]['installed'] = true;
+			config_edit( [ 'db_profiles' => $saved ] );
+		} else {
+			db_migrate( $dbh, $saved[$profile]['migrations'] ?? $profile );
+		}
+		
+		foreach ( $config['post_exec'] ?? [] as $cmd ) {
+			$dbh->exec( $cmd );
+		}
+		
+		db_maintenance( $dbh, $config );
+		
+	} catch ( \PDOException $e ) {
+		// Handle connection errors gracefully
+		log_msg( "Database connection failed: {$e->getMessage()}", 'ERROR' );
+		die( 'Unable to connect to database' );
+	}
+	
+	return $dbh;
+}
+
+
+/**
  *  Collection of functions to execute after content sent
  */
 function shutdown() {
@@ -6889,7 +7599,7 @@ function mailMessage(
 	];
 	
 	// Check if mail function is disabled
-	if ( missing( 'mail' ) ) {
+	if ( util_missing( 'mail' ) ) {
 		shutdown( 
 			'logError', 
 			'Email: mail() Has been disabled. Check the disable_function list in php.ini.' 
@@ -9175,8 +9885,7 @@ function session( $reset = false ) {
  *  @return int
  */
 function strsize( string $text ) : int {
-	return missing( 'mb_strlen' ) ? 
-		\strlen( $text ) : \mb_strlen( $text, '8bit' );
+	return \mb_strlen( $text, '8bit' );
 }
 
 /**
@@ -9192,9 +9901,7 @@ function truncate( string $text, int $start, int $size ) {
 		return $text;
 	}
 	
-	return missing( 'mb_substr' ) ? 
-		\substr( $text, $start, $size ) : 
-		\mb_substr( $text, $start, $size, '8bit' );
+	return \mb_substr( $text, $start, $size, '8bit' );
 }
 
 /**
@@ -9204,9 +9911,7 @@ function truncate( string $text, int $start, int $size ) {
  *  @return bool
  */
 function isASCII( string $text ) : bool {
-	return missing( 'mb_check_encoding' ) ? 
-		( bool ) !\preg_match( '/[^\x20-\x7e]/' , $text ) : 
-		\mb_check_encoding( $text, 'ASCII' );
+	return \mb_check_encoding( $text, 'ASCII' );
 }
 
 /**
@@ -9325,7 +10030,7 @@ function title( $text, int $max = 255 ) : string {
  *  @return string 
  */
 function normal( string $text ) : string {
-	if ( missing( 'normalizer_normalize' ) ) {
+	if ( util_missing( 'normalizer_normalize' ) ) {
 		return $text;
 	}
 	
@@ -9375,9 +10080,7 @@ function whiteLists( array $groups, bool $lower = false ) : array {
  *  @return string
  */
 function lowercase( string $text ) : string {
-	return missing( 'mb_convert_case' ) ? 
-		\strtolower( $txt ) : 
-		\mb_convert_case( $text, \MB_CASE_LOWER, 'UTF-8' );
+	return \mb_convert_case( $text, \MB_CASE_LOWER, 'UTF-8' );
 }
 
 /**
@@ -10057,7 +10760,7 @@ function html(
 	static $sanity;
 	
 	if ( !isset( $sanity ) ) {
-		if ( missing( 'libxml_clear_errors' ) ) {
+		if ( util_missing( 'libxml_clear_errors' ) ) {
 			$sanity = false;
 			shutdown( 
 				'logError', 
