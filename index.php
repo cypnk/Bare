@@ -7593,7 +7593,7 @@ function sess_off() {
 }
 
 /**
- *  Set session handler functions
+ *  Set session handler functions and initiate
  */
 function sess_init() {
 	static $params;
@@ -7618,6 +7618,44 @@ function sess_init() {
 		'sess_create',
 		'sess_validate'
 	);
+	
+	if ( \session_status() === \PHP_SESSION_NONE ) {
+		if ( \headers_sent( $file, $line ) ) {
+			log_msg( 
+				"Cannot start session: headers already sent by {$file} on line {$line}", 
+				'ERROR' 
+			);
+			
+			throw new 
+			\RuntimeException( "Session start failed due to headers" );
+		}
+		
+		try {
+			if ( !\session_start() ) {
+				log_msg( "Session failed to start", 'ERROR' );
+				
+				throw new 
+				\RuntimeException( "Session start failed" );
+			}
+			
+			log_msg( "Session started: " . \session_id(), 'DEBUG' );
+		} catch ( \Throwable $e ) {
+			
+			log_msg( "Session error: {$e->getMessage()}", 'ERROR' );
+			error_page();
+		}
+	}
+	
+	$exp	= time() + ( int ) config( 'session_regen', 1800 );
+	if ( !isset( $_SESSION['session_regen'] ) ) {
+		$_SESSION['session_regen'] = $exp;
+		return;
+	} 
+	
+	if ( time() > ( int ) $_SESSION['session_regen'] ) {
+		\session_regenerate_id( true );
+		$_SESSION['session_regen'] = $exp;
+	}
 }
 
 
@@ -9832,43 +9870,6 @@ function deleteCookie( string $name ) : bool {
 /**
  *  Session functionality
  */
-
-	
-/**
- *  Session owner and staleness marker
- *  
- *  @link https://paragonie.com/blog/2015/04/fast-track-safe-and-secure-php-sessions
- *  
- *  @param string	$visit	Previous random visitation identifier
- */
-function sessionCanary( string $visit = '' ) {
-	$exp	= setting( 'session_exp', \SESSION_EXP, 'int' );
-	if ( empty( $_SESSION['canary'] ) ) {
-		$_SESSION['canary']	= time() + $exp;
-		return;
-	
-	} 
-	if ( time() <= ( int ) $_SESSION['canary'] ) {
-		return;
-	}
-	
-	// Regenerate session
-	$restore		= $_SESSION;
-	\session_regenerate_id( true );
-	
-	$_SESSION		= $restore;
-	$_SESSION['canary']	= time() + $exp;
-}
-	
-/**
- *  Check session staleness
- *  
- *  @param bool		$reset	Reset session and canary if true
- */
-function sessionCheck( bool $reset = false ) {
-	session( $reset );
-	sessionCanary();
-}
 
 /**
  *  Set session cookie parameters
@@ -12968,7 +12969,6 @@ function request( string $event, array $hook, array $params ) : array {
 	
 	// Set session save handler
 	sess_init();
-	sessionCheck();
 	
 	$host	= getHost();
 	
@@ -14842,7 +14842,7 @@ function formatIndex(
  *  @return string
  */ 
 function tokenKey( bool $reset = false, string $label = 'token' ) : string {
-	sessionCheck();
+	sess_init();
 	if ( empty( $_SESSION[$label] ) || $reset ) {
 		$_SESSION[$label] = genId();
 	}
@@ -14854,7 +14854,7 @@ function tokenKey( bool $reset = false, string $label = 'token' ) : string {
  *  Initiate anti-CSRF session flag holder
  */
 function initCSRFSession() : void {
-	sessionCheck();
+	sess_init();
 	if ( empty( $_SESSION['csrf'] ) ) {
 		$_SESSION['csrf'] = [];
 	}
