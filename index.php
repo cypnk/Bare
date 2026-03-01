@@ -7464,6 +7464,164 @@ function db_get( string $profile = 'main', ?array $new_profiles = null ) : \PDO 
 
 
 /**
+ *  Session management
+ */
+
+/**
+ *  Does nothing
+ */
+function sess_open( $save_path, $session_name ) { return true; }
+function sess_close() { return true; }
+
+/**
+ *  Create session ID in the database and return it
+ *  
+ *  @return string
+ */
+function sess_create() { return \bin2hex( \random_bytes( 32 ) ); }
+
+/**
+ *  Read session data by ID
+ *  
+ *  @return string
+ */
+function sess_read( $session_id ) {
+	$dbh	= db_get( 'sessions' );
+	$stmt	= 
+	$dbh->prepare(
+	"SELECT session_data FROM sessions
+		WHERE session_id = :id
+		AND ( expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP )
+		LIMIT 1"
+	);
+	
+	$stmt->execute( [ ':id' => $session_id ] );
+	$row	= $stmt->fetch( \PDO::FETCH_ASSOC );
+	
+	return $row ? $row['session_data'] : '';
+}
+
+/**
+ *  Store session data
+ *  
+ *  @return bool
+ */
+function sess_write( $session_id, $data ) {
+	$dbh	= db_get( 'sessions' );
+	
+	return db_with_transaction( $dbh, function( \PDO $dbh ) use ( $session_id, $data ) {
+		$stmt	= 
+		$dbh->prepare(
+			"INSERT INTO sessions ( 
+				basename, session_id, session_ip, 
+				session_data, expires_at
+			)
+			VALUES ( 
+				:basename, :id, :ip, :data, 
+					DATETIME( 'now', '+1 hour' ) 
+			) ON CONFLICT( basename, session_id )
+			DO UPDATE SET
+				session_data = excluded.session_data,
+				session_ip   = excluded.session_ip,
+				expires_at   = excluded.expires_at"
+		);
+		
+		$host	= 
+		\idn_to_ascii( request_host(), \IDNA_DEFAULT, \INTL_IDNA_VARIANT_UTS46 );
+		return $stmt->execute( [
+			':basename'	=> \strtolower( $host ),
+			':id'		=> $session_id,
+			':ip'		=> request_ip( true ),
+			':data'		=> $data
+		] );
+	} );
+}
+
+/**
+ *  Delete session
+ *  
+ *  @return bool
+ */
+function sess_destroy( $session_id ) {
+	$dbh	= db_get( 'sessions' );
+	return db_with_transaction( $dbh, function( \PDO $dbh ) use ( $session_id ) {
+		$stmt	= 
+		$dbh->prepare( "DELETE FROM sessions WHERE session_id = :id" );
+		
+		return $stmt->execute( [ ':id' => $session_id ] );
+	} );
+}
+
+/**
+ *  Session garbage collection
+ *  
+ *  @return bool
+ */
+function sess_gc( $maxlifetime ) {
+	$dbh	= db_get( 'sessions' );
+	
+	return db_with_transaction( $dbh, function( \PDO $dbh ) {
+		return $dbh->exec(
+			"DELETE FROM sessions
+				WHERE expires_at IS NOT NULL
+				AND expires_at <= CURRENT_TIMESTAMP"
+		);
+	} );
+}
+
+function sess_validate( $session_id ) {
+	return \preg_match( '/^[a-f0-9]{64}$/', $session_id ) === 1;
+}
+
+function sess_update_timestamp( $session_id, $data ) {
+	$dbh	= db_get( 'sessions' );
+	$stmt	= 
+	$dbh->prepare(
+		"UPDATE sessions
+		SET expires_at = DATETIME('now', '+1 hour')
+		WHERE session_id = :id"
+	);
+	return $stmt->execute( [ ':id' => $session_id ] );
+}
+
+function sess_off() {
+	if ( \session_status() === \PHP_SESSION_ACTIVE ) {
+		\session_unset();
+		\session_destroy();
+		\session_write_close();
+	}
+}
+
+/**
+ *  Set session handler functions
+ */
+function sess_init() {
+	static $params;
+	static $start;
+	
+	$params	??= 
+	\session_set_cookie_params( [
+		'httponly'	=> true,
+		'secure'	=> request_is_tls(),
+		'samesite'	=> 'Strict',
+		'path'		=> '/',
+	] );
+	
+	$start	??= 
+	\session_set_save_handler(
+		'sess_open',
+		'sess_close',
+		'sess_read',
+		'sess_write',
+		'sess_destroy',
+		'sess_gc',
+		'sess_create',
+		'sess_validate'
+	);
+}
+
+
+/**
  *  Collection of functions to execute after content sent
  */
 function shutdown() {
@@ -9669,108 +9827,6 @@ function deleteCookie( string $name ) : bool {
 	return makeCookie( $name, '', [ 'expires' => 1 ] );
 }
 
-/**
- *  Set session handler functions
- */
-function setSessionHandler() {
-	\session_set_save_handler(
-		'sessionOpen', 
-		'sessionClose', 
-		'sessionRead', 
-		'sessionWrite', 
-		'sessionDestroy', 
-		'sessionGC', 
-		'sessionCreateID'
-	);	
-}
-
-/**
- *  Does nothing
- */
-function sessionOpen( $path, $name ) { return true; }
-function sessionClose() { return true; }
-
-/**
- *  Create session ID in the database and return it
- *  
- *  @return string
- */
-function sessionCreateID() {
-	$bt	= setting( 'session_bytes', \SESSION_BYTES, 'int' );
-	$id	= \genId( $bt );
-	$sql	= 
-	"INSERT OR IGNORE INTO sessions ( session_id )
-		VALUES ( :id );";
-	if ( dataExec( $sql, [ ':id' => $id ], 'success', \SESSION_DATA ) ) {
-		return $id;
-	}
-	
-	// Something went wrong with the database
-	logError( 'Error writing to session ID to database' );
-	die();
-}
-
-/**
- *  Delete session
- *  
- *  @return bool
- */
-function sessionDestroy( $id ) {
-	$sql	= "DELETE FROM sessions WHERE session_id = :id;";
-	if ( dataExec( $sql, [ ':id' => $id ], 'success', \SESSION_DATA ) ) {
-		return true;
-	}
-	return false;
-}
-	
-/**
- *  Session garbage collection
- *  
- *  @return bool
- */
-function sessionGC( $max ) {
-	$sql	= 
-	"DELETE FROM sessions WHERE (
-		strftime( '%s', 'now' ) - 
-		strftime( '%s', updated ) ) > :gc;";
-	if ( dataExec( $sql, [ ':gc' => $max ], 'success', \SESSION_DATA ) ) {
-		return true;
-	}
-	return false;
-}
-	
-/**
- *  Read session data by ID
- *  
- *  @return string
- */
-function sessionRead( $id ) {
-	$sql	= 
-	"SELECT session_data FROM sessions 
-		WHERE session_id = :id LIMIT 1;";
-	
-	$data	= dataExec( $sql, [ 'id' => $id ], 'column', \SESSION_DATA );
-	
-	hook( [ 'sessionread', [ 'id' => $id, 'data' => $data ] ] );
-	return empty( $data ) ? '' : ( string ) $data;
-}
-
-/**
- *  Store session data
- *  
- *  @return bool
- */
-function sessionWrite( $id, $data ) {
-	$sql	= "REPLACE INTO sessions ( session_id, session_data )
-			VALUES( :id, :data );";
-	if ( dataExec( 
-		$sql, [ ':id' => $id, ':data' => $data ], 'success', \SESSION_DATA 
-	) ) {
-		hook( [ 'sessionwrite', [ 'id' => $id, 'data' => $data ] ] );
-		return true;
-	}
-	return false;
-}
 
 
 /**
@@ -9812,17 +9868,6 @@ function sessionCanary( string $visit = '' ) {
 function sessionCheck( bool $reset = false ) {
 	session( $reset );
 	sessionCanary();
-}
-
-/**
- *  End current session activity
- */
-function cleanSession() {
-	if ( \session_status() === \PHP_SESSION_ACTIVE ) {
-		\session_unset();
-		\session_destroy();
-		\session_write_close();
-	}
 }
 
 /**
@@ -12922,7 +12967,7 @@ function methodPreParse( string $verb, string $path, array $routes ) {
 function request( string $event, array $hook, array $params ) : array {
 	
 	// Set session save handler
-	setSessionHandler();
+	sess_init();
 	sessionCheck();
 	
 	$host	= getHost();
