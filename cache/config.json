@@ -3,7 +3,7 @@
 		{
 			"domain"	: "localhost",
 			"alias"		: [ "test.local", "test.dev" ],
-			
+			"timezone"	: "America\/New_York",
 			"main_links"	: [
 				{ "url" : "{home}about", "text" : "{lang:nav:about}" },
 				{ "url" : "{home}archive", "text" : "{lang:nav:archive}" },
@@ -34,7 +34,6 @@
 	"defaults" : {
 		"app"			: "Bare",
 		"author"		: "admin",
-		"storage_dir"		: "cache",
 		"post_dir"		: "posts",
 		"template_dir"		: "templates",
 		"date_format"		: "l, F j, Y",
