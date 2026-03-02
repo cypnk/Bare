@@ -639,6 +639,42 @@
 				"PRAGMA quick_check;"
 			]
 		},
+		"bare"		: {
+			"dsn"		: "sqlite:{{STORAGE_DIR}}/bare.sqlite",
+			"installed"	: false,
+			"version"	: "1.0.0",
+			"schema"	: "{{STORAGE_DIR}}/schema/bare.sqlite.sql",
+			"username"	: null,
+			"password"	: null,
+			"options"	: {
+				"ATTR_TIMEOUT"			: "{{DB_TIMEOUT}}",
+				"ATTR_DEFAULT_FETCH_MODE"	: "FETCH_ASSOC",
+				"ATTR_PERSISTENT"		: false,
+				"ATTR_EMULATE_PREPARES"		: false,
+				"ATTR_ERRMODE"			: "ERRMODE_EXCEPTION"
+			},
+			"pre_exec"	: [
+				"PRAGMA journal_mode	= WAL;",
+				"PRAGMA busy_timeout	= {{DB_TIMEOUT}};",
+				"PRAGMA trusted_schema	= OFF;",
+				"PRAGMA synchronous	= FULL;",
+				"PRAGMA locking_mode	= NORMAL;"
+			],
+			"init_exec"	: [
+				"PRAGMA encoding	= \"UTF-8\";",
+				"PRAGMA auto_vacuum	= 2;",
+				"PRAGMA temp_store	= 2;",
+				"PRAGMA secure_delete	= 1;"
+			],
+			"post_exec": [
+				"PRAGMA foreign_keys = ON;"
+			],
+			"maint_exec": [
+				"ANALYZE", 
+				"PRAGMA quick_check;",
+				"PRAGMA wal_checkpoint(FULL);"
+			]
+		},
 		"cache"		: {
 			"dsn"		: "sqlite:{{STORAGE_DIR}}/cache.sqlite",
 			"installed"	: false,
