@@ -52,20 +52,15 @@ define( 'POSTS',	PATH . 'posts/' );
 // Add posts to "posts/example.com/" to blog separately on multiple domains
 
 // Cache directory. Must be writable (chmod -R 0755 on *nix)
-define( 'CACHE',	PATH . 'cache/' );
+define( 'STORAGE_DIR',	PATH . 'cache/' );
 // Use this instead if you keep the cache outside the web root
 // define( 'CACHE',	\realpath( \dirname( __FILE__, 2 ) ) . '/cache/' );
 
 // Uploaded file location (usually the same as POSTS)
-define( 'FILE_PATH',	POSTS );
+define( 'FILE_DIR',	POSTS );
 // Use this instead if you keep uploaded files outside the web root
-// define( 'FILE_PATH',	\realpath( \dirname( __FILE__, 2 ) ) . '/uploads/' );
+// define( 'FILE_DIR',	\realpath( \dirname( __FILE__, 2 ) ) . '/uploads/' );
 // Add files to a relative path E.G. 'example.com/' to keep multi-site content separate
-
-// Custom error file folder (optional)
-define( 'ERROR_ROOT',	PATH . 'errors/' );
-// Use this if error files are outside web root
-// define( 'ERROR_ROOT',	\realpath( \dirname( __FILE__, 2 ) ) . '/errors/' );
 
 // Plugins directory
 define( 'PLUGIN_DIR',	PATH . 'plugins/' );
@@ -74,6 +69,11 @@ define( 'PLUGIN_DIR',	PATH . 'plugins/' );
 
 // Writable directory inside  for plugin data (not directly browsable by visitors)
 define( 'PLUGIN_DATA',	 . 'plugins/' );
+
+// Custom error file folder (optional)
+define( 'ERROR_ROOT',	PATH . 'errors/' );
+// Use this if error files are outside web root
+// define( 'ERROR_ROOT',	\realpath( \dirname( __FILE__, 2 ) ) . '/errors/' );
 
 // Configuration filename (optional, overrides most constants here)
 define( 'CONFIG',	'config.json' );
@@ -235,7 +235,7 @@ define( 'STREAM_CHUNK_LIMIT',	50000 );
 define( 'APP_NAME',		'Bare' );
 
 // Static resource relative path for JS, CSS, static images etc...
-// When using '/' the default path, Bare will load files from the FILE_PATH
+// When using '/' the default path, Bare will load files from the FILE_DIR
 define( 'SHARED_ASSETS',		'/' );
 
 // Whitelist of approved frame sources for embedding media (one per line)
@@ -1271,12 +1271,6 @@ define( 'MSG_FILERANGE',	'Invalid file range requested' );
 // General database location placeholder (future use)
 define( 'DATA',			'' );
 
-// Cache database (will be created if it doesn't exist)
-define( 'CACHE_DATA',		CACHE . 'cache.db' );
-
-// Session database (will be created if it doesn't exist)
-define( 'SESSION_DATA',		CACHE . 'session.db' );
-
 // Database connection timeout
 define( 'DATA_TIMEOUT',		15 );
 
@@ -1324,191 +1318,6 @@ define( 'COOKIE_RESTRICT',	1 );
 \date_default_timezone_set( 'UTC' );
 \ignore_user_abort( true );
 \register_shutdown_function( 'shutdown' );
-
-
-
-/**
- *  Cache database SQL
- */
-
-define( 'CACHE_SQL',		<<<SQL
--- Cache tables
-CREATE TABLE caches (
-	id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
-	cache_id TEXT NOT NULL COLLATE NOCASE, 
-	ttl INTEGER NOT NULL, 
-	content TEXT NOT NULL COLLATE NOCASE, 
-	expires DATETIME DEFAULT NULL,
-	created DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, 
-	updated DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);-- --
-
-CREATE UNIQUE INDEX idx_caches_on_cache_id ON caches ( cache_id ASC );-- --
-CREATE INDEX idx_caches_on_expires ON caches ( expires DESC )
-	WHERE expires IS NOT NULL;-- --
-CREATE INDEX idx_caches_on_created ON caches ( created ASC );-- --
-CREATE INDEX idx_caches_on_updated ON caches ( updated );-- --
-
--- Cache triggers
-CREATE TRIGGER cache_after_insert AFTER INSERT ON caches FOR EACH ROW 
-BEGIN
-	-- Generate expiration
-	UPDATE caches SET 
-		expires = datetime( 
-			( strftime( '%s','now' ) + NEW.ttl ), 
-			'unixepoch' 
-		) WHERE rowid = NEW.rowid;
-	
-	-- Clear expired data
-	DELETE FROM caches WHERE 
-		strftime( '%s', expires ) < 
-		strftime( '%s', updated ) AND expires IS NOT NULL;
-END;-- --
-
--- Change only update period when TTL is empty
-CREATE TRIGGER cache_after_update AFTER UPDATE ON caches FOR EACH ROW 
-WHEN NEW.updated < OLD.updated AND NEW.ttl = 0
-BEGIN
-	UPDATE caches SET updated = CURRENT_TIMESTAMP 
-		WHERE rowid = NEW.rowid;
-END;-- --
-
--- Change expiration period when TTL exists
-CREATE TRIGGER cache_after_update_ttl AFTER UPDATE ON caches FOR EACH ROW 
-WHEN NEW.updated < OLD.updated AND NEW.ttl <> 0
-BEGIN
-	-- Change expiration
-	UPDATE caches SET updated = CURRENT_TIMESTAMP, 
-		expires = datetime( 
-			( strftime( '%s','now' ) + NEW.ttl ), 
-			'unixepoch' 
-		) WHERE rowid = NEW.rowid;
-END;-- --
-
--- Post content
-CREATE TABLE posts(
-	id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
-	post_path TEXT NOT NULL COLLATE NOCASE,
-	post_view TEXT NOT NULL COLLATE NOCASE,
-	post_bare TEXT NOT NULL COLLATE NOCASE, 
-	post_summary TEXT DEFAULT '' COLLATE NOCASE, 
-	post_type TEXT DEFAULT '' COLLATE NOCASE, 
-	updated DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	published DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);-- --
-CREATE INDEX idx_post_updated ON posts( updated DESC );-- --
-CREATE INDEX idx_post_published ON posts( published DESC );-- --
-CREATE UNIQUE INDEX idx_post_path ON posts( post_path );-- --
-
--- Tag tables
-CREATE TABLE tags (
-	id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
-	slug TEXT NOT NULL COLLATE NOCASE, 
-	term TEXT NOT NULL COLLATE NOCASE,
-	post_count INTEGER NOT NULL DEFAULT 0
-);-- --
-CREATE UNIQUE INDEX idx_tag_slug ON tags( slug ASC );-- --
-
-CREATE TABLE post_tags(
-	id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
-	post_id INTEGER NOT NULL REFERENCES posts( id ) 
-		ON DELETE CASCADE,
-	tag_slug TEXT NOT NULL COLLATE NOCASE
-);-- --
-CREATE INDEX idx_post_tags_id ON post_tags( post_id );-- --
-CREATE INDEX idx_post_tags_slug ON post_tags( tag_slug );-- --
-CREATE UNIQUE INDEX idx_post_tags ON post_tags( post_id, tag_slug );-- --
-
--- Tag triggers
-CREATE TRIGGER tag_after_insert AFTER INSERT ON post_tags FOR EACH ROW 
-BEGIN
-	UPDATE tags SET post_count = ( post_count + 1 )
-		WHERE slug = NEW.tag_slug;
-END;-- --
-
-CREATE TRIGGER tag_before_delete BEFORE DELETE ON post_tags FOR EACH ROW 
-BEGIN
-	UPDATE tags SET post_count = ( post_count - 1 )
-		WHERE slug = OLD.tag_slug;
-END;-- --
-
--- Searching
-CREATE VIRTUAL TABLE post_search 
-	USING fts4( body, tokenize=unicode61 );-- --
-
-CREATE TRIGGER post_insert AFTER INSERT ON posts FOR EACH ROW 
-BEGIN
-	INSERT INTO post_search( docid, body ) 
-		VALUES ( NEW.id, NEW.post_bare );
-END;-- --
-
-CREATE TRIGGER post_before_update BEFORE UPDATE ON posts FOR EACH ROW
-BEGIN
-	DELETE FROM post_tags WHERE post_id = OLD.id;
-END;-- --
-
-CREATE TRIGGER post_update AFTER UPDATE ON posts FOR EACH ROW 
-BEGIN
-	UPDATE post_search SET body = NEW.post_bare 
-		WHERE docid = NEW.id;
-END;-- --
-
-CREATE TRIGGER post_delete BEFORE DELETE ON posts FOR EACH ROW 
-BEGIN
-	DELETE FROM post_search WHERE docid = OLD.id;
-	DELETE FROM post_tags WHERE post_id = OLD.id;
-END;-- --
-
-
--- Post info for sibling posts
-CREATE VIEW post_siblings AS SELECT DISTINCT 
-	p.post_path AS post_path, 
-	( SELECT post_path FROM posts prev
-		WHERE prev.published IS NOT NULL AND
-			strftime( '%s', prev.published ) <= 
-			strftime( '%s', p.published ) 
-			AND prev.post_path IS NOT p.post_path
-			ORDER BY prev.published DESC LIMIT 1 
-	) AS prev_path, 
-	
-	-- Next published sibling
-	( SELECT post_path FROM posts nxt 
-		WHERE nxt.published IS NOT NULL AND 
-			strftime( '%s', nxt.published ) > 
-			strftime( '%s', p.published ) 
-			AND nxt.post_path IS NOT p.post_path
-			ORDER BY nxt.published ASC LIMIT 1 
-	) AS next_path
-	
-	FROM posts p;
-SQL
-);
-
-/**
- *  Sessions database
- */
-define( 'SESSION_SQL',		<<<SQL
--- Visitor/User sessions
-CREATE TABLE sessions(
-	id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-	session_id TEXT DEFAULT NULL COLLATE NOCASE,
-	session_data TEXT DEFAULT NULL COLLATE NOCASE,
-	created TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	updated TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-);-- --
-CREATE UNIQUE INDEX idx_session_id ON sessions( session_id );-- --
-CREATE INDEX idx_session_created ON sessions( created DESC );-- --
-CREATE INDEX idx_session_updated ON sessions( updated DESC );-- --
-
-CREATE TRIGGER session_update AFTER UPDATE ON sessions
-BEGIN
-	UPDATE sessions SET updated = CURRENT_TIMESTAMP 
-		WHERE id = NEW.id;
-END;
-SQL
-);
-
-
 
 
 
@@ -6773,18 +6582,29 @@ function hookWrap(
  */
 
 /**
- *  SQL parameter builder
+ *  Helper to turn a range of input values into an IN() parameter
  *  
- *  @param array $params Execution parameters
- *  @param array $vals Keyed data
+ *  @example Parameters for [value1, value2] become "IN (:paramIn_0, :paramIn_1)"
+ *  
+ *  @param array	$params		PDO Named parameters sent back
+ *  @param array	$vals		Keyed data
+ *  @param string	$prefix		SQL Prepended fragment prefix
+ *  @param string	$prefix		SQL Appended fragment suffix
  *  @return string
  */
-function db_params_in( array &$params, array $vals ) : string {
+function db_params_in( 
+	array		&$params, 
+	array		$vals, 
+	string		$prefix		= 'IN (', 
+	string		$suffix		= ')'
+) : string {
+	$i =	0;
 	foreach ( $vals as $idx => $value ) {
-		$key		= ":param_{$idx}";
+		$key		= ":param_{$i}";
 		$params[$key]	= $value;
+		$i++;
 	}
-	return implode( ',', \array_keys( $params ) );
+	return $prefix . implode( ',', \array_keys( $params ) ) . $suffix;
 }
 
 /**
@@ -7076,7 +6896,10 @@ function db_batch_schema(
 	$sql_file	= \realpath( $sql_file );
 	
 	if ( !$sql_file || !\is_readable( $sql_file ) ) {
-		log_msg( "Invalid schema file: {$sql_file} for database: {$schema}", 'ERROR' );
+		log_msg( 
+			"Invalid schema file: {$sql_file} for database: {$schema}", 
+			'ERROR' 
+		);
 		
 		throw new 
 		\RuntimeException( "Invalid schema file for database" );
@@ -7085,7 +6908,7 @@ function db_batch_schema(
 	$found		= false;
 	for ( $i = 0; $i < 3; $i++ ) { // Adapt to momentary IO glitches
 		try {
-			$found		= \file_get_contents( $sql_file );
+			$found		= @\file_get_contents( $sql_file );
 			if ( false !== $found ) { break; }
 		
 		} catch ( \Throwable $e ) {
@@ -7460,6 +7283,134 @@ function db_get( string $profile = 'main', ?array $new_profiles = null ) : \PDO 
 	}
 	
 	return $dbh;
+}
+
+/**
+ *  Helper to get the result from a successful statement execution
+ *  
+ *  @param PDO		$db	Database connection
+ *  @param PDOStatement	$stmt	PDO prepared statement
+ *  @param array	$params	Parameters 
+ *  @param string	$rtype	Return type
+ *  @return mixed
+ */
+function db_result( 
+	\PDO		$dbh, 
+	\PDOStatement	$stmt, 
+	array		$params		= [], 
+	string		$rtype		= ''
+) : mixed {
+	$ok	= db_exec( $stmt, 'Running db_result()' );
+	
+	if ( !$ok ) { return null; }
+	
+	return match( \strtolower( $rtype ) ) {
+		// Query with array return
+		'results'	=> $ok ? $stm->fetchAll() : [],	
+		
+		// Insert with ID return
+		'insert'	=> $ok ? $db->lastInsertId() : 0,
+		
+		// Single column value
+		'column'	=> $ok ? $stm->fetchColumn() : '',
+		
+		// Success status
+		default		=> $ok
+	};
+}
+
+/**
+ *  Shared data execution routine
+ *  
+ *  @param string	$sql		Database SQL
+ *  @param string	$profile	Connection profile label in configuration
+ *  @param array	$params		Parameters 
+ *  @param string	$rtype		Return type
+ *  @return mixed
+ */
+function db_result_exec( 
+	string	$sql, 
+	string	$profile,
+	array	$params		= [],
+	string	$rtype		= '' 
+) : mixed {
+	$dbh	= db_get( $profile );
+	$stmt	= db_stmt( $dbh );
+	$res	= db_result( $dbh, $stmt, $params, $rtype );
+	
+	$stmt->closeCursor();
+	return $res;
+}
+
+/**
+ *  Update or insert multiple database rows at once with single SQL
+ *  
+ *  @param string	$sql		Database SQL
+ *  @param string	$profile	Connection profile label in configuration
+ *  @param array	$batch		Collection of query parameters
+ *  @param string	$rtype		Return type
+ *  @return array			Result status
+ */
+function db_batch_result_exec(
+	string	$sql, 
+	string	$profile,
+	array	$batch		= [],
+	string	$rtype		= '' 
+) : array {
+	$dbh	= db_get( $profile );
+	$stmt	= db_stmt( $dbh );
+	
+	return db_with_transaction( $dbh, function( \PDO $dbh ) use ( $stmt, $batch ) {
+		$res	= [];
+		
+		foreach( $batch as $params ) {
+			$status	= db_result( $dbh, $stmt, $params, $rtype );
+			if ( null === $status ) { 
+				$stmt->closeCursor();
+				break; 
+			}
+			
+			$res[]	= $status;
+			$stmt->closeCursor();
+		}
+		return $res;
+	} );
+}
+
+/**
+ *  Insert record into database and return last ID
+ *  
+ *  @param string	$sql		Database SQL insert
+ *  @param string	$profile	Connection profile label in configuration
+ *  @param array	$params		Parameters 
+ *  @return int
+ */
+function db_insert(
+	string	$sql,
+	string	$profile,
+	array	$params
+) : int {
+	$res	= db_result_exec( $sql, $profile, $params );
+	return empty( $res ) 
+		? 0
+		: ( \is_numeric( $res ) ? ( int ) $res : 0 );
+}
+
+/**
+ *  Create database update
+ *  
+ *  @param string	$sql		Database SQL update query
+ *  @param string	$profile	Connection profile label in configuration
+ *  @param array	$params		Query parameters (required)
+ *  @return bool			Update status
+ */
+function db_update(
+	string	$sql,
+	string	$profile,
+	array	$params		= []
+) : bool {
+	return empty( db_result_exec( $sql, $profile, $params ) ) 
+		? false : true;
 }
 
 
@@ -9407,220 +9358,6 @@ function getDb( string $dsn, string $mode = 'get' ) {
 }
 
 /**
- *  Helper to get the result from a successful statement execution
- *  
- *  @param PDO		$db	Database connection
- *  @param array	$params	Parameters 
- *  @param string	$rtype	Return type
- *  @param PDOStatement	$stm	PDO prepared statement
- *  @return mixed
- */
-function getDataResult( \PDO $db, array $params, string $rtype, \PDOStatement $stm ) {
-	$ok	= empty( $params ) ? 
-			$stm->execute() : 
-			$stm->execute( $params );
-	
-	switch ( $rtype ) {
-		// Query with array return
-		case 'results':
-			return $ok ? $stm->fetchAll() : [];
-		
-		// Insert with ID return
-		case 'insert':
-			return $ok ? $db->lastInsertId() : 0;
-		
-		// Single column value
-		case 'column':
-			return $ok ? $stm->fetchColumn() : '';
-		
-		// Success status
-		default:
-			return $ok ? true : false;
-	}
-}
-
-/**
- *  Get or create cached PDO Statements
- *  
- *  @param PDO		$db	Database connection
- *  @param string	$sql	Query string or statement
- *  @return mixed
- */
-function statement( ?\PDO $db, ?string $sql ) {
-	static $stmcache = [];
-	if ( empty( $db ) && empty( $sql ) ) {
-		\array_map( 
-			function( $v ) { return null; }, 
-			$stmcache 
-		);
-		return null;
-	}
-	
-	if ( isset( $stmcache[$sql] ) ) {
-		return $stmcache[$sql];
-	}
-	
-	$stmcache[$sql] = $db->prepare( $sql );
-	return $stmcache[$sql];
-}
-
-/**
- *  Shared data execution routine
- *  
- *  @param string	$sql	Database SQL
- *  @param array	$params	Parameters 
- *  @param string	$rtype	Return type
- *  @param string	$dsn	Database string
- *  @return mixed
- */
-function dataExec(
-	string		$sql,
-	array		$params,
-	string		$rtype,
-	string		$dsn
-) {
-	$db	= getDb( $dsn );
-	$res	= null;
-	
-	try {
-		$stm	= statement( $db, $sql );
-		$res	= getDataResult( $db, $params, $rtype, $stm );
-		$stm->closeCursor();
-		
-	} catch( \PDOException $e ) {
-		$stm	= null;
-		shutdown( 'logError', $e->getMessage() ?? 'PDO Exception' );
-		return null;
-	}
-	
-	$stm	= null;
-	return $res;
-}
-
-/**
- *  Update or insert multiple database rows at once with single SQL
- *  
- *  @param string	$sql	Database SQL update query
- *  @param array	$params	Collection of query parameters
- *  @param string	$rtype	Return type
- *  @param string	$dsn	Database string
- *  @return array		Result status
- */
-function dataBatchExec (
-	string		$sql,
-	array		$params,
-	string		$rtype,
-	string		$dsn		= \DATA
-) : array {
-	$db	= getDb( $dsn );
-	$res	= [];
-	
-	try {
-		if ( !$db->beginTransaction() ) {
-			return false;
-		}
-		
-		$stm	= statement( $db, $sql );
-		foreach ( $params as $p ) {
-			$res[]	= getDataResult( $db, $p, $rtype, $stm );
-		}
-		$stm->closeCursor();
-		$db->commit();
-		
-	} catch( \PDOException $e ) {
-		shutdown( 'logError', $e->getMessage() ?? 'PDO Exception' );
-	}
-	
-	return $res;
-}
-
-/**
- *  Helper to turn a range of input values into an IN() parameter
- *  
- *  @example Parameters for [value1, value2] become "IN (:paramIn_0, :paramIn_1)"
- *  
- *  @param array	$values		Raw parameter values
- *  @param array	$params		PDO Named parameters sent back
- *  @param string	$prefix		SQL Prepended fragment prefix
- *  @param string	$prefix		SQL Appended fragment suffix
- *  @return string
- */
-function getInParam(
-	array		$values, 
-	array		&$params, 
-	string		$prefix		= 'IN (', 
-	string		$suffix		= ')'
-) : string {
-	$sql	= '';
-	$p	= '';
-	$i	= 0;
-	
-	foreach ( $values as $v ) {
-		$p		= ':paramIn_' . $i;
-		$sql		.= $p .',';
-		$params[$p]	= $v;
-		
-		$i++;
-	}
-	
-	// Remove last comma and close parenthesis
-	return $prefix . rtrim( $sql, ',' ) . $suffix;
-}
-
-/**
- *  Get parameter result from database
- *  
- *  @param string	$sql	Database SQL query
- *  @param array	$params	Query parameters
- *  @param string	$dsn	Database string
- *  @return array		Query results
- */
-function getResults(
-	string		$sql, 
-	array		$params		= [],
-	string		$dsn		= \DATA
-) : array {
-	$res = dataExec( $sql, $params, 'results', $dsn );
-	return 
-	empty( $res ) ? [] : ( \is_array( $res ) ? $res : [] );
-}
-
-/**
- *  Create database update
- *  
- *  @param string	$sql	Database SQL update query
- *  @param array	$params	Query parameters (required)
- *  @param string	$dsn	Database string
- *  @return bool		Update status
- */
-function setUpdate(
-	string		$sql,
-	array		$params,
-	string		$dsn		= \DATA
-) : bool {
-	$res = dataExec( $sql, $params, 'success', $dsn );
-	return empty( $res ) ? false : true;
-}
-
-/**
- *  Insert record into database and return last ID
- *  
- *  @param string	$sql	Database SQL insert
- *  @param array	$params	Insert parameters (required)
- *  @param string	$dsn	Database string
- *  @return int			Last insert ID
- */
-function setInsert(
-	string		$sql,
-	array		$params,
-	string		$dsn		= \DATA
-) : int {
-	$res = dataExec( $sql, $params, 'insert', $dsn );
-	return 
-	empty( $res ) ? 0 : ( \is_numeric( $res ) ? ( int ) $res : 0 );
-}
-
-/**
  *  Get a single item row by ID
  *  
  *  @return array
@@ -9672,11 +9409,11 @@ function getCache( string $uri ) : string {
 	hook( [ 'getcache', [ 'uri' => $uri, 'key' => $key ] ] );
 	
 	$find	= 
-	getResults( 
+	db_result_exec( 
 		"SELECT cache_id, content, expires 
 		FROM caches WHERE cache_id = :id LIMIT 1;", 
-		[ ':id' => $key ], 
-		\CACHE_DATA 
+		'bare',
+		[ ':id' => $key ]
 	);
 	
 	if ( empty( $find ) ) {
@@ -9715,14 +9452,14 @@ function saveCache( string $uri, string $content ) {
 		VALUES ( :id, :ttl, :content );";
 	
 	$ttl	= setting( 'cache_ttl', \CACHE_TTL, 'int' );
-	setInsert(
+	db_insert(
 		$sql, 
+		'bare',
 		[
 			':id'		=> $key, 
 			':ttl'		=> $ttl, 
 			':content'	=> $content 
-		], 
-		CACHE_DATA 
+		]
 	);
 }
 
@@ -12725,7 +12462,7 @@ function getPostFileDir( string $src = 'none' ) : string {
 	
 	switch( $src ) {
 		case 'file':
-			$pd[$src] = getHostDirectory( \FILE_PATH );
+			$pd[$src] = getHostDirectory( \FILE_DIR );
 			break;
 			
 		case 'plugin':
@@ -13532,14 +13269,14 @@ function refreshPost(
 	array		$tags, 
 	int		$mtime 
 ) {
-	$db		= getDb( \CACHE_DATA );
+	$db		= db_get( 'bare' );
 	// Post delete statement
 	$dstm		= 
-	statement( $db, 'DELETE FROM posts WHERE post_path = :path' );
+	db_stmt( $db, 'DELETE FROM posts WHERE post_path = :path' );
 	
 	// Post insertion statement
 	$pstm		= 
-	statement( $db, 
+	db_stmt( $db, 
 		"INSERT OR IGNORE INTO posts( 
 			post_path, post_view, post_bare, post_summary, 
 			post_type, updated, published 
@@ -13549,18 +13286,18 @@ function refreshPost(
 	
 	// Select post statement
 	$sstm		=
-	statement( $db, 'SELECT id FROM posts WHERE post_path = :perm LIMIT 1;' );
+	db_stmt( $db, 'SELECT id FROM posts WHERE post_path = :perm LIMIT 1;' );
 	
 	// Post tag association statement
 	$tstm		= 
-	statement( $db, 
+	db_stmt( $db, 
 		"INSERT OR IGNORE INTO post_tags( post_id, tag_slug ) 
 		VALUES ( :id, :tag );"
 	);
 	
 	// Tag insertion statement
 	$istm		= 
-	statement( $db, 
+	db_stmt( $db, 
 		"INSERT OR IGNORE INTO tags( slug, term ) 
 		VALUES ( :slug, :term );" 
 	);
@@ -13737,11 +13474,11 @@ function checkPub( $pub ) : bool {
  */
 function postModified( $path, $mtime ) : bool {
 	$res = 
-	getResults( 
+	db_result_exec( 
 		"SELECT updated FROM posts 
 			WHERE post_path = :path", 
-		[ ':path' => slashPath( $path ) ],
-		\CACHE_DATA
+		'bare',
+		[ ':path' => slashPath( $path ) ]
 	);
 	
 	if ( empty( $res ) ) {
@@ -13760,11 +13497,11 @@ function postModified( $path, $mtime ) : bool {
  */
 function postCached( $path ) : bool {
 	$res = 
-	getResults( 
+	db_result_exec( 
 		"SELECT id FROM posts WHERE post_path = :path
 			LIMIT 1;", 
-		[ ':path' => slashPath( $path ) ],
-		\CACHE_DATA
+		'bare',
+		[ ':path' => slashPath( $path ) ]
 	);
 	
 	return empty( $res ) ? false : true; 
@@ -14234,18 +13971,18 @@ function loadIndex(
 	$posts		= [];
 	
 	// Prepare cache insertion for tags
-	$db		= getDb( \CACHE_DATA );
+	$db		= db_get( 'bare' );
 	
 	// Tag insertion statement
 	$istm		= 
-	statement( $db, 
+	db_stmt( $db, 
 	"INSERT OR IGNORE INTO tags( slug, term ) 
 		VALUES ( :slug, :term );" 
 	);
 	
 	// Post insertion statement
 	$pstm		= 
-	statement( $db, 
+	db_stmt( $db, 
 		"INSERT OR IGNORE INTO posts( 
 			post_path, post_view, post_bare, post_summary, 
 			post_type, updated, published 
@@ -14255,13 +13992,13 @@ function loadIndex(
 	
 	// Select post statement
 	$sstm		=
-	statement( $db, 
+	db_stmt( $db, 
 		"SELECT id FROM posts WHERE post_path = :perm LIMIT 1;"
 	);
 	
 	// Post tag association statement
 	$tstm		= 
-	statement( $db, 
+	db_stmt( $db, 
 		"REPLACE INTO post_tags( post_id, tag_slug ) 
 		VALUES ( :id, :tag );"
 	);
@@ -15357,10 +15094,10 @@ function previewLink(
  */
 function getSiblings( string $path ) : string {
 	$res	= 
-	getResults( 
+	db_result_exec( 
 		"SELECT * FROM post_siblings WHERE post_path = :path", 
-		[ ':path' => slashPath( $path ) ], 
-		\CACHE_DATA 
+		'bare',
+		[ ':path' => slashPath( $path ) ]
 	);
 	
 	hook( [ 'getsiblings', [
@@ -15480,10 +15217,10 @@ function getCommonWords( array $lines, bool $as_array = true ) {
 function getRelated( string $path ) : string {
 	$path	= slashPath( $path );
 	$res	= 
-	getResults( 
+	db_result_exec( 
 		'SELECT post_bare FROM posts WHERE post_path = :path', 
-		[ ':path' => $path ],
-		\CACHE_DATA
+		'bare',
+		[ ':path' => $path ]
 	);
 	
 	if ( empty( $res ) ) {
@@ -15510,7 +15247,7 @@ function getRelated( string $path ) : string {
 	
 	// Search for related content excluding current post
 	$search	= 
-	getResults( 
+	db_result_exec( 
 		"SELECT DISTINCT post_path FROM (
 			SELECT 
 			posts.post_path AS post_path, 
@@ -15522,12 +15259,12 @@ function getRelated( string $path ) : string {
 			LIMIT :limit
 		) WHERE post_path NOT IN ( :path ) 
 			GROUP BY post_path;",
+		'bare',
 		[ 
 			':find'		=> $data, 
 			':limit'	=> $rlimit,
 			':path'		=> $path
-		],
-		\CACHE_DATA
+		]
 	);
 	
 	if ( empty( $search ) ) {
@@ -15844,7 +15581,7 @@ function showTag( string $event, array $hook, array $params ) {
 	
 	// Get cached tags
 	$res	= 
-	getResults( 
+	db_result_exec( 
 		"SELECT DISTINCT 
 			posts.post_path AS post_path, 
 			posts.post_view AS post_view, 
@@ -15854,12 +15591,12 @@ function showTag( string $event, array $hook, array $params ) {
 			WHERE post_tags.tag_slug = :tag 
 			ORDER BY posts.published DESC 
 			LIMIT :limit OFFSET :offset;", 
+		'bare',
 		[
 			':tag'		=> $tag, 
 			':limit'	=> $plimit, 
 			':offset'	=> $start
-		],
-		\CACHE_DATA
+		]
 	);
 	
 	// Send to render hook
@@ -15901,7 +15638,7 @@ function showSearch( string $event, array $hook, array $params ) {
 	$start	= ( $page - 1 ) * $plimit;
 	
 	$res	= 
-	getResults( 
+	db_result_exec( 
 		"SELECT DISTINCT post_view FROM (
 			SELECT 
 			posts.post_view AS post_view, 
@@ -15914,12 +15651,12 @@ function showSearch( string $event, array $hook, array $params ) {
 			ORDER BY rel DESC
 			LIMIT :limit OFFSET :offset
 		) GROUP BY post_view;", 
+		'bare',
 		[ 
 			':find'		=> $find,
 			':limit'	=> $plimit,
 			':offset'	=> $start
-		], 
-		\CACHE_DATA 
+		]
 	);
 	
 	// Send to render hook
