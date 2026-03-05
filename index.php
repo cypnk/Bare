@@ -6167,6 +6167,332 @@ function template( string $label, array $reg = [] ) : string {
 
 
 /**
+ * Routing and paths
+ */
+
+/**
+ *  Main route attribute
+ */
+#[Attribute( Attribute::TARGET_FUNCTION | Attribute::IS_REPEATABLE )]
+class Route {
+	
+	/**
+	 *  Route consturctor
+	 *  
+	 *  @param string	$pattern	Match regex pattern
+	 *  @param string	$method		Normalized request method
+	 *  @param string	$name		Optional main handler
+	 *  @param array	$middleware	Added handlers before main handler
+	 *  @param bool		$auth		Requrires authentication (for plugin use)
+	 */
+	public function __construct(
+		public readonly string	$pattern,
+		public readonly string	$method		= 'get',
+		public readonly array	$roles		= [],
+		public readonly ?string	$name		= null,
+		public readonly array	$middleware	= [],
+		public readonly bool	$auth		= false
+	) {}
+}
+
+/**
+ *  Get matching type placeholder replacements
+ *  
+ *  @param array	$new_patterns	Optional newly registered patterns
+ *  @return array
+ */
+function route_patterns( ?array $new_patterns = null ) : array {
+	static $type_patterns	= [
+		'path'		=> '.+',
+		'int'		=> '\d+',
+		'str'		=> '[^/]+',
+		'uuid'		=> '[0-9a-fA-F\-]{36}',
+		'slug'		=> '[a-z0-9\-]{1,100}',
+		'hex'		=> '[0-9a-fA-F]{1,200}',
+		'alpha'		=> '[a-zA-Z]+',
+		'bool'		=> 'true|false|1|0',
+		'email'		=> '[^@]+@[^@]+\.[^/]+',
+		'ip'		=> '\d{1,3}(\.\d{1,3}){3}',
+		'id'		=> '[1-9][0-9]{1,24}',
+		'alnum'		=> '[a-zA-Z0-9]+',
+		'file'		=> '[^/]+\.[a-zA-Z0-9]+',
+		'lang'		=> '[a-z]{2,3}(-[A-Z]{2,8})?'
+	];
+	
+	if ( !empty( $new_patterns ) ) {
+		foreach ( $new_patterns as $name => $pattern ) {
+			$esc	= \str_replace( '~', '\~', $pattern );
+			$test	= @\preg_match( "~^{$esc}~", '' );
+			if ( false === $test ) {
+				throw new 
+				\InvalidArgumentException( 
+					"Invalid regex pattern for type '{$name}'" 
+				);
+			}
+		}
+		
+		$type_patterns = \array_merge( $type_patterns, $new_patterns );
+	}
+	
+	return $type_patterns;
+}
+
+/**
+ *  Placeholder debris filter
+ *  
+ *  @param string	$url	Base matched path
+ *  @return string
+ */
+function route_cleanup( string $url ) : string {
+	// Remove leftover punctuation from optional placeholders
+	$url	= \preg_replace( '#[-_.]+/#', '/', $url );	// Trailing before slash
+	$url	= \preg_replace( '#/[-_.]+#', '/', $url );	// Leading after slash
+	$url	= \preg_replace( '#[-_.]{2,}#', '-', $url );	// Collapse repeated
+	
+	// Normalize slashes
+	$url	= \preg_replace( '#//+#', '/', $url );
+	
+	// Remove trailing slash unless root
+	$url	= \rtrim( $url, '/' );
+	if ( '' === $url ) { $url = '/'; }
+	
+	return $url;
+}
+
+/**
+ *  Build raw pattern into placeholder infused and parsed route
+ *  
+ *  @param string	$pattern	Raw pattern from configuration
+ *  @return string
+ */
+function route_compile( string $pattern ) : string {
+	$pattern = \rtrim( $pattern, '/' );
+	if ( '' === $pattern ) {
+		$pattern = '/';
+	}
+	
+	$place		= [];
+	$pattern	= 
+	\preg_replace_callback( 
+		'/\{(\w+)(?::(\w+))?\}(\?)?/', 
+		function ( $m ) use ( &$place ) {
+			$key		= "__ROUTE_" . count( $place ) . "__";
+			$place[$key]	= $m;
+			
+			return $key;
+		},
+		$pattern
+	);
+	
+	$pattern	= \preg_quote( $pattern, '#' );
+	$pats		= route_patterns();
+	foreach ( $place as $key => $m ) {
+		
+		[ $match, $name, $type, $opt ] = 
+			$m + [ null, null, null, null ];
+		
+		$type		??= 'str';
+		$opt		= ( '?' === $opt );
+		
+		$regex		= $pats[$type] ?? '[^/]+';
+		$node		= "(?P<{$name}>{$regex})";
+		
+		$qkey		= \preg_quote( $key, '#' );
+		$replace	= 
+		\preg_match( '#/' . $qkey . '#', $pattern )  
+			? ( $opt ? "(?:/{$node})?" : "/{$node}" )
+			: ( $opt ? "(?:{$node})?" : "{$node}" );
+		
+		$pattern	= \str_replace( $key, $replace, $pattern );
+	}
+	
+	return $pattern;
+}
+
+/**
+ *  Basic pattern type converter
+ *  
+ *  @param string	$pattern	Raw pattern segment
+ *  @param array	$params		Passed down URL parameters to extend
+ *  @return array
+ */
+function route_cast_param( string $pattern, array $params ) : array {
+	\preg_match_all( 
+		'/\{(\w+)(?::(\w+))?\}\??/', 
+		$pattern, 
+		$matches, 
+		\PREG_SET_ORDER 
+	);
+	
+	foreach ( $matches as $m ) {
+		[ $match, $name, $type ]	= $m + [ null, null, null ];
+		$type				??= 'str';
+		
+		if ( !\array_key_exists( $name, $params ) ) { continue; }
+		
+		$value				= $params[$name];
+		$params[$name]			= 
+		match( $type ) {
+			'int'		=> ( int ) $value,
+			'bool'		=> 
+			\filter_var(
+				$value, 
+				\FILTER_VALIDATE_BOOL, 
+				\FILTER_NULL_ON_FAILURE
+			) ?? false,
+			
+			default		=> $value
+		};
+	}
+	
+	return $params;
+}
+
+/**
+ *  Get the list of patterns from given route data
+ *  
+ *  @param array	$routes		Raw routes from configuration
+ *  @return array
+ */
+function route_lookup( array $routes ) : array {
+	$lookup	= [];
+	foreach ( $routes as $route ) {
+		if ( $route['name'] ) {
+			$lookup[$route['name']] = $route;
+		}
+	}
+	
+	return $lookup;
+}
+
+/**
+ *  Auto-resolve any routes in the current scope, run after loading plugins
+ *  
+ *  @return array
+ *  
+ *  @details More details
+ */
+function route_resolve() : array {
+	$functions	= util_functions_list();
+	$routes		= [];
+	foreach ( $functions as $handler ) {
+		$ref		= new \ReflectionFunction( $handler );
+		$attrs		= $ref->getAttributes( Route::class );
+		
+		if ( !$attrs ) { continue; }
+		foreach( $attrs as $attr ) {
+			$route		= $attr->newInstance();
+			$routes[]	= [
+				'pattern'	=> $route->pattern,
+				'method'	=> \strtolower( $route->method ),
+				'roles'		=> $route->roles,
+				'handler'	=> $handler,
+				'name'		=> $route->name ?? $handler,
+				'auth'		=> false,
+				'middleware'	=> []
+			];
+		}
+	}
+	
+	return $routes;
+}
+
+/**
+ *  Reverse lookup the pattern from given route name while caching routes
+ *  
+ *  @param string	$name		Filtered route name lookup
+ *  @param array	$routes		Optional new list of routes
+ *  @return string
+ */
+function route_url( string $name, array $params = [], ?array $routes = null ) : string {
+	static $lookup;
+	
+	if ( null !== $routes || null === $lookup ) {
+		$lookup = route_lookup( $routes ?? route_resolve() );
+	}
+	
+	if ( !isset( $lookup[$name] ) ) {
+		throw new 
+		\RuntimeException( "Unknown route name: {$name}" );
+	}
+	
+	$pattern = $lookup[$name]['pattern'];
+	
+	// Extract placeholders
+	\preg_match_all( 
+		'/\{(\w+)(?::(\w+))?\}(\?)?/', 
+		$pattern, 
+		$matches, 
+		\PREG_SET_ORDER
+	);
+	
+	foreach ( $matches as $m ) {
+		[ $full, $key, $type, $opt ] = 
+			$m + [ null, null, null, null ];
+		
+		$opt	= ( '?' === $opt );
+		
+		if ( \array_key_exists( $key, $params ) ) {
+			// Replace placeholder with value
+			$value		= $params[$key];
+			$pattern	= \str_replace( $full, $value, $pattern );
+		} else {
+			if ( $opt ) {
+				// Remove optional placeholder
+				$pattern = \str_replace( $full, '', $pattern );
+			} else {
+				throw new 
+				\RuntimeException( 
+					"Missing required parameter: {$key}" 
+				);
+			}
+		}
+	}
+	
+	return route_cleanup( $pattern );
+}
+
+/**
+ *  Execute route
+ *  
+ *  @param array	$routes		Raw routes from configuration
+ *  @param string	$uri		Current request URI
+ *  @param string	$method		Current request method
+ *  @return mixed
+ */
+function route( array $routes, string $uri, string $method ) : mixed {
+	$path	= \parse_url( $uri, \PHP_URL_PATH );
+	$path	= \rtrim( $path, '/' );
+	
+	if ( empty( $path ) ) { $path = '/'; }
+	
+	foreach ( $routes as $route ) {
+		if ( 0 !== \strcasecmp( $route['method'], $method ) ) { continue; }
+		
+		$handler	= $route['handler'];
+		$pattern	= \rtrim( $route['pattern'], '/' );
+		
+		$regex		= route_compile( $pattern );
+		if ( !\preg_match( $regex, $path, $m ) ) { continue; }
+		
+		$params		= 
+		\array_filter(
+			$m, 
+			fn( $key ) => !\is_int( $key ), 
+			\ARRAY_FILTER_USE_KEY
+		);
+		
+		$ref	= new ReflectionFunction( $handler );
+		return ( $ref->getNumberOfParameters() === 0 ) 
+			? $handler()
+			: $handler( route_cast_param( $pattern, $params ) );
+	}
+	
+	return null;
+}
+
+
+/**
  *  Plugins and modules
  */
 
