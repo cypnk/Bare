@@ -1549,8 +1549,18 @@ function util_json_encode( array $data = [] ) : string {
 
 /**
  *  Safely decode JSON to array
+ *  
+ *  @param string|array		$data	Content to encode
+ *  @param int			$depth	Optional maximum encode depth
+ *  @return array
  */
-function util_json_decode( string $data	= '', int $depth = 10 ) : array {
+function util_json_decode( array|string $data, int $depth = 10 ) : array {
+	if ( empty( $data ) ) { return []; }
+	
+	if ( \is_array( $data ) ) { return $data; }
+	
+	// Since PHP 8.3+
+	if ( !\json_validate( $json ) ) { return []; }
 	if ( empty( $data ) ) { return []; }
 	
 	// Since PHP 8.3+
@@ -1601,7 +1611,7 @@ function util_json_array(
  *  Generate a random string ID based on given random bytes
  *  
  *  @param int		$bytes		Size of random bytes
- *  @param string	$prefix Random ID prefix
+ *  @param string	$prefix 	Random ID prefix
  *  @return string
  */
 function util_gen_key( int $len = 16, ?string $prefix = null ) : string {
@@ -1867,12 +1877,12 @@ function util_array_to_query( array $query ) : string {
  *  @return array
  */
 function util_unique_terms( string $value ) : array {
-	return 
-	\array_unique( 
+	return \array_unique( 
 		\preg_split( 
-			'/[[:space:]]+/', trim( $value ), -1, 
-			\PREG_SPLIT_NO_EMPTY 
-		) 
+			pattern	: '/[[:space:]]+/', 
+			subject	: trim( $value ), 
+			flags	: \PREG_SPLIT_NO_EMPTY 
+		)
 	);
 }
 
@@ -2473,10 +2483,21 @@ function sanitize_slug( string $text, string $prefix = 'node-' ) : string {
 }
 
 /**
+ *  Filter XML string
+ *  
+ *  @param string	$text		Raw block
+ *  @return string
+ */
+function sanitize_xml( string $text ) : string {
+	$text	= sanitize_filter( $text );
+	return \htmlspecialchars( $text, ENT_XML1 | ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8' );
+}
+
+/**
  *  Sanitize DOMNode
  *  
- *  @param DOMNode $node Element to filter 
- *  @param DOMNode $parent Parent element
+ *  @param DOMNode	$node	Element to filter 
+ *  @param DOMNode	$parent	Parent element
  *  @return DOMNode
  */
 function sanitize_escape_node( $node, $parent ) : DOMNode {
@@ -2670,11 +2691,14 @@ function sanitize_attribute(
 }
 
 function sanitize_html( $html, $tag_map ) {
+	static $ierr;
+	
+	$ierr	??= \libxml_use_internal_errors( true );
 	$doc	= new \DOMDocument();
-	\libxml_use_internal_errors( true );
 	
 	$doc->loadHTML(
-		$html,
+		'<meta http-equiv="Content-Type" content="text/html; charset=utf-8">'.
+			$html,
 		\LIBXML_HTML_NOIMPLIED	|
 		\LIBXML_HTML_NODEFDTD	|
 		\LIBXML_NOERROR		|
@@ -2783,7 +2807,7 @@ function sanitize_cast_to_int( mixed $value ) : int {
  */
 function storage_options( ?array $new_options = null ) : array {
 	static $options	= [
-		'write_depth'	=> 6,
+		'write_depth'	=> 10,
 		'tmp_ext'	=> '.tmp',
 		'bkp_ext'	=> '.bkp',
 		'lock_type'	=> 'file',
@@ -2831,6 +2855,39 @@ function storage_filesize( string $fpath ) : int {
  */
 function storage_filemtime( string $fpath ) : int {
 	return ( int )( @\filemtime( $fpath ) ?: 0 );
+}
+
+/**
+ *  File mime-type detection helper
+ *  
+ *  @param string	$fpath	Fixed file path
+ *  @return string
+ */
+function storage_filemime( string $fpath ) : string {
+	static $text_types = [
+		'txt'	=> 'text/plain',
+		'css'	=> 'text/css',
+		'js'	=> 'text/javascript',
+		'svg'	=> 'image/svg+xml',
+		'vtt'	=> 'text/vtt',
+		'json'	=> 'application/json',
+		'xml'	=> 'application/xml',
+		'html'	=> 'text/html',
+		'csv'	=> 'text/csv',
+		'md'	=> 'text/markdown'
+	];
+	static $finfo;
+	
+	$ext	= \strtolower( \pathinfo( $fpath, \PATHINFO_EXTENSION ) );
+	
+	// Simpler text types
+	if ( isset( $text_types[$ext] ) ) {
+		return $text_types[$ext];
+	}
+	
+	$finfo	??= new \finfo( \FILEINFO_MIME_TYPE );
+	$mime	= $finfo->file( $path );
+	return $mime ?: 'application/octet-stream';
 }
 
 /**
@@ -3072,7 +3129,7 @@ function storage_lock_file( string $lock_file, string $mode ) : false|resource {
 function storage_find_writable(
 	string		$start, 
 	string|array	$target, 
-	int		$max_depth	= 6 
+	int		$max_depth	= 10 
 ) : ?string {
 	if ( empty( $target ) ) { return null; }
 	
@@ -3118,7 +3175,7 @@ function storage_find_writable(
 function storage_base() : string {
 	$options	= storage_options();
 	$dirs		= 
-	$options['writable'] ?? [ 'data', 'storage', 'uploads', 'media' ];
+	$options['writable'] ?? [ 'cache', 'data', 'storage', 'uploads', 'media' ];
 	
 	if ( isset( $options['storage_dir'] ) ) {
 		return $options['storage_dir'];
@@ -3160,7 +3217,7 @@ function storage_base() : string {
  *  @return string		Backup file path
  */
 function storage_backup_path( string $name ) : string {
-	$ext	= storage_options()['bkp_ext'];
+	$ext	= storage_options()['bkp_ext'] ?? '.bkp';
 	$base	= \basename( $name );
 	do {
 		$bkp = storage_base() 
@@ -3184,7 +3241,7 @@ function storage_temp_cleanup( string $path ) : void {
 	$options	= storage_options();
 	$stale		= $options['temp_stale'];
 	$cleanup[$path]	= true;
-	$pattern	= $path . '.*' . $options['tmp_ext'];
+	$pattern	= $path . '.*' . $options['tmp_ext'] ?? '.tmp';
 	
 	\register_shutdown_function( function() use( $pattern, $stale ) {
 		try {
@@ -3359,15 +3416,16 @@ function log_check_level( string $level ) : ?string {
 /**
  *  Full log file storage location
  *  
+ *  @param string	$fname		Fallback log file name
  *  @return string
  */
-function log_file() : string {
+function log_file( string $fname = 'messages.log' ) : string {
 	static $file;
 	if ( !isset( $file ) ) {
 		$file	= storage_base() . 
 		defined( 'LOG_FILE' ) 
-			? LOG_FILE : 
-			'messages.log';
+			? LOG_FILE 
+			: $fname;
 	}
 	return $file;
 }
@@ -3389,6 +3447,7 @@ function log_file_valid( string $path ) : bool {
  *  Remove stale log files rotated into archives
  *  
  *  @param string	$log_file	Base log file, rotated
+ *  @param int		$log_exp	Default expiration
  */
 function log_cleanup( string $log_file ) : void {
 	static $ret;
@@ -3421,7 +3480,8 @@ function log_cleanup( string $log_file ) : void {
 /**
  *  Rotate given log file
  *  
- *  @param string $log_file Target log file location on disk
+ *  @param string	$log_file	Target log file location on disk
+ *  @param int		$log_max	Fallback maximum log size
  */
 function log_rotate( string $log_file ) : void {
 	static $max_size;
@@ -3914,7 +3974,7 @@ function request_ip( bool $skip = false ) : string {
 	if ( $skip && isset( $ip_unf ) ) { return $ip_unf; }
 	if ( !$skip && isset( $ip ) ) { return $ip; }
 	
-	$info		= request_client_ip();
+	$info		= request_canonical_ip();
 	$candidate	= $info['ip'] ?? '';
 	
 	$ip_unf		= \filter_var( $candidate, \FILTER_VALIDATE_IP ) ?: '';
@@ -4206,8 +4266,9 @@ function request_range_header( int $fsize ) : array {
  *  Helper to generate header with protocol and message
  *  
  *  @param int		$code		HTTP Status code
+ *  @param array	$allow		Optional allow header values
  */
-function response_status( int $code ) : void {
+function response_status( int $code, ?array $allow = null ) : void {
 	static $green	= [
 		200, 201, 202, 204, 205, 206, 
 		300, 301, 302, 303, 304,
@@ -4230,7 +4291,12 @@ function response_status( int $code ) : void {
 	if ( \in_array( $code, $green, true ) ) {
 		\http_response_code( $code );
 		if ( $code == 405 ) {
-			\header( 'Allow: OPTIONS, GET, HEAD, POST' );
+			$allow	??= [ 'OPTIONS', 'GET', 'HEAD', 'POST' ];
+			$vals	= 
+			\implode( ', ', \array_unique( 
+				\array_map( 'strtoupper', $allow ) 
+			) );
+			\header( "Allow: {$vals}" );
 		}
 		return;
 	
@@ -4240,7 +4306,7 @@ function response_status( int $code ) : void {
 	if ( isset( $custom[$code] ) ) {
 		$prot	= request_protocol();
 		$msg	= $custom[$code];
-		\header( "$prot $code $msg" );
+		\header( "$prot $code $msg", true, $code );
 		return;
 	}
 	
@@ -4376,7 +4442,7 @@ function response_check_not_modified(
 		);
 		
 		if ( \in_array( $clean, $tags, true ) ) {
-			response_status(304);
+			response_status( 304 );
 			return true;
 		}
 		if ( 1 === count( $tags ) && '*' === $tags[0] ) {
@@ -4515,14 +4581,14 @@ function response_file_metadata( string $path ) : array {
 	
 	if ( !\is_file( $fpath ) ) {
 		throw new 
-		\RuntimeException( "File to be cached not found");
+		\RuntimeException( "File to be cached not found" );
 	}
 	
 	$fsize	= storage_filesize( $fpath );
 	$mtime	= storage_filemtime( $fpath );
-	$mime	= @\mime_content_type( $fpath ) ?: 'application/octet-stream';
+	$mime	= storage_filemime( $fpath );
 	
-	$etag	= response_generate_etag( $etag, $mtime );
+	$etag	= response_generate_etag( $fsize, $mtime );
 	$lmod	= \gmdate( 'D, d M Y H:i:s', $mtime ) . ' GMT';
 	
 	$meta	= [
@@ -8390,7 +8456,8 @@ function visitorError( int $code = 0, string $msg = '-' ) {
 function visitorAbort() {
 	cleanOutput( true );
 	if ( !\headers_sent() ) {
-		httpCode( 205 );
+		response_status( 205 );
+		die();
 	}
 	visitorError( 499, 'Client disconnect' );
 	die();
@@ -11770,43 +11837,6 @@ function protocolHeader( int $code, string $msg ) {
 }
 
 /**
- *  Create HTTP status code message
- *  
- *  @param int		$code		HTTP Status code
- */
-function httpCode( int $code ) {
-	$green	= [
-		200, 201, 202, 204, 205, 206, 
-		300, 301, 302, 303, 304,
-		400, 401, 403, 404, 405, 406, 407, 409, 410, 411, 412, 
-		413, 414, 415,
-		500, 501
-	];
-	
-	if ( \in_array( $code, $green ) ) {
-		\http_response_code( $code );
-		
-		// Some codes need additional headers
-		if ( $code == 405 ) {
-			sendAllowHeader();
-		}
-		return;
-	}
-	
-	// Special cases
-	match( $code ) {
-		416	=> protocolHeader( 416, 'Range Not Satisfiable' ),
-		422	=> protocolHeader( 422, 'Unprocessable Entity' ),
-		425	=> protocolHeader( 425, 'Too Early' ),
-		429	=> protocolHeader( 429, 'Too Many Requests' ),
-		431	=> protocolHeader( 431, 'Request Header Fields Too Large' ),
-		503	=> protocolHeader( 503, 'Service Unavailable' ),
-		default	=> logError( 'Unknown status code "' . $code . '"' )
-	};
-	die();
-}
-
-/**
  *  Format available sites with default parameters
  *  
  *  @param array	$sites		Available sites
@@ -12072,7 +12102,7 @@ function send(
 	bool		$feed		= false
 ) {
 	scrubOutput();
-	httpCode( $code );
+	response_status( $code );
 	
 	if ( $feed ) {
 		\header(
@@ -12375,57 +12405,6 @@ function genEtag( $path ) {
 }
 
 /**
- *  File mime-type detection helper
- *  
- *  @param string	$path	Fixed file path
- *  @return string
- */
-function detectMime( string $path ) : string {
-	$ext = \pathinfo( $path, \PATHINFO_EXTENSION ) ?? '';
-		
-	// Simpler text types
-	switch( \strtolower( $ext ) ) {
-		case 'txt':
-			return 'text/plain';
-			
-		case 'css':
-			return 'text/css';
-			
-		case 'js':
-			return 'text/javascript';
-			
-		case 'svg':
-			return 'image/svg+xml';
-			
-		case 'vtt':
-			return 'text/vtt';
-	}
-	
-	// Intercept potential mime warning as error
-	\set_error_handler( function( 
-		$eno, $emsg, $efile, $eline 
-	) use ( $path ) {
-		$str	= 
-		'Unable to detect mime of ' . $path . ' ' .  
-		'Message: {msg} File: {file} Line: {line}';
-			
-		logException( 
-			new \ErrorException( 
-				$emsg, 0, $eno, $efile, $eline 
-			), $str 
-		);
-	}, E_WARNING );
-	
-	// Detect other mime types
-	$mime = \mime_content_type( $path );
-	
-	\restore_error_handler();
-	
-	return ( false === $mime ) ? 
-		'application/octet-stream' : $mime;
-}
-
-/**
  *  Create a digest hash of a file
  *  
  *  @param string	$path	File path
@@ -12474,14 +12453,15 @@ function sendFilePrep(
 	bool		$verify		= true 
 ) {
 	scrubOutput();
-	httpCode( $code );
+	response_code( $code );
+	if ( $code >= 205 ) { exit(); }
 	
 	// Setup content security
 	preamble( '', false, false );
 	
 	// Set content type if mime is found
 	if ( $verify && $code != 206 ) {
-		$mime	= detectMime( $path );
+		$mime	= storage_filemime( $path );
 		\header( "Content-Type: {$mime}", true );
 	}
 	\header( "Content-Security-Policy: default-src 'self'", true );	
@@ -12902,13 +12882,13 @@ function handleHead( string $path, array $routes ) {
 	if ( empty( $match ) ) {
 		// No route? Try a file, but don't send it
 		if ( fileRequest( 'get', $path, false ) ) {
-			httpCode( 200 );
+			response_status( 200 );
 		} else {
-			httpCode( 404 );
+			response_status( 404 );
 		}
 	} else {
 		// Route exists
-		httpCode( 200 );
+		response_status( 200 );
 	}
 	
 	// Done
@@ -12920,7 +12900,7 @@ function handleHead( string $path, array $routes ) {
  */
 function handleOptions() {
 	// Send No Content
-	httpCode( 204 );
+	response_status( 204 );
 	
 	// Send allowed headers and cache respose
 	sendAllowHeader();
@@ -13272,112 +13252,6 @@ function routeMatch(
 }
 
 /**
- *  Send file with ETag data
- *  
- *  @param string	$path	File path after confirming it exists
- */
-function sendWithEtag( $path ) : bool {
-	$tags	= genEtag( $path );
-	
-	// Couldn't generate ETag?
-	// Either filesize() or filemtime() failed
-	if ( empty( $tags['etag'] ) ) {
-		return false;
-	}
-	
-	// Create return code based on returned ETag
-	$code	= request_modified( $tags['etag'] )? 200 : 304;
-	
-	// Send on success
-	return sendFile( $path, false, true, $code );
-}
-
-/**
- *  Handle ranged file request
- *  
- *  @param string	$path		Absolute file path
- *  @param bool		$dosend		Send file ranges if true
- *  @return bool
- */
-function sendFileRange( string $path, bool $dosend ) : bool {
-	$fsize	= \filesize( $path );
-	$frange	= request_range_header( $fsize );
-	if ( empty( $frange ) ) {
-		sendRangeError();
-	}
-	
-	$fend	= $fsize - 1;
-	$totals	= 0;
-	
-	// Check if any ranges are outside file limits
-	foreach ( $frange as [ $start, $end ] ) {
-		if ( $start > $end || $end > $fend ) {
-			sendRangeError();
-		}
-		
-		$totals += ( $end - $start ) + 1;
-	}
-	
-	if ( !$dosend ) { return true; }
-	
-	openStream( $stream, $path, 'rb' );
-	if ( false === $stream ) {
-		shutdown( 'logError', 'Error opening ' . $path );
-		sendError( 500, errorLang( "generic", \MSG_GENERIC ) );
-	}
-	
-	openStream( $out, 'php://output', 'w' );
-	if ( false === $out ) {
-		closeStream( $stream );
-		shutdown( 'logError', 'Error outputting ' . $path );
-		sendError( 500, errorLang( "generic", \MSG_GENERIC ) );
-	}
-	
-	// Default chunk size
-	$chunk	= setting( 'stream_chunk_size', \STREAM_CHUNK_SIZE, 'int' );
-	$chunk	= util_int_range( $chunk, 2, 32768 );
-	
-	\stream_set_chunk_size( $stream, $chunk );
-	
-	// Prepare partial content
-	sendFilePrep( $path, 206, false );
-	\header( "Accept-Ranges: bytes", true );
-	
-	$mime	= detectMime( $path );
-	
-	// Generate boundary
-	$bound	= \base64_encode( \hash( 'sha1', $path . $fsize, true ) );
-	\header(
-		"Content-Type: multipart/byteranges; boundary={$bound}",
-		true
-	);
-	
-	\header( "Content-Length: {$totals}", true );
-	
-	// Send any headers and end buffering
-	flushOutput( true );
-	
-	// Start fresh buffer
-	\ob_start();
-	
-	$limit = 0;
-	
-	foreach ( $frange as [ $start, $end ] ) {
-		echo "\n--{$bound}";
-		echo "Content-Type: {$mime}";
-		echo "Content-Range: bytes {$start}-{$end}/{$fsize}\n";
-		
-		$limit = $end + 1;
-		streamChunks( $stream, $out, $start, $limit, 'flushOutput', 'visitorAbort' );
-	}
-	
-	closeStream( $stream );
-	closeStream( $out );
-	flushOutput( true );
-	return true;
-}
-
-/**
  *  Check path for file request
  *  
  *  @param string	$verb	Request method should be get
@@ -13417,10 +13291,10 @@ function fileRequest(
 		if ( $ranged && empty( $frange ) ) {
 			sendRangeError();
 		}
-		
-		return empty( $frange ) ?
-			( $dosend ? sendWithEtag( $fpath ) : true ) : 
-			sendFileRange( $fpath, $dosend );
+
+		$etag	= request_none_match();
+		$mtime	= storage_filemtime( $fpath );
+		response_file( $fpath, false, $etag, $mtime );
 	}
 	
 	return false;
