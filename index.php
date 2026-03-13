@@ -8000,6 +8000,205 @@ function sess_init() {
 
 
 /**
+ *  Form validation
+ */
+
+/**
+ *  Generate unique form ID from name
+ *  
+ *  @param string	$form_name	Form label
+ *  @param bool		$use_id		Use session ID, if true
+ *  @return string
+ */
+function form_session_key( string $form_name, bool $use_id = false ) : string {
+	static $keys	= [];
+	sess_init();
+	
+	if ( isset( $keys[$form_name] ) ) {
+		return $keys[$form_name];
+	}
+	
+	$phrase		= 
+	$use_id 
+		? $form_name . \session_id()
+		: $form_name;
+	
+	$keys[$form_name]	= \hash( 'sha1', $phrase );
+	return $keys[$form_name];
+}
+
+/**
+ *  Get anti-CSRF token pair from form submission
+ *  
+ *  @param string	$method		Request method
+ *  @return array
+ */
+function form_get_token( string $method = 'post' ) : array {
+	$filter	= [
+		'nonce'		=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
+		'token'		=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS
+	];
+	
+	$input	= 'get' === \strtolower( $method ) ? \INPUT_GET : \INPUT_POST;
+	return \filter_input_array( $input, $filter, true ) ?? [];
+}
+
+/**
+ *  Generate anti-CSRF token/nonce pair with tokenized options
+ *  
+ *  @param string	$form_name	Form label
+ *  @param string	$method		Request method
+ *  @param array	$options	Optional default options
+ *  @return array
+ */
+function form_set_token( 
+	string	$form_name,
+	string	$method, 
+	?array	$options	= null 
+) : array {
+	// Defaults
+	$options		??= [
+		'allow_upload'	=> false,	// Allow file uploads ( plugins )
+		'allow_patch'	=> false,	// Enable PATCH method ( plugins )
+		'issued'	=> time(),	// Form generated
+		'once'		=> false,	// Only allow one validation
+		'use_id'	=> true,	// Use session id
+		
+		// Expiration
+		'ttl'		=> 
+		config( $form_name . '_ttl', config( 'form_ttl', 3600 ) ),
+		
+		// Session stored value
+		'secret'	=> \bin2hex( \random_bytes( 32 ) )
+	];
+	
+	$options['secret']	??= \bin2hex( \random_bytes( 32 ) );
+	
+	$use_id	= ( bool ) ( $options['use_id'] ?? false );
+	$key	= form_session_key( $form_name, $use_id );
+	$old	= $_SESSION["form_{$key}"] ?? []; // Old form options, if any
+	
+	// Reset options
+	$data	= \array_merge( \is_array( $old ) ? $old : [], $options );
+	
+	$nonce	= \bin2hex( \random_bytes( 16 ) );	// Public value
+	$token	= \hash_hmac( 'sha256', $nonce, $data['secret'] . $method );
+	
+	$_SESSION["form_{$key}"] = $data;
+	
+	return [ 
+		'time'	=> time(),
+		'token'	=> $token, 
+		'nonce'	=> $nonce 
+	];
+}
+
+/**
+ *  Validate token/nonce pair with form options
+ *  
+ *  @param string	$form_name	Form label
+ *  @param string	$method		Request method
+ *  @param string	$nonce		Sent nonce
+ *  @param string	$token		Sent token
+ *  @param int		$issued		Form issue timestamp
+ *  @param int		$ttl		Time to live
+ *  @param bool		$once		Only validate once if true
+ *  @return string
+ */
+function form_token_validate( 
+	string	$form_name, 
+	string	$method,
+	string	$nonce, 
+	string	$token, 
+	?int	$issued	= null, 
+	?int	$ttl	= null, 
+	?bool	$once	= null
+) : string {
+	$issued		??= time();	// Now
+	$ttl		??= 86400;	// 1 Day max
+	$once		??= false;	// Allow repeat
+	
+	$key		= form_session_key( $form_name );
+	
+	// Find key or empty pad
+	$secret		= $_SESSION["form_{$key}"] ?? \str_repeat( '0', 64 );
+	$missing	= !\array_key_exists( "form_{$key}", $_SESSION );
+	
+	$expected	= \hash_hmac( 'sha256', $nonce, $secret . $method );
+	$valid		= \hash_equals( $expected, $token );
+	
+	if ( $valid && $once ) {
+		unset( $_SESSION["form_{$key}"] );
+	}
+	
+	return match( true ) {
+		$missing			=> 'missing',
+		( time() - $issued ) > $ttl	=> 'expired',
+		$valid				=> 'ok',
+		default				=> 'failed'
+	};
+
+}
+
+/**
+ *  Form validation wrapper
+ *  
+ *  @param string	$form_name	Form label
+ *  @param string	$method		Request method
+ *  @param string	$nonce		Sent nonce
+ *  @param string	$token		Sent token
+ *  @return array
+ */
+function form_validate(
+	string	$form_name,
+	string	$method,
+	string	$nonce,
+	string	$token,
+	array	$required	= []
+) : array {
+	
+	$key	= form_session_key( $form_name );
+	$meta	= $_SESSION["form_{$key}"] ?? [];
+	
+	$status	= 
+	form_token_validate( 
+		$form_name, 
+		$method, 
+		$nonce, 
+		$token,
+		$meta['issued'] ?? null,
+		$meta['ttl']	?? null,
+		$meta['once']	?? null
+	);
+	
+	if ( $status !== 'ok' ) {
+		return [
+			'valid'		=> false,
+			'status'	=> $status,
+			'message'	=> "Token validation failed: {$status}"
+		];
+	}
+	
+	foreach ( $required as $capability ) {
+		if ( empty( $meta[$capability] ) ) {
+			return [
+				'valid'		=> false,
+				'status'	=> 'unauthorized',
+				'message'	=> "Form does not allow: {$capability}"
+			];
+		}
+	}
+	
+	return [
+		'valid'		=> true,
+		'status'	=> 'ok',
+		'message'	=> 'Form is valid',
+		'meta'		=> $meta
+	];
+}
+
+
+/**
  *  Collection of functions to execute after content sent
  */
 function shutdown() {
@@ -8032,11 +8231,6 @@ function shutdown() {
 		$registered[$args[0]] = $args[1] ?? null;
 	}
 }
-
-
-/**
- *  Standard request parameter helpers
- */
 
 
 
