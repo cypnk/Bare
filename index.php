@@ -48,7 +48,7 @@ define( 'PATH',		\realpath( \dirname( __FILE__ ) ) . '/' );
 // define( 'PATH',	\realpath( \dirname( __FILE__, 2 ) ) . '/htdocs/' );
 
 // Global post directory
-define( 'POSTS',	PATH . 'posts/' );
+define( 'POST_DIR',	PATH . 'posts/' );
 // Add posts to "posts/example.com/" to blog separately on multiple domains
 
 // Cache directory. Must be writable (chmod -R 0755 on *nix)
@@ -56,8 +56,8 @@ define( 'STORAGE_DIR',	PATH . 'cache/' );
 // Use this instead if you keep the cache outside the web root
 // define( 'CACHE',	\realpath( \dirname( __FILE__, 2 ) ) . '/cache/' );
 
-// Uploaded file location (usually the same as POSTS)
-define( 'FILE_DIR',	POSTS );
+// Uploaded file location (usually the same as POST_DIR)
+define( 'FILE_DIR',	POST_DIR );
 // Use this instead if you keep uploaded files outside the web root
 // define( 'FILE_DIR',	\realpath( \dirname( __FILE__, 2 ) ) . '/uploads/' );
 // Add files to a relative path E.G. 'example.com/' to keep multi-site content separate
@@ -90,11 +90,6 @@ define( 'NOTICE',	'notices.log' );
 // A log file created when Bare is first run with information about its enviornment
 define( 'STARTUP',	'startup.log' );
 
-// Default content file extension
-define( 'ENTRY_EXT', 'md' );
-
-// Maximum number of lines to read metadata from each file (top and bottom)
-define( 'ENTRY_META_LINES', 6 );
 
 /**
  *  The following settings can be overridden in config.json:
@@ -5325,7 +5320,8 @@ function setting( string $name, $default, string $type, string $filter = '' ) {
  */
 function entry_ext() : string {
 	static $ext;
-	$ext		??= '.' . \ltrim( \strtolower( ENTRY_EXT ), '.' );
+	$ext		??= '.' . 
+		\ltrim( \strtolower( config( 'entry_ext', 'md' ) ), '.' );
 	
 	return $ext;
 }
@@ -5420,8 +5416,9 @@ function entry_import( string $path ) : ?array {
 	$meta	= [];
 	$start	= 0;	// Body start
 	
+	$lines	= ( int ) config( 'entry_meta_lines', 6 );
 	$rcount	= count( $raw );
-	$mcount	= \min( ENTRY_META_LINES, $rcount );
+	$mcount	= \min( $lines, $rcount );
 	
 	// Top metadata
 	for ( $i = 1; $i < $mcount; $i++ ) {
@@ -12766,6 +12763,7 @@ function getPostFileDir( string $src = 'none' ) : string {
 		return $pd[$src];
 	}
 	
+	$pdir	= config( 'post_dir', POST_DIR );
 	switch( $src ) {
 		case 'file':
 			$pd[$src] = getHostDirectory( \FILE_DIR );
@@ -12776,11 +12774,11 @@ function getPostFileDir( string $src = 'none' ) : string {
 			break;
 		
 		case 'posts':
-			$pd[$src] = getHostDirectory( \POSTS );
+			$pd[$src] = getHostDirectory( $pdir );
 			break;
 			
 		default:
-			$pd[$src] = \POSTS;
+			$pd[$src] = $pdir;
 	}
 	
 	return $pd[$src];
@@ -13395,7 +13393,8 @@ function getPosts( string $root = '' ) : array {
  *  @param string	$root	Full parent folder path
  *  @return string Empty if directory traversal or other issue found
  */
-function filterDir( $path, string $root = \POSTS ) {
+function filterDir( $path, ?string $root = null ) {
+	$root ??= config( 'post_dir', POST_DIR );
 	if ( \strpos( $path, '..' ) ) {
 		return '';
 	}
@@ -14026,7 +14025,8 @@ function loadPosts(
 	$about	= '/' . eventRoutePrefix( 'aboutview', 'about' ) . '/';
 	
 	// Find home path to skip
-	$home	= \rtrim( \POSTS, '/' ) . '/home.md';
+	$pdir	= config( 'post_dir', POST_DIR );
+	$home	= \rtrim( $pdir, '/' ) . '/home.md';
 	$pbc	= false;
 	
 	foreach( $it as $file ) {
@@ -15623,8 +15623,8 @@ function staticPage(
  *  @return array
  */
 function loadStaticPage( string	$page ) : array {
-	
-	$root	= \rtrim( POSTS, '/' );
+	$pdir	= config( 'post_dir', POST_DIR );
+	$root	= \rtrim( $pdir, '/' );
 	$path	= slashPath( $page );
 	$post	= loadText( $root . $path );
 	
@@ -15639,7 +15639,7 @@ function loadStaticPage( string	$page ) : array {
 }
 
 /**
- *  Show homepage or archive depending on whether home.md page is in POSTS
+ *  Show homepage or archive depending on whether home.md page is in POST_DIR
  */
 function showHome( string $event, array $hook, array $params ) {
 	$post	= loadStaticPage( 'home.md' );
@@ -16533,7 +16533,7 @@ function addBlogRoutes( string $event, array $hook, array $params ) {
 	
 	/**
 	 *  About pages
-	 *  Remember to rename your about directory in POSTS if these are changed
+	 *  Remember to rename your about directory in POST_DIR if these are changed
 	 */
 	[ 'get', 'about',				'aboutview' ],
 	[ 'get', 'about/:tree',				'aboutview' ],
