@@ -8062,7 +8062,7 @@ function form_set_token(
 		'allow_patch'	=> false,	// Enable PATCH method ( plugins )
 		'issued'	=> time(),	// Form generated
 		'once'		=> false,	// Only allow one validation
-		'use_id'	=> true,	// Use session id
+		'use_id'	=> false,	// Use session id
 		
 		// Expiration
 		'ttl'		=> 
