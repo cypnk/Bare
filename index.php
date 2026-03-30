@@ -19,22 +19,6 @@ define( 'PAGE_LIMIT',	12 );
 // Whitelisted plugins as comma separated list
 define( 'PLUGINS_ENABLED', '' );
 
-/**
- *  Important:
- *
- *  Whitelist of allowed sites and primary paths and their settings
- *  Add "localhost" if testing locally
- *  'is_active' Lets Bare know to allow serving blog posts
- *  'is_maintenance' Lets a plugin send an "under construction" placeholder
- *  'settings' Are for any plugins/helpers
- **/
-define( 'SITES_ENABLED',	<<<JSON
-{
-	"kpz62k4pnyh5g5t2efecabkywt2aiwcnqylthqyywilqgxeiipen5xid.onion" : []
-}
-JSON
-);
-
 
 /**
  *  These need to be set here in index.php
@@ -47,20 +31,10 @@ define( 'PATH',		\realpath( \dirname( __FILE__ ) ) . '/' );
 // Use this instead if you keep scripts outside the web root
 // define( 'PATH',	\realpath( \dirname( __FILE__, 2 ) ) . '/htdocs/' );
 
-// Global post directory
-define( 'POST_DIR',	PATH . 'posts/' );
-// Add posts to "posts/example.com/" to blog separately on multiple domains
-
 // Cache directory. Must be writable (chmod -R 0755 on *nix)
 define( 'STORAGE_DIR',	PATH . 'cache/' );
 // Use this instead if you keep the cache outside the web root
 // define( 'CACHE',	\realpath( \dirname( __FILE__, 2 ) ) . '/cache/' );
-
-// Uploaded file location (usually the same as POST_DIR)
-define( 'FILE_DIR',	POST_DIR );
-// Use this instead if you keep uploaded files outside the web root
-// define( 'FILE_DIR',	\realpath( \dirname( __FILE__, 2 ) ) . '/uploads/' );
-// Add files to a relative path E.G. 'example.com/' to keep multi-site content separate
 
 // Plugins directory
 define( 'PLUGIN_DIR',	PATH . 'plugins/' );
@@ -230,7 +204,6 @@ define( 'STREAM_CHUNK_LIMIT',	50000 );
 define( 'APP_NAME',		'Bare' );
 
 // Static resource relative path for JS, CSS, static images etc...
-// When using '/' the default path, Bare will load files from the FILE_DIR
 define( 'SHARED_ASSETS',		'/' );
 
 // Whitelist of approved frame sources for embedding media (one per line)
@@ -280,48 +253,6 @@ define( 'DEFAULT_META',			<<<JSON
 }
 JSON
 );
-
-/**
- *  Navigation links
- */
-
-// Main navigation links shown in headers
-// Because this is JSON, remember to escape slashes '/' with '\/'
-define( 'DEFAULT_MAIN_LINKS',		<<<JSON
-{
-	"links" : [
-		{ "url" : "{home}about", "text" : "{lang:nav:about}" },
-		{ "url" : "{home}archive", "text" : "{lang:nav:archive}" },
-		{ "url" : "{feedlink}", "text" : "{lang:nav:feed}" }
-	]
-}
-JSON
-);
-
-// Navigation shown in /about page headers
-define( 'DEFAULT_ABOUT_LINKS',		<<<JSON
-{
-	"links" : [
-		{ "url" : "{home}", "text" : "{lang:nav:home}" },
-		{ "url" : "{home}archive", "text" : "{lang:nav:archive}" },
-		{ "url" : "{feedlink}", "text" : "{lang:nav:feed}" }
-	]
-}
-JSON
-);
-
-// Footer links in all pages
-define( 'DEFAULT_FOOTER_LINKS',		<<<JSON
-{
-	"links" : [
-		{ "url" : "{home}about", "text" : "{lang:nav:about}" },
-		{ "url" : "{home}archive", "text" : "{lang:nav:archive}" },
-		{ "url" : "{feedlink}", "text" : "{lang:nav:feed}" }
-	]
-}
-JSON
-);
-
 
 /**
  *  Template holder
@@ -9344,8 +9275,8 @@ function renderNavLinks(
  */
 function pageFooter() : string {
 	// Footer with home link set
-	
-	$flinks	= setting( 'default_footer_links', \DEFAULT_FOOTER_LINKS );
+	$links	= config( 'footer_links', [], 'json' );
+	$flinks	= setting( 'default_footer_links', $links );
 	return 
 	render( template( 'tpl_page_footer' ), [ 
 		'footer_links'=> 
@@ -12117,10 +12048,7 @@ function getSitesEnabled() : array {
 	if ( isset( $sw ) ) {
 		return $sw;
 	}
-	$sw	= 
-	formatSites(
-		config( '', \SITES_ENABLED, 'json' )
-	);
+	$sw	= formatSites( config( 'realms', [] ) );
 	
 	return $sw;
 }
@@ -12933,51 +12861,6 @@ function sendFile(
 	return true;
 }
 
-/**
- *  Source directory helper for host/domain specific folders
- *  
- *  @return string
- */
-function getHostDirectory( string $path ) : string {
-	$dr = $path . slashPath( getHost(), true );
-	return \is_dir( $dr ) ? $dr : $path;
-}
-
-/**
- *  Get the relative post directory or host-specific plugin file path, or 
- *  global plugin file storage path if there's a subfolder with current hostname
- *  
- *  @param string	$src	Source type post, plugin, file
- *  @return string
- */
-function getPostFileDir( string $src = 'none' ) : string {
-	static $pd	= [];
-	
-	if ( isset( $pd[$src] ) ) {
-		return $pd[$src];
-	}
-	
-	$pdir	= config( 'post_dir', POST_DIR );
-	switch( $src ) {
-		case 'file':
-			$pd[$src] = getHostDirectory( \FILE_DIR );
-			break;
-			
-		case 'plugin':
-			$pd[$src] = getHostDirectory( \PLUGIN_DATA );
-			break;
-		
-		case 'posts':
-			$pd[$src] = getHostDirectory( $pdir );
-			break;
-			
-		default:
-			$pd[$src] = $pdir;
-	}
-	
-	return $pd[$src];
-}
-
 
 
 
@@ -13476,7 +13359,7 @@ function fileRequest(
 	$ranged	= request_is_ranged();
 	
 	// Static file path
-	$fpath	= getPostFileDir( 'file' ) . $path;
+	$fpath	= config( 'file_dir', storage_base() ) . $path;
 	
 	if ( \file_exists( $fpath ) ) {
 		$frange = request_range_header( \filesize( $fpath ) );
@@ -13540,7 +13423,7 @@ function getPosts( string $root = '' ) : array {
 		return $st[$key];
 	}
 	
-	$pd	= getPostFileDir( 'posts' ) . $root;
+	$pd	= config( 'post_dir', storage_base() ) . $root;
 	if ( !\is_dir( $pd ) ) {
 		$st[$key] = [];
 		return $st[$key];
@@ -13739,7 +13622,7 @@ function loadPost(
 	$type	= '';
 	$rtime	= 0;
 	$ext	= empty( $custom ) ? '.md' : '.' . $custom;
-	$ppath	= getPostFileDir( 'posts' ) . \ltrim( $path, '/' ) . $ext;
+	$ppath	= config( 'post_dir', storage_base() ) . $path . $ext;
 	
 	$data	= loadText( $ppath );
 	
@@ -14219,8 +14102,8 @@ function loadPosts(
 	$about	= '/' . eventRoutePrefix( 'aboutview', 'about' ) . '/';
 	
 	// Find home path to skip
-	$pdir	= config( 'post_dir', POST_DIR );
-	$home	= \rtrim( $pdir, '/' ) . '/home.md';
+	$pdir	= config( 'post_dir', storage_base() );
+	$home	= $pdir . 'home.md';
 	$pbc	= false;
 	
 	foreach( $it as $file ) {
@@ -14902,8 +14785,9 @@ function formatIndex(
 	sendOverride( 'renderindex' );
 	
 	// Default handler
-	$mlinks	= setting( 'default_main_links', \DEFAULT_MAIN_LINKS );
-	$heading = 
+	$links		= config( 'main_links', [], 'json' );
+	$mlinks		= setting( 'default_main_links', $links );
+	$heading	= 
 	hookWrap( 
 		'beforepostindexheading',
 		'afterpostindexheading',
@@ -15415,7 +15299,7 @@ function previewLink(
 	string		$mode	= '', 
 	bool		$nr	= false 
 ) {
-	$ppath	= getPostFileDir( 'posts' ) . $path. '.md';
+	$ppath	= config( 'post_dir', storage_base() ) . $path. '.md';
 	$data	= loadText( $ppath );
 	if ( empty( $data ) ) {
 		return '';
@@ -15735,7 +15619,7 @@ function collectBody( array $res ) : array {
  *  
  *  @param string	$label		Page name 'home', 'about' etc...
  *  @param string	$path		Relative URL E.G. '/'
- *  @param string	$links		Default link definition (overridden by $label)
+ *  @param array	$links		Default link definition (overridden by $label)
  *  @param array	$post		Page content as a list of lines
  *  @param bool		$forms		This page may contain forms (E.G. contact page)
  *  @param bool		$cache		Cache this page if true
@@ -15744,7 +15628,7 @@ function collectBody( array $res ) : array {
 function staticPage( 
 	string	$label,
 	string	$path,
-	string	$links,
+	array	$links,
 	array	$post,
 	bool	$forms		= true,
 	bool	$cache		= true,
@@ -15817,19 +15701,10 @@ function staticPage(
  *  @return array
  */
 function loadStaticPage( string	$page ) : array {
-	$pdir	= config( 'post_dir', POST_DIR );
-	$root	= \rtrim( $pdir, '/' );
+	$pdir	= config( 'post_dir', storage_base() );
 	$path	= slashPath( $page );
-	$post	= loadText( $root . $path );
 	
-	if ( empty( $post ) ) {
-		
-		// Try a site-specific page
-		$hroot	= $root . slashPath( getHost() );
-		$post	= loadText( $hroot . $path );
-	}
-	
-	return $post;
+	return loadText( $pdir . $path );
 }
 
 /**
@@ -15852,8 +15727,8 @@ function showHome( string $event, array $hook, array $params ) {
 	
 	// Override home content if hook was rendered
 	sendOverride( 'showhomepage' );
-	
-	staticPage( 'home', '/', \DEFAULT_MAIN_LINKS, $post );
+	$links	= config( 'main_links', [], 'json' );
+	staticPage( 'home', '/', $links, $post );
 }
 
 /**
@@ -15881,7 +15756,8 @@ function showAbout( string $event, array $hook, array $params ) {
 	sendOverride( 'showaboutpage' );
 	
 	// Fallback to preset about
-	staticPage( 'about', '/about/' . $path, \DEFAULT_ABOUT_LINKS, $post );
+	$links = config( 'about_links', [], 'json' );
+	staticPage( 'about', '/about/' . $path, $links, $post );
 }
 
 /**
@@ -16163,8 +16039,9 @@ function showPost( string $event, array $hook, array $params ) {
 	sendOverride( 'postrender' );
 	
 	// Default post render
-	$mlinks	= setting( 'default_main_links', \DEFAULT_MAIN_LINKS );
-	$heading = 
+	$links		= config( 'main_links', [], 'json' );
+	$mlinks		= setting( 'default_main_links', $links );
+	$heading	= 
 	hookWrap( 
 		'beforepostpageheading',
 		'afterpostpageheading',
@@ -16276,9 +16153,10 @@ function runIndex( string $event, array $hook, array $params ) {
 		template( 'tpl_index_wrap' ), 
 		[ 'items' => $out ] 
 	);
-	
-	$mlinks	= setting( 'default_main_links', \DEFAULT_MAIN_LINKS );
-	$heading = 
+
+	$links		= config( 'main_links', [], 'json' );
+	$mlinks		= setting( 'default_main_links', $links );
+	$heading	= 
 	hookWrap( 
 		'beforearchiveheading',
 		'afterarchiveheading',
