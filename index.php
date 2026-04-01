@@ -8052,9 +8052,17 @@ function form_token_validate(
 	$key		= form_session_key( $form_name );
 	
 	// Find key or empty pad
-	$secret		= $_SESSION["form_{$key}"] ?? \str_repeat( '0', 64 );
-	$missing	= !\array_key_exists( "form_{$key}", $_SESSION );
+	if ( isset( $_SESSION["form_{$key}"] ) ) {
+		$meta	= 
+		\is_array( $_SESSION["form_{$key}"] ) 
+			? $_SESSION["form_{$key}"]
+			: [];
+	} else {
+		$meta	= [];
+	}
 	
+	$missing	= ( empty( $meta ) || !isset( $meta['secret'] ) );
+	$secret		= $missing ? \str_repeat( '0', 64 ) : $meta['secret'];
 	$expected	= \hash_hmac( 'sha256', $nonce, $secret . $method );
 	$valid		= \hash_equals( $expected, $token );
 	
@@ -8068,7 +8076,6 @@ function form_token_validate(
 		$valid				=> 'ok',
 		default				=> 'failed'
 	};
-
 }
 
 /**
