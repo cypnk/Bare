@@ -6161,6 +6161,189 @@ function template( string $label, array $reg = [] ) : string {
 
 
 /**
+ *  Views and layouts for plugins
+ */
+
+/**
+ *  Main view attribute
+ */
+#[Attribute( Attribute::TARGET_FUNCTION | Attribute::IS_REPEATABLE )]
+class View {
+	/**
+	 *  View constructor
+	 *  
+	 *  @param string	$prefix	View domain prefix
+	 *  @param string	$path	Include path for view
+	 */
+	public function __construct(
+		public readonly string	$prefix,
+		public readonly string	$path
+	) {}
+}
+
+/**
+ *  Isolated view source inclusion
+ *  
+ *  @param string	$file	View source file location
+ *  @param array	$data	Parameter data
+ *  @return string
+ */
+function view_include( string $file, array $data ) : string {
+	$vars	= $data;
+	return ( function() use ( $file, $vars ) {
+		\extract( $vars, \EXTR_SKIP );
+		
+		\ob_start();
+		try {
+			include $file;
+			return \ob_get_clean();
+		} catch ( \Throwable $e ) {
+			if ( \ob_get_level() > 0 ) {
+				\ob_end_clean();
+			}
+			
+			log_msg( "Error in view {$file}: {$e->getMessage()}", 'ERROR' );
+			return '';
+		}
+	} )();
+}
+
+/**
+ *  Prefixed view cache
+ *  
+ *  @param string	$prefix	View prefix
+ *  @param string	$path	Base view directory for given prefix
+ *  @return array
+ */
+function view_paths( ?string $prefix = null, ?string $path = null ) : array {
+	// Default view path
+	static $paths;
+	$paths ??= [ '' => PLUGIN_DIR ];
+	
+	if ( null !== $prefix && null !== $path ) {
+		$paths[$prefix]	= \rtrim( $path, '/' );
+	}
+	
+	return $paths;
+}
+
+/**
+ *  Validate view path relative to base directory
+ *  
+ *  @param string	$file	Relative view source
+ *  @param string	$base	Base view directory
+ *  @return string
+ */
+function view_validate_path( 
+	string	$file, 
+	string	$base
+) : string {
+	$real_file	= \realpath( $file );
+	$real_base	= \realpath( \rtrim( $base, '\\/' ) );
+	if ( false === $real_file || false === $real_base ) {
+		throw new 
+		\RuntimeException( "Error resolving view path" );
+	}
+	
+	if ( !\str_starts_with( $real_file, $real_base ) ) {
+		throw new 
+		\RuntimeException( "Error with relative view base" );
+	}
+	
+	return $real_file;
+}
+
+/**
+ *  Generate and validate relative view path by name
+ *  
+ *  @param string	$paths	Cached view paths in prefix->directory format
+ *  @param string	$layout	Requested view by file basename
+ *  @return string
+ */
+function view_resolve_path( array $paths, string $layout ) : string {
+	\uksort( $paths, fn( $a, $b ) => strlen( $b ) <=> \strlen( $a ) );
+	
+	foreach ( $paths as $prefix => $dir ) {
+		if ( '' === $prefix ) { continue; }
+		if ( \str_starts_with( $layout, $prefix . ':' ) ) {
+			$view	= \substr( $layout, \strlen( $prefix ) + 1 );
+			$file	= "{$dir}/{$view}.php";
+			return view_validate_path( $file, $dir );
+		}
+	}
+	
+	$default	= $paths[''] ?? null;
+	if ( null !== $default ) {
+		$file	= "{$default}/{$layout}.php";
+		return view_validate_path( $file, $default );
+	}
+	
+	throw new 
+	\RuntimeException( "No view path for: {$layout}" );
+}
+
+/**
+ *  Auto-scan and register view layout attributes
+ */
+function view_resolve() : void {
+	$functions	= util_functions_list();
+	foreach ( $functions as $fn ) {
+		$ref	= new \ReflectionFunction( $fn );
+		$attrs	= $ref->getAttributes( View::class );
+		
+		foreach ( $attrs as $attr ) {
+			$meta	= $attr->newInstance();
+			view_paths( $meta->prefix, $meta->path );
+		}
+	}
+}
+
+/**
+ *  Include and render selected view with given variables
+ *  
+ *  @param string	$layout	Rendering layout view
+ *  @param array	$vars	Parsed content to be sent to view for rendering
+ *  @return string
+ */
+function view_render( string $layout, array $vars = [] ) : string {
+	static $cache	= [];
+	static $stack	= [];
+	
+	if ( \in_array( $layout, $stack, true ) ) {
+		log_msg( "Recursive view detected: {$layout}", 'ERROR' );
+		
+		throw new 
+		\RuntimeException( "Recursive view detected" );
+	}
+	
+	$stack[]	= $layout;
+	if ( !isset( $cache[$layout] ) ) {
+		$paths		= view_paths();
+		$file		= view_resolve_path( $paths, $layout );
+		if ( !\is_readable( $file ) ) {
+			log_msg( "View not found: {$layout}", 'ERROR' );
+			
+			throw new 
+			\RuntimeException( "View not found" );
+		}
+		
+		$cache[$layout]	= $file;
+	}
+	
+	try {
+		return view_include( $cache[$layout], $vars );
+	} catch( \Throwable $e ) {
+		log_msg( "Error including view {$layout}: {$e->getMessage()}" );
+		
+		throw new 
+		\RuntimeException( "Error rendering view" );
+	} finally {
+		\array_pop( $stack );
+	}
+}
+
+
+/**
  * Routing and paths
  */
 
