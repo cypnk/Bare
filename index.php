@@ -1865,7 +1865,7 @@ function util_has_overlapping_ranges( array $ranges ) : bool {
  *  
  *  @return mixed
  */
-function util_time_string( $stamp = null ) : string {
+function util_time_string_int( $stamp = null ) : int {
 	if ( empty( $stamp ) ) { return null; }
 	
 	if ( \is_numeric( $stamp ) ) {
@@ -1888,7 +1888,7 @@ function util_time_string( $stamp = null ) : string {
  */
 function util_utc( $stamp = null ) : string {
 	return 
-	\gmdate( 'Y-m-d\TH:i:s', util_time_string( $stamp ?? 'now' ) );
+	\gmdate( 'Y-m-d\TH:i:s', util_time_string_int( $stamp ?? 'now' ) );
 }
 
 /**
@@ -1899,7 +1899,7 @@ function util_utc( $stamp = null ) : string {
  */
 function util_rfc_date( $stamp = null ) : string {
 	return 
-	\gmdate( 'D, d M Y H:i:s O', util_time_string( $stamp ?? 'now' ) );
+	\gmdate( 'D, d M Y H:i:s O', util_time_string_int( $stamp ?? 'now' ) );
 }
 
 /**
@@ -1910,7 +1910,7 @@ function util_rfc_date( $stamp = null ) : string {
  */
 function util_rfc_file_date( $stamp = null ) : string {
 	return 
-	\gmdate( 'D, d M Y H:i:s T', util_time_string( $stamp ?? 'now' ) );
+	\gmdate( 'D, d M Y H:i:s T', util_time_string_int( $stamp ?? 'now' ) );
 }
 
 /**
@@ -2670,8 +2670,8 @@ function sanitize_html( $html, $tag_map ) {
 			return sanitize_escape_node( $node, $cleaned );
 		}
 		
-		$new_node = $cleaned->createElement( \strtolower( $tag ) );
-		$attr_rules = $tag_map[$tag]['attributes'] ?? [];
+		$new_node	= $cleaned->createElement( \strtolower( $tag ) );
+		$attr_rules	= $tag_map[$tag]['attributes'] ?? [];
 		
 		foreach ( $attr_rules as $attr => $rule ) {
 			// Skip if not in whitelist at all
@@ -2683,10 +2683,10 @@ function sanitize_html( $html, $tag_map ) {
 		}
 		
 		if ( $node->hasChildNodes() ) {
-			foreach ($node->childNodes as $child) {
-				$clean_child = $clean_node($child);
+			foreach ( $node->childNodes as $child ) {
+				$clean_child = $clean_node( $child );
 				if ( $clean_child ) {
-					$new_node->appendChild($clean_child);
+					$new_node->appendChild( $clean_child );
 				}
 			}
 		}
@@ -3412,14 +3412,14 @@ function log_cleanup( string $log_file ) : void {
 function log_rotate( string $log_file ) : void {
 	static $max_size;
 	
-	$max_size ??= 
+	$max_size	??= 
 	defined( 'LOG_MAX_SIZE' ) 
 		? LOG_MAX_SIZE
 		: 5242880;
 	
 	if ( !\is_readable( $log_file ) ) { return; }
 	
-	$fsize	= \filesize( $log_file );
+	$fsize		= \filesize( $log_file );
 	if ( !$fsize ) { return; }
 	
 	if ( $fsize > $max_size ) {
@@ -3445,7 +3445,7 @@ function log_message_write( ?array $pair = null ) : void {
 	static $cache	= [];
 	
 	if ( !$reg ) {
-		$reg = true;
+		$reg	= true;
 		\register_shutdown_function( 'log_message_write' );
 	}
 	
@@ -3460,12 +3460,12 @@ function log_message_write( ?array $pair = null ) : void {
 	}
 	
 	// Shutdown action
-	$grouped = [];
+	$grouped	= [];
 	foreach ( $cache as [ $file, $entry ] ) {
 		$grouped[$file][] = $entry;
 	}
 	
-	$base	= storage_base();
+	$base		= storage_base();
 	foreach ( $grouped as $file => $entries ) {
 		if ( !log_file_valid( $file ) ) {
 			\error_log( "Log file {$file} is not within storage {$base}" );
@@ -3677,7 +3677,7 @@ function request_effective_method() : string {
 	
 	if ( isset( $override ) ) { return $override; }
 	
-	$method		= request_method();
+	$method	= request_method();
 	if ( 'post' !== $method ) { 
 		$override	= $method;
 		return $method;
@@ -3768,7 +3768,7 @@ function request_canonical_forwarded() : array {
 	$parsed		= \array_map( 'util_array_normalize_keys', $parsed );
 	$coarse_last	= [];
 	foreach ( $parsed as $entry ) {
-		foreach ( $entry as $k => $v) {
+		foreach ( $entry as $k => $v ) {
 			if ( \is_array( $v ) ) {
 				if ( count( $v ) > 0 ) {
 					$coarse_last[$k] = end( $v );
@@ -3781,7 +3781,7 @@ function request_canonical_forwarded() : array {
 	
 	$coarse_first	= [];
 	foreach ( $parsed as $entry ) {
-		foreach ( $entry as $k => $v) {
+		foreach ( $entry as $k => $v ) {
 			if ( !isset( $coarse_first[$k] ) ) {
 				$coarse_first[$k] = 
 				\is_array( $v ) ? current( $v ) : $v;
@@ -3826,7 +3826,7 @@ function request_host( ?string $sent = null ) : string {
 		return $cache[$sent]	= sanitize_host( $sent );
 	}
 	
-	$fwd	= request_forwarded();
+	$fwd		= request_forwarded();
 	if ( isset( $fwd['host'] ) && '' !== $fwd['host'] ) {
 		$host		= 
 		\is_array( $fwd['host'] ) 
@@ -3983,7 +3983,7 @@ function request_origin() : string {
  */
 function request_ua() : string {
 	static $ua;
-	$ua ??= \trim( $_SERVER['HTTP_USER_AGENT'] ?? '' );
+	$ua	??= \trim( $_SERVER['HTTP_USER_AGENT'] ?? '' );
 	
 	return $ua;
 }
@@ -4023,7 +4023,7 @@ function request_url() : string {
 function request_none_match() : string {
 	static $etag;
 
-	$etag ??= $_SERVER['HTTP_IF_NONE_MATCH'] ?? '';
+	$etag	??= $_SERVER['HTTP_IF_NONE_MATCH'] ?? '';
 	return $etag;
 }
 
@@ -4051,7 +4051,7 @@ function request_modified_since() : ?int {
 	if ( $init ) { return $since; }
 	$init		= true;
 	
-	$header	= $_SERVER['HTTP_IF_MODIFIED_SINCE'] ?? null;
+	$header		= $_SERVER['HTTP_IF_MODIFIED_SINCE'] ?? null;
 	if ( !$header ) { return null; }
 	
 	$since	= \strtotime( $header ) ?: null;
@@ -4238,6 +4238,13 @@ function response_status( int $code, ?array $allow = null ) : void {
 	
 	throw new 
 	\InvalidArgumentException( "Code {$code} unsupported" );
+}
+
+/**
+ *  Quick exit response
+ */
+function response_exit( int $code ) : void {
+	if ( $code > 204 ) { exit(); }
 }
 
 /**
@@ -4754,11 +4761,24 @@ function response( int $code, array $headers = [], $body = null ) : void {
 	$lo_sent	= false;
 	$is_redir	= ( $code >= 300 && $code < 400 );
 	
+	if ( $code === 204 || $code === 304 ) {
+		$body = null;
+	}
+	
 	response_status( $code );
 	response_headers( $headers, $ct_sent, $lo_sent );
-	response_body( $body, $ct_sent );
+	if ( null !== $body && !$is_redir) {
+		response_body( $body, $ct_sent );
+	}
 	
-	if ( $is_redir && $lo_sent ) { exit; }
+	if ( $is_redir ) {
+		if ( !$lo_sent ) {
+			throw new 
+			\RuntimeException( "Redirect requires a Location header" );
+		}
+		\flush();
+		exit;
+	}
 }
 
 function response_html( string $html, int $status = 200, array $headers = [] ) : void {
@@ -5137,7 +5157,7 @@ function config_realm() : array {
  *  @return array
  */
 function config_lines( array $lines, bool $un = false, $filter = null ) : array {
-	if ( $un ) { $lines	= \array_unique( $lines ); }
+	if ( $un ) { $lines = \array_unique( $lines ); }
 	
 	return ( !empty( $filter ) && \is_callable( $filter ) )
 		? \array_map( $filter, $lines ) 
@@ -8360,13 +8380,6 @@ function shutdown() {
  */
 
 /**
- *  Logging safe string
- */
-function logStr( $text, int $len = 255 ) : string {
-	return truncate( sanitize_spaces( ( string ) ( $text ?? '' ) ), 0, $len );
-}
-
-/**
  *  Check log file size and rollover, if needed
  *  
  *  @param string	$file	Log file name
@@ -8593,54 +8606,6 @@ function logMessage(
 	
 	// PHP's built-in logger
 	return \error_log( $msg . "\n", 3, $dest );
-}
-
-/**
- *  Capture error for logging
- *  
- *  @param mixed	$err	Error message or exception to store
- *  @param bool		$app	Application error if true, visitor error if false	
- */
-function error( $err, bool $app = true ) : void {
-	$msg	= 
-	match( true ) {
-		
-		// Thrown exception
-		( $err instanceof \Exception )	=> 
-		\strtr( 'Exception: {msg} in {file} on line {line}', [
-			'{msg}'		=> $err->getMessage(),
-			'{file}'	=> $err->getFile(),
-			'{line}'	=> $err->getLine()
-		] ), 
-		
-		// Generic capture from E.G. error_get_last()
-		\is_array( $err )		=> 
-		\strtr( '{type}: {msg} in {file} on line {line}', [
-			'{type}'	=> $err['type']		?? 'Unkown type',
-			'{msg}'		=> $err['message']	?? 'No message',
-			'{file}'	=> $err['file']		?? 'Unknown file',
-			'{line}'	=> $err['line']		?? 'Unkown line'
-		] ), 
-		
-		default				=> ( string ) $err	
-	};
-	
-	if ( $app ) {
-		// Send with existing data
-		logError( $msg, $app );
-		return;
-	}
-	
-	// Append visitor data
-	$mt	= request_method();
-	$ua	= request_ua();
-	
-	$ua	= logStr( empty( $mt ) ? 'unknown' : $ua );
-	$mt	= logStr( empty( $mt ) ? 'unknown' : $mt );
-	$uri	= logStr( $_SERVER['REQUEST_URI'] ?? '' );
-
-	logError( $msg . ' ' . request_ip( true ) . ' ' . $mt . ' ' . $msg . ' ' . 
-		$ua . ' ' . $uri, $app );
 }
 
 /**
@@ -9893,193 +9858,6 @@ function genCodeKey( int $size = 24 ) : string {
 }
 
 
-
-
-/**
- *  Database
- */
-
-/**
- *  Get the SQL definition from DSN
- *  
- *  @param string	$dsn	User defined database path
- *  @return array
- */
-function loadSQL( string $dsn ) : array {
-	// Get list of user-defined constants
-	$cts	= \get_defined_constants( true );
-	$my	= \array_flip( $cts['user'] );
-	
-	// Get the first component from the definition
-	// E.G. "CACHE" from "CACHE_DATA"
-	$def	= \explode( '_', $my[$dsn] )[0];
-	
-	// E.G. CACHE_SQL definition
-	$src	= \constant( $def . '_SQL' ) ?? '';
-	
-	// If SQL isn't defined, try to load SQL file with the DSN
-	if ( empty( $src ) ) {
-		$src = loadFile( $dsn . '.sql' );
-		if ( empty( $src ) ) {
-			return [];
-		}
-	}
-	
-	// SQL Lines from defined component + "_SQL"
-	return lines( $src, -1, false );
-}
-
-/**
- *  Create database tables based on DSN
- *  
- *  @param object	$db	PDO Database object
- *  @param string	$dsn	Database path associated with PDO object
- */
-function installSQL( \PDO $db, string $dsn ) {
-	$parse	= [];
-	
-	$lines	= loadSQL( $dsn );
-	if ( empty( $lines ) ) {
-		return;
-	}
-	
-	// Filter SQL comments and lines starting PRAGMA
-	foreach ( $lines as $l ) {
-		if ( \preg_match( '/^(\s+)?(--|PRAGMA)/is', $l ) ) {
-			continue;
-		}
-		$parse[] = $l;
-	}
-	
-	// Separate into statement actions
-	$qr	= \explode( '-- --', \implode( " \n", $parse ) );
-	foreach ( $qr as $q ) {
-		if ( empty( trim( $q ) ) ) {
-			continue;
-		}
-		$db->exec( $q );
-	}
-}
-
-/**
- *  Get database connection
- *  
- *  @param string	$dsn	Connection string
- *  @param string	$mode	Return mode
- *  @return mixed		PDO object if successful or else null
- */
-function getDb( string $dsn, string $mode = 'get' ) {
-	static $db	= [];
-	
-	// Set self-cleanup
-	if ( !internalState( 'dbcleanupset' ) ) {
-		shutdown( 'statement', [ null, null ] );
-		shutdown( 'getDb', [ '', 'closeAll' ] );
-		internalState( 'dbcleanupset', true );
-	}
-	
-	switch( $mode ) {
-		case 'close':	
-			if ( isset( $db[$dsn] ) ) {
-				$db[$dsn] = null;
-				unset( $db[$dsn] );
-			}
-			return;
-		
-		case 'closeall':
-			foreach( $db as $k => $v  ) {
-				$db[$k] = null;
-				unset( $db[$k] );
-			}
-			return;
-		
-		default:
-			if ( empty( $dsn ) ) {
-				return null;
-			}
-	}
-	
-	if ( isset( $db[$dsn] ) ) {
-		return $db[$dsn];
-	}
-	
-	// First time? SQLite database will be created
-	$first_run	= !\file_exists( $dsn );
-	$timeout	= config( 'data_timeout', \DATA_TIMEOUT, 'int' );
-	$opts	= [
-		\PDO::ATTR_TIMEOUT		=> $timeout,
-		\PDO::ATTR_DEFAULT_FETCH_MODE	=> \PDO::FETCH_ASSOC,
-		\PDO::ATTR_PERSISTENT		=> false,
-		\PDO::ATTR_EMULATE_PREPARES	=> false,
-		\PDO::ATTR_AUTOCOMMIT		=> false,
-		\PDO::ATTR_ERRMODE		=> 
-			\PDO::ERRMODE_EXCEPTION
-	];
-	
-	try {
-		$db[$dsn]	= 
-		new \PDO( 'sqlite:' . $dsn, null, null, $opts );
-	} catch ( \PDOException $e ) {
-		logError( 
-			'Error connecting to database ' . $dsn . 
-			' Messsage: ' . $e->getMessage() ?? 'PDO Exception'
-		);
-		die();
-	}
-	
-	// Preemptive defense
-	$db[$dsn]->exec( 'PRAGMA quick_check;' );
-	//$db[$dsn]->exec( 'PRAGMA trusted_schema = OFF;' );
-	$db[$dsn]->exec( 'PRAGMA cell_size_check = ON;' );
-	
-	// TODO: Workaround for virtual table functions marked SQLITE_VTAB_DIRECTONLY in new SQLite versions
-	$db[$dsn]->exec( 'PRAGMA trusted_schema = ON;' );
-	
-	// Prepare defaults if first run
-	if ( $first_run ) {
-		$db[$dsn]->exec( 'PRAGMA encoding = "UTF-8";' );
-		$db[$dsn]->exec( 'PRAGMA page_size = "16384";' );
-		$db[$dsn]->exec( 'PRAGMA auto_vacuum = "2";' );
-		$db[$dsn]->exec( 'PRAGMA temp_store = "2";' );
-		$db[$dsn]->exec( 'PRAGMA secure_delete = "1";' );
-		
-		// Load and process SQL
-		installSQL( $db[$dsn], $dsn );
-		
-		// Instalation check
-		$db[$dsn]->exec( 'PRAGMA integrity_check;' );
-		$db[$dsn]->exec( 'PRAGMA foreign_key_check;' );
-	}
-	
-	$db[$dsn]->exec( 'PRAGMA journal_mode = WAL;' );
-	$db[$dsn]->exec( 'PRAGMA foreign_keys = ON;' );
-	
-	if ( $first_run ) {
-		// Run db created hook
-		hook( [ 'dbcreated', [ 'dbname' => $dsn ] ] );
-	}
-	
-	return $db[$dsn];
-}
-
-/**
- *  Get a single item row by ID
- *  
- *  @return array
- */
-function getSingle(
-	int		$id,
-	string		$sql,
-	string		$dsn		= \DATA
-) : array {
-	$data	= getResults( $sql, [ ':id' => $id ], $dsn );
-	if ( !empty( $data ) ) {
-		return $data[0];
-	}
-	return [];
-}
-
-
 /**
  *  Caching
  */
@@ -10471,7 +10249,7 @@ function dateNice( $stamp = null, string $fmt = \DATE_NICE ) : string {
 		$dn	= 
 		langVar( 'date_nice', setting( 'date_nice', $fmt ) );
 	}
-	return \gmdate( $dn, util_time_string( $stamp ) );
+	return \gmdate( $dn, util_time_string_int( $stamp ) );
 }
 
 /**
