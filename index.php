@@ -2409,6 +2409,25 @@ function sanitize_slug( string $text, string $prefix = 'node-' ) : string {
 }
 
 /**
+ *  Make text completely bland by stripping punctuation, 
+ *  spaces and diacritics (for further processing)
+ *  
+ *  @param string	$text		Raw input text
+ *  @param bool		$nospecial	Remove special characters if true
+ *  @return string
+ */
+function sanitize_bland( string $text, bool $nospecial = false ) : string {
+	$text = \strip_tags( sanitize_spaces( $text ) );
+	
+	if ( $nospecial ) {
+		return \preg_replace( 
+			'/[^\p{L}\p{N}\-\s_]+/', '', \trim( $text ) 
+		);
+	}
+	return \trim( $text );
+}
+
+/**
  *  Filter XML string
  *  
  *  @param string	$text		Raw block
@@ -7519,80 +7538,6 @@ function db_get_migrations( string $mi_dir ) : iterable {
 }
 
 /**
- *  Run maintenance on selected database
- *  
- *  @param PDO		$dbh	Database connection
- *  @param array 	$config	Maintenance settings
- */
-function db_maintenance( \PDO $dbh, array $config ) : void {
-	static $db_maint;
-	static $sql	=  
-	"SELECT settings FROM maintenance_meta 
-		WHERE maintenance_id = (
-			SELECT MAX( maintenance_id ) FROM maintenance_meta 
-		);";
-	
-	$db_maint	??= 
-	defined( 'DB_MAINT' )
-		? DB_MAINT
-		: 7;
-	
-	$maint		= $db_maint * 86400;
-	$settings	= $dbh->query( $sql )->fetchColumn();
-	
-	if ( false === $settings ) {
-		log_msg( "No database maintenance settings found", 'INFO' );
-		$settings	= '{ "last_maintenance" : 0 }'; // Fallback
-	}
-	
-	// Since PHP 8.3
-	if ( !\json_validate( $settings ) ) {
-		log_msg( "Error decoding maintenance settings", 'ERROR' );
-		return;
-	}
-	
-	$info	= \json_decode( $settings, true );
-	if ( false === $info || !\is_array( $info ) ) {
-		log_msg( "Invalid JSON in maintenance settings", 'ERROR' );
-		return;
-	}
-	
-	$last_maint	= $info['last_maintenance'] ?? 0;
-	$now		= time();
-	
-	// Skip if not needed
-	if ( ( $now - $last_maint ) < $maint ) {
-		log_msg( "Maintenance not required yet", 'DEBUG' );
-		return;
-	}
-	
-	$commands	= $config['maint_exec'] ?? [];
-	if ( !\is_array( $commands ) || empty( $commands ) ) {
-		log_msg( "No maintenance commands configured", 'WARN' );
-		return;
-	}
-	foreach ( $commands as $cmd ) {
-		try {
-			$dbh->exec( $cmd );
-			log_msg( "Executed maintenance command: {$cmd}", 'INFO' );
-		} catch ( \PDOException $e ) {
-			log_msg( "Maintenance command failed: {$cmd} — {$e->getMessage()}", 'ERROR' );
-		}
-	}
-	
-	$new_settings	= \json_encode( [ 'last_maintenance' => $now ] );
-	$insert_sql	= 
-	"INSERT INTO maintenance_meta ( settings ) 
-		VALUES ( :settings )";
-	
-	db_exec( db_stmt( $dbh, $insert_sql ), [ 
-		':settings' => $new_settings 
-	], "Initiating database maintenance" );
-	
-	log_msg( "Database maintenance completed", 'INFO' );
-}
-
-/**
  *  Automatic database schema upgrades
  *  
  *  @param PDO		$dbh	Database connection
@@ -8339,6 +8284,11 @@ function form_validate(
 }
 
 
+
+/**
+ *  Core functionality
+ */
+
 /**
  *  Collection of functions to execute after content sent
  */
@@ -8373,11 +8323,52 @@ function shutdown() {
 	}
 }
 
-
+/**
+ *  Component-based asset directory locator
+ *  
+ *  @param string	$uri		File request URI
+ *  @return string|null
+ */
+function static_file_resolve( string $uri ) : ?string {
+	// Normalize the path
+	$path	= \parse_url( $uri, PHP_URL_PATH );
+	$path	= \ltrim( $path, '/' );
+	
+	// Preload registered asset paths
+	$paths	= hook( [ 'register_asset_dir', [] ] );
+	
+	foreach ( $paths as $dir ) {
+		$file = \rtrim( $dir, '/\\' ) . \DIRECTORY_SEPARATOR . $path;
+		
+		// Match first detection
+		if ( \is_file( $file ) ) { return $file; }
+	}
+	
+	// Nothing found
+	return null;
+}
 
 /**
- *  Parameter filter helpers
+ *  Main Bare plugin
  */
+#[Plugin(
+	name:		'Bare',
+	priority:	1000
+)]
+function bare( Plugin $meta ) {
+	$base_dir 	= 
+	\is_callable( $meta->asset_dir )
+		? ( $meta->asset_dir )()
+		: $meta->asset_dir;
+	
+	$dir	= config( 'asset_dir', $base_dir ); // Build on default
+	$dir	= \rtrim( $dir, '/\\' ) . \DIRECTORY_SEPARATOR;
+	hook( [ 'register_asset_dir', function( $event, $dirs ) use ( $dir ) {
+		$dirs[] = $dir;
+		return $dirs;
+	} ] );
+}
+
 
 /**
  *  Check log file size and rollover, if needed
@@ -8842,7 +8833,7 @@ function filterExt( ?string $ext ) : string {
 	empty( $ext ) ? '' : 
 	\preg_replace( 
 		'/[[:space:]]+/', 
-		bland( title( $ext ), true ), '' 
+		sanitize_bland( title( $ext ), true ), '' 
 	);
 }
 
@@ -9465,7 +9456,7 @@ function loadClasses() : array {
 	// Add new or appened classes while removing duplicates
 	foreach( $cls as $k => $v ) {
 		$cv['{' . $k . '}'] = 
-			\implode( ' ', util_unique_terms( bland( $v, true ) ) );
+			\implode( ' ', util_unique_terms( sanitize_bland( $v, true ) ) );
 	}
 	return $cv;
 }
@@ -9557,7 +9548,7 @@ function rsettings( string $area, array $modify = [] ) : array {
  */
 function getClasses( string $name ) : array {
 	$cls	= rsettings( 'classes' );
-	$n	= '{' . bland( $name, true ) . '}';
+	$n	= '{' . sanitize_bland( $name, true ) . '}';
 	$va	= [];
 	foreach( $cls as $k => $v ) {
 		if ( 0 != \strcmp( $n , $k ) ) {
@@ -9579,7 +9570,7 @@ function getClasses( string $name ) : array {
 function setClass( string $name, string $value ) {
 	rsettings( 
 		'classes', 
-		[ '{' . bland( $name, true ) . '}' => bland( $value, true ) ] 
+		[ '{' . sanitize_bland( $name, true ) . '}' => sanitize_bland( $value, true ) ] 
 	);
 }
 
@@ -10391,35 +10382,6 @@ function smartTrim(
 }
 
 /**
- *  Convert a string into a page slug
- *  
- *  @param string	$title	Fallback title to generate slug
- *  @param string	$text	Text to transform into a slug
- *  @param int		$max	Optional string max length
- *  @param bool		$dot	Allow periods in slug
- *  @return string
- */
-function slugify( 
-	string		$title, 
-	string		$text		= '',
-	int		$max		= 100,
-	bool		$dot		= false
-) : string {
-	if ( empty( $text ) ) {
-		$text = $title;
-	}
-	$text = lowercase( sanitize_spaces( $text ) );
-	$text = 
-	\preg_replace( 
-		( $dot ? '~[^\\pL\d\.]+~u' : '~[^\\pL\d]+~u' ), ' ', $text 
-	);
-	$text = \preg_replace( '/\s+/', '-', \trim( $text ) );
-	$text = \preg_replace( '/\-+/', '-', \trim( $text, '-' ) );
-	
-	return \strtolower( smartTrim( $text, $max ) );
-}
-
-/**
  *  Ensure date arguments don't exceed today
  *  
  *  @param array	$args	Date in year, month, day
@@ -10928,7 +10890,7 @@ function formatFootnotes( string $html, array $footnotes ) : string {
 		
 		// Generate ID slug from part of footnote and its hash
 		$slug	= 
-		slugify( 
+		sanitize_slug( 
 			smartTrim( \strip_tags( $v['footnote'] ), 20 ) 
 		) . '-' . \hash( 'crc32b', $v['footnote'] );
 		
@@ -11154,7 +11116,7 @@ function extractCC( string $cc, string $prefx = '' ) : string {
 		
 		// Language name if specified
 		$lang	= 
-		bland( $p['lang'] ?? $p['language'] ?? '--', true );
+		sanitize_bland( $p['lang'] ?? $p['language'] ?? '--', true );
 		
 		// Is default?
 		$id	= empty( $p['default'] ) ? '' : 'default';
@@ -11167,7 +11129,7 @@ function extractCC( string $cc, string $prefx = '' ) : string {
 		] ) : 
 		\strtr( template( 'tpl_cc_embed' ), [
 			'{label}'	=> 
-			bland( 
+			sanitize_bland( 
 				$p['label'] ?? $p['name'] ?? $lang, 
 				true
 			),
@@ -11637,7 +11599,7 @@ function markdown(
 				// Create placeholder slug
 				$slug		= 
 				'{footnote_marker_' . $running_f . '-' . 
-				slugify( ( string ) $m['phrase'] ) . '}';
+				sanitize_slug( ( string ) $m['phrase'] ) . '}';
 				
 				// Create list for this phrase
 				$fmarkers[$m['phrase']] ??= [];
@@ -11740,12 +11702,12 @@ function quoteSecAttr( string $atr ) : string {
 function parsePermPolicy( string $key, $policy = null ) : string {
 	// No value? Send empty set E.G. "interest-cohort=()"
 	if ( empty( $policy ) ) {
-		return bland( $key, true ) . '=()';
+		return sanitize_bland( $key, true ) . '=()';
 	}
 	
 	// Send specific value(s) E.G. "fullscreen=(self)"
 	return 
-	bland( $key, true ) . '=(' . 
+	sanitize_bland( $key, true ) . '=(' . 
 	( \is_array( $policy ) ? 
 		\implode( ' ', \array_map( 'quoteSecAttr', $policy ) ) : 
 		quoteSecAttr( ( string ) $policy ) ) . 
@@ -13827,7 +13789,7 @@ function extractTags( array $find ) : array {
 	$ptags	= [];
 	foreach( $tags as $t ) {
 		$ptags[] = [ 
-			'slug' => slugify( $t ),
+			'slug' => sanitize_slug( $t ),
 			'term' => $t
 		];
 	}
@@ -15031,25 +14993,6 @@ function validateForm(
 
 
 /**
- *  Make text completely bland by stripping punctuation, 
- *  spaces and diacritics (for further processing)
- *  
- *  @param string	$text		Raw input text
- *  @param bool		$nospecial	Remove special characters if true
- *  @return string
- */
-function bland( string $text, bool $nospecial = false ) : string {
-	$text = \strip_tags( sanitize_spaces( $text ) );
-	
-	if ( $nospecial ) {
-		return \preg_replace( 
-			'/[^\p{L}\p{N}\-\s_]+/', '', \trim( $text ) 
-		);
-	}
-	return \trim( $text );
-}
-
-/**
  *  Find word or character count within a block of text
  *  
  *  @param string	$find	Raw text to match
@@ -15107,7 +15050,7 @@ function readingTime( string $text ) : int {
 	}
 	
 	// Remove tags and trim
-	$text	= bland( $text );
+	$text	= sanitize_bland( $text );
 	if ( empty( $text ) ) {
 		return 1;
 	}
@@ -15158,7 +15101,7 @@ function readingTime( string $text ) : int {
  */
 function searchData( string $find ) : string {
 	// Remove tags and trim
-	$find	= bland( $find );
+	$find	= sanitize_bland( $find );
 	if ( empty( $find ) ) {
 		return '';
 	}
@@ -15808,7 +15751,7 @@ function showTag( string $event, array $hook, array $params ) {
 		sendNotFound();
 	}
 	
-	$tag	= slugify( $params['tag'] );
+	$tag	= sanitize_slug( $params['tag'] );
 	$page	= ( int ) ( $params['page'] ?? 1 );
 	$prefix	= 
 	slashPath( pageRoutePath( 'tagview', 'tags' ), true ) . $tag . '/';
