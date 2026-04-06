@@ -1287,7 +1287,7 @@ function error_page() : void {
  *  
  *  @param Throwable	$e	Generic capture
  */
-function error_handle( Throwable $e ) : void {
+function error_handle( \Throwable $e ) : void {
 	static $handling	= false;
 	$class			= \get_class( $e );
 	
@@ -1319,9 +1319,8 @@ function error_handle( Throwable $e ) : void {
 }
 
 
-
 /**
- *  Helpers
+ *  Utilities
  */
 
 /**
@@ -1487,10 +1486,6 @@ function util_json_decode( array|string $data, int $depth = 10 ) : array {
 	
 	// Since PHP 8.3+
 	if ( !\json_validate( $json ) ) { return []; }
-	if ( empty( $data ) ) { return []; }
-	
-	// Since PHP 8.3+
-	if ( !\json_validate( $json ) ) { return []; }
 	
 	$depth	= util_int_range( $depth, 1, 50 );
 	$out	= 
@@ -1499,13 +1494,8 @@ function util_json_decode( array|string $data, int $depth = 10 ) : array {
 		\JSON_BIGINT_AS_STRING
 	);
 	
-	if ( \json_last_error() !== \JSON_ERROR_NONE ) {
-		return [];
-	}
-	
-	if ( empty( $out ) || false === $out ) {
-		return [];
-	}
+	if ( \json_last_error() !== \JSON_ERROR_NONE ) { return []; }
+	if ( empty( $out ) || false === $out ) { return []; }
 	
 	return $out;
 }
@@ -1529,7 +1519,7 @@ function util_json_array(
 			: $json;
 	}
 	
-	$data = \util_json_decode( $json, $depth );
+	$data	= \util_json_decode( $json, $depth );
 	return $values ? \array_values( $data ) : $data;
 }
 
@@ -1549,7 +1539,7 @@ function util_gen_key( int $len = 16, ?string $prefix = null ) : string {
 /**
  *  Generate globally unique identifier
  *  
- *  @param string	$mode	UUID mode, defaults to v7
+ *  @param string	$mode	UUID mode, defaults to sortable v7
  *  @return string
  */
 function util_gen_uuid( ?string $mode = null ) : string {
@@ -1789,11 +1779,12 @@ function util_array_to_query( array $query ) : string {
 		if ( '' === $key ) { continue; }
 		
 		foreach ( ( array ) $value as $v ) {
-			$parts[] = \urlencode( $key ) . '=' . \urlencode( $v ?? '' );
+			$parts[] = 
+			\urlencode( $key ) . '=' . \urlencode( $v ?? '' );
 		}
 	}
 	
-	return implode('&', $parts);
+	return implode( '&', $parts );
 }
 
 /**
@@ -1863,7 +1854,7 @@ function util_has_overlapping_ranges( array $ranges ) : bool {
 /**
  *  Convert timestamp to int if it's not in integer format
  *  
- *  @return mixed
+ *  @return int
  */
 function util_time_string_int( $stamp = null ) : int {
 	if ( empty( $stamp ) ) { return null; }
@@ -1872,11 +1863,7 @@ function util_time_string_int( $stamp = null ) : int {
 		return ( int ) $stamp;
 	}
 	
-	$st =  \ltrim( 
-		\preg_replace( '/[^0-9\/]+/', '', $stamp ), 
-		'/' 
-	);
-	
+	$st = \ltrim( \preg_replace( '/[^0-9\/]+/', '', $stamp ), '/' );
 	return \strtotime( empty( $st ) ? 'now' : $st );
 }
 
@@ -1929,9 +1916,7 @@ function util_lib_version( string $spec, ?string $lib ) : bool {
 	// Empty library? Check PHP
 	if ( empty( $lib ) ) {
 		return 
-		\version_compare( 
-			\rtrim( \PHP_VERSION, '.0' ), $spec, '>=' 
-		);
+		\version_compare( \rtrim( \PHP_VERSION, '.0' ), $spec, '>=' );
 	}
 	
 	// Currently running extensions
@@ -1944,14 +1929,10 @@ function util_lib_version( string $spec, ?string $lib ) : bool {
 			$lv = \phpversion( $e );
 			
 			// Error getting version?
-			if ( false === $lv ) {
-				return false;
-			}
+			if ( false === $lv ) { return false; }
 			
 			return 
-			\version_compare( 
-				\rtrim( $lv, '.0' ), $spec, '>=' 
-			);
+			\version_compare( \rtrim( $lv, '.0' ), $spec, '>=' );
 		}
 	}
 	
@@ -1998,7 +1979,7 @@ function util_missing( $func ) : bool {
 
 
 /**
- * Sanitizing and Filtering
+ *  Sanitizing and Filtering
  */
 
 /**
@@ -2038,10 +2019,7 @@ function sanitize_filter(
 	
 	// Convert Unicode character entities?
 	if ( $entities ) {
-		$html	= 
-		\mb_convert_encoding( 
-			$html, 'HTML-ENTITIES', 'UTF-8' 
-		);
+		$html	= \mb_convert_encoding( $html, 'HTML-ENTITIES', 'UTF-8' );
 	}
 	
 	return \trim( $html );
@@ -2053,6 +2031,7 @@ function sanitize_filter(
  *  @param string	$v	Raw text to turn to HTML entities
  *  @param bool		$quotes	Convert quotes (defaults to true)
  *  @param bool		$spaces	Convert spaces to "&nbsp;*" (defaults to true)
+ *  @param bool		$html	HTML Block
  *  @return string
  */
 function sanitize_escape_text(
@@ -2235,12 +2214,15 @@ function sanitize_urldecode( string $url, int $limit = 10 ) : ?string {
  *  @param bool		$lower_keys	Make array keys lowercase, if true
  *  @return mixed
  */
-function sanitize_query( bool $parsed = true, bool $lower_keys = false ) : string|array {
+function sanitize_query( 
+	bool	$parsed		= true, 
+	bool	$lower_keys	= false 
+) : string|array {
 	static $query;
 	static $result;
 	static $result_lower;
 	
-	$query ??= $_SERVER['QUERY_STRING'] ?? '';
+	$query	??= $_SERVER['QUERY_STRING'] ?? '';
 	
 	if ( $parsed && isset( $result ) ) {
 		return $lower_keys ? $result_lower : $result;
@@ -2375,12 +2357,14 @@ function sanitize_normalize_fmode( string $mode ) : ?string  {
  *  @param string	$br		Preserve line breaks
  *  @return string
  */
-function sanitize_spaces( string $text, string $rpl = ' ', bool $br = false ) : string {
-	return $br ?
-		\preg_replace( 
-			'/[ \t\v\f]+/', $rpl, sanitize_filter( $text ) 
-		) : 
-		\preg_replace( '/[[:space:]]+/', $rpl, sanitize_filter( $text ) );
+function sanitize_spaces( 
+	string	$text, 
+	string	$rpl	= ' ', 
+	bool	$br	= false 
+) : string {
+	return $br 
+		? \preg_replace( '/[ \t\v\f]+/', $rpl, sanitize_filter( $text ) ) 
+		: \preg_replace( '/[[:space:]]+/', $rpl, sanitize_filter( $text ) );
 }
 
 /**
@@ -2435,7 +2419,13 @@ function sanitize_bland( string $text, bool $nospecial = false ) : string {
  */
 function sanitize_xml( string $text ) : string {
 	$text	= sanitize_filter( $text );
-	return \htmlspecialchars( $text, ENT_XML1 | ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8' );
+	if ( '' === $text ) { return ''; }
+	
+	return \htmlspecialchars( 
+		$text, 
+		ENT_XML1 | ENT_QUOTES | ENT_SUBSTITUTE, 
+		'UTF-8' 
+	);
 }
 
 /**
@@ -2601,7 +2591,8 @@ function sanitize_attribute(
 		}
 	}
 	
-	$sanitizer	= match( true ) {
+	$sanitizer	= 
+	match( true ) {
 		isset( $rule['filter'] ) && defined( $rule['filter'] ) 
 			=> function( $v ) use ( $rule ) {
 				$filter		= \constant( $rule['filter'] );
@@ -3268,7 +3259,7 @@ function storage_write_file( string $path, string $data ) : bool {
 	$id		= storage_get_id();
 	$tmp_file	= 
 	$path . '.' . $id . '.' . 
-	\bin2hex( \random_bytes( 4 ) ) . $options['tmp_ext'];
+		\bin2hex( \random_bytes( 4 ) ) . $options['tmp_ext'];
 	
 	$lock_handle	= storage_lock_file( $lock_file, 'c+' );
 	if ( !$lock_handle ) {
@@ -3392,14 +3383,13 @@ function log_file_valid( string $path ) : bool {
  *  Remove stale log files rotated into archives
  *  
  *  @param string	$log_file	Base log file, rotated
- *  @param int		$log_exp	Default expiration
  */
 function log_cleanup( string $log_file ) : void {
 	static $ret;
 	
 	$ret	??= 
-	defined( 'LOG_MAX_RETENTION' )
-		? LOG_MAX_RETENTION
+	defined( 'LOG_MAX_RETENTION' ) 
+		? LOG_MAX_RETENTION 
 		: 7;
 	
 	$files		= \glob( $log_file . '.*.log' );
@@ -3407,9 +3397,7 @@ function log_cleanup( string $log_file ) : void {
 	
 	$threshold	= time() - ( $ret * 86400 );
 	foreach ( $files as $old ) {
-		if ( !\is_file( $old ) || !\is_writable( $old ) ) {
-			continue;
-		}
+		if ( !\is_file( $old ) || !\is_writable( $old ) ) { continue; }
 		
 		$mtime = \filemtime( $old );
 		if ( !$mtime ) { continue; }
@@ -3425,8 +3413,7 @@ function log_cleanup( string $log_file ) : void {
 /**
  *  Rotate given log file
  *  
- *  @param string	$log_file	Target log file location on disk
- *  @param int		$log_max	Fallback maximum log size
+ *  @param string $log_file Target log file location on disk
  */
 function log_rotate( string $log_file ) : void {
 	static $max_size;
@@ -3509,10 +3496,13 @@ function log_message_write( ?array $pair = null ) : void {
  */
 function log_format( string $msg, string $level = 'INFO' ) : string {
 	$id		= log_get_id();
-	$script		= \basename( $_SERVER['SCRIPT_NAME'] ?? 'unknown' );
 	$timestamp	= util_timestamp();
 	
-	$entry			= <<<MSG
+	$script		= 
+	sanitize_spaces( \basename( $_SERVER['SCRIPT_NAME'] ?? 'unknown' ) );
+	
+	$msg		= sanitize_spaces( $msg );
+	$entry		= <<<MSG
 [{$timestamp}] [ID:{$id}] [{$script}] [{$label}]
 {$msg}
 
@@ -3528,10 +3518,10 @@ MSG;
  *  @param string		$level		Logging level
  *  @param string		$file		Optional log file location, defaults to log_file()
  */
-function log_msg( 
-	string|array	$context, 
-	string		$level		= 'INFO', 
-	?string		$file		= null 
+function log_msg(
+	string|array	$context,
+	string		$level		= 'INFO',
+	?string		$file		= null
 ) : void {
 	if ( empty( log_check_level( $level ) ) ) {
 		return;
@@ -3544,7 +3534,7 @@ function log_msg(
 			\JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE
 		);
 		
-		// Since PHP 8.3 
+		// Since PHP 8.3
 		if ( !\json_validate( $msg ) ) {
 			\error_log( "Invalid JSON generated for log context" );
 			return;
@@ -3678,12 +3668,15 @@ function request_method() : string {
 	$supported	= 
 	[ 'get', 'post', 'put', 'delete', 'patch', 'options', 'head' ];
 	
-	$method		= 
+	$temp		= 
 	\strtolower( \trim( $_SERVER['REQUEST_METHOD'] ?? '' ) );
 	
-	return \in_array( $method, $valid, true ) 
-		? $method 
+	$method		= 
+	\in_array( $temp, $valid, true ) 
+		? $temp 
 		: 'unsupported';
+	
+	return $method;
 }
 
 /**
@@ -4031,7 +4024,8 @@ function request_url() : string {
 		? util_array_to_query( $query ) 
 		: ( string ) $query;
 	
-	return request_origin() . '/' . $uri .  ( '' === $query ? '' : "?{$query}" );
+	return request_origin() . '/' . 
+		$uri .  ( '' === $query ? '' : "?{$query}" );
 }
 
 /**
@@ -4073,7 +4067,7 @@ function request_modified_since() : ?int {
 	$header		= $_SERVER['HTTP_IF_MODIFIED_SINCE'] ?? null;
 	if ( !$header ) { return null; }
 	
-	$since	= \strtotime( $header ) ?: null;
+	$since		= \strtotime( $header ) ?: null;
 	return $since;
 }
 
