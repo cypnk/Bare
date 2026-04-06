@@ -4347,7 +4347,7 @@ function response_send_headers(
  *  @return string
  */
 function response_generate_etag( int $size, int $mtime ) : string {
-	$raw = \hash( 'sha256', $size . '-' . $mtime );
+	$raw = \sprintf( '%x-%x', $mtime, $size );
 	return "\"{$raw}\"";
 }
 
