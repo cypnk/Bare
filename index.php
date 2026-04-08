@@ -4237,8 +4237,8 @@ function response_status( int $code, ?array $allow = null ) : void {
 			) );
 			\header( "Allow: {$vals}" );
 		}
+		
 		return;
-	
 	} 
 	
 	// Special cases
@@ -4269,12 +4269,12 @@ function response_ignore_user_abort() : void {
 	
 	if ( !\ignore_user_abort() ) {
 		\ignore_user_abort( true );
-	}		
+	}
 	$ignore		= true;
 }
 
 /**
- *  Putput response header helper
+ *  Output response header helper
  *  
  *  @param array	$headers	Set headers
  *  @param bool		$ct_sent	Flag true if output is set via 'Content-Type'
@@ -4391,6 +4391,7 @@ function response_check_not_modified(
 			response_status( 304 );
 			return true;
 		}
+		
 		if ( 1 === count( $tags ) && '*' === $tags[0] ) {
 			response_status( 304 );
 			return true;
@@ -4445,25 +4446,25 @@ function response_get_meta_cache( string $fpath ) : array|null {
 		$data		= \file_get_contents( $fcache );
 		if ( false === $data ) { return null; }
 		
-		$meta		= 
-		\json_decode( 
+		$meta		=
+		\json_decode(
 			$data, true, 2, 
-				\JSON_UNESCAPED_SLASHES | 
-				\JSON_INVALID_UTF8_IGNORE |
-				\JSON_THROW_ON_ERROR 
+				\JSON_UNESCAPED_SLASHES		| 
+				\JSON_INVALID_UTF8_IGNORE	| 
+				\JSON_THROW_ON_ERROR
 		);
 		
 		if ( !\is_array( $meta ) ) { return null; }
 		
-		$curr_mtime	= response_filemtime( $fpath );
-		$curr_size	= response_file_size( $fpath );
+		$curr_mtime	= storage_filemtime( $fpath );
+		$curr_size	= storage_filesize( $fpath );
 		
 	} catch ( \Throwable $e ) {
-		log_msg( "Meta cache error: {$e->getMessage()}", 'ERROR' );
+		log_error( "Meta cache error: {$e->getMessage()}" );
 		return null;
 	}
 	
-	if ( 
+	if (
 		$meta['mtime']		=== $curr_mtime && 
 		$meta['content_length']	=== $curr_size
 	) {
@@ -4494,12 +4495,13 @@ function response_save_meta_cache( string $fpath, array $meta ) : void {
 			throw new 
 			\RuntimeException( "Failed to write temp cache file" );
 		}
+		
 		if ( !\rename( $tmp, $fcache ) ) {
 			throw new 
-			\RuntimeException("Failed to replace cache file");
+			\RuntimeException( "Failed to replace cache file" );
 		}
 	} catch ( \Throwable $e ) {
-		log_msg( "Meta cache error: {$e->getMessage()}", 'ERROR' );
+		log_error( "Meta cache error: {$e->getMessage()}" );
 	}
 }
 
@@ -4559,9 +4561,9 @@ function response_file_metadata( string $path ) : array {
  *  @param bool		$stype		Include sending 'Content-Type'
  *  @return array
  */
-function response_file_headers( 
-	string	$fpath, 
-	bool	$wetag	= false, 
+function response_file_headers(
+	string	$fpath,
+	bool	$wetag	= false,
 	bool	$size	= true,
 	bool	$stype	= true
 ) : array {
@@ -4590,11 +4592,11 @@ function response_file_headers(
  *  @param string	$fpath		Location on disk
  *  @param bool		$download	Force download if true
  */
-function response_file_stream( 
-	array	$meta, 
-		&$handle, 
-	string	$fpath, 
-	bool	$download	= false 
+function response_file_stream(
+	array	$meta,
+		&$handle,
+	string	$fpath,
+	bool	$download	= false
 ) : void {
 	$headers	= [ "Accept-Ranges" => "bytes" ];
 	
@@ -4604,13 +4606,15 @@ function response_file_stream(
 	}
 	
 	$headers	= 
-	\array_merge( 
+	\array_merge(
 		$headers, 
 		response_file_headers( $fpath, false, true, true ) 
 	);
 	
 	response_status( 200 );
 	response_send_headers( $headers );
+	
+	// Dump binary as-is, if minimum streaming size is not met
 	if ( $meta['content_length'] <= 65536 ) {
 		\readfile( $handle );
 	} else {
@@ -4631,13 +4635,13 @@ function response_file_stream(
  *  @param string	$fpath		Location on disk
  *  @param array	$ranges		List of streaming ranges in [ start, end ] format
  */
-function response_file_range( 
-	array	$meta, 
-		&$handle, 
-	string	$fpath, 
-	array	$ranges 
+function response_file_range(
+	array	$meta,
+		&$handle,
+	string	$fpath,
+	array	$ranges
 ) : void {
-	$boundary	= \bin2hex( \random_bytes( 6 ) );	
+	$boundary	= \bin2hex( \random_bytes( 6 ) );
 	$headers	= 
 	\array_merge( [
 		"Content-Type"	=> "multipart/byteranges; boundary={$boundary}",
@@ -4660,12 +4664,17 @@ function response_file_range(
 		$length	= $end - $start + 1;
 		$chunk	= $length;
 		
-		echo "--{$boundary}\r\n";
-		echo "Content-Type: {$meta['content_type']}\r\n";
-		echo "Content-Length: {$length}\r\n";
-		echo "Content-Range: bytes {$start}-{$end}/{$meta['content_length']}\r\n\r\n";
+		$header	= 
+		"--{$boundary}\r\n" . 
+		"Content-Type: {$meta['content_type']}\r\n" . 
+		"Content-Length: {$length}\r\n" . 
+		"Content-Range: bytes {$start}-{$end}/{$meta['content_length']}\r\n\r\n";
 		
 		\fseek( $handle, $start );
+		
+		echo $header;
+		\flush();
+		
 		while( $chunk > 0 && !\feof( $handle ) ) {
 			if ( \connection_aborted() ) {
 				break;
@@ -4720,7 +4729,7 @@ function response_file(
 			response_file_stream( $meta, $handle, $fpath, $download );
 		}
 	} catch( \Throwable $e ) {
-		log_msg( "File response error: {$e->getMessage()}", 'ERROR' );
+		log_error( "File response error: {$e->getMessage()}" );
 		response_status( 500 );
 		echo "File response error";
 	} finally {
@@ -4780,6 +4789,7 @@ function response( int $code, array $headers = [], $body = null ) : void {
 	
 	response_status( $code );
 	response_headers( $headers, $ct_sent, $lo_sent );
+	
 	if ( null !== $body && !$is_redir) {
 		response_body( $body, $ct_sent );
 	}
@@ -4829,10 +4839,10 @@ function response_options( array $headers = [] ) : void {
  *  @param string	$xml	Raw XML content
  *  @param int		$status	HTTP status code
  */
-function response_xml( 
-	string	$xml, 
+function response_xml(
+	string	$xml,
 	int	$status		= 200,
-	string	$type		= 'application/xml', 
+	string	$type		= 'application/xml',
 	array	$headers	= []
 ) : void {
 	$headers = \array_replace_recursive( $headers, response_xmlrpc_headers() );
@@ -4858,7 +4868,11 @@ function response_xml(
  *  @param bool		$is_dir		Constant is a directory location, if true
  *  @return string
  */
-function config_core_path( string $constant, string $name, bool $is_dir = false ) : string {
+function config_core_path( 
+	string	$constant, 
+	string	$name, 
+	bool	$is_dir		= false 
+) : string {
 	$path	= 
 	defined( $constant ) 
 		? constant( $constant ) 
@@ -5054,7 +5068,7 @@ function config_parsed( ?array $new_settings = null ) : array {
 		$reg = true;
 		if ( empty( $settings ) ) {
 			$settings = 
-			config_expand_constants( 
+			config_expand_constants(
 				config_load_json( config_file() ), true
 			);
 		}
@@ -5067,7 +5081,6 @@ function config_parsed( ?array $new_settings = null ) : array {
 			config_save( null, $user );
 		} );
 	}
-	
 	
 	if ( null === $new_settings ) {
 		return $settings;
@@ -5086,7 +5099,10 @@ function config_parsed( ?array $new_settings = null ) : array {
  *  @param string	$modified_by	Modification source, defaults to 'system'
  *  @return bool			True on success
  */
-function config_save( ?array $settings = null, string $modified_by = 'system' ) : bool {
+function config_save( 
+	?array	$settings	= null, 
+	string	$modified_by	= 'system' 
+) : bool {
 	$settings		??= config_parsed();
 	$settings['_meta']	= [
 		'last_saved'	=> date( 'c' ),
@@ -5115,7 +5131,7 @@ function config_save( ?array $settings = null, string $modified_by = 'system' ) 
  *  Helper to change a single configuration setting in the root config
  *  
  *  @param string	$key	Main configuration key
- *  @param bool		$value	New replaement 
+ *  @param bool		$value	New replaement
  */
 function config_edit( string $key, mixed $value ) : void {
 	config_parsed( [ $key => $value ] );
@@ -5183,7 +5199,7 @@ function config_lines( array $lines, bool $un = false, $filter = null ) : array 
  *  @param mixed	$value		Base configuration value
  *  @param string	$type		Format data type
  *  @param mixed	$filter		Optional filter
- *  @param 
+ *  @return mixed
  */
 function config_value_format( mixed $value, string $type, $filter = null ) : mixed {
 	if ( \is_array( $value ) ) {
@@ -5263,13 +5279,6 @@ function config_edit_db_profile( string $profile, array $updates ) : void {
 	\array_replace_recursive( $profiles[$profile] ?? [], $updates );
 	
 	config_parsed( [ 'db_profiles' => $profiles ] );
-}
-
-/**
- *  @deprecated
- */
-function setting( string $name, $default, string $type, string $filter = '' ) {
-	return config( $name, $default, $type, $filter );
 }
 
 
@@ -5370,8 +5379,8 @@ function entry_meta( string $line, array &$meta ) : bool {
  *  @return array
  */
 function entry_import( string $path ) : ?array {
-	if ( !\is_file( $path ) || !\is_readable( $path ) ) { 
-		return null; 
+	if ( !\is_file( $path ) || !\is_readable( $path ) ) {
+		return null;
 	}
 	
 	$raw	= \file( $path, \FILE_IGNORE_NEW_LINES );
@@ -5399,7 +5408,7 @@ function entry_import( string $path ) : ?array {
 	}
 	
 	// Bottom metadata
-	$cut = $rcount;
+	$cut	= $rcount;
 	for ( $i = $rcount - 1; $i >= 0; $i-- ) {
 		$line	= \trim( $raw[$i] );
 		if ( '' === $line ) { continue; }
@@ -5465,6 +5474,7 @@ function entry_index( string $dir, int $page, int $limit ) : array {
 		'total_pages'	=> $pcount,
 	];
 }
+
 
 /**
  *  Templates and rendering
@@ -5582,7 +5592,10 @@ function template_interpolate( string $template, array $vars ) : string {
 	\ksort( $normal );
 	
 	$key		= 
-	\sha1( $template . \json_encode( $normal, \JSON_UNESCAPED_UNICODE ) );
+	\hash( 
+		'sha1', 
+		$template . \json_encode( $normal, \JSON_UNESCAPED_UNICODE ) 
+	);
 	
 	if ( isset( $cache[$key] ) ) { return $cache[$key]; }
 
@@ -5803,7 +5816,7 @@ function template_logic_group(
  *  
  *  @param string	$path	Relative path for loading template
  *  @param string	$theme	Optional theme directory, relative to '/themes/'
- *  @param string	$root	Optional template root, 
+ *  @param string	$root	Optional template root,
  *  				defaults to '/views/' relative to TEMPLATE_DIR or __DIR__
  *  @return string
  */
@@ -5820,7 +5833,7 @@ function template_load(
 	\strtolower( \pathinfo( $path, \PATHINFO_EXTENSION ) ?: 'na' );
 	
 	if ( !\in_array( $ext, $allowed, true ) ) {
-		log_msg( "Disallowed template extension: {$ext}", 'ERROR' );
+		log_error( "Disallowed template extension: {$ext}" );
 		
 		throw new 
 		\RuntimeException( "Invalid template type" );
@@ -5831,15 +5844,15 @@ function template_load(
 		? TEMPLATE_DIR
 		: __DIR__;
 	
-	$base		= 
-	\realpath( $dir . ( 
-		null === $root 
-			? '/views/' 
-			: '/' . \trim( $root, '/' ) 
-	) );
+	$vdir		= 
+	( null === $root ) 
+		? '/views/' 
+		: '/' . \trim( $root, '/' );
+	
+	$base		= \realpath( $dir . $vdir );
 	
 	if ( !$base ) {
-		log_msg( "Invalid base path: {$root}", 'ERROR' );
+		log_error( "Invalid base path: {$base}" );
 		
 		throw new 
 		\RuntimeException( "Template base path not found" );
@@ -5850,7 +5863,7 @@ function template_load(
 	$relative	= \preg_replace( '#/+#', '/', $relative ); // Duplicate slash fix
 	
 	if ( \str_contains( $relative, '..' ) ) { // No traversal
-		log_msg( "Suspicious template path: {$path}", 'ERROR' );
+		log_error( "Suspicious template path: {$path}" );
 		
 		throw new 
 		\RuntimeException( "Invalid template path" );
@@ -5858,14 +5871,14 @@ function template_load(
 
 	$full	= \realpath( $base . '/' . $relative );
 	if ( !$full || 0 !== \stripos( $full, $base ) ) {
-		log_msg( "Template path traversal attempt: {$path}", 'ERROR' );
+		log_error( "Template path traversal attempt: {$path}" );
 		
 		throw new 
 		\RuntimeException( "Invalid template path" );
 	}
 
 	if ( !\is_readable( $full ) ) {
-		log_msg( "Template not found: {$path}", 'ERROR' );
+		log_error( "Template not found: {$path}" );
 		
 		throw new 
 		\RuntimeException( "Template not readable" );
@@ -5873,13 +5886,13 @@ function template_load(
 
 	$info	= $cache[$full] ??= \file_get_contents( $full );
 	if ( false === $info ) {
-		log_msg( "Failed to read template: {$path}", 'ERROR' );
+		log_error( "Failed to read template: {$path}" );
 		
 		throw new 
 		\RuntimeException( "Failed to read template" );
 	}
 
-	log_msg( "Loaded template: {$full}", 'DEBUG' );
+	log_debug( "Loaded template: {$full}" );
 	return $info;
 }
 
@@ -5890,22 +5903,23 @@ function template_load(
  *  @param bool		$depth		Maximum include depth, defaults to 5
  *  @return string
  */
-function template_partials( 
-	string	$template, 
-	array	$vars		= [], 
+function template_partials(
+	string	$template,
+	
+	array	$vars		= [],
 	int	$depth		= 0,
-	array	$seen		= [] 
+	array	$seen		= []
 ) : string {
 	$max_depth	= 5;
 	if ( $depth > $max_depth ) {
-		log_msg( "Max template include depth exceeded", 'WARN' );
+		log_warn( "Max template include depth exceeded" );
 		return $template;
 	}
 	
 	$includes	=  template_get_includes( $template );
 	if ( empty( $includes ) ) {
-		return template_interpolate( 
-			$template, 
+		return template_interpolate(
+			$template,
 			template_get_placeholders( $vars )
 		);
 	}
@@ -5913,7 +5927,7 @@ function template_partials(
 	$partials	= [];
 	foreach ( $includes as $key ) {
 		if ( \in_array( $key, $seen, true ) ) {
-			log_msg( "Circular include detected {$key}", 'WARN' );
+			log_warn( "Circular include detected {$key}" );
 			continue;
 		}
 		
@@ -5930,7 +5944,7 @@ function template_partials(
 			);
 			
 		} catch ( \Throwable $e ) {
-			log_msg( "Partial not loaded: {$key}: {$e->getMessage()}", 'WARN' );
+			log_warn( "Partial not loaded: {$key}: {$e->getMessage()}" );
 			$partials["{{include:{$key}}}"]	= '';
 		}
 	}
@@ -6011,7 +6025,7 @@ function template_resolve_nodes(
 		$params['context'] = $context;
 		
 		if ( !$resolver ) {
-			log_msg( "No resolver found for node type: {$type}", 'WARN' );
+			log_warn( "No resolver found for node type: {$type}" );
 			
 			// Swap placeholder with error message
 			$content	= 
@@ -6027,15 +6041,11 @@ function template_resolve_nodes(
 				] );
 				
 				if ( null === $content ) {
-					log_msg( "Resolver output failed for type: {$type}", 'WARN' );
+					log_warn( "Resolver output failed for type: {$type}" );
 					$content = "<!-- Unknown node type: {$type} -->";
 				}
 			} catch ( \Throwable $e ) {
-				$msg	= 
-				"Node resolver error for '{$type}': {$e->getMessage()}";
-				
-				log_msg( $msg, 'WARN' );
-				
+				log_warn( "Node resolver error for '{$type}': {$e->getMessage()}" );
 				$content	= 
 				"<!-- Error rendering node: {$type} -->";	
 			}
@@ -6055,14 +6065,14 @@ function template_resolve_nodes(
  *  @param bool		$case_flag	Case sensitivity flag, defaults to false (sensitive)
  *  @return string
  */
-function template_conditionals( 
-	string	$template, 
-	array	$context, 
-	bool	$case_flag	= false 
+function template_conditionals(
+	string	$template,
+	array	$context,
+	bool	$case_flag	= false
 ) : string {
 	$patterns = template_patterns();
-	\preg_match_all( 
-		$patterns['ifelse'], $template, $matches, \PREG_SET_ORDER 
+	\preg_match_all(
+		$patterns['ifelse'], $template, $matches, \PREG_SET_ORDER
 	);
 	
 	foreach ( $matches as $match ) {
@@ -6077,24 +6087,24 @@ function template_conditionals(
 		if ( template_logic_group( $condition, $context, $case_flag ) ) {
 			$replacement	= 
 			template_parse( $if_content, $context, $case_flag );
-		} elseif ( 
+		} elseif (
 			$elseif_condition && template_logic_group(
 				$elseif_condition, $context, $case_flag
-			) 
+			)
 		) {
 			$replacement	= 
 			template_parse( $elseif_content, $context, $case_flag );
 		} elseif ( !empty( $else_content ) ) {
 			$replacement	= 
-			template_parse( 
-				$else_content, $context, $case_flag 
+			template_parse(
+				$else_content, $context, $case_flag
 			);
 		}
 		
 		$template	= \str_replace( $match[0], $replacement, $template );
-    }
-
-    return $template;
+	}
+	
+	return $template;
 }
 
 /**
@@ -6172,6 +6182,15 @@ function template_parse(
 	return $template;
 }
 
+/**
+ *  Load predefined static template from constant
+ *  
+ *  @return array
+ */
+function template_load_static() : array {
+	// TODO
+	return [];
+}
 
 /**
  *  Store and send rendering templates
@@ -6187,6 +6206,11 @@ function template( string $label, array $reg = [] ) : string {
 	// New templates? Append to current store
 	if ( !empty( $reg ) ) {
 		$tpl = \array_merge( $tpl, $reg );
+	}
+	
+	// Preload static templates
+	if ( empty( $tpl ) ) {
+		$tpl = template_load_static();
 	}
 	
 	return $tpl[$label] ?? '';
@@ -6377,7 +6401,7 @@ function view_render( string $layout, array $vars = [] ) : string {
 
 
 /**
- * Routing and paths
+ *  Routing and paths
  */
 
 /**
@@ -6424,6 +6448,7 @@ function route_patterns( ?array $new_patterns = null ) : array {
 		'email'		=> '[^@]+@[^@]+\.[^/]+',
 		'ip'		=> '\d{1,3}(\.\d{1,3}){3}',
 		'id'		=> '[1-9][0-9]{1,24}',
+		'page'		=> '[1-9][0-9]{0,3}',
 		'alnum'		=> '[a-zA-Z0-9]+',
 		'file'		=> '[^/]+\.[a-zA-Z0-9]+',
 		'lang'		=> '[a-z]{2,3}(-[A-Z]{2,8})?'
@@ -6435,8 +6460,8 @@ function route_patterns( ?array $new_patterns = null ) : array {
 			$test	= @\preg_match( "~^{$esc}~", '' );
 			if ( false === $test ) {
 				throw new 
-				\InvalidArgumentException( 
-					"Invalid regex pattern for type '{$name}'" 
+				\InvalidArgumentException(
+					"Invalid regex pattern for type '{$name}'"
 				);
 			}
 		}
@@ -6685,15 +6710,15 @@ function route( array $routes, string $uri, string $method ) : mixed {
 		$regex		= route_compile( $pattern );
 		if ( !\preg_match( $regex, $path, $m ) ) { continue; }
 		
-		$params		= 
+		$params		=
 		\array_filter(
-			$m, 
-			fn( $key ) => !\is_int( $key ), 
+			$m,
+			fn( $key ) => !\is_int( $key ),
 			\ARRAY_FILTER_USE_KEY
 		);
 		
-		$ref	= new ReflectionFunction( $handler );
-		return ( $ref->getNumberOfParameters() === 0 ) 
+		$ref	= new \ReflectionFunction( $handler );
+		return ( $ref->getNumberOfParameters() === 0 )
 			? $handler()
 			: $handler( route_cast_param( $pattern, $params ) );
 	}
@@ -6715,18 +6740,18 @@ class Plugin {
 	/**
 	 *  Main constructor
 	 *  
-	 *  @param string	$name		Unique plugin name
-	 *  @param string	$description	Brief plugin description
-	 *  @param int		$priority	Initialization order, higher = earlier
-	 *  @param stirng	$asset_dir	Files being served to the client
-	 *  @param string	$data_dir	Writable storage directory
+	 *  @param string		$name		Unique plugin name
+	 *  @param string		$description	Brief plugin description
+	 *  @param int			$priority	Initialization order, higher = earlier
+	 *  @param stirng|callable	$asset_dir	Files being served to the client
+	 *  @param string|callable	$data_dir	Writable storage directory
 	 */
 	public function __construct(
-		public readonly string	$name,
-		public readonly string	$description	= '',
-		public int		$priority	= 0,
-		public readonly string	$asset_dir	= __DIR__ . '/assets/',
-		public readonly string	$data_dir	= PLUGIN_DATA
+		public readonly string		$name,
+		public readonly string		$description	= '',
+		public int			$priority	= 0,
+		public readonly string|callable	$asset_dir	= PLUGIN_ASSET_DIR,
+		public readonly string|callable	$data_dir	= PLUGIN_DATA_DIR
 	) {}
 }
 
@@ -6749,6 +6774,7 @@ function plugin_autoload() : array {
 	
 	$files		=  \glob( $dir . '*/plugin.php' );
 	if ( empty( $files ) ) { return []; }
+	
 	foreach ( $files as $plugin ) {
 		$base	= \basename( \dirname( $plugin ) );
 		if ( \in_array( $base, $pl  ) ) {
@@ -6765,16 +6791,16 @@ function plugin_autoload() : array {
 		// Can't initialize? skip
 		if ( !\is_callable( $fn ) ) { continue; }
 		
-		$ref	= new ReflectionFunction( $fn );
+		$ref	= new \ReflectionFunction( $fn );
 		$attrs	= $ref->getAttributes( Plugin::class );
 		
 		foreach ( $attrs as $attr ) {
-			$meta	= $attr->newInstance(); 
+			$meta	= $attr->newInstance();
 			$name	= sanitize_spaces( sanitize_escape_text( $meta->name ) );
 			
 			// Duplicate plugin name?
 			if ( isset( $plugins[$name] ) ) {
-				\error_log( "Plugin {$name} already exists" );
+				log_error( "Plugin {$name} already exists" );
 				continue;
 			}
 			
@@ -6786,9 +6812,9 @@ function plugin_autoload() : array {
 	}
 	
 	// Sort by init order
-	\uasort( 
-		$plugins, 
-		fn( $a, $b ) => $a['meta']->priority <=> $b['meta']->priority 
+	\uasort(
+		$plugins,
+		fn( $a, $b ) => $a['meta']->priority <=> $b['meta']->priority
 	);
 	
 	return $plugins;
@@ -6809,7 +6835,7 @@ function plugin_init( bool $run = true ) : void {
 	foreach ( $plugins as $plugin ) {
 		$fn	= $plugin['handler'];
 		$meta	= $plugin['meta'];
-		$ref	= new ReflectionFunction( $fn );
+		$ref	= new \ReflectionFunction( $fn );
 		
 		try {
 			// Pass metadata, if it's allowed
@@ -6818,9 +6844,9 @@ function plugin_init( bool $run = true ) : void {
 			} else { $fn(); }
 			
 		} catch( \Throwable $e ) {
-			\error_log( 
-				"Plugin {$meta->name} failed initialization: " . 
-				$e->getMessage() 
+			log_error(
+				"Plugin {$meta->name} failed initialization: " .
+				$e->getMessage()
 			);
 		}
 	}
@@ -6852,7 +6878,7 @@ class Hook {
  *  Consolidated hook system with execution priority and cumulative stored output
  *  
  *  @param string	$action		Switched behavior of the registry
- *  @param string	$name		Event name in full string or partial event.* 
+ *  @param string	$name		Event name in full string or partial event.*
  *  @param array	$args		Event arguments
  *  @return mixed
  */
@@ -7197,7 +7223,7 @@ function db_exec( \PDOStatement $stmt, array $params, string $context ) : bool {
 			? $stmt->execute( $params ) 
 			: $stmt->execute();
 		
-		log_msg( $context, 'DEBUG' );
+		log_debug( $context );
 		return $result;
 		
 	} catch( \Throwable $e ) {
@@ -7205,10 +7231,9 @@ function db_exec( \PDOStatement $stmt, array $params, string $context ) : bool {
 		$func	= $trace[1]['function']		?? 'global scope';
 		$file	= $trace[1]['file']		?? 'unknown file';
 		$line	= $trace[1]['line']		?? 'unknown line';
-		log_msg(
+		log_error(
 			"Error in db_exec: {$context} — {$e->getMessage()} " .
-			"called by {$func} on line {$line} in {$file}",
-			'ERROR'
+			"called by {$func} on line {$line} in {$file}"
 		);
 		
 		throw new 
@@ -7234,11 +7259,10 @@ function db_exec_batch( \PDO $dbh, string $sql, string $context = 'Batch SQL' ) 
 	} catch ( \PDOException $e ) {
 		$dbh->rollback();
 		
-		log_msg( 
+		log_error( 
 			"Batch execution failed for SQL " . 
 				\mb_substr( $sql, 0, 100 ) . 
-				": {$e->getMessage()}", 
-			'ERROR' 
+				": {$e->getMessage()}"
 		);
 		
 		throw new 
@@ -7254,7 +7278,7 @@ function db_get_property( \PDO $dbh, int $attribute, $default = null ) : mixed {
 		return ( false !== $value && null !== $value ) ? $value : $default;
 		
 	} catch ( \PDOException $e ) {
-		log_msg( "Failed to get PDO attribute {$attribute}: {$e->getMessage()}", 'WARN');
+		log_warn( "Failed to get PDO attribute {$attribute}: {$e->getMessage()}" );
 		return $default;
 	}
 }
@@ -7264,14 +7288,14 @@ function db_get_driver( \PDO $dbh ) : string {
 	
 	$driver = db_get_property( $dbh, \PDO::ATTR_DRIVER_NAME );
 	if ( null === $driver ) {
-		log_msg( "Unable to determine DB driver", 'WARN' );
+		log_warn( "Unable to determine DB driver" );
 		return 'unknown';
 	}
 	
 	if ( !\in_array( $driver, $supported, true ) ) {
-		log_msg( "Unsupported DB driver: {$driver}", 'WARN' );
+		log_warn( "Unsupported DB driver: {$driver}" );
 	}
-
+	
 	return \strtolower( $driver );
 }
 
@@ -7279,7 +7303,7 @@ function db_get_driver( \PDO $dbh ) : string {
  *  SQL Timestamps format helper for comparisons
  *  
  *  @param PDO		$dbh		PDO Database handle
- *  @return string			
+ *  @return string
  */
 function db_now_unix( \PDO $dbh, ?string $column = null ) : string {
 	$driver	= db_get_driver( $dbh );
@@ -7321,7 +7345,7 @@ function db_now_value( \PDO $dbh ) : string {
 
 function db_sql_now_diff( \PDO $dbh, string $column = 'last_run' ) : string {
 	$now	= db_now_unix( $dbh );
-	return \sprintf( "%s - %s", $now, $column);
+	return \sprintf( "%s - %s", $now, $column );
 }
 
 /**
@@ -7345,7 +7369,6 @@ function db_profile_info( \PDO $dbh, string $profile = 'main' ) : array {
 		throw new 
 		\InvalidArgumentException( "Unknown DB profile" );
 	}
-	
 	
 	// Gather connection metadata
 	return [
@@ -7417,14 +7440,14 @@ function db_get_options( array $settings ) : array {
  *  @param string	$ver		Schema version
  */
 function db_batch_schema(
-	\PDO		$dbh, 
+	\PDO		$dbh,
 	string		$schema,
-	string		$ver, 
+	string		$ver,
 	string		$comment	= 'Database initialization with base tables',
 	?string		$sql_file	= null
 ) : void {
 	static $sql	= 
-	"INSERT INTO schema_meta ( version, comments, created_at ) 	
+	"INSERT INTO schema_meta ( version, comments, created_at )
 		VALUES ( :version, :comment, CURRENT_TIMESTAMP )";
 	
 	$info		= \pathinfo( $schema );
@@ -7432,9 +7455,8 @@ function db_batch_schema(
 	$sql_file	= \realpath( $sql_file );
 	
 	if ( !$sql_file || !\is_readable( $sql_file ) ) {
-		log_msg( 
-			"Invalid schema file: {$sql_file} for database: {$schema}", 
-			'ERROR' 
+		log_error(
+			"Invalid schema file: {$sql_file} for database: {$schema}"
 		);
 		
 		throw new 
@@ -7446,11 +7468,10 @@ function db_batch_schema(
 		try {
 			$found		= @\file_get_contents( $sql_file );
 			if ( false !== $found ) { break; }
-		
+			
 		} catch ( \Throwable $e ) {
-			log_msg( 
-				"Error getting SQL data from {$sql_file}. Retrying", 
-				'ERROR' 
+			log_error(
+				"Error getting SQL data from {$sql_file}. Retrying"
 			);
 			
 			\usleep( 100000 );
@@ -7459,14 +7480,14 @@ function db_batch_schema(
 	}
 	
 	if ( false === $found ) {
-		log_msg( "Failed to read schema file: {$sql_file}", 'ERROR' );
+		log_error( "Failed to read schema file: {$sql_file}" );
 		
-		throw new 
+		throw new
 		\RuntimeException( "Unable to load schema file" );
 	}
 	
 	if ( empty( trim( $found ) ) ) {
-		log_msg( "Schema file is empty: {$sql_file}", 'ERROR' );
+		log_error( "Schema file is empty: {$sql_file}" );
 		
 		throw new 
 		\RuntimeException( "Schema file is empty" );
@@ -7483,13 +7504,13 @@ function db_batch_schema(
 		
 		$dbh->commit();
 		
-		 
 	} catch( \Throwable $e ) {
 		$dbh->rollback();
-		log_msg( 
-			"Error loading database schema file: {$sql_file} " . 
-				$e->getMessage(), 'ERROR' );
-		
+		log_error(
+			"Error loading database schema file: {$sql_file} " .
+			$e->getMessage() 
+		);
+
 		throw new 
 		\RuntimeException( "Error loading database schema file" );
 	}
@@ -7504,28 +7525,27 @@ function db_batch_schema(
 function db_get_migrations( string $mi_dir ) : iterable {
 	// No migrations set
 	if ( !\is_dir( $mi_dir ) ) {
-		log_msg( "Called db_migrate() with no migrations", 'DEBUG' );
+		log_debug( "Called db_migrate() with no migrations" );
 		return [];
 	}
 	
 	// Get all .sql files
 	$files = \glob( $mi_dir . '/*.sql' );
 	if ( !$files ) {
-		log_msg( "No migration files found in {$mi_dir}", 'DEBUG' );
+		log_debug( "No migration files found in {$mi_dir}" );
 		return [];
 	}
 	
 	// Extract version from filename
 	foreach ( $files as $file ) {
 		if ( \preg_match(
-			'/(\d+\.\d+\.\d+(?:-[\w.-]+)?(?:\+[\w.-]+)?)/', 
-				$file, $match 
+			'/(\d+\.\d+\.\d+(?:-[\w.-]+)?(?:\+[\w.-]+)?)/',
+				$file, $match
 		) ) {
 			yield [ 'file' => $file, 'version' => $match[1] ];
 		} else {
-			log_msg( 
-				"Skipping file with no valid version: {$file} in {$mi_dir}", 
-				'DEBUG'
+			log_debug(
+				"Skipping file with no valid version: {$file} in {$mi_dir}"
 			);
 		}
 	}
@@ -7546,9 +7566,8 @@ function db_migrate( \PDO $dbh, string $profile ) : void {
 	$migrations	= [];
 	foreach ( db_get_migrations( $mi_dir ) as $m ) {
 		if ( \version_compare( $m['version'], $curr_ver ) <= 0 ) {
-			log_msg( 
-				"Skipping migration {$m['version']} (current version is newer)", 
-				'DEBUG' 
+			log_debug(
+				"Skipping migration {$m['version']} (current version is newer)"
 			);
 			continue;
 		}
@@ -7562,10 +7581,11 @@ function db_migrate( \PDO $dbh, string $profile ) : void {
 	foreach ( $migrations as $m ) {
 		try {
 			db_batch_schema( $dbh, $m['file'], $m['version'], "Applied migration from {$m['file']}" );
-			log_msg( "Migration {$m['version']} applied successfully", 'INFO' );
-		
+			log_info( "Migration {$m['version']} applied successfully" );
+			
 		} catch ( \Throwable $e ) {
-			log_msg( "Migration {$m['version']} from {$m['file']} failed: {$e->getMessage()}", 'ERROR' );
+			log_error( "Migration {$m['version']} from {$m['file']} failed: {$e->getMessage()}" );
+			
 			throw new 
 			\RuntimeException( "Migration failed: {$m['version']}" );
 		}
@@ -7580,14 +7600,14 @@ function db_migrate( \PDO $dbh, string $profile ) : void {
  */
 function db_maintenance( \PDO $dbh, array $config ) : void {
 	static $db_maint;
-	static $sql	=  
-	"SELECT settings FROM maintenance_meta 
+	static $sql	= 
+	"SELECT settings FROM maintenance_meta
 		WHERE maintenance_id = (
-			SELECT MAX( maintenance_id ) FROM maintenance_meta 
+			SELECT MAX( maintenance_id ) FROM maintenance_meta
 		);";
 	
 	$db_maint	??= 
-	defined( 'DB_MAINT' )
+	defined( 'DB_MAINT' ) 
 		? DB_MAINT
 		: 7;
 	
@@ -7595,19 +7615,19 @@ function db_maintenance( \PDO $dbh, array $config ) : void {
 	$settings	= $dbh->query( $sql )->fetchColumn();
 	
 	if ( false === $settings ) {
-		log_msg( "No database maintenance settings found", 'INFO' );
+		log_info( "No database maintenance settings found" );
 		$settings	= '{ "last_maintenance" : 0 }'; // Fallback
 	}
 	
 	// Since PHP 8.3
 	if ( !\json_validate( $settings ) ) {
-		log_msg( "Error decoding maintenance settings", 'ERROR' );
+		log_error( "Error decoding maintenance settings" );
 		return;
 	}
 	
 	$info	= \json_decode( $settings, true );
 	if ( false === $info || !\is_array( $info ) ) {
-		log_msg( "Invalid JSON in maintenance settings", 'ERROR' );
+		log_error( "Invalid JSON in maintenance settings" );
 		return;
 	}
 	
@@ -7616,34 +7636,35 @@ function db_maintenance( \PDO $dbh, array $config ) : void {
 	
 	// Skip if not needed
 	if ( ( $now - $last_maint ) < $maint ) {
-		log_msg( "Maintenance not required yet", 'DEBUG' );
+		log_debug( "Maintenance not required yet" );
 		return;
 	}
 	
 	$commands	= $config['maint_exec'] ?? [];
 	if ( !\is_array( $commands ) || empty( $commands ) ) {
-		log_msg( "No maintenance commands configured", 'WARN' );
+		log_warn( "No maintenance commands configured" );
 		return;
 	}
+	
 	foreach ( $commands as $cmd ) {
 		try {
 			$dbh->exec( $cmd );
-			log_msg( "Executed maintenance command: {$cmd}", 'INFO' );
+			log_info( "Executed maintenance command: {$cmd}" );
 		} catch ( \PDOException $e ) {
-			log_msg( "Maintenance command failed: {$cmd} — {$e->getMessage()}", 'ERROR' );
+			log_error( "Maintenance command failed: {$cmd} — {$e->getMessage()}" );
 		}
 	}
 	
 	$new_settings	= \json_encode( [ 'last_maintenance' => $now ] );
-	$insert_sql	= 
-	"INSERT INTO maintenance_meta ( settings ) 
+	$insert_sql	=
+	"INSERT INTO maintenance_meta ( settings )
 		VALUES ( :settings )";
 	
-	db_exec( db_stmt( $dbh, $insert_sql ), [ 
-		':settings' => $new_settings 
+	db_exec( db_stmt( $dbh, $insert_sql ), [
+		':settings' => $new_settings
 	], "Initiating database maintenance" );
 	
-	log_msg( "Database maintenance completed", 'INFO' );
+	log_info( "Database maintenance completed" );
 }
 
 /**
@@ -7667,7 +7688,7 @@ function db_with_transaction( \PDO $dbh, callable $fn ) : mixed {
 			$dbh->rollBack();
 		}
 		
-		log_msg( "Error completing transaction via callable", 'ERROR' );
+		log_error( "Error completing transaction via callable" );
 		return false;
 	}
 }
@@ -7708,7 +7729,7 @@ function db_get( string $profile = 'main', ?array $new_profiles = null ) : \PDO 
 			$config['dsn'], 
 			$config['username'], 
 			$config['password'], 
-			db_get_options( $config['options'] ?? [] )
+			db_get_options( $config['options'] ?? [] ) 
 		);
 		
 		foreach ( $config['pre_exec'] ?? [] as $cmd ) {
@@ -7720,10 +7741,10 @@ function db_get( string $profile = 'main', ?array $new_profiles = null ) : \PDO 
 				$dbh->exec( $cmd );
 			}
 			
-			db_batch_schema( 
+			db_batch_schema(
 				$dbh, 
 				$saved[$profile]['schema'], 
-				$saved[$profile]['version'] ?? '1.0.0'
+				$saved[$profile]['version'] ?? '1.0.0' 
 			);
 			
 			$saved[$profile]['installed'] = true;
@@ -7740,7 +7761,7 @@ function db_get( string $profile = 'main', ?array $new_profiles = null ) : \PDO 
 		
 	} catch ( \PDOException $e ) {
 		// Handle connection errors gracefully
-		log_msg( "Database connection failed: {$e->getMessage()}", 'ERROR' );
+		log_error( "Database connection failed: {$e->getMessage()}" );
 		die( 'Unable to connect to database' );
 	}
 	
@@ -7752,14 +7773,14 @@ function db_get( string $profile = 'main', ?array $new_profiles = null ) : \PDO 
  *  
  *  @param PDO		$db	Database connection
  *  @param PDOStatement	$stmt	PDO prepared statement
- *  @param array	$params	Parameters 
+ *  @param array	$params	Parameters
  *  @param string	$rtype	Return type
  *  @return mixed
  */
-function db_result( 
-	\PDO		$dbh, 
-	\PDOStatement	$stmt, 
-	array		$params		= [], 
+function db_result(
+	\PDO		$dbh,
+	\PDOStatement	$stmt,
+	array		$params		= [],
 	string		$rtype		= ''
 ) : mixed {
 	$ok	= db_exec( $stmt, 'Running db_result()' );
@@ -7768,13 +7789,13 @@ function db_result(
 	
 	return match( \strtolower( $rtype ) ) {
 		// Query with array return
-		'results'	=> $ok ? $stm->fetchAll() : [],	
+		'results'	=> $ok ? $stm->fetchAll() : [], 
 		
 		// Insert with ID return
-		'insert'	=> $ok ? $db->lastInsertId() : 0,
+		'insert'	=> $ok ? $db->lastInsertId() : 0, 
 		
 		// Single column value
-		'column'	=> $ok ? $stm->fetchColumn() : '',
+		'column'	=> $ok ? $stm->fetchColumn() : '', 
 		
 		// Success status
 		default		=> $ok
@@ -7786,15 +7807,15 @@ function db_result(
  *  
  *  @param string	$sql		Database SQL
  *  @param string	$profile	Connection profile label in configuration
- *  @param array	$params		Parameters 
+ *  @param array	$params		Parameters
  *  @param string	$rtype		Return type
  *  @return mixed
  */
-function db_result_exec( 
-	string	$sql, 
+function db_result_exec(
+	string	$sql,
 	string	$profile,
 	array	$params		= [],
-	string	$rtype		= '' 
+	string	$rtype		= ''
 ) : mixed {
 	$dbh	= db_get( $profile );
 	$stmt	= db_stmt( $dbh );
@@ -7814,10 +7835,10 @@ function db_result_exec(
  *  @return array			Result status
  */
 function db_batch_result_exec(
-	string	$sql, 
+	string	$sql,
 	string	$profile,
 	array	$batch		= [],
-	string	$rtype		= '' 
+	string	$rtype		= ''
 ) : array {
 	$dbh	= db_get( $profile );
 	$stmt	= db_stmt( $dbh );
@@ -7827,9 +7848,9 @@ function db_batch_result_exec(
 		
 		foreach( $batch as $params ) {
 			$status	= db_result( $dbh, $stmt, $params, $rtype );
-			if ( null === $status ) { 
+			if ( null === $status ) {
 				$stmt->closeCursor();
-				break; 
+				break;
 			}
 			
 			$res[]	= $status;
@@ -7844,7 +7865,7 @@ function db_batch_result_exec(
  *  
  *  @param string	$sql		Database SQL insert
  *  @param string	$profile	Connection profile label in configuration
- *  @param array	$params		Parameters 
+ *  @param array	$params		Parameters
  *  @return int
  */
 function db_insert(
@@ -7900,7 +7921,7 @@ function sess_create() { return \bin2hex( \random_bytes( 32 ) ); }
  */
 function sess_read( $session_id ) {
 	$dbh	= db_get( 'sessions' );
-	$stmt	= 
+	$stmt	=
 	$dbh->prepare(
 	"SELECT session_data FROM sessions
 		WHERE session_id = :id
@@ -7925,13 +7946,13 @@ function sess_write( $session_id, $data ) {
 	return db_with_transaction( $dbh, function( \PDO $dbh ) use ( $session_id, $data ) {
 		$stmt	= 
 		$dbh->prepare(
-			"INSERT INTO sessions ( 
-				basename, session_id, session_ip, 
+			"INSERT INTO sessions (
+				basename, session_id, session_ip,
 				session_data, expires_at
 			)
-			VALUES ( 
-				:basename, :id, :ip, :data, 
-					DATETIME( 'now', '+1 hour' ) 
+			VALUES (
+				:basename, :id, :ip, :data,
+					DATETIME( 'now', '+1 hour' )
 			) ON CONFLICT( basename, session_id )
 			DO UPDATE SET
 				session_data = excluded.session_data,
@@ -7958,7 +7979,7 @@ function sess_write( $session_id, $data ) {
 function sess_destroy( $session_id ) {
 	$dbh	= db_get( 'sessions' );
 	return db_with_transaction( $dbh, function( \PDO $dbh ) use ( $session_id ) {
-		$stmt	= 
+		$stmt	=
 		$dbh->prepare( "DELETE FROM sessions WHERE session_id = :id" );
 		
 		return $stmt->execute( [ ':id' => $session_id ] );
@@ -7988,8 +8009,8 @@ function sess_validate( $session_id ) {
 
 function sess_update_timestamp( $session_id, $data ) {
 	$dbh	= db_get( 'sessions' );
-	$stmt	= 
-	$dbh->prepare(
+	$stmt	=
+	$dbh->prepare( 
 		"UPDATE sessions
 		SET expires_at = DATETIME('now', '+1 hour')
 		WHERE session_id = :id"
@@ -8014,28 +8035,28 @@ function sess_init() {
 	
 	$params	??= 
 	\session_set_cookie_params( [
-		'httponly'	=> true,
-		'secure'	=> request_is_tls(),
-		'samesite'	=> 'Strict',
-		'path'		=> '/',
+		'httponly'	=> true, 
+		'secure'	=> request_is_tls(), 
+		'samesite'	=> 'Strict', 
+		'path'		=> '/', 
 	] );
 	
 	$start	??= 
-	\session_set_save_handler(
-		'sess_open',
-		'sess_close',
-		'sess_read',
-		'sess_write',
-		'sess_destroy',
-		'sess_gc',
-		'sess_create',
-		'sess_validate'
+	\session_set_save_handler( 
+		'sess_open', 
+		'sess_close', 
+		'sess_read', 
+		'sess_write', 
+		'sess_destroy', 
+		'sess_gc', 
+		'sess_create', 
+		'sess_validate' 
 	);
 	
 	if ( \session_status() === \PHP_SESSION_NONE ) {
 		if ( \headers_sent( $file, $line ) ) {
 			log_msg( 
-				"Cannot start session: headers already sent by {$file} on line {$line}", 
+				"Cannot start session: headers already sent by {$file} on line {$line}",
 				'ERROR' 
 			);
 			
@@ -8045,16 +8066,16 @@ function sess_init() {
 		
 		try {
 			if ( !\session_start() ) {
-				log_msg( "Session failed to start", 'ERROR' );
+				log_error( "Session failed to start" );
 				
 				throw new 
 				\RuntimeException( "Session start failed" );
 			}
 			
-			log_msg( "Session started: " . \session_id(), 'DEBUG' );
+			log_debug( "Session started: " . \session_id() );
 		} catch ( \Throwable $e ) {
 			
-			log_msg( "Session error: {$e->getMessage()}", 'ERROR' );
+			log_error( "Session error: {$e->getMessage()}" );
 			error_page();
 		}
 	}
@@ -8063,7 +8084,7 @@ function sess_init() {
 	if ( !isset( $_SESSION['session_regen'] ) ) {
 		$_SESSION['session_regen'] = $exp;
 		return;
-	} 
+	}
 	
 	if ( time() > ( int ) $_SESSION['session_regen'] ) {
 		\session_regenerate_id( true );
@@ -8108,8 +8129,8 @@ function form_session_key( string $form_name, bool $use_id = false ) : string {
  */
 function form_get_token( string $method = 'post' ) : array {
 	$filter	= [
-		'nonce'		=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
-		'token'		=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS
+		'nonce'		=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS, 
+		'token'		=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS 
 	];
 	
 	$input	= 'get' === \strtolower( $method ) ? \INPUT_GET : \INPUT_POST;
@@ -8126,8 +8147,8 @@ function form_get_token( string $method = 'post' ) : array {
  */
 function form_set_token( 
 	string	$form_name,
-	string	$method, 
-	?array	$options	= null 
+	string	$method,
+	?array	$options	= null
 ) : array {
 	// Defaults
 	$options		??= [
@@ -8160,9 +8181,9 @@ function form_set_token(
 	$_SESSION["form_{$key}"] = $data;
 	
 	return [ 
-		'time'	=> time(),
+		'time'	=> time(), 
 		'token'	=> $token, 
-		'nonce'	=> $nonce 
+		'nonce'	=> $nonce
 	];
 }
 
@@ -8178,13 +8199,13 @@ function form_set_token(
  *  @param bool		$once		Only validate once if true
  *  @return string
  */
-function form_token_validate( 
-	string	$form_name, 
+function form_token_validate(
+	string	$form_name,
 	string	$method,
-	string	$nonce, 
-	string	$token, 
-	?int	$issued	= null, 
-	?int	$ttl	= null, 
+	string	$nonce,
+	string	$token,
+	?int	$issued	= null,
+	?int	$ttl	= null,
 	?bool	$once	= null
 ) : string {
 	$issued		??= time();	// Now
@@ -8213,9 +8234,9 @@ function form_token_validate(
 	}
 	
 	return match( true ) {
-		$missing			=> 'missing',
-		( time() - $issued ) > $ttl	=> 'expired',
-		$valid				=> 'ok',
+		$missing			=> 'missing', 
+		( time() - $issued ) > $ttl	=> 'expired', 
+		$valid				=> 'ok', 
 		default				=> 'failed'
 	};
 }
@@ -8245,16 +8266,16 @@ function form_validate(
 		$form_name, 
 		$method, 
 		$nonce, 
-		$token,
-		$meta['issued'] ?? null,
-		$meta['ttl']	?? null,
+		$token, 
+		$meta['issued'] ?? null, 
+		$meta['ttl']	?? null, 
 		$meta['once']	?? null
 	);
 	
 	if ( $status !== 'ok' ) {
 		return [
-			'valid'		=> false,
-			'status'	=> $status,
+			'valid'		=> false, 
+			'status'	=> $status, 
 			'message'	=> "Token validation failed: {$status}"
 		];
 	}
@@ -8262,20 +8283,22 @@ function form_validate(
 	foreach ( $required as $capability ) {
 		if ( empty( $meta[$capability] ) ) {
 			return [
-				'valid'		=> false,
-				'status'	=> 'unauthorized',
+				'valid'		=> false, 
+				'status'	=> 'unauthorized', 
 				'message'	=> "Form does not allow: {$capability}"
 			];
 		}
 	}
 	
 	return [
-		'valid'		=> true,
-		'status'	=> 'ok',
-		'message'	=> 'Form is valid',
+		'valid'		=> true, 
+		'status'	=> 'ok', 
+		'message'	=> 'Form is valid', 
 		'meta'		=> $meta
 	];
 }
+
+
 
 
 
@@ -8340,6 +8363,41 @@ function static_file_resolve( string $uri ) : ?string {
 	
 	// Nothing found
 	return null;
+}
+
+function archive_page_url( array $params, int $page ) : string {
+	$year  = $params['year'] ?? null;
+	$month = $params['month'] ?? null;
+	$day   = $params['day'] ?? null;
+	
+	return match( true ) {
+		( null === $year )		=> 
+			"/$year",
+		( $year && $month && $day)	=>
+			"/$year/$month/$day/page$page",
+		( $year && $month )		=> 
+			"/$year/$month/page$page",
+		default				=> 
+			"/$year/page$page"
+	};
+}
+
+function archive_title_from_params( array $params ) : string {
+	$year	= $params['year']	?? null;
+	$month	= $params['month']	?? null;
+	$day	= $params['day']	?? null;
+	
+	return match( true ) {
+		( null === $year )		=> '',
+		( $year && $month && $day )	=>
+			\sprintf( '%04d-%02d-%02d', $year, $month, $day ),
+		
+		( $year && $month )		=>
+			\sprintf( '%04d-%02d', $year, $month ),
+		
+		default				=>
+			\sprintf( '%04d', $year )
+	};
 }
 
 /**
