@@ -258,10 +258,10 @@ JSON
  *  Template holder
  *  These HTML templates can be overridden in plugins
  */
-$templates	= [];
+define( 'TEMPLATES', <<<HTML
 
-// HTML full page component
-$templates['tpl_full_page']	= <<<HTML
+## HTML full page component
+--- tpl_full_page ---
 <!DOCTYPE html>
 <html lang="{lang}">
 <head>
@@ -282,10 +282,10 @@ $templates['tpl_full_page']	= <<<HTML
 {body_after_lastjs}
 </body>
 </html>
-HTML;
 
-// Full static home page component
-$templates['tpl_home_page']	= <<<HTML
+
+## Full static home page component
+--- tpl_home_page ---
 <!DOCTYPE html>
 <html lang="{lang}">
 <head>
@@ -309,10 +309,10 @@ $templates['tpl_home_page']	= <<<HTML
 {body_after_lastjs}
 </body>
 </html>
-HTML;
 
-// Full about page component
-$templates['tpl_about_page']	= <<<HTML
+
+## Full about page component
+--- tpl_about_page ---
 <!DOCTYPE html>
 <html lang="{lang}">
 <head>
@@ -336,17 +336,17 @@ $templates['tpl_about_page']	= <<<HTML
 {body_after_lastjs}
 </body>
 </html>
-HTML;
 
-// Page footer component
-$templates['tpl_page_footer']	= <<<HTML
+
+## Page footer component
+--- tpl_page_footer ---
 <footer class="{footer_classes}">
 <div class="{footer_wrap_classes}">{footer_links}</div>
 </footer>
-HTML;
 
-// General page heading
-$templates['tpl_page_heading']	= <<<HTML
+
+## General page heading
+--- tpl_page_heading ---
 {before_page_heading}<header class="{heading_classes}">
 <div class="{heading_wrap_classes}">
 {heading_before}
@@ -359,10 +359,10 @@ $templates['tpl_page_heading']	= <<<HTML
 {heading_after}
 </div>
 </header>{after_page_heading}
-HTML;
 
-// Home page specific heading
-$templates['tpl_home_heading']	= <<<HTML
+
+## Home page specific heading
+--- tpl_home_heading ---
 {before_home_heading}<header class="{heading_classes}">
 <div class="{heading_wrap_classes}">
 <h1 class="{heading_h_classes}">
@@ -374,10 +374,10 @@ $templates['tpl_home_heading']	= <<<HTML
 {heading_after}
 </div>
 </header>{after_home_heading}
-HTML;
 
-// About page specific heading
-$templates['tpl_about_heading']	= <<<HTML
+
+## About page specific heading
+--- tpl_about_heading ---
 {before_about_heading}<header class="{heading_classes}">
 <div class="{heading_wrap_classes}">{before_heading_h}
 <h1 class="{heading_h_classes}">
@@ -389,17 +389,17 @@ $templates['tpl_about_heading']	= <<<HTML
 {heading_after}
 </div>
 </header>{after_about_heading}
-HTML;
 
-// Form anti-XSRF hidden inputs (required on all forms)
-$templates['tpl_input_xsrf']	= <<<HTML
+
+## Form anti-XSRF hidden inputs (required on all forms)
+--- tpl_input_xsrf ---
 <input type="hidden" name="nonce" value="{nonce}">
 <input type="hidden" name="token" value="{token}">
 <input type="hidden" name="meta" value="{meta}">
-HTML;
 
-// Search form
-$templates['tpl_search_form']	= <<<HTML
+
+## Search form
+--- tpl_search_form ---
 {before_search_form}<form action="{home}" method="get" 
 	class="{form_classes} {search_form_classes}">
 	<fieldset class="{search_fieldset_classes}">
@@ -412,11 +412,10 @@ $templates['tpl_search_form']	= <<<HTML
 	value="{lang:forms:search:button}">{after_search_button}
 	</fieldset>
 </form>{after_search_form}
-HTML;
 
 
-// Generic error page
-$templates['tpl_error_page']	= <<<HTML
+## Generic error page
+--- tpl_error_page ---
 <!DOCTYPE html>
 <html>
 <head>
@@ -440,17 +439,17 @@ $templates['tpl_error_page']	= <<<HTML
 </main>
 </body>
 </html>
-HTML;
 
-// No posts to dipsplay
-$templates['tpl_noposts']	= <<<HTML
+
+## No posts to dipsplay
+--- tpl_noposts ---
 <div class="{no_posts_wrap}">
 	<p>{lang:errors:noposts}</p>
 </div>
-HTML;
 
-// General post template
-$templates['tpl_post']		= <<<HTML
+
+## General post template
+--- tpl_post ---
 {before_post}
 <article class="{post_classes}">{before_full_post}
 	<div class="{post_wrap_classes}">{before_post_heading}
@@ -469,10 +468,10 @@ $templates['tpl_post']		= <<<HTML
 	</div>{after_post_body}
 	</div>{after_full_post}
 </article>{after_post}
-HTML;
 
-// Post on full listing indexes
-$templates['tpl_index_post']		= <<<HTML
+
+## Post on full listing indexes
+--- tpl_index_post ---L
 {before_index_post}
 <article class="{post_idx_wrap_classes}">{before_item_post}
 	<div class="{post_idx_wrap_classes}">{before_index_post_heading}
@@ -491,190 +490,194 @@ $templates['tpl_index_post']		= <<<HTML
 	</div>
 	</div>
 {after_item_post}</article>{after_index_post}
-HTML;
 
-// Reading time for each post
-$templates['tpl_read_time']	= <<<HTML
+
+## Reading time for each post
+--- tpl_read_time ---
 <span class="readtime">{lang:headings:readtime}</span>
-HTML;
 
-// Post tag container on index pages
-$templates['tpl_index_tagwrap']	= <<<HTML
+
+## Post tag container on index pages
+--- tpl_index_tagwrap ---
 <nav class="{tag_index_wrap_classes}">
 	<span class="{tag_index_heading_classes}">{lang:headings:tags}</span> 
 	<ul class="{tag_index_ul_classes}">{tags}</ul></nav>
-HTML;
 
-// Single post page tag container
-$templates['tpl_tagwrap']	= <<<HTML
+
+## Single post page tag container
+--- tpl_tagwrap ---
 <nav class="{tag_wrap_classes}">
 	<span class="{tag_heading_classes}">{lang:headings:tags}</span> 
 	<ul class="{tag_ul_classes}">{tags}</ul></nav>
-HTML;
 
-// Main navigation menu link container
-$templates['tpl_mainnav_wrap']	= <<<HTML
+
+## Main navigation menu link container
+--- tpl_mainnav_wrap ---
 <nav class="{main_nav_classes}"><ul>{links}</ul></nav>
-HTML;
 
-// Footer link container
-$templates['tpl_footernav_wrap']= <<<HTML
+
+## Footer link container
+--- tpl_footernav_wrap ---
 <nav class="{footer_nav_classes}">
 <ul class="{footer_ul_classes}">{links}</ul>
 </nav>
-HTML;
 
-// Link for main homepage link on navigation menues
-$templates['tpl_home_link']	= <<<HTML
+
+## Link for main homepage link on navigation menues
+--- tpl_home_link ---
 <li class="{nav_home_link_classes}">
 	<a href="{url}" class="{nav_home_link_a_classes}">{text}</a>
 </li>
-HTML;
 
-// Standard link on navigation menus
-$templates['tpl_link']		= <<<HTML
-	<li><a href="{url}">{text}</a></li>
-HTML;
 
-// Individual post link wrapper on archive indexes
-$templates['tpl_index_taglink']	= <<<HTML
+## Standard link on navigation menus
+--- tpl_link ---
+<li><a href="{url}">{text}</a></li>
+
+## Individual post link wrapper on archive indexes
+--- tpl_index_taglink ---
 <li class="{tag_index_item_classes}">
 	<a href="{url}" class="{tag_index_item_a_classes}">{text}</a>
 </li>
-HTML;
 
-// Individual tag link wrapper
-$templates['tpl_taglink']	= <<<HTML
+
+## Individual tag link wrapper
+--- tpl_taglink ---
 <li class="{tag_item_classes}">
 	<a href="{url}" class="{tag_item_a_classes}">{text}</a>
 </li>
-HTML;
 
-// Pagination link navigation wrapper
-$templates['tpl_page_nav_link']	= <<<HTML
+
+## Pagination link navigation wrapper
+--- tpl_page_nav_link ---
 <li class="{nav_link_classes}">
 	<a href="{url}" class="{nav_link_a_classes}">{text}</a>
 </li>
-HTML;
 
-// Preview page previous link
-$templates['tpl_np_prevlink']	= <<<HTML
+
+## Preview page previous link
+--- tpl_np_prevlink ---
 <li class="{nextprev_prev_classes}">
 	&lt; <a href="{url}" class="{nextprev_prev_a_classes}">{text}</a>
 </li>
-HTML;
 
-// Preview page next link
-$templates['tpl_np_nextlink']	= <<<HTML
+
+## Preview page next link
+--- tpl_np_nextlink ---
 <li class="{nextprev_next_classes}">
 	<a href="{url}" class="{nextprev_next_a_classes}">{text}</a> &gt;
 </li>
-HTML;
 
-// Pagination Previous page link
-$templates['tpl_prevlink']	= <<<HTML
+
+## Pagination Previous page link
+--- tpl_prevlink ---
 <li class="{nav_prev_classes}">
 	&lt; <a href="{url}" class="{nav_prev_a_classes}">{text}</a>
 </li>
-HTML;
 
-// Pagination Next page link
-$templates['tpl_nextlink']	= <<<HTML
+
+## Pagination Next page link
+--- tpl_nextlink ---
 <li class="{nav_next_classes}">
 	<a href="{url}" class="{nav_next_a_classes}">{text}</a> &gt;
 </li>
-HTML;
 
-// Next/Previous pagination wrapper
-$templates['tpl_page_nextprev']	= <<<HTML
+
+## Next/Previous pagination wrapper
+--- tpl_page_nextprev ---
 <div class="{nextprev_wrap_classes}">
 	<nav class="{nextprev_nav_classes}">
 		<ul class="{nextprev_ul_classes}">{links}</ul>
 	</nav>
 </div>
-HTML;
 
-// Previously published and next, chronological page preview wrapper
-$templates['tpl_siblingnav']	= <<<HTML
+
+## Previously published and next, chronological page preview wrapper
+--- tpl_siblingnav ---
 <div class="{sibling_wrap_classes}">
 	<nav class="{sibling_nav_classes}">
 		<ul class="{sibling_nav_ul_classes}">{links}</ul>
 	</nav>
 </div>
-HTML;
 
-// Related posts wrapper on single post views
-$templates['tpl_relatednav']	= <<<HTML
+
+## Related posts wrapper on single post views
+--- tpl_relatednav ---
 <div class="{related_wrap_classes}">
 	<h3 class="{related_h_classes}">{lang:headings:related}</h3>
 	<nav class="{related_nav_classes}">
 		<ul class="{related_ul_classes}">{links}</ul>
 	</nav>
 </div>
-HTML;
 
-// Index page post listing wrapper
-$templates['tpl_index_wrap']	= <<<HTML
+
+## Index page post listing wrapper
+--- tpl_index_wrap ---
 <div class="{post_index_wrap_classes}">
 	<ul class="{post_index_ul_wrap_classes}">{items}</ul>
 </div>
-HTML;
 
-// Index page post link wrapper
-$templates['tpl_index']		= <<<HTML
+
+## Index page post link wrapper
+--- tpl_index ---
 <li class="{post_index_item_classes}">
 	<time datetime="{date_utc}">{date_stamp}</time> 
 	<a href="{permalink}">{title}</a> {read_time} {tags}
 </li>
-HTML;
 
-// Index page separation header (I.E. Archive Year)
-$templates['tpl_index_header']	= <<<HTML
+
+## Index page separation header (I.E. Archive Year)
+--- tpl_index_header ---
 <li class="{post_index_header_classes}">
 	<h3 class="{post_index_header_h_classes}">{title}</h3>
 </li>
-HTML;
 
-// Embedded code
-$templates['tpl_codeblock'] = <<<HTML
+
+## Embedded code
+--- tpl_codeblock ---
 <pre class="{code_wrap_classes}"><code class="{code_classes}">{code}</code></pre>
-HTML;
 
-$templates['tpl_codeinline'] = <<<HTML
+
+--- tpl_codeinline ---
 <code class="{code_classes}">{code}</code>
-HTML;
 
-// Footnotes
-$templates['tpl_footnote_wrap'] =<<<HTML
+
+## Footnotes
+--- tpl_footnote_wrap ---
 <nav class="{footnote_nav_classes}">
 	<ul class="{footnote_ul_classes}">{footnotes}</ul>
 </nav>
-HTML;
 
-$templates['tpl_footnote_back'] =<<<HTML
+
+--- tpl_footnote_back ---
 <a href="#{link}-link" class="{footnote_ba_classes}">{phrase}</a>
-HTML;
 
-$templates['tpl_footnote'] =<<<HTML
+
+--- tpl_footnote ---
 <li id="{id}-ref" class="{footnote_phrase_classes}">
 	<sup>{backlinks}</sup>: <span 
 		class="{footnote_def_classes}">{footnote}</span>
 </li>
-HTML;
 
-$templates['tpl_footlink'] =<<<HTML
+
+--- tpl_footlink ---
 <sup class="{footnote_s_classes}"><a class="{footnote_a_classes}" href="#{link}-ref" id="{id}-link">[{phrase}]</a></sup>
-HTML;
 
 
-// Language placeholders
-$templates['tpl_previous']	= '{lang:nav:previous}';
-$templates['tpl_next']		= '{lang:nav:next}';
-$templates['tpl_home']		= '{lang:nav:home}';
+
+## Language placeholders
+--- tpl_previous ---
+{lang:nav:previous}
+
+--- tpl_next ---
+{lang:nav:next}
+
+--- tpl_home ---
+{lang:nav:home}
 
 
-// Feed index template
-$templates['tpl_feed']		= <<<XML
+## Feed index template
+--- tpl_feed ---
 <?xml version="1.0" encoding="UTF-8" ?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
 <channel>
@@ -686,10 +689,10 @@ $templates['tpl_feed']		= <<<XML
 	{body}
 </channel>
 </rss>
-XML;
 
-// Feed item template
-$templates['tpl_item']		= <<<XML
+
+## Feed item template
+--- tpl_item ---
 <item>
 	<title>{title}</title>
 	<link>{permalink}</link>
@@ -699,110 +702,110 @@ $templates['tpl_item']		= <<<XML
 	{body}
 	]]></description>
 </item>
-XML;
 
 
-/**
- *  Table formatting
- */
 
-// Table formatting
-$templates['tpl_table']		= <<<HTML
+##
+##  Table formatting
+##
+
+## Table formatting
+--- tpl_table ---
 <table class="{table_classes}">
 	<thead class="{table_header_classes}">{thead}</thead>
 	<tbody class="{table_body_classes}">{tbody}</tbody>
 	<tfoot class="{table_footer_classes}">{tfoot}</tfoot>
 </table>
-HTML;
 
-// Table without headers but with footers
-$templates['tpl_table_nh']	= <<<HTML
+
+## Table without headers but with footers
+--- tpl_table_nh ---
 <table class="{table_classes}">
 	<tbody class="{table_body_classes}">{tbody}</tbody>
 	<tfoot class="{table_footer_classes}">{tfoot}</tfoot>
 </table>
-HTML;
 
-// Table without footers but with headers
-$templates['tpl_table_nf']	= <<<HTML
+
+## Table without footers but with headers
+--- tpl_table_nf ---
 <table class="{table_classes}">
 	<thead class="{table_header_classes}">{thead}</thead>
 	<tbody class="{table_body_classes}">{tbody}</tbody>
 </table>
-HTML;
 
-// Table without heading or footers
-$templates['tpl_table_nh_nf']	= <<<HTML
+
+## Table without heading or footers
+--- tpl_table_nh_nf ---
 <table class="{table_classes}">
 	<tbody class="{table_body_classes}">{tbody}</tbody>
 </table>
-HTML;
 
-// Ordinary row 
-$templates['tpl_table_row']	= <<<HTML
+
+## Ordinary row 
+--- tpl_table_row ---
 <tr class="{table_row_classes}">{cells}</tr>
-HTML;
 
-// Odd row
-$templates['tpl_table_row_odd']	= <<<HTML
+
+## Odd row
+--- tpl_table_row_odd ---
 <tr class="{table_row_odd_classes}">{cells}</tr>
-HTML;
 
-// Even row
-$templates['tpl_table_row_even']= <<<HTML
+
+## Even row
+--- tpl_table_row_even']= <<<HTML
 <tr class="{table_row_even_classes}">{cells}</tr>
-HTML;
 
-// Heading cell
-$templates['tpl_table_h_cell']	= <<<HTML
+
+## Heading cell
+--- tpl_table_h_cell ---
 <th class="{table_th_classes} {align}" align="{align}">{data}</th>
-HTML;
 
-// Ordinary cell 
-$templates['tpl_table_cell']	= <<<HTML
+
+## Ordinary cell 
+--- tpl_table_cell ---
 <td class="{table_td_classes} {align}" align="{align}">{data}</td>
-HTML;
 
 
-/**
- *  Embeded media templates
- */
 
-// Embedded video with preview
-$templates['tpl_audio_embed']	= <<<HTML
+##
+##  Embeded media templates
+##
+
+## Embedded video with preview
+--- tpl_audio_embed ---
 <div class="media"><audio src="{src}" preload="none" controls></audio></div>
-HTML;
 
-// Embedded video without preview
-$templates['tpl_video_np_embed'] =<<<HTML
+
+## Embedded video without preview
+--- tpl_video_np_embed ---
 <div class="media">
 	<video width="560" height="315" src="{src}" preload="none" controls>{detail}</video>
 </div>
-HTML;
 
-// Embedded video with preview
-$templates['tpl_video_embed'] =<<<HTML
+
+## Embedded video with preview
+--- tpl_video_embed ---
 <div class="media">
 	<video width="560" height="315" src="{src}" preload="none" poster="{preview}" controls>{detail}</video>
 </div>
-HTML;
 
-// Video caption track without language
-$templates['tpl_cc_nl_embed'] =<<<HTML
+
+## Video caption track without language
+--- tpl_cc_nl_embed ---
 <track kind="subtitles" src="{src}" {default}>
-HTML;
 
-// Video caption with language
-$templates['tpl_cc_embed'] =<<<HTML
+
+## Video caption with language
+--- tpl_cc_embed ---
 <track label="{label}" kind="subtitles" srclang="{lang}" src="{src}" {default}>
-HTML;
 
-/**
- *  Hosted media templates
- */
+
+##
+##  Hosted media templates
+##
  
-// YouTube video wrapper
-$templates['tpl_youtube']	= <<<HTML
+## YouTube video wrapper
+--- tpl_youtube ---
 <div class="media">
 	<iframe width="560" height="315" frameborder="0" 
 		sandbox="allow-same-origin allow-scripts" 
@@ -810,10 +813,10 @@ $templates['tpl_youtube']	= <<<HTML
 		allow="encrypted-media;picture-in-picture" 
 		loading="lazy" allowfullscreen></iframe>
 </div>
-HTML;
 
-// Vimeo video wrapper
-$templates['tpl_vimeo']		= <<<HTML
+
+## Vimeo video wrapper
+--- tpl_vimeo ---
 <div class="media">
 	<iframe width="560" height="315" frameborder="0" 
 		sandbox="allow-same-origin allow-scripts" 
@@ -821,10 +824,10 @@ $templates['tpl_vimeo']		= <<<HTML
 		allow="picture-in-picture" loading="lazy" 
 		allowfullscreen></iframe>
 </div>
-HTML;
 
-// Peertube video wrapper (requires 'src_host' to be added to frame_whitelist)
-$templates['tpl_peertube']	= <<<HTML
+
+## Peertube video wrapper (requires 'src_host' to be added to frame_whitelist)
+--- tpl_peertube ---
 <div class="media">
 	<iframe width="560" height="315" frameborder="0" 
 		sandbox="allow-same-origin allow-scripts" 
@@ -832,20 +835,20 @@ $templates['tpl_peertube']	= <<<HTML
 		allow="picture-in-picture" loading="lazy" 
 		allowfullscreen></iframe>
 </div>
-HTML;
 
-// Internet Archive video wrapper
-$templates['tpl_archiveorg']	= <<<HTML
+
+## Internet Archive video wrapper
+--- tpl_archiveorg ---
 <div class="media">
 	<iframe width="560" height="315" frameborder="0" 
 		sandbox="allow-same-origin allow-scripts" 
 		src="https://archive.org/embed/{src}" 
 		allow="picture-in-picture" loading="lazy" 
 		allowfullscreen></iframe></div>
-HTML;
 
-// LBRY/Odysee video wrapper
-$templates['tpl_lbry']	= <<<HTML
+
+## LBRY/Odysee video wrapper
+--- tpl_lbry ---
 <div class="media">
 	<iframe width="560" height="315" frameborder="0" 
 		sandbox="allow-same-origin allow-scripts" 
@@ -853,10 +856,10 @@ $templates['tpl_lbry']	= <<<HTML
 		allow="picture-in-picture" loading="lazy" 
 		allowfullscreen></iframe>
 </div>
-HTML;
 
-// Playeur video wrapper
-$templates['tpl_playeur']	= <<<HTML
+
+## Playeur video wrapper
+--- tpl_playeur ---
 <div class="media">
 	<iframe width="560" height="315" frameborder="0" 
 		sandbox="allow-same-origin allow-scripts" 
@@ -864,7 +867,9 @@ $templates['tpl_playeur']	= <<<HTML
 		src="https://playeur.com/embed/{src}?t={time}" 
 		loading="lazy" allowfullscreen></iframe>
 </div>
-HTML;
+
+HTML
+); // End of templates
 
 
 /**
@@ -6188,8 +6193,42 @@ function template_parse(
  *  @return array
  */
 function template_load_static() : array {
-	// TODO
-	return [];
+	$raw		= 
+	defined( 'TEMPLATES' ) 
+		? constant( 'TEMPLATES' ) 
+		: '';
+	
+	$current	= null;
+	$templates	= [];
+	$buffer		= [];
+	$phrase		= '/^\s*-{3,}\s*(tpl_[A-Za-z0-9_]+)\s*-{3,}\s*$/';
+	
+	foreach ( \explode( "\n", $raw ) as $line ) {
+		// Match template
+		if ( \preg_match( $phrase, $line, $m ) ) {
+			if ( null !== $current ) {
+				$templates[$current] = 
+				\rtrim( \implode( "\n", $buffer ) );
+			}
+			
+			$current = $m[1];
+			$buffer  = [];
+			continue;
+		}
+		
+		// Skip comments
+		if ( \preg_match( '/^\s*(##|;;|%%)/', trim( $line ) ) ) {
+			continue;
+		}
+		
+		if ( null !== $current ) { $buffer[] = $line; }
+	}
+	
+	if ( null !== $current ) {
+		$templates[$current]	= \rtrim( \implode("\n", $buffer ) );
+	}
+	
+	return $templates;
 }
 
 /**
@@ -16635,9 +16674,8 @@ hook( [ 'initroutes',	'addBlogRoutes' ] );
 
 /**
  *  Begin Bare
- *  Start by registering templates
  */
-hook( [ 'begin', [ 'templates' => $templates ] ] );
+hook( [ 'begin', [] ] );
 
 
 
