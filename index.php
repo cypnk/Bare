@@ -6242,14 +6242,14 @@ function template_load_static() : array {
 function template( string $label, array $reg = [] ) : string {
 	static $tpl	= [];
 	
-	// New templates? Append to current store
-	if ( !empty( $reg ) ) {
-		$tpl = \array_merge( $tpl, $reg );
-	}
-	
 	// Preload static templates
 	if ( empty( $tpl ) ) {
 		$tpl = template_load_static();
+	}
+	
+	// New templates? Append to current store
+	if ( !empty( $reg ) ) {
+		$tpl = \array_merge( $tpl, $reg );
 	}
 	
 	return $tpl[$label] ?? '';
