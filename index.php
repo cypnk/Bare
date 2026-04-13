@@ -5520,7 +5520,9 @@ function template_patterns( ?string $key = null, ?array $extend = null ) : strin
 		$patterns = \array_merge( $patterns, $extend );
 	}
 	
-	return empty( $key ) ? $patterns : ( $patterns[$key] ?? '' );
+	return ( null === $key ) 
+		? $patterns 
+		: ( $patterns[$key] ?? '' );
 }
 
 /**
@@ -5534,7 +5536,7 @@ function template_parse_tag_args( string $str ) : array {
 	
 	\preg_match_all( template_patterns( 'args' ) , $str, $m, \PREG_SET_ORDER );
     
-	foreach ( $m as $pair ) {
+	foreach ( $m as $row ) {
 		$key		= trim( $row[1] );
 		$value		= 
 		$row[3] !== '' 
@@ -5562,7 +5564,8 @@ function template_blocks( string $template, array $context ) : string {
 	foreach ( $matches as $match ) {
 		$key		= $match[1];
 		$content	= $match[2];
-		$valid		= !empty( $context[$key] );
+		$valid		= 
+		\array_key_exists( $key, $context ) && ( null !== $context[$key] );
 		
 		$template	= 
 		\str_replace( $match[0], $valid ? $content : '', $template );
@@ -5614,7 +5617,7 @@ function template_interpolate( string $template, array $vars ) : string {
 			foreach( $keys as $key ) {
 				if ( \is_array( $value ) && \array_key_exists( $key, $value ) ) {
 					$value	= $value[$key];
-				} elseif(\is_object( $value ) && isset( $value->$key ) {
+				} elseif( \is_object( $value ) && isset( $value->$key ) ) {
 					$value	= $value->$key;
 				} else {
 					return isset( $matches[2] ) 
@@ -5625,7 +5628,7 @@ function template_interpolate( string $template, array $vars ) : string {
 			
 			if ( \is_scalar( $value ) ) { return ( string ) $value; }
 			if ( \is_object( $value ) && \method_exists( $value, '__toString' ) ) {
-				( string ) $value;
+				return ( string ) $value;
 			}
 			
 			return $matches[0];
@@ -5640,7 +5643,7 @@ function template_interpolate( string $template, array $vars ) : string {
  *  
  *  @param mixed	$chk		Check target
  *  @param mixed	$val		Source data
- *  @param bool		$case_flag	Case insensitive comparison, if true
+ *  @param bool		$case_flag	Case sensitive comparison, if true
  *  @return bool
  */
 function template_compare_var( mixed $chk, mixed $val, bool $case_flag ) : bool {
@@ -5656,8 +5659,8 @@ function template_compare_var( mixed $chk, mixed $val, bool $case_flag ) : bool 
 	$val_cmp = ( string ) $val;
 	
 	return $case_flag ?
-		\strcasecmp( $chk_cmp, $val_cmp ) === 0 : 
-		\strcmp( $chk_cmp, $val_cmp ) === 0;
+		\strcmp( $chk_cmp, $val_cmp ) === 0 : 
+		\strcasecmp( $chk_cmp, $val_cmp ) === 0;
 }
 
 /**
@@ -5696,7 +5699,7 @@ function template_get_includes( string $template ) : array {
  *  Extract comparison flags
  *  
  *  @param string	$raw		Raw template data
- *  @param bool		$default_case	Fallback case sensitivity, defaults to false (sensitive)
+ *  @param bool		$default_case	Fallback case sensitivity, defaults to false (insensitive)
  *  @return array
  */
 function template_extract_flags( string $raw, bool $default_case = false ) : array {
@@ -5742,7 +5745,7 @@ function template_extract_flags( string $raw, bool $default_case = false ) : arr
  *  
  *  @param string	$expr		Logic expression
  *  @param array	$context	Processed data context
- *  @param bool		$case_flag	Case sensitivity, false for sensitive match
+ *  @param bool		$case_flag	Case sensitivity, true for sensitive match
  *  @return bool
  */
 function template_logic( string $expr, array $context, bool $case_flag = false ) : bool {
@@ -5790,7 +5793,7 @@ function template_logic( string $expr, array $context, bool $case_flag = false )
  *  
  *  @param string	$condition	Matched logic phrase
  *  @param array	$context	Processed data context
- *  @param bool		$case_flag	Case sensitivity, false for sensitive match
+ *  @param bool		$case_flag	Case sensitivity, false for insensitive match
  *  @return bool
  */
 function template_logic_group( 
@@ -5940,7 +5943,7 @@ function template_partials(
 			$partial_tpl			= 
 			template_load( "partials/{$key}.html" );
 			
-			$partials["{{include:{$key}}}"]	= 
+			$partials["{include:{$key}}"]	= 
 			template_partials(
 				$partial_tpl,
 				$vars,
@@ -5950,7 +5953,7 @@ function template_partials(
 			
 		} catch ( \Throwable $e ) {
 			log_warn( "Partial not loaded: {$key}: {$e->getMessage()}" );
-			$partials["{{include:{$key}}}"]	= '';
+			$partials["{include:{$key}}"]	= '';
 		}
 	}
 	
@@ -5972,7 +5975,7 @@ function template_partials(
  */
 function template_node_tags( string $template ) : array {
 	\preg_match_all(
-		'/{{node_type\.(\w+)\(([^}]*)\)}}/', 
+		'/{node_type\.(\w+)\(([^}]*)\)}/', 
 		$template, $matches, \PREG_SET_ORDER 
 	);
 	$tags = [];
@@ -6067,7 +6070,7 @@ function template_resolve_nodes(
  *  
  *  @params string	$template 	Raw template data
  *  @param array	$context	Processed data context
- *  @param bool		$case_flag	Case sensitivity flag, defaults to false (sensitive)
+ *  @param bool		$case_flag	Case sensitivity flag, defaults to false (insensitive)
  *  @return string
  */
 function template_conditionals(
@@ -6117,7 +6120,7 @@ function template_conditionals(
  *  
  *  @params string	$template 	Raw template data
  *  @param array	$context	Processed data context
- *  @param bool		$case_flag	Case sensitivity flag, defaults to false (sensitive)
+ *  @param bool		$case_flag	Case sensitivity flag, defaults to false (insensitive)
  *  @return string
  */
 function template_loops(
@@ -6141,8 +6144,9 @@ function template_loops(
 		
 		$rendered	= '';
 		foreach ( $context[$label] as $item ) {
-			$vars		= \array_merge( $context, [ $alias => $item ] );
-			$rendered	.= template_parse($content, $vars, $case_flag);
+			$vars		= $context;
+			$vars[$alias]	= $item;
+			$rendered	.= template_parse( $content, $vars, $case_flag );
 		}
 		
 		$template	= \str_replace( $match[0], $rendered, $template );
@@ -6156,7 +6160,7 @@ function template_loops(
  *  
  *  @params string	$template 	Raw template data
  *  @param array	$context	Processed data context
- *  @param bool		$case_flag	Case sensitivity flag, defaults to false (sensitive)
+ *  @param bool		$case_flag	Case sensitivity flag, defaults to false (insensitive)
  *  @return string			Fully parsed template
  */
 function template_parse( 
@@ -6173,12 +6177,21 @@ function template_parse(
 	$template	= template_blocks( $template, $context );
 	$template	= template_interpolate( $template, $context );
 	
-	$resolvers	= 
-	$context['resolvers'] ?? ( 
-		( $context['resolver_loader'] ?? null ) 
-			? ( $context['resolver_loader'] )() 
-			: []
-	);
+	$resolvers	= [];
+	try {
+		if ( isset( $context['resolvers'] ) ) {
+			$resolvers	= $context['resolvers'];
+		} elseif ( isset( $context['resolver_loader'] ) ) {
+			$loader		= $context['resolver_loader'];
+			if ( \is_callable( $loader ) ) {
+				$resolvers	= $loader();
+			} else {
+				log_warn( "Template resolver_loader is not a callable" );
+			}
+		}
+	} catch( \Throwable $e ) {
+		log_error( "Error loading resolver: {$e->getMessage()}" );
+	}
 	
 	if ( !empty( $resolvers ) ) {
 		$template = template_resolve_nodes( $template, $resolvers, $context );
@@ -6194,16 +6207,30 @@ function template_parse(
  */
 function template_load_static() : array {
 	$raw		= 
-	defined( 'TEMPLATES' ) 
-		? constant( 'TEMPLATES' ) 
+	defined( 'TEMPLATES' ) && \is_string( TEMPLATES )
+		? TEMPLATES 
 		: '';
+	
+	// Try to get a default loaded template if nothing defined
+	if ( empty( $raw ) ) {
+		$fraw	= 
+		defined( 'TEMPLATE_FILE' ) && \is_string( TEMPLATE_FILE )
+			? TEMPLATE_FILE
+			: '';
+		
+		if ( empty( $fraw ) || !\is_readable( $fraw ) )  { return []; }
+		
+		$flines	= \file( $fraw, \FILE_IGNORE_NEW_LINES );
+	} else { $flines = \explode( "\n", $raw ); }
+	
+	if ( !\is_array( $flines ) ) { return []; }
 	
 	$current	= null;
 	$templates	= [];
 	$buffer		= [];
 	$phrase		= '/^\s*-{3,}\s*(tpl_[A-Za-z0-9_]+)\s*-{3,}\s*$/';
 	
-	foreach ( \explode( "\n", $raw ) as $line ) {
+	foreach ( $flines as $line ) {
 		// Match template
 		if ( \preg_match( $phrase, $line, $m ) ) {
 			if ( null !== $current ) {
@@ -6253,6 +6280,22 @@ function template( string $label, array $reg = [] ) : string {
 	}
 	
 	return $tpl[$label] ?? '';
+}
+
+/**
+ *  Core template renderer with data context
+ *  
+ *  @param string	$label		Root base template
+ *  @param bool		$case_flag	Case sensitivity flag
+ *  @return string
+ */
+function template_render(
+	string	$label, 
+	array	$context	= [], 
+	bool	$case_flag	= false 
+) : string {
+	$tpl	= template( $label );
+	return template_parse( $tpl, $context, $case_flag );
 }
 
 
