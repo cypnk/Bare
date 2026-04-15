@@ -4377,27 +4377,30 @@ function response_check_not_modified(
 	?string		$client_etag	= null,
 	?int		$client_mtime	= null
 ) : bool {
-	$clean	= trim( $etag, "\"" );
+	$etag		= \trim( $etag, " \t\n\r\0\x0B\"'" );
 	
-	if( $client_etag ) {
+	$etag_clean	= \ltrim( $etag, 'W/' );
+	$etag_clean	= \trim( $etag, "\"" );
+	
+	if( null !== $client_etag && '' !== $client_etag ) {
 		$tags	= 
 		\array_map(
-			function ( $tag ) {
-				$tag	= trim( $tag, " \t\n\r\0\x0B\"" );
+			static function ( $tag ) {
+				$tag	= \trim( $tag, " \t\n\r\0\x0B\"'" );
 				if ( \str_starts_with( $tag, 'W/' ) ) {
-					$tag	= \substr( $tag, 2 );
+					$tag = \substr( $tag, 2 );
 				}
 				return $tag;
 			}, 
 			\explode( ',', $client_etag ) 
 		);
 		
-		if ( \in_array( $clean, $tags, true ) ) {
+		if ( 1 === count( $tags ) && '*' === $tags[0] ) {
 			response_status( 304 );
 			return true;
 		}
 		
-		if ( 1 === count( $tags ) && '*' === $tags[0] ) {
+		if ( \in_array( $etag_clean, $tags, true ) ) {
 			response_status( 304 );
 			return true;
 		}
@@ -4407,9 +4410,11 @@ function response_check_not_modified(
 	}
 	
 	// Try If-Modified-Since
-	if ( $client_mtime && $mtime <= $client_mtime ) {
-		response_status( 304 );
-		return true;
+	if ( null !== $client_mtime && $client_mtime > 0 ) {
+		if ( $mtime <= $client_mtime ) {
+			response_status( 304 );
+			return true;
+		}
 	}
 	return false;
 }
@@ -4443,24 +4448,26 @@ function response_get_meta_cache( string $fpath ) : array|null {
 	$fcache	= response_meta_cache_path( $fpath );
 	if ( !\is_readable( $fcache ) ) { return null; }
 	
-	if ( !isset( $meta['mtime'], $meta['content_length'] ) ) {
-		return null;
-	}
-	
 	try {
 		$data		= \file_get_contents( $fcache );
 		if ( false === $data ) { return null; }
 		
 		$meta		=
 		\json_decode(
-			$data, true, 2, 
-				\JSON_UNESCAPED_SLASHES		| 
+			json		: $data, 
+			associative	: true, 
+			depth		: 2, 
+			flags		: 
 				\JSON_INVALID_UTF8_IGNORE	| 
 				\JSON_THROW_ON_ERROR
 		);
 		
 		if ( !\is_array( $meta ) ) { return null; }
 		
+		if ( !isset( $meta['mtime'], $meta['content_length'] ) ) {
+			return null;
+		}
+	
 		$curr_mtime	= storage_filemtime( $fpath );
 		$curr_size	= storage_filesize( $fpath );
 		
@@ -4490,13 +4497,15 @@ function response_save_meta_cache( string $fpath, array $meta ) : void {
 	
 	try {
 		$data	= 
-		\json_encode( $meta, 
-			\JSON_UNESCAPED_SLASHES | 
-			\JSON_UNESCAPED_UNICODE | 
-			\JSON_THROW_ON_ERROR 
+		\json_encode( 
+			value	: $meta,
+			flags	: 
+				\JSON_UNESCAPED_SLASHES | 
+				\JSON_UNESCAPED_UNICODE | 
+				\JSON_THROW_ON_ERROR 
 		);
 		
-		if ( false === \file_put_contents( $tmp, $json, \LOCK_EX ) ) {
+		if ( false === \file_put_contents( $tmp, $data, \LOCK_EX ) ) {
 			throw new 
 			\RuntimeException( "Failed to write temp cache file" );
 		}
@@ -4545,7 +4554,7 @@ function response_file_metadata( string $path ) : array {
 	$lmod	= \gmdate( 'D, d M Y H:i:s', $mtime ) . ' GMT';
 	
 	$meta	= [
-		'etag'           => "\"{$etag}\"",
+		'etag'           => $etag,
 		'last_modified'  => $lmod,
 		'content_type'   => $mime,
 		'content_length' => $fsize,
@@ -4621,7 +4630,11 @@ function response_file_stream(
 	
 	// Dump binary as-is, if minimum streaming size is not met
 	if ( $meta['content_length'] <= 65536 ) {
-		\readfile( $handle );
+		if ( \is_resource( $handle ) ) {
+			\fpassthru( $handle );
+		} else {
+			\readfile( $fpath );
+		}
 	} else {
 		while ( !\feof( $handle ) ) {
 			if ( \connection_aborted() ) { break; }
