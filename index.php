@@ -2024,7 +2024,7 @@ function sanitize_filter(
 	
 	// Convert Unicode character entities?
 	if ( $entities ) {
-		$html	= \mb_convert_encoding( $html, 'HTML-ENTITIES', 'UTF-8' );
+		$html	= \htmlentities( $html, \ENT_QUOTES | \ENT_SUBSTITUTE, 'UTF-8' );
 	}
 	
 	return \trim( $html );
@@ -2048,8 +2048,13 @@ function sanitize_escape_text(
 	$qflag	= $quotes ? \ENT_QUOTES : \ENT_NOQUOTES;
 	$hflag	= $html ? \ENT_HTML5 : 0;
 	$text	= sanitize_filter( $text );
+	$depth	= 0;
+	$max_d	= 100;
 	
 	do {
+		$depth++;
+		if ( $depth > $max_d ) { return ''; }
+		
 		$decoded	= \htmlspecialchars_decode( $text, $qflag );
 		$changed	= ( 0 !== \strcmp( $decoded, $text ) );
 		$text		= $decoded;
@@ -2079,16 +2084,15 @@ function sanitize_uri( string $raw, ?string $base = null ) : string|null {
 	
 	// Normalize
 	do {
+		$depth++;
+		if ( $depth > $max_d ) { return null; }
+		
 		$decoded	= sanitize_filter( \rawurldecode( $path ) );	// Invalid chars
 		$decoded	= \preg_replace( '#/{2,}#', '/', $decoded );	// Collapse
 		
 		$changed	= ( $decoded !== $path );
 		$path		= $decoded;
-		$depth++;
-		
-	} while( $changed && $depth < $max_d );
-	
-	if ( $changed && $depth >= $max_d ) { return null; }
+	} while( $changed );
 	
 	// Prevent directory traversal
 	$segments	= 
@@ -2115,10 +2119,12 @@ function sanitize_strip_xss( string $text ) : string {
 		'/expression\s*\(.*?\)/i',			// Probably not needed
 		'/(\\~\/|\.\.|\\\\|\-\-)/sm',			// Directory traversal
 		'/(<(s(?:cript|tyle)).*?)/ism',			// Injection
-		'/(document\.|window\.|eval\(|\(\))/ism',	// Events and scripts
+		'/(document\s*\.|window\s*\.)/i',		// Events and scripts
+		'/\beval\s*\(/i',
 		'/url\(\s*(?:javascript|jscript|livescript|vbscript|data)\s*[:&colon;][^\)]*\)/i'
 	];
 	
+	$text	= \preg_replace( '/\/\*.*?\*\//s', '', $text );	// Comments
 	$text	= \trim( $text, "'\"" );
 	do {
 		$original = $text;
@@ -2172,18 +2178,29 @@ function sanitize_host( string $txt ) : string {
  *  @return string
  */
 function sanitize_url( string $text, bool $xss = true ) : string {
-	// Nothing to clean
-	if ( empty( $text ) ) { return ''; }
+	$text = \trim( $text );
 	
-	// Default filter
-	if ( \filter_var( $txt, \FILTER_VALIDATE_URL ) ) {
-		$text	= sanitize_uri( $text ) ?? '';
-		if ( empty( $text ) ) { return ''; }
+	// Nothing to clean
+	if ( '' === $text ) { return ''; }
+	
+	if ( $xss ) {
+		$text = sanitize_strip_xss( $text );
 	}
 	
-	$text = sanitize_escape_text( 
-		( $xss ? sanitize_strip_xss( $text ) : $text ), false, false 
-	);
+	// Absolute paths?
+	if ( \preg_match( '~^[a-z][a-z0-9+\-.]*://~i', $text ) ) {
+		// Default filter
+		if ( !\filter_var( $text, \FILTER_VALIDATE_URL ) ) {
+			return '';
+		}
+		
+		return sanitize_escape_text( $text, false, false );
+	}
+	
+	$path	= sanitize_uri( $text ) ?? '';
+	if ( null === $path || '' === $path ) { return ''; }
+	
+	return sanitize_escape_text( $path, false, false );
 }
 
 /**
@@ -2246,7 +2263,7 @@ function sanitize_query(
 			\explode( '=', $pair, 2 ) + [ 1 => '' ] 
 		);
 		
-		if ( $key === '') { continue; }
+		if ( '' === $key || null === $key ) { continue; }
 		
 		// Preserve duplicates
 		if ( isset( $result[$key] ) ) {
@@ -2313,12 +2330,7 @@ function sanitize_filename( string $name ) : string|null {
  *  @return string
  */
 function sanitize_password( string $password ) : string {
-	$password = util_utf8( trim( $password ) );
-	if ( empty( $password ) ) {
-		throw new
-		\RuntimeException( 'Sanitizing password failed' );
-	}
-	return $password;
+	return util_utf8( \trim( $password ) );
 }
 
 /**
@@ -2442,6 +2454,10 @@ function sanitize_xml( string $text ) : string {
  */
 function sanitize_escape_node( $node, $parent ) : DOMNode {
 	$name		= \strtolower( $node->tagName );
+	if ( !\preg_match( '/^[a-z][a-z0-9\-]*$/', $name ) ) {
+		$name = 'div';
+	}
+	
 	$inner_html	= '';
 	foreach ( $node->childNodes as $child ) {
 		$inner_html .= $node->ownerDocument->saveHTML( $child );
@@ -2526,9 +2542,24 @@ function sanitize_srcset( string $srcset ) : string {
 	return \implode( ', ', $clean );
 }
 
+function sanitize_css_url( string $value ) : string {
+	if ( !\preg_match( '/url\(\s*([^\)]+)\s*\)/i', $value, $m ) ) {
+		return '';
+	}
+	
+	$clean	= sanitize_url( \trim( $m[1], "'\"" ) );
+	if ( '' === $clean ) { return ''; }
+	
+	return "url('$clean')";
+}
+
 function sanitize_style( string $text, ?array $allowed = null ) : string {
-	static $css	= '/^[a-z0-9\s\(\)\#\.,%\-\[\]!:;\/]+$/i';
-	static $default = [ 
+	static	$css	= '/^[a-z0-9\s\(\)\#\.,%\-\[\]!:;\/]+$/i';
+	static	$urls	= [
+		'background', 'background-image', 
+			'list-style', 'list-style-image'
+	];
+	static	$default = [ 
 		'color', 'background-color', 'font-size', 'font-weight',
 			'text-align', 'border', 'margin','padding', 'display'
 	];
@@ -2559,6 +2590,16 @@ function sanitize_style( string $text, ?array $allowed = null ) : string {
 			
 		) { continue; }
 		
+		// Is a URL and whitelisted?
+		if ( false !== \stripos( $value, 'url(' ) ) {
+			if ( !\in_array( $property, $urls, true ) ) {
+				continue;
+			}
+			
+			$value = sanitize_css_url( $value );
+			if ( '' === $value ) { continue; }
+		}
+		
 		// Clean property and value
 		$sanitized[] = "{$property}: {$value}";
 	}
@@ -2574,6 +2615,7 @@ function sanitize_attribute(
 	array		$rule 
 ) : void {
 	$value		= $node->getAttribute( $attr );
+	if ( !\preg_match( '/^[a-z][a-z0-9\-]*$/i', $attr ) ) { return; }
 	
 	// Limited subset of allowed values
 	if ( isset( $rule['allowed'] ) ) {
@@ -2598,7 +2640,9 @@ function sanitize_attribute(
 	
 	$sanitizer	= 
 	match( true ) {
-		isset( $rule['filter'] ) && defined( $rule['filter'] ) 
+		isset( $rule['filter'] )	&& 
+		defined( $rule['filter'] )	&& 
+		\is_int( \constant( $rule['filter'] ) )
 			=> function( $v ) use ( $rule ) {
 				$filter		= \constant( $rule['filter'] );
 				$options	= $rule['options'] ?? [];
@@ -2619,7 +2663,7 @@ function sanitize_attribute(
 				\filter_var( $v, $filter, [ 'flags' => $flags, 'options' => $options ] );
 			},
 		
-		isset( $rule['callback'] ) && \function_exists( $rule['callback'] ) 
+		isset( $rule['callback'] ) && \is_callable( $rule['callback'] ) 
 			=> fn( $v ) => \call_user_func( $rule['callback'], $v ),
 		
 		default	=> fn( $v ) => sanitize_escape_text( $v, false, false );
@@ -2664,12 +2708,12 @@ function sanitize_html( $html, $tag_map ) {
 		if ( !$node instanceof \DOMElement ) { return null; }
 		
 		$tag		= null; // Default
-		$original_tag	= $node->tagName;
+		$original_tag	= \strtolower( $node->tagName );
 		foreach ( $tag_map as $key => $rules ) {
 			if ( 
 				0 === \strcasecmp( $key, $original_tag )	|| 
 				\in_array( 
-					\strtolower( $original_tag ), 
+					$original_tag , 
 					\array_map( 'strtolower', $rules['alias'] ?? [] ), 
 					false
 				)
@@ -2681,11 +2725,16 @@ function sanitize_html( $html, $tag_map ) {
 		
 		if ( null === $tag ) { return null; }
 		
-		if ( \in_array( \strtolower( $tag ), [ 'code', 'pre', 'kbd' ], true ) ) {
+		$new_tag	= \strtolower( $tag );
+		if ( !\preg_match( '/^[a-z][a-z0-9\-]*$/', $new_tag ) ) {
+			$new_tag = 'div';
+		}
+		
+		if ( \in_array( $new_tag, [ 'code', 'pre', 'kbd' ], true ) ) {
 			return sanitize_escape_node( $node, $cleaned );
 		}
 		
-		$new_node	= $cleaned->createElement( \strtolower( $tag ) );
+		$new_node	= $cleaned->createElement( $new_tag );
 		$attr_rules	= $tag_map[$tag]['attributes'] ?? [];
 		
 		foreach ( $attr_rules as $attr => $rule ) {
