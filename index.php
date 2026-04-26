@@ -2857,7 +2857,7 @@ function storage_filemime( string $fpath ) : string {
 	static $text_types = [
 		'txt'	=> 'text/plain',
 		'css'	=> 'text/css',
-		'js'	=> 'text/javascript',
+		'js'	=> 'application/javascript',
 		'svg'	=> 'image/svg+xml',
 		'vtt'	=> 'text/vtt',
 		'json'	=> 'application/json',
@@ -2876,7 +2876,7 @@ function storage_filemime( string $fpath ) : string {
 	}
 	
 	$finfo	??= new \finfo( \FILEINFO_MIME_TYPE );
-	$mime	= $finfo->file( $path );
+	$mime	= $finfo->file( $fpath );
 	return $mime ?: 'application/octet-stream';
 }
 
@@ -2896,6 +2896,7 @@ function storage_file_open( string $fpath, string $mode = 'rb' ) {
 		
 	$handle		= \fopen( $fpath, $mode );
 	if ( false === $handle ) {
+		\error_log( "Unable to open file '{$fpath}' with mode '{$mode}'" );
 		throw new 
 		\RuntimeException( 'Error obtaining file read handle' );
 	}
@@ -2933,7 +2934,9 @@ function storage_file_hash( string $fpath ) : string|false {
 		$out = \hash_final( $ctx );
 		
 	} finally {
-		if ( \is_resource( $handle ) ) { \fclose( $handle ); }
+		if ( 'stream' === \get_resource_type( $handle ) ) {
+    			\fclose( $handle );
+		}
 	}
 	return $out;
 }
@@ -2951,15 +2954,16 @@ function storage_dirtype_lock( string $lock_file, int $tries = 3 ) : bool {
 	
 	while ( $tries > 0 ) {
 		// Try to acquire lock atomically
-		if ( @\mkdir( $lock_dir, 0777 ) ) {
-			\register_shutdown_function( function() use ( $lock_dir ) {
-				@\rmdir( $lock_dir );
-			} );
-			return true;
+		if ( !\mkdir( $lock_dir ) && !\is_dir( $lock_dir ) ) {
+			$tries--;
+			\time_nanosleep( 0, 100000 );
+			continue;
 		}
 		
-		$tries--;
-		\time_nanosleep( 0, 100000 );
+		\register_shutdown_function( function() use ( $lock_dir ) {
+			@\rmdir( $lock_dir );
+		} );
+		return true;
 	}
 	
 	return false;
@@ -2975,7 +2979,7 @@ function storage_dirtype_lock( string $lock_file, int $tries = 3 ) : bool {
 function storage_filetype_lock( $handle, int $tries = 3 ) : bool {
 	$locked	= false;
 	for ( $i = 0; $i < $tries; $i++ ) {
-		if ( \flock( $handle, \LOCK_EX ) ) {
+		if ( \flock( $handle, \LOCK_EX | \LOCK_NB ) ) {
 			$locked = true;
 			break;
 		}
@@ -3007,7 +3011,9 @@ function storage_clean_stale_lock(
 		if ( \is_dir( $check ) ) {
 			@\rmdir( $check );
 		} else {
-			@\unlink( $check );
+			if ( \is_file( $check ) ) {
+				@\unlink( $check );
+			}
 		}
 		\error_log( "Stale lock for '{$lock_file}' removed" );
 	}
@@ -3022,7 +3028,7 @@ function storage_clean_stale_lock(
 function storage_release_lock( $handle, string $lock_file ) : void {
 	$ltype	= storage_options()['lock_type'];
 	if ( 0 === \strcasecmp( 'file', $ltype ) ) {
-		if ( \is_resource( $handle ) ) {
+		if ( \is_resource( $handle ) || $handle instanceof \SplFileObject ) {
 			@\flock( $handle, \LOCK_UN );
 			@\fclose( $handle );
 		}
@@ -3043,7 +3049,7 @@ function storage_close_files( array $files ) : void {
 	foreach( $files as $item ) {
 		if ( 
 			\is_resource( $item )				&& 
-			\get_resource_type( $item ) === 'stream' 
+			'stream' === \get_resource_type( $item )
 		) {
 			\fclose( $item );
 		}
@@ -3064,7 +3070,7 @@ function storage_check_wait( string $lock_file, int $start, int $max_wait ) : bo
 		return false;
 	}
 	
-	sleep( 1 );
+	usleep( 100000 );
 	return true;		
 }
 
@@ -3090,21 +3096,25 @@ function storage_lock_file( string $lock_file, string $mode ) : false|resource {
 	storage_clean_stale_lock( $lock_file, $type, $max_age );
 	
 	$get_lock	= 
-	( 0 === \strcasecmp( 'file', $type ) )
-		? function() use( &$handle, $tries ) { return storage_filetype_lock( $handle, $tries ); }
-		: function() use( $lock_file, $tries ) { return storage_dirtype_lock( $lock_file, $tries ); }
+	function() use ( &$handle, $tries, $type, $lock_file ) {
+    		return ( 0 === \strcasecmp( 'file', $type ) )
+        		? storage_filetype_lock( $handle, $tries )
+          		: storage_dirtype_lock( $lock_file, $tries );
+	};
 	
 	// Attempt lock
 	while ( true ) {
-		$handle =\fopen( $lock_file, $mode );
+		$handle = \fopen( $lock_file, $mode );
 		if ( $handle && $get_lock() ) {
 			return $handle;
 		}
-			
+		
 		if ( !storage_check_wait( $lock_file, $start, $max_wait ) ) {
 			storage_release_lock( $handle, $lock_file );
 			return false; 
 		}
+		
+		\usleep( 100000 );
 	}
 }
 
@@ -3135,12 +3145,12 @@ function storage_find_writable(
 	$dir	= \realpath( $start );
 	while ( 
 		false !== $dir			&& 
-		\DIRECTORY_SEPARATOR !== $dir	&& 
-		$depth > 0 
+		$dir !== \dirname( $dir )	&& 
+		$depth > 0
 	) {
 		foreach ( $names as $check ) {
 			$child = $dir . \DIRECTORY_SEPARATOR . $check;
-			if ( \is_dir( $child ) && \is_writable( $child ) ) {
+			if ( \is_dir( $child ) && \is_writable( $child ) && \is_readable( $child ) ) {
 				return $child;
 			}
 		}
@@ -3213,7 +3223,7 @@ function storage_backup_path( string $name ) : string {
 		$bkp = storage_base() 
 			. $base . '.'
 			. util_timestamp( 'Y-m-d_H-i-s_' )
-			. \uniqid() . $ext;
+			. \uniqid( '', true ) . $ext;
 	} while ( \file_exists( $bkp ) );
 	
 	return $bkp;
@@ -3231,7 +3241,7 @@ function storage_temp_cleanup( string $path ) : void {
 	$options	= storage_options();
 	$stale		= $options['temp_stale'];
 	$cleanup[$path]	= true;
-	$pattern	= $path . '.*' . $options['tmp_ext'] ?? '.tmp';
+	$pattern	= $path . '.*' . ( $options['tmp_ext'] ?? '.tmp' );
 	
 	\register_shutdown_function( function() use( $pattern, $stale ) {
 		try {
@@ -3267,14 +3277,18 @@ function storage_append( string $path, string $data, bool $block = false ) : boo
 	
 	$mode	= $block ? \LOCK_EX : \LOCK_EX | \LOCK_NB;
 	if ( !@\flock( $handle, $mode ) ) {
-		if ( !\is_resource( $handle ) ) {
+		if ( \is_resource( $handle ) ) {
 			\fclose( $handle );
 		}
 		\error_log( "Unable to acquire lock on log file '{$path}' by {$id}" );
 		return false;
 	}
 	
-	$result	= \@fwrite( $handle, $data . PHP_EOL );
+	$result	= \@fwrite( $handle, $data . \PHP_EOL );
+	if ( false === $result ) {
+    		\error_log( "Write failed for '{$path}' by {$id}" );
+	}
+	
 	if ( \is_resource( $handle ) ) {
 		\flock( $handle, \LOCK_UN );
 		\fclose( $handle );
@@ -3293,27 +3307,14 @@ function storage_append( string $path, string $data, bool $block = false ) : boo
 function storage_write_file( string $path, string $data ) : bool {
 	$options	= storage_options();
 	$lock_file	= $path . '.lock';
-	$tries		= $options['lock_tries'];
-	
-	// Wait for lock to clear
-	while( $tries > 0 ) {
-		if ( !\file_exists( $lock_file ) ) { break; }
-		
-		$tries--;
-		\time_nanosleep( 0, 100000 );
-	}
-	
-	// Something else was trying to write at the same time
-	if ( $tries <= 0 && \file_exists( $lock_file ) ) {
-		\error_log( "Parallel write to {$path} found by {$id}" );
-		return false;
-	}
+	$ext		= $options['tmp_ext'] ?? '.tmp';
 	
 	// Unique lock signature
 	$id		= storage_get_id();
+	
 	$tmp_file	= 
 	$path . '.' . $id . '.' . 
-		\bin2hex( \random_bytes( 4 ) ) . $options['tmp_ext'];
+		\bin2hex( \random_bytes( 4 ) ) . $ext;
 	
 	$lock_handle	= storage_lock_file( $lock_file, 'c+' );
 	if ( !$lock_handle ) {
@@ -3333,7 +3334,15 @@ function storage_write_file( string $path, string $data ) : bool {
 	}
 	
 	// Write and finish
-	\fwrite( $tmp_handle, $data );
+	$state = \fwrite( $tmp_handle, $data );
+	if ( false === $state || $written < \strlen( $data ) ) {
+		\fclose($tmp_handle);
+		storage_release_lock( $lock_handle, $lock_file );
+		
+		throw new 
+		\RuntimeException( "Failed to write temp file" );
+	}
+	
 	\fclose( $tmp_handle );
 	
 	// Cleanup
@@ -3347,11 +3356,13 @@ function storage_write_file( string $path, string $data ) : bool {
 	
 	// Move temp to permanent location
 	if ( !\rename( $tmp_file, $path ) ) {
-		storage_release_lock( $lock_handle, $lock_file );
-		\error_log( "Failed to replace '{$path}' with '{$tmp_file}' by {$id}" );
-		
-		throw new 
-		\RuntimeException( "Failed to replace file" );
+		if ( !\copy($tmp_file, $path) || !\unlink($tmp_file)) {
+			storage_release_lock( $lock_handle, $lock_file );
+			\error_log( "Failed to replace '{$path}' with '{$tmp_file}' by {$id}" );
+			
+			throw new 
+			\RuntimeException( "Failed to replace file" );
+		}
 	}
 	
 	storage_release_lock( $lock_handle, $lock_file );
