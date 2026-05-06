@@ -1317,7 +1317,7 @@ function error_handle( \Throwable $e ) : void {
 	);
 	$log	.= 
 	"Request: " . ( $_SERVER['REQUEST_METHOD'] ?? 'CLI' ) . " " .
-        \htmlspecialchars( $_SERVER['REQUEST_URI'] ?? '' ) . "\n";
+	\htmlspecialchars( $_SERVER['REQUEST_URI'] ?? '' ) . "\n";
 	
 	\error_log( $log );
 	error_page();
@@ -2666,7 +2666,7 @@ function sanitize_attribute(
 		isset( $rule['callback'] ) && \is_callable( $rule['callback'] ) 
 			=> fn( $v ) => \call_user_func( $rule['callback'], $v ),
 		
-		default	=> fn( $v ) => sanitize_escape_text( $v, false, false );
+		default	=> fn( $v ) => sanitize_escape_text( $v, false, false )
 	};
 	
 	$sanitized = $sanitizer( $value );
@@ -3081,7 +3081,7 @@ function storage_check_wait( string $lock_file, int $start, int $max_wait ) : bo
  *  @param string	$mode		File open mode
  *  @return mixed
  */
-function storage_lock_file( string $lock_file, string $mode ) : false|resource {
+function storage_lock_file( string $lock_file, string $mode ) : false|\resource {
 	$options	= storage_options();
 	$tries		= $options['lock_tries'];
 	$type		= $options['lock_type'];
@@ -3269,7 +3269,7 @@ function storage_temp_cleanup( string $path ) : void {
  */
 function storage_append( string $path, string $data, bool $block = false ) : bool {
 	$id	= storage_get_id();
-	$handle	= \@fopen( $path, 'a' );
+	$handle	= @\fopen( $path, 'a' );
 	if ( !$handle || !\is_resource( $handle ) ) {
 		\error_log( "Unable to open log file '{$path}' by {$id}" );
 		return false;
@@ -3284,7 +3284,7 @@ function storage_append( string $path, string $data, bool $block = false ) : boo
 		return false;
 	}
 	
-	$result	= \@fwrite( $handle, $data . \PHP_EOL );
+	$result	= @\fwrite( $handle, $data . \PHP_EOL );
 	if ( false === $result ) {
     		\error_log( "Write failed for '{$path}' by {$id}" );
 	}
@@ -3438,7 +3438,9 @@ function log_file( string $fname = 'messages.log' ) : string {
  *  @return bool
  */
 function log_file_valid( string $path ) : bool {
-	static $root	= \realpath( storage_base() );
+	static $root;
+	
+	$root		??= \realpath( storage_base() );
 	$rpath		= @\realpath( $path );
 	
 	return ( false !== $rpath ) && ( 0 === \strpos( $rpath, $root ) );
@@ -3712,9 +3714,9 @@ function request_is_tls() : bool {
 		( 
 			!empty( $_SERVER['SERVER_PORT'] ) 
 			&& 443 === ( int ) $_SERVER['SERVER_PORT']
-		),
-
-		default	=> false,
+		)	=> true,
+		
+		default	=> false
 	};
 	
 	return $tls;
@@ -4069,7 +4071,7 @@ function request_ua() : string {
  *  Get unparsed request query
  */
 function request_query() : string {
-	string $qs;
+	static $qs;
 	$qs	??= sanitize_query( false ) ?? '';
 	
 	return $qs;
@@ -6898,15 +6900,15 @@ class Plugin {
 	 *  @param string		$name		Unique plugin name
 	 *  @param string		$description	Brief plugin description
 	 *  @param int			$priority	Initialization order, higher = earlier
-	 *  @param stirng|callable	$asset_dir	Files being served to the client
+	 *  @param string|callable	$asset_dir	Files being served to the client
 	 *  @param string|callable	$data_dir	Writable storage directory
 	 */
 	public function __construct(
-		public readonly string		$name,
-		public readonly string		$description	= '',
-		public int			$priority	= 0,
-		public readonly string|callable	$asset_dir	= PLUGIN_ASSET_DIR,
-		public readonly string|callable	$data_dir	= PLUGIN_DATA_DIR
+		public readonly string			$name,
+		public readonly string			$description	= '',
+		public int				$priority	= 0,
+		public readonly string|\callable	$asset_dir	= PLUGIN_ASSET_DIR,
+		public readonly string|\callable	$data_dir	= PLUGIN_DATA_DIR
 	) {}
 }
 
@@ -6981,7 +6983,7 @@ function plugin_autoload() : array {
  *  @param bool		$run	Autoload and initialize each plugin (default)
  */
 function plugin_init( bool $run = true ) : void {
-	static $plugins
+	static $plugins;
 	
 	$plugins	??= plugin_autoload();
 	
@@ -7123,7 +7125,7 @@ function hook_registry( string $action, string $name, ...$args ) : mixed {
 		'values'	=> $output[$name] ?? [],
 		
 		// Clear results
-		'clear'		=> unset( $output[$name] ),
+		'clear'		=> \unset( $output[$name] ),
 		
 		// Resort hooks by priority
 		'priority'	=> 
