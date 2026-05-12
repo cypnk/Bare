@@ -7452,12 +7452,12 @@ function view_validate_path(
 /**
  *  Generate and validate relative view path by name
  *  
- *  @param string	$paths	Cached view paths in prefix->directory format
+ *  @param array	$paths	Cached view paths in prefix->directory format
  *  @param string	$layout	Requested view by file basename
  *  @return string
  */
 function view_resolve_path( array $paths, string $layout ) : string {
-	\uksort( $paths, fn( $a, $b ) => strlen( $b ) <=> \strlen( $a ) );
+	\uksort( $paths, fn( $a, $b ) => \strlen( $b ) <=> \strlen( $a ) );
 	
 	foreach ( $paths as $prefix => $dir ) {
 		if ( '' === $prefix ) { continue; }
@@ -7889,8 +7889,8 @@ class Plugin {
 		public readonly string			$name,
 		public readonly string			$description	= '',
 		public int				$priority	= 0,
-		public readonly string|\callable	$asset_dir	= PLUGIN_ASSET_DIR,
-		public readonly string|\callable	$data_dir	= PLUGIN_DATA_DIR
+		public readonly string|\callable	$asset_dir	= 'assets/',
+		public readonly string|\callable	$data_dir	= 'data/'
 	) {}
 }
 
@@ -7903,7 +7903,7 @@ function plugin_autoload() : array {
 	static $plugins;
 	if ( isset( $plugins ) ) { return $plugins; }
 	
-	$pl		= config( 'plugins_enabled', \PLUGINS_ENABLED );
+	$pl		= config( 'plugins_enabled', '' );
 	
 	// Nothing to load
 	if ( empty( $pl ) ) { return []; }
@@ -8107,11 +8107,15 @@ function hook_registry( string $action, string $name, ...$args ) : mixed {
 		'values'	=> $output[$name] ?? [],
 		
 		// Clear results
-		'clear'		=> \unset( $output[$name] ),
+		'clear'		=> 
+		( function() use ( &$output, $name ) { 
+			unset( $output[$name] );
+			return true; 
+		} )(),
 		
 		// Resort hooks by priority
 		'priority'	=> 
-		( function() use ( &$handlers, $args ) {
+		( function() use ( &$handlers, $args, $name ) {
 			[ $hook, $priority ]	= $args;
 			foreach ( $handlers[$name] ?? [] as &$h ) {
 				if ( $hook === $h['handler'] ) {
@@ -8184,7 +8188,7 @@ function hook( array $params ) {
  *  
  *  @param string	$event		Hook event name
  *  @param string	$default	Fallback content
- *  @return array
+ *  @return string
  */
 function hookStringResult( string $event, string $default = '' ) : string {
 	$sent	= hook( [ $event, '' ] );
@@ -8232,7 +8236,7 @@ function hookTemplateRender(
 	bool	$full	= false
 ) : string {
 	return 
-	render( 
+	template_render( 
 		hookArrayResult( $event )['template'] ?? 
 		hookStringResult( $event, $default ), $input, $full
 	);
@@ -8311,7 +8315,7 @@ function db_params_in(
 /**
  *  Get or create cached PDO Statements
  *  
- *  @param PDO		$db	Database connection
+ *  @param PDO		$dbh	Database connection
  *  @param string	$sql	Query string or statement
  *  @return mixed
  */
@@ -8352,7 +8356,7 @@ function db_stmt( ?\PDO $dbh, string $sql ) {
  *  
  *  @param PDOStatement		$stmt		Prepared statement
  *  @param array		$params		Any prepared values in [':param' => value ] format
- *  @param array		$context	Execution context data
+ *  @param string		$context	Execution context data
  *  @return bool				True on success
  */
 function db_exec( \PDOStatement $stmt, array $params, string $context ) : bool {
@@ -8639,7 +8643,7 @@ function db_batch_schema(
 		db_exec( db_stmt( $dbh, $sql ), [
 			':version'	=> $ver,
 			':comment'	=> $comment
-		] );
+		], "Schema file {$sql_file}" );
 		
 		$dbh->commit();
 		
@@ -8887,7 +8891,7 @@ function db_get( string $profile = 'main', ?array $new_profiles = null ) : \PDO 
 			);
 			
 			$saved[$profile]['installed'] = true;
-			config_edit( [ 'db_profiles' => $saved ] );
+			config_edit( 'db_profiles', $saved );
 		} else {
 			db_migrate( $dbh, $saved[$profile]['migrations'] ?? $profile );
 		}
@@ -8910,7 +8914,7 @@ function db_get( string $profile = 'main', ?array $new_profiles = null ) : \PDO 
 /**
  *  Helper to get the result from a successful statement execution
  *  
- *  @param PDO		$db	Database connection
+ *  @param PDO		$dbh	Database connection
  *  @param PDOStatement	$stmt	PDO prepared statement
  *  @param array	$params	Parameters
  *  @param string	$rtype	Return type
@@ -8922,19 +8926,19 @@ function db_result(
 	array		$params		= [],
 	string		$rtype		= ''
 ) : mixed {
-	$ok	= db_exec( $stmt, 'Running db_result()' );
+	$ok	= db_exec( $stmt, $params, "Running db_result() with return type {$rtype}" );
 	
 	if ( !$ok ) { return null; }
 	
 	return match( \strtolower( $rtype ) ) {
 		// Query with array return
-		'results'	=> $ok ? $stm->fetchAll() : [], 
+		'results'	=> $ok ? $stmt->fetchAll() : [], 
 		
 		// Insert with ID return
-		'insert'	=> $ok ? $db->lastInsertId() : 0, 
+		'insert'	=> $ok ? $dbh->lastInsertId() : 0, 
 		
 		// Single column value
-		'column'	=> $ok ? $stm->fetchColumn() : '', 
+		'column'	=> $ok ? $stmt->fetchColumn() : '', 
 		
 		// Success status
 		default		=> $ok
@@ -8957,7 +8961,7 @@ function db_result_exec(
 	string	$rtype		= ''
 ) : mixed {
 	$dbh	= db_get( $profile );
-	$stmt	= db_stmt( $dbh );
+	$stmt	= db_stmt( $dbh, $sql );
 	$res	= db_result( $dbh, $stmt, $params, $rtype );
 	
 	$stmt->closeCursor();
@@ -8980,9 +8984,9 @@ function db_batch_result_exec(
 	string	$rtype		= ''
 ) : array {
 	$dbh	= db_get( $profile );
-	$stmt	= db_stmt( $dbh );
+	$stmt	= db_stmt( $dbh, $sql );
 	
-	return db_with_transaction( $dbh, function( \PDO $dbh ) use ( $stmt, $batch ) {
+	return db_with_transaction( $dbh, function( \PDO $dbh ) use ( $stmt, $batch, $rtype ) {
 		$res	= [];
 		
 		foreach( $batch as $params ) {
@@ -9056,6 +9060,7 @@ function sess_create() { return \bin2hex( \random_bytes( 32 ) ); }
 /**
  *  Read session data by ID
  *  
+ *  @param string	$session_id	Unique identifier
  *  @return string
  */
 function sess_read( $session_id ) {
@@ -9077,6 +9082,8 @@ function sess_read( $session_id ) {
 /**
  *  Store session data
  *  
+ *  @param string	$session_id	Unique identifier
+ *  @param string	$data		Session information
  *  @return bool
  */
 function sess_write( $session_id, $data ) {
@@ -9094,9 +9101,9 @@ function sess_write( $session_id, $data ) {
 					DATETIME( 'now', '+1 hour' )
 			) ON CONFLICT( basename, session_id )
 			DO UPDATE SET
-				session_data = excluded.session_data,
-				session_ip   = excluded.session_ip,
-				expires_at   = excluded.expires_at"
+				session_data	= excluded.session_data,
+				session_ip	= excluded.session_ip,
+				expires_at	= excluded.expires_at"
 		);
 		
 		$host	= 
@@ -9113,6 +9120,7 @@ function sess_write( $session_id, $data ) {
 /**
  *  Delete session
  *  
+ *  @param string	$session_id	Unique identifier
  *  @return bool
  */
 function sess_destroy( $session_id ) {
@@ -9128,6 +9136,7 @@ function sess_destroy( $session_id ) {
 /**
  *  Session garbage collection
  *  
+ *  @param int		$maxlifetime	Unused maximum TTL
  *  @return bool
  */
 function sess_gc( $maxlifetime ) {
@@ -9142,10 +9151,22 @@ function sess_gc( $maxlifetime ) {
 	} );
 }
 
+/**
+ *  Delete session
+ *  
+ *  @param string	$session_id	Unique identifier
+ *  @return bool
+ */
 function sess_validate( $session_id ) {
 	return \preg_match( '/^[a-f0-9]{64}$/', $session_id ) === 1;
 }
 
+/**
+ *  Delete session
+ *  
+ *  @param string	$session_id	Unique identifier
+ *  @return bool
+ */
 function sess_update_timestamp( $session_id, $data ) {
 	$dbh	= db_get( 'sessions' );
 	$stmt	=
@@ -9157,7 +9178,7 @@ function sess_update_timestamp( $session_id, $data ) {
 	return $stmt->execute( [ ':id' => $session_id ] );
 }
 
-function sess_off() {
+function sess_off() : void {
 	if ( \session_status() === \PHP_SESSION_ACTIVE ) {
 		\session_unset();
 		\session_destroy();
@@ -9168,7 +9189,7 @@ function sess_off() {
 /**
  *  Set session handler functions and initiate
  */
-function sess_init() {
+function sess_init() : void {
 	static $params;
 	static $start;
 	
@@ -9293,7 +9314,7 @@ function form_set_token(
 	$options		??= [
 		'allow_upload'	=> false,	// Allow file uploads ( plugins )
 		'allow_patch'	=> false,	// Enable PATCH method ( plugins )
-		'issued'	=> time(),	// Form generated
+		'issued'	=> \time(),	// Form generated
 		'once'		=> false,	// Only allow one validation
 		'use_id'	=> false,	// Use session id
 		
