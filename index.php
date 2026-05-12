@@ -3745,7 +3745,7 @@ function request_id() : string {
 	static $id;
 	
 	$id	??= 
-	$_SERVER['REQUEST_TIME'] ?? time()  . '_' . 
+	( string ) ( $_SERVER['REQUEST_TIME'] ?? time() ) . '_' . 
 		\bin2hex( \random_bytes( 32 ) );
 	
 	return $id;
@@ -3839,7 +3839,7 @@ function request_method() : string {
 	\strtolower( \trim( $_SERVER['REQUEST_METHOD'] ?? '' ) );
 	
 	$method		= 
-	\in_array( $temp, $valid, true ) 
+	\in_array( $temp, $supported, true ) 
 		? $temp 
 		: 'unsupported';
 	
@@ -4088,7 +4088,7 @@ function request_ip( bool $skip = false ) : string {
 		$candidate,
 		\FILTER_VALIDATE_IP,
 		\FILTER_FLAG_NO_PRIV_RANGE | \FILTER_FLAG_NO_RES_RANGE
-        ) ?: '';
+	) ?: '';
 	
 	return $skip ? $ip_unf : $ip;
 }
@@ -4184,7 +4184,7 @@ function request_query() : string {
  *  @return string
  */
 function request_url() : string {
-	$uri	= \ltrim( request_get_uri(), '/' );
+	$uri	= \ltrim( request_uri(), '/' );
 	$query	= sanitize_query( true, true ) ?? '';
 	$query	= 
 	\is_array( $query )
