@@ -2273,11 +2273,11 @@ function sanitize_query(
 	static $result_lower;
 	
 	$query	??= $_SERVER['QUERY_STRING'] ?? '';
-	
-	if ( $parsed && isset( $result ) ) {
-		return $lower_keys ? $result_lower : $result;
-	} elseif ( !$parsed ) {
-		return $query;
+
+	if ( isset( $result ) && isset( $result_lower ) ) {
+		return $parsed 
+			? ( $lower_keys ? $result_lower : $result )
+			: $query;
 	}
 	
 	$result	= [];
@@ -2434,7 +2434,7 @@ function sanitize_slug( string $text, string $prefix = 'node-' ) : string {
 	$text	= \mb_strtolower( $text, 'UTF-8' );
 	$text	= \trim( $text, '-' );
 	
-	return empty( $text ) ? $prefix . util_gen_key() : $text;
+	return empty( $text ) ? util_gen_key( 16, $prefix ) : $text;
 }
 
 /**
@@ -2481,7 +2481,7 @@ function sanitize_xml( string $text ) : string {
  *  @return DOMNode
  */
 function sanitize_escape_node( $node, $parent ) : DOMNode {
-	$name		= \strtolower( $node->tagName );
+	$name		= \strtolower( $node->nodeName );
 	if ( !\preg_match( '/^[a-z][a-z0-9\-]*$/', $name ) ) {
 		$name = 'div';
 	}
@@ -2491,9 +2491,9 @@ function sanitize_escape_node( $node, $parent ) : DOMNode {
 		$inner_html .= $node->ownerDocument->saveHTML( $child );
 	}
 	
-	$new_node	= $parent->createElement( $name );
+	$new_node	= $parent->ownerDocument->createElement( $name );
 	$new_node->appendChild( 
-		$parent->createTextNode( sanitize_escape_text( $inner_html ) ) 
+		$parent->ownerDocument->createTextNode( sanitize_escape_text( $inner_html ) ) 
 	);
 	return $new_node;
 }
@@ -2736,7 +2736,7 @@ function sanitize_html( $html, $tag_map ) {
 		if ( !$node instanceof \DOMElement ) { return null; }
 		
 		$tag		= null; // Default
-		$original_tag	= \strtolower( $node->tagName );
+		$original_tag	= \strtolower( $node->nodeName );
 		foreach ( $tag_map as $key => $rules ) {
 			if ( 
 				0 === \strcasecmp( $key, $original_tag )	|| 
@@ -2810,6 +2810,80 @@ function sanitize_cast_to_string( mixed $value ) : string {
 
 function sanitize_cast_to_int( mixed $value ) : int {
 	return ( int ) sanitize_cast_to_string( $value );
+}
+
+/**
+ *  Simple email address filter helper
+ *  
+ *  @param string	$email	Raw email (currently doesn't support Unicode domains)
+ *  @return string
+ */
+function sanitize_email( string $email ) : string {
+	return 
+	\filter_var( $email, \FILTER_VALIDATE_EMAIL ) ? $email : '';
+}
+
+/**
+ *  Prepend given prefix to URLs starting with '/'
+ *  
+ *  @param string	$url	Raw URL path
+ *  @param string	$prefix	Prefix to prepend if $url starts with '/'
+ *  @return string
+ */
+function sanitize_prepend_path( string $v, string $prefix ) : string {
+	$v = trim( $v, '"\'' );
+	return \preg_match( '/^\//', $v ) ?
+		sanitize_url( $prefix . $v ) : sanitize_url( $v );
+}
+
+/**
+ *  Normalize unicode characters
+ *  
+ *  This depends on the Intl extension (usually comes with PHP), 
+ *  but needs to be enabled in php.ini
+ *  @link https://www.php.net/manual/en/intl.installation.php
+ *  
+ *  @param string	$text
+ *  @return string 
+ */
+function sanitize_normalize( string $text ) : string {
+	if ( util_missing( 'normalizer_normalize' ) ) {
+		return $text;
+	}
+	
+	$normal = 
+	\normalizer_normalize( \sanitize_bland( $text ), \Normalizer::FORM_C );
+	
+	return ( false === $normal ) ? $text : $normal;
+}
+
+/**
+ *  Check if the requested path has a whitelisted extension
+ *  
+ *  @param string	$path		Requested URI
+ *  @param array	$groups		Configuration groups
+ *  @param string	$name		Specific type I.E. "images"
+ */
+function sanitize_is_safe_ext( string $path, array $groups, string $name = '' ) : bool {
+	static $safe	= [];
+	static $checked	= [];
+	$key		= $name . $path;
+	
+	if ( isset( $checked[$key] ) ) {
+		return $checked[$key];
+	}
+	
+	if ( !isset( $safe[$name] ) ) {
+		$safe[$name]	= $groups;
+	}
+	
+	$ext		= 
+	\pathinfo( $path, \PATHINFO_EXTENSION ) ?? '';
+	
+	$checked[$key] = 
+	\in_array( \strtolower( $ext ), $safe[$name] );
+	
+	return $checked[$key];
 }
 
 
