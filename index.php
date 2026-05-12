@@ -4472,19 +4472,19 @@ function response_xmlrpc_headers( ?string $origin = null ) : array {
 	$origin ??= request_origin();
 	
 	return [
-		'Access-Control-Allow-Origin'      => $origin,
-		'Access-Control-Allow-Methods'     => 'POST',
-		'Access-Control-Allow-Headers'     => 
+		'Access-Control-Allow-Origin'		=> $origin,
+		'Access-Control-Allow-Methods'		=> 'POST',
+		'Access-Control-Allow-Headers'		=> 
 		'Content-Type, Authorization, X-Requested-With',
 		
-		'Access-Control-Allow-Credentials' => 'true',
-		'Content-Security-Policy'          => 
+		'Access-Control-Allow-Credentials'	=> 'true',
+		'Content-Security-Policy'		=> 
 		"default-src 'self'; frame-ancestors 'none';",
 		
-		'X-Frame-Options'                  => 'DENY',
-		'X-Content-Type-Options'           => 'nosniff',
-		'Referrer-Policy'                  => 'same-origin',
-		'Strict-Transport-Security'        => 
+		'X-Frame-Options'			=> 'DENY',
+		'X-Content-Type-Options'		=> 'nosniff',
+		'Referrer-Policy'			=> 'same-origin',
+		'Strict-Transport-Security'		=> 
 		'max-age=31536000; includeSubDomains; preload'
 	];
 }
@@ -4515,7 +4515,7 @@ function response_generate_etag( int $size, int $mtime ) : string {
 /**
  *  Generate string content etag header
  *  
- *  @param stirng	$content	Client output content
+ *  @param string	$content	Client output content
  *  @param bool		$wetag		Set weak etag if true
  */
 function response_content_etag( string $content, bool $wetag = true ) : void {
@@ -4716,11 +4716,11 @@ function response_file_metadata( string $path ) : array {
 	$lmod	= \gmdate( 'D, d M Y H:i:s', $mtime ) . ' GMT';
 	
 	$meta	= [
-		'etag'           => $etag,
-		'last_modified'  => $lmod,
-		'content_type'   => $mime,
-		'content_length' => $fsize,
-		'mtime'          => $mtime
+		'etag'			=> $etag,
+		'last_modified'		=> $lmod,
+		'content_type'		=> $mime,
+		'content_length'	=> $fsize,
+		'mtime'			=> $mtime
 	];
 	
 	response_save_meta_cache( $fpath, $meta );
@@ -4902,7 +4902,7 @@ function response_file(
 	}
 	
 	try {
-		$handle = response_file_open( $fpath );
+		$handle = storage_file_open( $fpath );
 		if ( $ranges ) {
 			response_file_range( $meta, $handle, $fpath, $ranges );
 		} else {
@@ -4922,7 +4922,7 @@ function response_file(
  *  Response output content type header helper
  *  
  *  @param string	$body		Output content
- *  @param string	$ct_sent	Send 'Content-Type' if false
+ *  @param bool		$ct_sent	Send 'Content-Type' if false
  */
 function response_body( mixed $body, bool $ct_sent ) : void {
 	if ( null === $body ) { return; }
@@ -4950,8 +4950,9 @@ function response_body( mixed $body, bool $ct_sent ) : void {
 /**
  *  Main content response handler
  *  
- *  @param int		$code	HTTP status code
- *  @param mixed	$body	Content body
+ *  @param int		$code		HTTP status code
+ *  @param array	$headers	Content headers
+ *  @param mixed	$body		Content body
  */
 function response( int $code, array $headers = [], $body = null ) : void {
 	if ( $code < 100 || $code > 599 ) {
@@ -5016,8 +5017,10 @@ function response_options( array $headers = [] ) : void {
 /**
  *  XML Output response helper
  *  
- *  @param string	$xml	Raw XML content
- *  @param int		$status	HTTP status code
+ *  @param string	$xml		Raw XML content
+ *  @param int		$status		HTTP status code
+ *  @param string	$type		Content MIME type
+ *  @param array	$headers	Additional headers 
  */
 function response_xml(
 	string	$xml,
@@ -5033,6 +5036,24 @@ function response_xml(
 	
 	response( $status, $headers, $xml );
 	exit;
+}
+
+/**
+ *  Clean the output buffer without flushing
+ *  
+ *  @param bool		$ebuf		End buffers
+ */
+function response_end_buffers( bool $ebuf = false ) : void {
+	if ( $ebuf ) {
+		while ( \ob_get_level() > 0 ) {
+			\ob_end_clean();
+		}
+		return;
+	}
+	
+	while ( \ob_get_level() && \ob_get_length() > 0 ) {
+		\ob_clean();
+	}
 }
 
 
