@@ -30,7 +30,7 @@
 					"name"		: "generator", 
 					"content"	: "Bare; https:\/\/github.com\/cypnk\/Bare" 
 				}
-			],
+			]
 		}
 	],
 	
@@ -41,11 +41,20 @@
 		"template_dir"		: "templates",
 		"date_format"		: "l, F j, Y",
 		"related_limit"		: 5,
+		"show_related"		: true,
+		"meta_limit"		: 15,
+		"style_limit"		: 20,
+		"script_limit"		: 15,
+		"tag_limit"		: 5,
 		"max_page"		: 500,
 		"max_posts"		: 1000,
+		"max_search_words"	: 10,
+		"summary_level"		: 0,
+		"show_siblings"		: true,
 		"posts_per_page"	: 10,
 		"cache_ttl"		: 3600,
 		"max_log_size"		: 5000000,
+		"folder_limit"		: 15,
 		"entry_ext"		: "md",
 		"entry_meta_lines"	: 10,
 		"entry_fields"		: [ "title", "tags", "summary", "author", "updated" ],
@@ -516,7 +525,7 @@
 						]
 					}, 
 					"style"		: { "callback"	: "sanitize_style" }, 
-					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" },
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
 				}
 			},		
 			"input"		: { 
@@ -538,7 +547,7 @@
 					"checked"	: { "allowed"	: [ "true", "" ] },
 					"disabled"	: { "allowed"	: [ "true", "" ] },
 					"style"		: { "callback"	: "sanitize_style" }, 
-					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" },
+					"class"		: { "filter"	: "FILTER_SANITIZE_FULL_SPECIAL_CHARS" }
 				}
 			},
 			"label"		: {
@@ -622,17 +631,17 @@
 				"ATTR_ERRMODE"			: "ERRMODE_EXCEPTION"
 			},
 			"pre_exec"	: [
-				"PRAGMA journal_mode	= WAL;",
-				"PRAGMA busy_timeout	= {{DB_TIMEOUT}};",
-				"PRAGMA trusted_schema	= OFF;",
-				"PRAGMA synchronous	= FULL;",
-				"PRAGMA locking_mode	= NORMAL;"
+				"PRAGMA journal_mode = WAL;",
+				"PRAGMA busy_timeout = {{DB_TIMEOUT}};",
+				"PRAGMA trusted_schema = OFF;",
+				"PRAGMA synchronous = FULL;",
+				"PRAGMA locking_mode = NORMAL;"
 			],
 			"init_exec"	: [
-				"PRAGMA encoding	= \"UTF-8\";",
-				"PRAGMA auto_vacuum	= 2;",
-				"PRAGMA temp_store	= 2;",
-				"PRAGMA secure_delete	= 1;"
+				"PRAGMA encoding = \"UTF-8\";",
+				"PRAGMA auto_vacuum = 2;",
+				"PRAGMA temp_store = 2;",
+				"PRAGMA secure_delete = 1;"
 			],
 			"post_exec": [
 				"PRAGMA foreign_keys = ON;"
@@ -657,17 +666,17 @@
 				"ATTR_ERRMODE"			: "ERRMODE_EXCEPTION"
 			},
 			"pre_exec"	: [
-				"PRAGMA journal_mode	= WAL;",
-				"PRAGMA busy_timeout	= {{DB_TIMEOUT}};",
-				"PRAGMA trusted_schema	= OFF;",
-				"PRAGMA synchronous	= FULL;",
-				"PRAGMA locking_mode	= NORMAL;"
+				"PRAGMA journal_mode = WAL;",
+				"PRAGMA busy_timeout = {{DB_TIMEOUT}};",
+				"PRAGMA trusted_schema = OFF;",
+				"PRAGMA synchronous = FULL;",
+				"PRAGMA locking_mode = NORMAL;"
 			],
 			"init_exec"	: [
-				"PRAGMA encoding	= \"UTF-8\";",
-				"PRAGMA auto_vacuum	= 2;",
-				"PRAGMA temp_store	= 2;",
-				"PRAGMA secure_delete	= 1;"
+				"PRAGMA encoding = \"UTF-8\";",
+				"PRAGMA auto_vacuum = 2;",
+				"PRAGMA temp_store = 2;",
+				"PRAGMA secure_delete = 1;"
 			],
 			"post_exec": [
 				"PRAGMA foreign_keys = ON;"
@@ -693,17 +702,17 @@
 				"ATTR_ERRMODE"			: "ERRMODE_EXCEPTION"
 			},
 			"pre_exec"	: [
-				"PRAGMA journal_mode	= WAL;",
-				"PRAGMA busy_timeout	= {{DB_TIMEOUT}};",
-				"PRAGMA trusted_schema	= OFF;",
-				"PRAGMA synchronous	= FULL;",
-				"PRAGMA locking_mode	= NORMAL;"
+				"PRAGMA journal_mode = WAL;",
+				"PRAGMA busy_timeout = {{DB_TIMEOUT}};",
+				"PRAGMA trusted_schema = OFF;",
+				"PRAGMA synchronous = FULL;",
+				"PRAGMA locking_mode = NORMAL;"
 			],
 			"init_exec"	: [
-				"PRAGMA encoding	= \"UTF-8\";",
-				"PRAGMA auto_vacuum	= 2;",
-				"PRAGMA temp_store	= 2;",
-				"PRAGMA secure_delete	= 1;"
+				"PRAGMA encoding= \"UTF-8\";",
+				"PRAGMA auto_vacuum = 2;",
+				"PRAGMA temp_store = 2;",
+				"PRAGMA secure_delete = 1;"
 			],
 			"post_exec": [
 				"PRAGMA foreign_keys = ON;"
