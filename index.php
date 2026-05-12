@@ -5501,200 +5501,6 @@ function config(
 
 
 /**
- *  Content entry discovery and parsing
- */
-
-/**
- *  Process entry extension
- *  
- *  @return string
- */
-function entry_ext() : string {
-	static $ext;
-	$ext		??= '.' . 
-		\ltrim( \strtolower( config( 'entry_ext', 'md' ) ), '.' );
-	
-	return $ext;
-}
-
-/**
- *  Load entries
- *  
- *  @param string	$base	Search directory
- *  @return array
- */
-function entry_files( string $base ) : array {
-	$base		= \rtrim( $base,  '/\\' );
-	if ( !\is_dir( $base ) || !\is_readable( $base ) ) { 
-		return [];
-	}
-	
-	$files		= [];
-	$ext		= entry_ext();
-	$eext		= \ltrim( $ext, '.' );
-	
-	$dir		= 
-	new \RecursiveDirectoryIterator( 
-		$base, 
-		\FilesystemIterator::FOLLOW_SYMLINKS	| 
-		\FilesystemIterator::KEY_AS_FILENAME	| 
-		\FilesystemIterator::SKIP_DOTS
-	);
-		
-	$iterator	= 
-	new \RecursiveIteratorIterator( 
-		$dir, 
-		\RecursiveIteratorIterator::LEAVES_ONLY,
-		\RecursiveIteratorIterator::CATCH_GET_CHILD 
-	);
-	
-	foreach ( $iterator as $finfo ) {
-		if (
-			$finfo->isFile() && 
-			0 === \strcasecmp( $finfo->getExtension(), $eext )
-		) {
-			$files[] = [
-				'slug'		=> $finfo->getBasename( $ext ),
-				'path'		=> $finfo->getPathname(),
-				'mtime'		=> $finfo->getMTime(),
-			];
-		}
-	}
-	
-	return $files;
-}
-
-/**
- *  Process metadata from a given line as an array
- *  
- *  @param string	$line	Raw line entry
- *  @param array	$meta	Metadata storage
- *  @return			True if this line contained metadata
- */
-function entry_meta( string $line, array &$meta ) : bool {
-	if ( false === \strpos( $line, ':' ) ) { return false; }
-	
-	[ $key, $value ] = \array_map( 'trim', \explode( ':', $line, 2 ) );
-	if ( '' === $key  ) { return false; }
-	
-	$value		??= '';
-	$key		=  \strtolower( $key );
-	
-	if ( isset( $meta[$key] ) ) {
-		$meta[$key]	= ( array ) $meta[$key];
-		$meta[$key][]	= $value;
-		return true;
-	}
-	
-	$meta[$key]	= $value;
-	return true;
-}
-
-/**
- *  Load file information, including metadata
- *  
- *  @param string	$path	Full file location
- *  @return array
- */
-function entry_import( string $path ) : ?array {
-	if ( !\is_file( $path ) || !\is_readable( $path ) ) {
-		return null;
-	}
-	
-	$raw	= \file( $path, \FILE_IGNORE_NEW_LINES );
-	if ( false === $raw ) { return null; }
-	
-	$meta	= [];
-	$start	= 0;	// Body start
-	
-	$lines	= ( int ) config( 'entry_meta_lines', 6 );
-	$rcount	= count( $raw );
-	$mcount	= \min( $lines, $rcount );
-	
-	// Top metadata
-	for ( $i = 1; $i < $mcount; $i++ ) {
-		$line	= \trim( $raw[$i] );
-		if ( '' === $line ) {
-			$start = $i + 1;
-			break;
-		}
-		
-		if ( entry_meta( $line, $meta ) ) { continue; }
-		
-		$start = $i;
-		break;
-	}
-	
-	// Bottom metadata
-	$cut	= $rcount;
-	for ( $i = $rcount - 1; $i >= 0; $i-- ) {
-		$line	= \trim( $raw[$i] );
-		if ( '' === $line ) { continue; }
-		
-		if ( entry_meta( $line, $meta ) ) {
-			$cut = $i;
-			continue;
-		}
-		
-		break;
-	}
-	
-	// Ensure title exists at least as the first line, if not explicitly set
-	$meta['title']	??= $raw[0] ?? '(Untitled)';
-	
-	// Path as slug
-	$meta['slug']	= \pathinfo( $path, \PATHINFO_FILENAME );
-	
-	$body		= 
-	\implode( "\n", \array_slice( $raw, $start, $cut - $start ) );
-	
-	return [ 'meta' => $meta, 'body' => $body ];
-}
-
-/**
- *  Paged entry index with detailed info
- *  
- *  @param string	$dir	Search directory
- *  @param int		$page	Current page index, defaults to 1
- *  @param int		$limit	Maximum number of files
- *  @return array
- */
-function entry_index( string $dir, int $page, int $limit ) : array {
-	$files		= entry_files( $dir );
-	if ( empty( $files ) ) { 
-		return [
-			'entries'	=> [],
-			'total_entries'	=> 0,
-			'total_pages'	=> 1,
-		]; 
-	}
-	
-	// Sort newest -> oldest
-	usort( $files, fn( $a, $b ) => $b['mtime'] <=> $a['mtime'] );
-	
-	$page	= \min( 1, $page );
-	$total	= count( $files );
-	$pcount	= \max( 1, ( int ) \ceil( $total / $limit ) );
-	
-	$offset	= ( $page - 1 ) * $limit;
-	$slice	= \array_slice( $files, $offset, $limit );
-	
-	// Load only the entries needed for this page
-	$entries = 
-	\array_values( \array_filter(
-		\array_map( fn( $f ) => entry_import( $f['path'] ), $slice ),
-		fn( $e ) => $e !== null
-	));
-	
-	return [
-		'entries'	=> $entries,
-		'total_entries'	=> $total,
-		'total_pages'	=> $pcount,
-	];
-}
-
-
-/**
  *  Templates and rendering
  */
 
@@ -5748,7 +5554,6 @@ function template_parse_tag_args( string $str ) : array {
 	$args = [];
 	
 	\preg_match_all( template_patterns( 'args' ) , $str, $m, \PREG_SET_ORDER );
-    
 	foreach ( $m as $row ) {
 		$key		= trim( $row[1] );
 		$value		= 
@@ -5790,8 +5595,8 @@ function template_blocks( string $template, array $context ) : string {
 /**
  *  Convert dot notation phrase 
  *  
- *  @param string	$phrase		Translation key
- *  @param string	$vars		Placeholder value replacements
+ *  @param string	$template	Template name
+ *  @param array	$vars		Placeholder value replacements
  *  @return string			Translated phrase
  *  
  *  @example 
@@ -5885,11 +5690,11 @@ function template_compare_var( mixed $chk, mixed $val, bool $case_flag ) : bool 
 function template_get_placeholders( array $vars ) : array {
 	if ( empty( $vars ) ) { return []; }
 	
-	$flat = util_flatten_keys( $vars );
+	$flat = util_flatten_array( $vars );
 	return \array_combine(
 		\array_map( fn( $key ) => '{{' . $key . '}}', \array_keys( $flat ) ),
 		\array_map( fn($val) => \is_scalar( $val ) ? ( string ) $val : '', $flat )
-    );
+	);
 }
 
 /**
@@ -6120,8 +5925,10 @@ function template_load(
 /**
  *  Partial/Fragment template loading helper
  *  
- *  @params string	$template 	Raw template data
- *  @param bool		$depth		Maximum include depth, defaults to 5
+ *  @param string	$template 	Raw template data
+ *  @param array	$vars		Content data
+ *  @param int		$depth		Maximum include depth, defaults to 5
+ *  @param array	$seen		Current list of templates already processing
  *  @return string
  */
 function template_partials(
@@ -6195,9 +6002,9 @@ function template_node_tags( string $template ) : array {
 	
 	foreach ( $matches as $match ) {
 		$tags[] = [
-			'full'   => $match[0],
-			'type'   => $match[1],
-			'params' => template_parse_tag_args( $match[2] )
+			'full'		=> $match[0],
+			'type'		=> $match[1],
+			'params'	=> template_parse_tag_args( $match[2] )
 		];
 	}
 	
@@ -6477,7 +6284,6 @@ function template_load_static() : array {
  *  @param string	$lable		Template name to send back
  *  @param array	$reg		New templates to initiaize registry or override existing templates
  *  @return string
- *  @deprecated
  */
 function template( string $label, array $reg = [] ) : string {
 	static $tpl	= [];
@@ -6499,6 +6305,7 @@ function template( string $label, array $reg = [] ) : string {
  *  Core template renderer with data context
  *  
  *  @param string	$label		Root base template
+ *  @param array	$context	Data payload context(s)
  *  @param bool		$case_flag	Case sensitivity flag
  *  @return string
  */
@@ -6509,6 +6316,86 @@ function template_render(
 ) : string {
 	$tpl	= template( $label );
 	return template_parse( $tpl, $context, $case_flag );
+}
+
+
+/**
+ *  Language translation
+ */
+
+/**
+ *  Load and process language file
+ *  
+ *  @return array
+ */
+function language() {
+	static $data;
+	
+	if ( isset( $data ) ) {
+		return $data;
+	}
+	
+	// Set default language and append language file definitions
+	$terms	= util_json_decode( \DEFAULT_LANGUAGE );
+	$lang	= config( 'language', \LANGUAGE );
+	$file	= config_load_json( $lang . '.json' );
+	if ( !empty( $file ) ) {
+		$terms	= 
+		\array_merge_recursive( $terms,  util_json_decode( $file ) );
+	}
+	
+	$data	= empty( $terms ) ? [] : $terms;
+	// Trigger language load hook
+	hook( [ 'loadlanguage', [ 
+		'lang'	=> $lang, 
+		'zone'	=> config( 'timezone', 'America\/New_York' ),
+		'terms' => $data
+	] ] );
+	
+	// Append new language info, if any
+	$sent	= hookArrayResult( 'loadlanguage' )['terms'] ?? [];
+	if ( !empty( $sent ) ) {
+		$data	= \array_merge( $data, $sent );
+	}
+	
+	return $data;
+}
+
+/**
+ *  Get language specific terms
+ *  
+ *  @param string	$name		Language substitution label
+ *  @param string	$default	Default value if not given
+ *  @return string
+ */
+function language_term( string $name, string $default ) {
+	$data = language();
+	return $data[$name] ?? $default;
+}
+
+/**
+ *  Get translation file error message with fallback
+ *  
+ *  @param string	$name		Language substitution label
+ *  @param string	$default	Fallback value if not available
+ *  @return string
+ */
+function language_error( string $name, string $default ) {
+	$data = language();
+	return $data['errors'][$name] ?? $default;
+}
+
+/**
+ *  Scan template for language placeholders
+ *  
+ *  @param string	$tpl	Loaded template data
+ *  @return string
+ */
+function language_parse( string $tpl ) : string {
+	$tpl		= util_prefix_replace( 'lang', language(), $tpl );
+	
+	// Change variable placeholders
+	return \preg_replace( '/\s*__(\w+)__\s*/', ' {\1} ', $tpl );
 }
 
 
@@ -8594,6 +8481,200 @@ function form_validate(
 }
 
 
+/**
+ *  Content entry discovery and parsing
+ */
+
+/**
+ *  Process entry extension
+ *  
+ *  @return string
+ */
+function entry_ext() : string {
+	static $ext;
+	$ext		??= '.' . 
+		\ltrim( \strtolower( config( 'entry_ext', 'md' ) ), '.' );
+	
+	return $ext;
+}
+
+/**
+ *  Load entries
+ *  
+ *  @param string	$base	Search directory
+ *  @return array
+ */
+function entry_files( string $base ) : array {
+	$base		= \rtrim( $base,  '/\\' );
+	if ( !\is_dir( $base ) || !\is_readable( $base ) ) { 
+		return [];
+	}
+	
+	$files		= [];
+	$ext		= entry_ext();
+	$eext		= \ltrim( $ext, '.' );
+	
+	$dir		= 
+	new \RecursiveDirectoryIterator( 
+		$base, 
+		\FilesystemIterator::FOLLOW_SYMLINKS	| 
+		\FilesystemIterator::KEY_AS_FILENAME	| 
+		\FilesystemIterator::SKIP_DOTS
+	);
+		
+	$iterator	= 
+	new \RecursiveIteratorIterator( 
+		$dir, 
+		\RecursiveIteratorIterator::LEAVES_ONLY,
+		\RecursiveIteratorIterator::CATCH_GET_CHILD 
+	);
+	
+	foreach ( $iterator as $finfo ) {
+		if (
+			$finfo->isFile() && 
+			0 === \strcasecmp( $finfo->getExtension(), $eext )
+		) {
+			$files[] = [
+				'slug'		=> $finfo->getBasename( $ext ),
+				'path'		=> $finfo->getPathname(),
+				'mtime'		=> $finfo->getMTime(),
+			];
+		}
+	}
+	
+	return $files;
+}
+
+/**
+ *  Process metadata from a given line as an array
+ *  
+ *  @param string	$line	Raw line entry
+ *  @param array	$meta	Metadata storage
+ *  @return			True if this line contained metadata
+ */
+function entry_meta( string $line, array &$meta ) : bool {
+	if ( false === \strpos( $line, ':' ) ) { return false; }
+	
+	[ $key, $value ] = \array_map( 'trim', \explode( ':', $line, 2 ) );
+	if ( '' === $key  ) { return false; }
+	
+	$value		??= '';
+	$key		=  \strtolower( $key );
+	
+	if ( isset( $meta[$key] ) ) {
+		$meta[$key]	= ( array ) $meta[$key];
+		$meta[$key][]	= $value;
+		return true;
+	}
+	
+	$meta[$key]	= $value;
+	return true;
+}
+
+/**
+ *  Load file information, including metadata
+ *  
+ *  @param string	$path	Full file location
+ *  @return array
+ */
+function entry_import( string $path ) : ?array {
+	if ( !\is_file( $path ) || !\is_readable( $path ) ) {
+		return null;
+	}
+	
+	$raw	= \file( $path, \FILE_IGNORE_NEW_LINES );
+	if ( false === $raw ) { return null; }
+	
+	$meta	= [];
+	$start	= 0;	// Body start
+	
+	$lines	= ( int ) config( 'entry_meta_lines', 6 );
+	$rcount	= count( $raw );
+	$mcount	= \min( $lines, $rcount );
+	
+	// Top metadata
+	for ( $i = 1; $i < $mcount; $i++ ) {
+		$line	= \trim( $raw[$i] );
+		if ( '' === $line ) {
+			$start = $i + 1;
+			break;
+		}
+		
+		if ( entry_meta( $line, $meta ) ) { continue; }
+		
+		$start = $i;
+		break;
+	}
+	
+	// Bottom metadata
+	$cut	= $rcount;
+	for ( $i = $rcount - 1; $i >= 0; $i-- ) {
+		$line	= \trim( $raw[$i] );
+		if ( '' === $line ) { continue; }
+		
+		if ( entry_meta( $line, $meta ) ) {
+			$cut = $i;
+			continue;
+		}
+		
+		break;
+	}
+	
+	// Ensure title exists at least as the first line, if not explicitly set
+	$meta['title']	??= $raw[0] ?? '(Untitled)';
+	
+	// Path as slug
+	$meta['slug']	= \pathinfo( $path, \PATHINFO_FILENAME );
+	
+	$body		= 
+	\implode( "\n", \array_slice( $raw, $start, $cut - $start ) );
+	
+	return [ 'meta' => $meta, 'body' => $body ];
+}
+
+/**
+ *  Paged entry index with detailed info
+ *  
+ *  @param string	$dir	Search directory
+ *  @param int		$page	Current page index, defaults to 1
+ *  @param int		$limit	Maximum number of files
+ *  @return array
+ */
+function entry_index( string $dir, int $page, int $limit ) : array {
+	$files		= entry_files( $dir );
+	if ( empty( $files ) ) { 
+		return [
+			'entries'	=> [],
+			'total_entries'	=> 0,
+			'total_pages'	=> 1,
+		]; 
+	}
+	
+	// Sort newest -> oldest
+	usort( $files, fn( $a, $b ) => $b['mtime'] <=> $a['mtime'] );
+	
+	$page	= \min( 1, $page );
+	$total	= count( $files );
+	$pcount	= \max( 1, ( int ) \ceil( $total / $limit ) );
+	
+	$offset	= ( $page - 1 ) * $limit;
+	$slice	= \array_slice( $files, $offset, $limit );
+	
+	// Load only the entries needed for this page
+	$entries = 
+	\array_values( \array_filter(
+		\array_map( fn( $f ) => entry_import( $f['path'] ), $slice ),
+		fn( $e ) => $e !== null
+	));
+	
+	return [
+		'entries'	=> $entries,
+		'total_entries'	=> $total,
+		'total_pages'	=> $pcount,
+	];
+}
+
+
 
 
 
@@ -9482,131 +9563,6 @@ function hashAlgo(
 	$algos[$t]	= validHashAlgo( $ht, $hmac ) ? $ht : $default;
 	
 	return $algos[$t];	
-}
-
-
-
-/**
- *  Language translation
- */
-
-/**
- *  Load and process language file
- *  
- *  @return array
- */
-function language() {
-	static $data;
-	
-	if ( isset( $data ) ) {
-		return $data;
-	}
-	
-	// Set default language and append language file definitions
-	$terms	= util_json_decode( \DEFAULT_LANGUAGE );
-	$lang	= setting( 'language', \LANGUAGE );
-	$file	= loadFile( $lang . '.json' );
-	if ( !empty( $file ) ) {
-		$terms	= 
-		\array_merge_recursive( $terms,  util_json_decode( $file ) );
-	}
-	
-	$data	= empty( $terms ) ? [] : $terms;
-	// Trigger language load hook
-	hook( [ 'loadlanguage', [ 
-		'lang'	=> $lang, 
-		'zone'	=> setting( 'timezone', \TIMEZONE ),
-		'terms' => $data
-	] ] );
-	
-	// Append new language info, if any
-	$sent	= hookArrayResult( 'loadlanguage' )['terms'] ?? [];
-	if ( !empty( $sent ) ) {
-		$data	= \array_merge( $data, $sent );
-	}
-	
-	return $data;
-}
-
-/**
- *  Get language specific terms
- *  
- *  @param string	$name		Language substitution label
- *  @param string	$default	Default value if not given
- *  @return string
- */
-function langVar( string $name, string $default ) {
-	$data = language();
-	return $data[$name] ?? $default;
-}
-
-/**
- *  Get translation file error message with fallback
- *  
- *  @param string	$name		Language substitution label
- *  @param string	$default	Fallback value if not available
- *  @return string
- */
-function errorLang( string $name, string $default ) {
-	$data = language();
-	return $data['errors'][$name] ?? $default;
-}
-
-/**
- *  Term replacement helper
- *  Flattens multidimensional array into {$prefix:group:label...} format
- *  and replaces matching placeholders in content
- *  
- *  @param string	$prefix		Replacement prefix E.G. 'lang'
- *  @param array	$data		Multidimensional array
- *  @param string	$content	Placeholders to replace
- *  @return string
- */ 
-function prefixReplace(
-	string		$prefix, 
-	array		$data, 
-	string		$content
-) : string {
-	// Find placeholders with given prefix
-	\preg_match_all( 
-		'/\{' . $prefix . '(\:[\:a-z_]{1,100}+)\}/i', 
-		$content, $m 
-	);
-	// Convert data to :group:label... format
-	$terms	= util_flatten_array( $data );
-	
-	// Replacements list
-	$rpl	= [];
-	
-	$c	= \count( $m );
-	
-	// Set {prefix:group:label... } replacements or empty string
-	for( $i = 0; $i < $c; $i++ ) {
-		if ( !isset( $m[1] ) ) {
-			continue;
-		}
-		
-		if ( !isset( $m[1][$i] ) ) {
-			continue;
-		}
-		$rpl['{' . $prefix . $m[1][$i] . '}']	= 
-			$terms[$m[1][$i]] ?? '';
-	}
-	
-	return \strtr( $content, $rpl );
-}
-
-/**
- *  Scan template for language placeholders
- *  
- *  @param string	$tpl	Loaded template data
- *  @return string
- */
-function parseLang( string $tpl ) : string {
-	$tpl		= prefixReplace( 'lang', language(), $tpl );
-	
-	// Change variable placeholders
-	return \preg_replace( '/\s*__(\w+)__\s*/', ' {\1} ', $tpl );
 }
 
 
