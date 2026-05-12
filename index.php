@@ -2986,7 +2986,7 @@ function storage_filemime( string $fpath ) : string {
  *  File opening helper
  *  
  *  @param string	$fpath	Location on disk
- *  @param strring	$mode	File opening mode
+ *  @param string	$mode	File opening mode
  *  @return resource
  */
 function storage_file_open( string $fpath, string $mode = 'rb' ) {
@@ -3037,7 +3037,7 @@ function storage_file_hash( string $fpath ) : string|false {
 		
 	} finally {
 		if ( 'stream' === \get_resource_type( $handle ) ) {
-    			\fclose( $handle );
+			\fclose( $handle );
 		}
 	}
 	return $out;
@@ -3179,7 +3179,7 @@ function storage_check_wait( string $lock_file, int $start, int $max_wait ) : bo
 /**
  *  Obtain file lock (directory of filetype) with a given access mode
  *  
- *  @param stiring 	$lock_file	File lock path
+ *  @param string 	$lock_file	File lock path
  *  @param string	$mode		File open mode
  *  @return mixed
  */
@@ -3199,9 +3199,9 @@ function storage_lock_file( string $lock_file, string $mode ) : false|\resource 
 	
 	$get_lock	= 
 	function() use ( &$handle, $tries, $type, $lock_file ) {
-    		return ( 0 === \strcasecmp( 'file', $type ) )
-        		? storage_filetype_lock( $handle, $tries )
-          		: storage_dirtype_lock( $lock_file, $tries );
+		return ( 0 === \strcasecmp( 'file', $type ) )
+			? storage_filetype_lock( $handle, $tries )
+			: storage_dirtype_lock( $lock_file, $tries );
 	};
 	
 	// Attempt lock
@@ -3388,7 +3388,7 @@ function storage_append( string $path, string $data, bool $block = false ) : boo
 	
 	$result	= @\fwrite( $handle, $data . \PHP_EOL );
 	if ( false === $result ) {
-    		\error_log( "Write failed for '{$path}' by {$id}" );
+		\error_log( "Write failed for '{$path}' by {$id}" );
 	}
 	
 	if ( \is_resource( $handle ) ) {
@@ -3437,7 +3437,7 @@ function storage_write_file( string $path, string $data ) : bool {
 	
 	// Write and finish
 	$state = \fwrite( $tmp_handle, $data );
-	if ( false === $state || $written < \strlen( $data ) ) {
+	if ( false === $state || $state < \strlen( $data ) ) {
 		\fclose($tmp_handle);
 		storage_release_lock( $lock_handle, $lock_file );
 		
@@ -3471,7 +3471,6 @@ function storage_write_file( string $path, string $data ) : bool {
 	storage_temp_cleanup( $path );
 	return true;
 }
-
 
 
 /**
