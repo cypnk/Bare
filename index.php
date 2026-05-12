@@ -3526,7 +3526,7 @@ function log_file( string $fname = 'messages.log' ) : string {
 	if ( !isset( $file ) ) {
 		$file	= storage_base() . 
 		defined( 'LOG_FILE' ) 
-			? LOG_FILE 
+			? \constant( 'LOG_FILE' ) 
 			: $fname;
 	}
 	return $file;
@@ -3670,8 +3670,8 @@ function log_format( string $msg, string $level = 'INFO' ) : string {
 	sanitize_spaces( \basename( $_SERVER['SCRIPT_NAME'] ?? 'unknown' ) );
 	
 	$msg		= sanitize_spaces( $msg );
-	$entry		= <<<MSG
-[{$timestamp}] [ID:{$id}] [{$script}] [{$label}]
+	return <<<MSG
+[{$timestamp}] [ID:{$id}] [{$script}] [{$level}]
 {$msg}
 
 ---
@@ -3719,18 +3719,17 @@ function log_info( string|array $context, ?string $file = null ) : void {
 	log_msg( $context, 'INFO', $file );
 }
 
-function log_warn( string|array $msg, ?string $file = null ) : void {
+function log_warn( string|array $context, ?string $file = null ) : void {
 	log_msg( $context, 'WARN', $file );
 }
 
-function log_error( string|array $msg, ?string $file = null ) : void {
+function log_error( string|array $context, ?string $file = null ) : void {
 	log_msg( $context, 'ERROR', $file );
 }
 
-function log_debug( string|array $msg, ?string $file = null ) : void {
+function log_debug( string|array $context, ?string $file = null ) : void {
 	log_msg( $context, 'DEBUG', $file );
 }
-
 
 
 /**
