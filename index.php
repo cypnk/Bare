@@ -2029,6 +2029,18 @@ function util_split_lines( string $text, int $lim = -1, bool $tr = true ) : arra
 	\preg_split( '/\R/', $text, $lim, \PREG_SPLIT_NO_EMPTY );
 }
 
+/**
+ *  Path prefix slash (/) helper
+ *  @param string	$path	Folder or directory
+ *  @param bool		$suffix	Add to end, if true
+ *  @return string
+ */
+function util_slash_path( string $path, bool $suffix = false ) : string {
+	return $suffix ?
+		\rtrim( $path, '/\\' ) . '/' : 
+		'/'. \ltrim( $path, '/\\' );
+}
+
 
 /**
  *  Sanitizing and Filtering
@@ -6417,6 +6429,108 @@ function language_parse( string $tpl ) : string {
 	return \preg_replace( '/\s*__(\w+)__\s*/', ' {\1} ', $tpl );
 }
 
+/**
+ *  Find word or character count within a block of text
+ *  
+ *  @param string	$find	Raw text to match
+ *  @param string	$mode	Word splitting mode
+ *  @return int
+ */
+function language_wordcount( string $find, string $mode = '' ) : int {
+	// Select split type
+	switch( $mode ) {
+		case 'dist':
+			// Words seprated by non-letters and non-punctuation
+			$pat = '/[^\p{L}\p{P}]+/u';
+			break;
+			
+		case 'chars':
+			// All characters
+			$pat = '//u';
+			break;
+			
+		case 'words':
+			// Split into words separated by non-letter/num chars
+			$pat = '/[^\p{L}\p{N}\-_\']+/u';
+			break;
+
+		default:
+			// Simplest split by various separators. E.G. Space
+			$pat = '/[\p{Z}]+/u';
+	}
+	
+	$c = \preg_split( $pat, $find, -1, \PREG_SPLIT_NO_EMPTY );
+	return ( false === $c ) ? 0 : count( $c );
+}
+
+/**
+ *  Estimate reading time in minutes based on words/characters in a text block
+ *  
+ *  @param string $text Text input
+ *  @return int
+ */
+function language_read_time( string $text ) : int {
+	static $sets;
+	if ( !isset( $sets ) ) {
+		// Default character and measurement sets
+		$default = [
+			// Matching type, average matches / minute, character pattern
+			[ 'words', 230, '/[\p{Latin}\p{Greek}\p{Cyrillic}]/u' ],
+			[ 'words', 250, '/[\p{Arabic}\p{Hebrew}]/u' ],
+			
+			[ 'chars', 1000, '/[\p{Han}\p{Hiragana}\p{Katakana}]/u' ]
+		];
+		
+		$sets	= config( 'lang_read_times', $default );
+		hook( [ 'readingtime', [ 'sets' => $sets ] ] );
+	
+		$sets	= hookArrayResult( 'readingtime' )['sets'] ?? $sets;
+	}
+	
+	// Remove tags and trim
+	$text	= sanitize_bland( $text );
+	if ( empty( $text ) ) {
+		return 1;
+	}
+	
+	// Default
+	$speed	= 200;
+	$set	= 'words';
+	
+	// Total characters
+	$chars	= language_wordcount( $text, 'chars' );
+	
+	// Previous character count
+	$prev	= 0;
+	
+	// Guess language type based on search chars to total chars ratio
+	foreach( $sets as $k => $v ) {
+		if ( !preg_match( $v[2], $text ) ) {
+			continue;
+		}
+		
+		// Character set found
+		$m = \preg_split( $v[2], $text );
+		if ( false === $m ) {
+			continue;
+		}
+		
+		$c = count( $m );
+		if ( !$c ) { continue; }
+		
+		// Current character ratio exceeds previous? Set new defaults
+		if ( ( $c / $chars ) > ( $prev / $chars ) ) {
+			$set	= $v[0];
+			$speed	= $v[1];
+			$prev	= $c;
+		}
+	}
+	
+	// Always send back at least 1 minute reading time
+	$rt = ( int ) ceil( language_wordcount( $text, $set ) / $speed );
+	return ( $rt < 1 ) ? 1 : $rt;
+}
+
 
 /**
  *  Content formatting
@@ -6639,7 +6753,7 @@ function format_nice_date( $stamp = null, string $fmt = 'l, F j, Y' ) : string {
 /**
  *  Clean entry title
  *  
- *  @param mixed	$title	Raw title entered by the user
+ *  @param mixed	$text	Raw title entered by the user
  *  @param int		$max	Maximum string length
  *  @return string
  */
@@ -9941,7 +10055,7 @@ function mailMessage(
 	// Format user input
 	$subj	= sanitize_escape_text( sanitize_spaces( $res['subject'] ?? $subject ) );
 	$msg	.= "\r\n\r\nReceived from: " . $ip . "  \r\n" . request_ua();
-	$msg	= html( $res['message'] ?? $msg, '', false, true );
+	$msg	= format_body( $res['message'] ?? $msg, '', false, true );
 	
 	$ok	= 
 	mail( 
@@ -10155,15 +10269,6 @@ function logException( \Exception $e, ?string $msg = null ) {
 }
 
 /**
- *  Path prefix slash (/) helper
- */
-function slashPath( string $path, bool $suffix = false ) : string {
-	return $suffix ?
-		\rtrim( $path, '/\\' ) . '/' : 
-		'/'. \ltrim( $path, '/\\' );
-}
-
-/**
  *  Helper to turn items (one per line) into a unique value array
  *  
  *  @param string	$text	Lined settings (one per line)
@@ -10254,7 +10359,7 @@ function backupFile(
 	
 	// Backup file name inferred from full file path
 	$name	= 
-	slashPath( \dirname( $file ), true ) . $prefix . 
+	util_slash_path( \dirname( $file ), true ) . $prefix . 
 		\gmdate( 'Ymd\THis' ) . '.' . 
 		\basename( $file ) . $suffix;
 	
@@ -10282,7 +10387,7 @@ function loadFile(
 	}
 	
 	// Relative path to storage
-	$fname	= slashPath( $root, true ) . $name;
+	$fname	= util_slash_path( $root, true ) . $name;
 	
 	// Check folder location
 	if ( empty( filterDir( $fname, $root ) ) ) {
@@ -11023,7 +11128,7 @@ function render(
 	$input['feedlink']	= $input['feedlink']	?? pageRoutePath( 'feed' );
 	$input['plugin_assets']	= 
 		$input['plugin_assets'] ?? 
-		slashPath( setting( 'plugin_assets', \PLUGIN_ASSETS ), true );
+		util_slash_path( setting( 'plugin_assets', \PLUGIN_ASSETS ), true );
 	
 	$out		= [];
 	
@@ -11869,1040 +11974,6 @@ function division( $n, $d, int $prec = 4 ) : float {
 
 
 
-
-/**
- *  Filtering
- */
-
-
-/**
- *  Simple email address filter helper
- *  
- *  @param string	$email	Raw email (currently doesn't support Unicode domains)
- *  @return string
- */
-function cleanEmail( string $email ) : string {
-	return 
-	\filter_var( $email, \FILTER_VALIDATE_EMAIL ) ? $email : '';
-}
-
-/**
- *  Prepend given prefix to URLs starting with '/'
- *  
- *  @param string	$url	Raw URL path
- *  @param string	$prefix	Prefix to prepend if $url starts with '/'
- *  @return string
- */
-function prependPath( string $v, string $prefix ) : string {
-	$v = trim( $v, '"\'' );
-	return \preg_match( '/^\//', $v ) ?
-		sanitize_url( $prefix . $v ) : sanitize_url( $v );
-}
-
-/**
- *  Form encoding type helper, defaults to application/x-www-form-urlencoded
- *  
- *  @param string	$v	Raw encoding type
- *  @return string
- */
-function cleanFormEnctype( string $v ) : string {
-	static $ft = [
-		'application/x-www-form-urlencoded',
-		'multipart/form-data',
-		'text/plain'
-	];
-	
-	$v = \strtolower( trim( $v ) );
-	return \in_array( $v, $ft ) ?
-		$v : 'application/x-www-form-urlencoded';
-}
-
-/**
- *  Filter form sending method type, defaults to get or post
- *  
- *  @param string	$v	Raw form method
- *  @return string
- */
-function cleanFormMethodType( string $v ) : string {
-	static $fm = [ 'get', 'post' ];
-	
-	$v = \strtolower( trim( $v ) );
-	return \in_array( $v, $fm ) ? $v : 'get';
-}
-
-/**
- *  Clean DOM node attribute against whitelist
- *  
- *  @param DOMNode	$node	Object DOM Node
- *  @param array	$white	Whitelist of allowed tags and params
- *  @param string	$prefix	URL prefix to prepend text
- */
-function cleanAttributes(
-	\DOMNode	&$node,
-	array		$white,
-	string		$prefix	= ''
-) {
-	if ( !$node->hasAttributes() ) {
-		return null;
-	}
-	
-	foreach ( 
-		\iterator_to_array( $node->attributes ) as $at
-	) {
-		$n = $at->nodeName;
-		$v = $at->nodeValue;
-		
-		// Default action is to remove attribute
-		// It will only get added if it's safe
-		$node->removeAttributeNode( $at );
-		if ( \in_array( $n, $white[$node->nodeName] ) ) {
-			switch ( $n ) {
-				case 'longdesc':
-				case 'url':
-				case 'src':
-				case 'data-src':
-				case 'href':
-				case 'action':
-					// Use prefix for relative paths
-					$v = prependPath( $v, $prefix );
-					break;
-				
-				// Form-specific extras
-				case 'method':
-					$v = cleanFormMethodType( $v );
-					break;
-				
-				case 'enctype':
-					$v = cleanFormEnctype( $v );
-					break;
-				
-				case 'pattern':
-					$v = 
-					\preg_replace( 
-						'/[^[:alnum:]_\-\{\}\[\]\/\+\.\s]/', 
-						'', $v
-					);
-					break;
-					
-				default:
-					$v = sanitize_escape_text( $v, false, false );
-			}
-			
-			$node->setAttribute( $n, $v );
-		}
-	}
-}
-
-/**
- *  Scrub each node against white list
- *  @param DOMNode	$node	Document element node to filter
- *  @param array	$white	Whitelist of allowed tags and params
- *  @param string	$prefix	URL prefix to prepend text
- *  @param array	$flush	Elements to remove from document
- */
-function scrub(
-	\DOMNode	$node,
-	array		$white,
-	string		$prefix,
-	array		&$flush		= []
-) {
-	if ( isset( $white[$node->nodeName] ) ) {
-		// Clean attributes first
-		cleanAttributes( $node, $white, $prefix );
-		if ( $node->childNodes ) {
-			// Continue to other tags
-			foreach ( $node->childNodes as $child ) {
-				scrub( $child, $white, $prefix, $flush );
-			}
-		}
-		
-	} elseif ( $node->nodeType == \XML_ELEMENT_NODE ) {
-		// This tag isn't on the whitelist
-		$flush[] = $node;
-	}
-}
-
-/**
- * Convert an unformatted text block to paragraphs
- * 
- * @link http://stackoverflow.com/a/2959926
- * @param string	$val		Filter variable
- * @param bool		$skipCode	Ignore code blocks
- */
-function makeParagraphs( $val, $skipCode = false ) {
-	// Escape excluded markdown-sensitive characters
-	static $esc	= [
-		'\\#'	=> '&#35;',
-		'\\*'	=> '&#42;',
-		'\\-'	=> '&#45;',
-		'\\:'	=> '&#58;',
-		'\\>'	=> '&#62;',
-		'\\['	=> '&#91;',
-		'\\]'	=> '&#93;',
-		'\\`'	=> '&#96;',
-		'\\~'	=> '&#126;'
-	];
-	$out = \strtr( $val, $esc );
-	
-	// Escape block level code first
-	if ( !$skipCode ) {
-		// Format inside code tags
-		$out = \preg_replace_callback( '/<code>(.*)<\/code>/ism',
-		function ( $m ) {
-			if ( empty( $m[1] ) ) {
-				return '';
-			}
-			return 
-			\strtr( template( 'tpl_codeblock' ), [ 
-				'{code}' => sanitize_escape_text( \trim( $m[1] ), false, false )
-			] );
-		}, $out );	
-	}
-	
-	$filters	= 
-	[
-		// Turn consecutive line breaks to new paragraph
-		'#\s{2,}\n|\n{2}#'		=>
-		function( $m ) {
-			return '</p><p>';
-		},
-		
-		// Turn consecutive <br>s to paragraph breaks
-		'#(?:<br\s*/?>\s*?){2,}#'	=>
-		function( $m ) {
-			return '</p><p>';
-		},
-		
-		// Remove <br> abnormalities
-		'#<p>(\s*<br\s*/?>)+#'		=> 
-		function( $m ) {
-			return '</p><p>';
-		},
-		
-		'#<br\s*/?>(\s*</p>)+#'		=> 
-		function( $m ) {
-			return '<p></p>';
-		},
-		
-		// Breaks after tags
-		'#</([\w\d]+)>(\s*<br\s*/?>)#'	=> 
-		function( $m ) {
-			return '</' . $m[1] . '>';
-		},
-	];
-	
-	$out		= \preg_replace_callback_array( $filters, $out );
-	if ( $skipCode ) {
-		return $out;
-	}
-	$filters	= [
-		// Remove <br>, <p> tags inside <pre> and <code>
-		'#<(pre|code)(.*)?>(.*)<\/\1>#ism'	=>
-		function( $m ) {
-			$v = \preg_replace( '#<br\s*/?>#', "\n", $m[3] );
-			$v = \strtr( $v, [ 
-				'</p><p>'	=> "\n\n",
-				'<p>'		=> ''
-			] );
-			return 
-			'<' . $m[1] . ( $m[2] ?? '' ) . '>' . 
-			$v . 
-			'</' . $m[1] . '>';
-		},
-		
-		// Block of code
-		'#^`{3,}([^`{3,}]+)`{3,}#mU' =>
-		function( $m ) {
-			return
-			\strtr( template( 'tpl_codeblock' ), [ 
-				'{code}' => sanitize_escape_text( \trim( $m[1] ), false, false )
-			] );
-		}
-	];
-	
-	return \preg_replace_callback_array( $filters, $out );
-}
-
-/**
- *  Parse out and format footnotes, if given 
- *  
- *  @param string	$html		Content body
- *  @param array	$footnotes	Unformated list of footnotes
- *  @return string
- */
-function formatFootnotes( string $html, array $footnotes ) : string {
-	// No footnotes? Send content as-is
-	if ( empty( $footnotes ) ) {
-		return $html;
-	}
-	
-	$slug	= '';		// Footnote ID link slug
-	$foot	= '';		// Formatted footnote
-	$id	= 0;		// Footnote marker counter
-	$blink	= '';		// Footnote marker backlink reference slug
-	$back	= [];		// Formatted markers per footnote
-	$multi	= false;	// Multiple backlinks to body text
-	
-	// Replace placeholder markers with links
-	foreach( $footnotes as $k => $v ) {
-		// No placeholders in body text?
-		if ( empty( $v['markers'] ) ) {
-			continue;
-		}
-		
-		// Generate ID slug from part of footnote and its hash
-		$slug	= 
-		sanitize_slug( 
-			smartTrim( \strip_tags( $v['footnote'] ), 20 ) 
-		) . '-' . \hash( 'crc32b', $v['footnote'] );
-		
-		// Multiple backlinks to this footnote?
-		$multi	= 
-		( count( $v['markers'] ) > 1 ) ? true : false;
-		
-		foreach( $v['markers'] as $m ) {
-			
-			// Marker link slug ID 
-			$id	= count( $back ) + 1;
-			$blink	= $slug . '-' . $id;
-			
-			// Backlink to body text location
-			// Use the ID if there are multiple backlinks
-			$back[] = 
-			\strtr( template( 'tpl_footnote_back' ), [
-				'{link}'	=> $blink,
-				'{phrase}'	=> $multi ? $id : $k
-			] );
-			
-			// Replace marker in body text with link to footnote
-			$html = 
-			\strtr( $html, [ $m =>
-				\strtr( template( 'tpl_footlink' ), [ 
-					'{link}'	=> $slug,
-					'{id}'		=> $blink,
-					'{phrase}'	=> $k
-				] ) 
-			] );
-			$id++;
-		}
-		
-		$foot .= 
-		\strtr( 
-			template( 'tpl_footnote' ), 
-			[
-				'{backlinks}'	=> 
-				$multi ? 
-					$k . '. ' . \implode( ', ', $back ) : 
-					$back[0],
-				'{id}'		=> $slug,
-				'{footnote}'	=> $v['footnote']
-			] 
-		);
-		
-		// Reset after each footnote
-		$back	= [];
-		$id	= 0;
-	}
-	
-	return $html . 
-	\strtr( template( 'tpl_footnote_wrap' ), [
-		'{footnotes}'	=> $foot
-	] );
-}
-
-/**
- *  Post formatting handler
- *  
- *  @param string	$html	Raw HTML entered by the user
- *  @param string	$prefix	Link path prefix
- *  @return string
- */
-function formatHTML( string $html, string $prefix ) {
-	hook( [ 'formatting', [ 
-		'html'		=> $html, 
-		'prefix'	=> $prefix 
-	] ] );
-	
-	// Check if formatting was handled or use the default markdown formatter
-	$sent	= hookArrayResult( 'formatting' );
-	
-	return empty( $sent ) ? 
-		markdown( $html, $prefix ) : 
-		( $sent['html'] ?? markdown( $html, $prefix ) );
-}
-
-/**
- *  HTML filter
- *  
- *  @param string	$value		Unformatted content
- *  @param string	$prefix		URL path prefix
- *  @param bool		$form		Include form field tags if true
- *  @param bool		$sembed		Skip embedded media shortcodes if true
- *  @return string
- */
-function html( 
-	string	$value, 
-	string	$prefix	= '', 
-	bool	$form	= false,
-	bool	$sembed	= false
-) : string {
-	static $white	= [];
-	static $sanity;
-	
-	if ( !isset( $sanity ) ) {
-		if ( util_missing( 'libxml_clear_errors' ) ) {
-			$sanity = false;
-			shutdown( 
-				'logError', 
-				'Error: Bare requires the libxml extension be enabled.' 
-			);
-			return '';
-		} else {
-			$sanity = true;
-		}
-	}
-	
-	if ( !$sanity ) {
-		return '';
-	}
-	
-	// Remove preceding/trailing slashes
-	$prefix		= trim( $prefix, '/' );
-	
-	// Preliminary cleaning
-	$html		= sanitize_filter( $value, true );
-	
-	// Nothing to format?
-	if ( empty( $html ) ) {
-		return '';
-	}
-	
-	// Apply formatting handler
-	$html		= formatHTML( $html, $prefix );
-	
-	// Nothing formatted?
-	if ( empty( $html ) ) {
-		return '';
-	}
-	
-	// Format linebreaks and code
-	$html		= makeParagraphs( $html );
-	
-	if ( !isset( $white ) ) {
-		$default_tags = config( 'tag_map', '{}', 'json' );
-		
-		// Include form tags
-		$default_form = 
-		\array_merge_recursive( 
-			$default_tags, 
-			config( 'form_tag_map', '{}', 'json' )
-		);
-		
-		// Tag loader hook
-		hook( [ 'htmltags', [ 
-			'html'		=> $default_tags,
-			'form'		=> $default_form,
-		     	'form_enabled'	=> $form
-		] ] );
-		
-		$htags		= hookArrayResult( 'htmltags' );
-		
-		// Set custom tags or default tags
-		$white	= $htags['html'] ?? $default_tags;
-		if ( $form ) {
-			$white	= \array_merge( $white, $htags['form'] ?? $default_form );
-		}
-	}
-	
-	// Clean up HTML
-	$clean			= sanitize_html( $html, $white );
-	$clean			= makeParagraphs( $clean, true );
-	
-	if ( $sembed ) { return $clean; }
-	
-	// Apply embedded media
-	return embeds( $clean, $prefix );
-}
-
-/**
- *  Parse caption/subtitle definitions if any are specified
- *  
- *  @param string	$cc	Combined caption definitions
- *  @param string	$preifx	Source path prefix
- *  @return string
- */
-function extractCC( string $cc, string $prefx = '' ) : string {
-	
-	$cc	= \trim( $cc );
-	if ( empty( $cc ) ) {
-		return '';
-	}
-	
-	$dd	= '';
-	$src	= '';
-	$lang	= '';
-	$id	= '';
-	$p	= [];
-	
-	// Find multiple caption definitions if any
-	$defs	= util_trimmed_list( $cc, false, '][' );
-	
-	// Parse captions
-	foreach ( $defs as $d ) {
-		if ( empty( $d ) ) {
-			continue;
-		}
-		
-		\parse_str( $d, $p );
-		
-		if ( empty( $p ) || !\is_array( $p ) ) {
-			$p = [];
-			continue;
-		}
-		
-		// Parse only if all elements are strings
-		foreach ( $p as $k => $v ) {
-			if ( is_array( $v ) ) {
-				$p[$k] = 
-				empty( $v[0] ) ? '' : ( 
-					\is_array( $v[0] ) ? '' : ( string ) $v[0] 
-				);
-			} else {
-				$p[$k] = ( string ) $v;
-			}
-		}
-		
-		// Prefix prepended source path
-		$src	= 
-		prependPath( $p['src'] ?? $p['source'] ?? '', $prefix );
-		
-		// Language name if specified
-		$lang	= 
-		sanitize_bland( $p['lang'] ?? $p['language'] ?? '--', true );
-		
-		// Is default?
-		$id	= empty( $p['default'] ) ? '' : 'default';
-		
-		// Language or plain subtitle
-		$dd	.= empty( $lang ) ? 
-		\strtr( template( 'tpl_cc_nl_embed' ), [
-			'{src}'		=> $src,
-			'{default}'	=> $id
-		] ) : 
-		\strtr( template( 'tpl_cc_embed' ), [
-			'{label}'	=> 
-			sanitize_bland( 
-				$p['label'] ?? $p['name'] ?? $lang, 
-				true
-			),
-			'{src}'		=> $src,
-			'{lang}'	=> $lang,
-			'{default}'	=> $id
-		] );
-		$p	= [];
-	}
-	
-	return $dd;
-}
-
-/**
- *  Embedded media shortcode list helper and hook trigger
- *  
- *  @return array
- */
-function hostedEmbeds() : array {
-	$hosted = [
-		// YouTube syntax
-		'/\[youtube http(s)?\:\/\/(www)?\.?youtube\.com\/watch\?v=([0-9a-z_\-]*)(?:\&t\=([\d]*)s)?\]/is'
-		=> \strtr( template( 'tpl_youtube' ), [ '{src}' => '$3', '{time}' => ( '$4' ?? '0' ) ] ),
-		
-		'/\[youtube http(s)?\:\/\/(www)?\.?youtu\.be\/([0-9a-z_\-]*)(?:\?t\=([\d]*))?\]/is'
-		=> \strtr( template( 'tpl_youtube' ), [ '{src}' => '$3', '{time}' => ( '$4' ?? '0' ) ] ),
-		
-		'/\[youtube ([0-9a-z_\-]*)\]/is'
-		=> \strtr( template( 'tpl_youtube' ), [ '{src}' => '$1' ] ),
-		
-		// Vimeo syntax
-		'/\[vimeo ([0-9]*)\]/is'
-		=> \strtr( template( 'tpl_vimeo' ), [ '{src}' => '$1' ] ),
-		
-		'/\[vimeo http(s)?\:\/\/(www)?\.?vimeo\.com\/([0-9]*)\]/is'
-		=> \strtr( template( 'tpl_vimeo' ), [ '{src}' => '$3' ] ),
-		
-		// Peertube (any instance)
-		'/\[peertube http(s)?\:\/\/(.*?)\/videos\/watch\/([0-9\-a-z_]*)\]/is'
-		=> \strtr( template( 'tpl_peertube' ), [ '{src_host}' => '$2', '{src}' => '$3' ] ),
-		
-		// Archive.org
-		'/\[archive http(s)?\:\/\/(www)?\.?archive\.org\/details\/([0-9\-a-z_\/\.]*)\]/is'
-		=> \strtr( template( 'tpl_archiveorg' ), [ '{src}' => '$3' ] ),
-		
-		'/\[archive ([0-9a-z_\/\.]*)\]/is'
-		=> \strtr( template( 'tpl_archiveorg' ), [ '{src}' => '$1' ] ),
-		
-		// LBRY/Odysee syntax
-		'/\[(lbry|odysee) http(s)?\:\/\/(.*?)\/\$\/download\/([\pL\pN\-_]*)\/\-?([0-9a-z_]*)\]/is'
-		=> \strtr( template( 'tpl_lbry' ), [ 
-			'{src_host}' => '$3', '{slug}' => '$4', '{src}' => '$5' 
-		] ),
-		
-		'/\[lbry lbry\:\/\/\@(.*?)\/([\pL\pN\-_]*)(\#[\pL\pN\-_]*)?(\s|\/)([\pL\pN\-_]*)\]/is'
-		=> \strtr( template( 'tpl_lbry' ), [ 
-			'{src_host}' => 'lbry.tv', '{slug}' => '$2', '{src}' => '$5' 
-		] ),
-		
-		'/\[(?:utreon|playeur) (?:http(s)?\:\/\/(www\.)?)?(?:utreon|playeur)\.com\/v\/([0-9a-z_\-]*)(?:\?t\=([\d]*))?\]/is'
-		=> \strtr( template( 'tpl_playeur' ), [ '{src}' => '$3', '{time}' => ( '$4' ?? '0' ) ] )
-		
-	];
-	
-	// Append custom embeds
-	hook( [ 'hostedembeds', [ 'hosted' => $hosted ] ] );
-	$hosted = 
-	hookArrayResult( 'hostedembeds', [] )['hosted'] ?? $hosted;
-	
-	return $hosted;
-}
-
-/**
- *  Embedded media
- *  
- *  @param string	$html	Pre-filtered HTML to replace media tags
- *  @param string	$preifx	Source path prefix
- *  @return string
- */
-function embeds( string $html, string $prefix = ''  ) : string {
-	static $hosted;
-	static $media;	// Locally uploaded
-	
-	// First run?
-	if ( !isset( $hosted ) ) {
-		$hosted	= hostedEmbeds();
-	}
-	
-	if ( !isset( $media ) ) {
-		// Uploaded media embedding
-		$rx = '/\[(?<type>audio|video) ' . 
-			'(?:\[(?<captions>(.*?))\]\s+?)?' . 
-			'(?:\((?<preview>.*?)\)\s+?)?' . 
-			'(?<src>[^\]]+)\]/s';
-		
-		$media	= [ $rx => 
-		
-		function( $m ) use ( $prefix ) {
-			$i = \trim( $m['type'] ?? '' );		// Media type
-			$p = \trim( $m['preview'] ?? '' );	// Thumbnail or preview
-			
-			// Use prefix for relative paths
-			$u = prependPath( \trim( $m['src'] ?? '' ), $prefix );
-			
-			// Parse caption definitions if any
-			$c = extractCC( $m['captions'] ?? '', $prefix );
-			
-			switch( $i ) {
-				case 'audio':
-					return isSafeExt( $u, 'audio' ) ?
-					\strtr( 
-						template( 'tpl_audio_embed' ), 
-						[ '{src}' => $u ] 
-					) : '';
-				
-				case 'video':
-					if ( !isSafeExt( $u, 'video' ) ) {
-						return '';
-					}
-					
-					return empty( $p ) ? 
-					// No preview
-					\strtr( template( 'tpl_video_np_embed' ), [ 
-						'{src}'		=> $u,
-						'{detail}'	=> $c
-					] ) : 
-					
-					// With preview
-					\strtr( template( 'tpl_video_embed' ), [ 
-						'{preview}'	=> prependPath( $p, $prefix ),
-						'{src}'		=> $u,
-						'{detail}'	=> $c
-					] );
-					
-				default:
-					return '';
-			}
-		}
-		];
-	}
-		
-	$html	= 
-	\preg_replace( 
-		\array_keys( $hosted ), 
-		\array_values( $hosted ), 
-		$html 
-	);
-	
-	return
-	\preg_replace_callback_array( $media, $html );
-}
-
-/**
- *  Convert row string to list of cells
- *  
- *  @param string	$row		Matched plain text row cells
- *  @param bool		$is_align	This is an alignment row if true
- *  @return array
- */
-function tableCells( string $row, bool $is_align = false ) : array {
-	$row = \trim( $row, '|' );
-	
-	// Split by vertical pipes, skipping any escaped
-	$c =  empty( $row ) ? [] : 
-	\preg_split( 
-		'/[^\\\\]\|' . ( $is_align ? '|[^\\\\]\+/' : '/' ), $row
-	);
-	return ( false === $c )? [] : $c;
-}
-
-/**
- *  Format table row with each cell aligned as designated
- *   
- *  @param array	$cells	Column cells in a single table row
- *  @param array	$align	Formatting alignment definition
- *  @param bool		$tpl	Cell rendering template
- *  @param int		$oe	Optional odd/even row selector
- *  @return string
- */
-function tableRow( array $cells, array $align, string $tpl, int $oe = 0 ) : string {
-	if ( empty( $cells ) ) {
-		return 
-		render( template( 'tpl_table_row' ), [ 'cells' => ''] );
-	}
-	
-	$i	= 0;		// Row cell counter
-	$cells	= 
-	\array_map( function( $r ) use ( $align, $tpl, &$i ) {
-		switch ( $align[$i] ?? '' ) {
-			// Left align
-			case 'l':
-				$r = render( $tpl, [ 
-					'align'	=> 'left',
-					'data'	=> $r
-				] );
-				break;
-			
-			// Center align
-			case 'c': 
-				$r = render( $tpl, [ 
-					'align'	=> 'center',
-					'data'	=> $r
-				] );
-				break;
-			
-			// Right align
-			case 'r':
-				$r = render( $tpl, [ 
-					'align'	=> 'right',
-					'data'	=> $r
-				] );
-				break;
-			
-			// No alignment
-			default:
-				$r = render( $tpl, [ 
-					'align'	=> '',
-					'data'	=> $r
-				] );
-		}
-		
-		$i++;
-		return $r;
-		
-	}, $cells );
-	
-	// No Odd/Even
-	if ( empty( $oe ) ) {
-		return 
-		render( template( 'tpl_table_row' ), [ 
-			'cells' => \implode( '', $cells ) 
-		] );
-	}
-	
-	return ( 0 == $oe % 2 ) ?
-	render( template( 'tpl_table_row_even' ), [ 
-		'cells' => \implode( '', $cells ) 
-	] ) :
-	render( template( 'tpl_table_row_odd' ), [ 
-		'cells' => \implode( '', $cells ) 
-	] );
-}
-
-/**
- *  Table formatting helper
- *  
- *  @param array	$m	Regex found match
- *  @return string
- */
-function tableBuild( array $m ) : string {
-	// Table cell alignment definition
-	$align = 
-	\array_map( function( $a ) {
-		$a = \trim( $a );
-		
-		return 
-		empty( $a ) ? '' : (
-			// Left align?
-			\str_starts_with( $a, ':' ) ? (
-				// And right? Center
-				\str_ends_with( $a, ':' ) ? 'c' : 'l' // Or left only
-			) : (
-				// Right only?
-				\str_ends_with( $a, ':' ) ? 'r' : '' // Or nothing
-			) 
-		);
-	}, tableCells( $m['align'] ?? '' , true ) );
-		
-	// Table column headers
-	$headers	= 
-	tableRow( 
-		tableCells( $m['headers'] ?? '' ), 
-		$align, 
-		template( 'tpl_table_h_cell' )
-	);
-	
-	// Table column footers
-	$footers	= 
-	tableRow( 
-		tableCells( $m['footers'] ?? '' ), 
-		$align,
-		template( 'tpl_table_cell' )
-	);
-	
-	// Odd/Even rows
-	$oe	= 1;
-	
-	// Table body rows
-	$rows	= 
-	\array_map( function( $r ) use ( $align, &$oe ) {
-		return 
-		tableRow( 
-			tableCells( $r ), 
-			$align, 
-			template( 'tpl_table_cell' ),
-			$oe
-		);
-		$oe++;
-	}, util_split_lines( $m['rows'] ?? '', -1, true ) );
-	
-	$body = \implode( '', $rows );
-	
-	if ( !empty( $headers ) && !empty( $footers ) ) {
-		return 
-		render( template( 'tpl_table' ), [ 
-			'thead' 		=> $headers,
-			'tfoot' 		=> $footers,
-			'tbody' 		=> $body
-		] );
-		
-	} elseif ( empty( $headers ) && !empty( $footers ) ) {
-		return 
-		render( template( 'tpl_table_nf' ), [ 
-			'tfoot' 		=> $footers,
-			'tbody'			=> $body
-		] );
-	} elseif ( !empty( $headers ) && empty( $footers ) ) {
-		return 
-		render( template( 'tpl_table_nh' ), [ 
-			'thead' 		=> $headers,
-			'tbody'			=> $body
-		] );
-	}
-	
-	return 
-	render( template( 'tpl_table_nh_nf' ), [ 
-		'tbody' => $body
-	] );
-}
-
-/**
- *  Convert Markdown formatted text into HTML tags
- *  
- *  Inspired by : 
- *  @link https://gist.github.com/jbroadway/2836900
- *  
- *  @param string	$html	Pacified text to transform into HTML
- *  @param string	$prefix	URL prefix to prepend text
- *  @return string
- */
-function markdown(
-	string	$html,
-	string	$prefix = '' 
-) : string {
-	static $filters;
-	
-	// Running footnotes
-	static $running_f	= 0;
-	$footnotes		= [];
-	$fmarkers		= [];
-	
-	if ( empty( $filters ) ) {
-		$filters	= 
-		[
-		// Links / Images with alt text and titles
-		'/(\!)?\[([^\[]+)\]\(([^\"\)]+)(?:\"(([^\"]|\\\")+)\")?\)/s'	=> 
-		function( $m ) use ( $prefix ) {
-			$i = \trim( $m[1] );
-			$t = \trim( $m[2] );
-			$u = \trim( $m[3] );
-			
-			// Use prefix for relative paths
-			$u = prependPath( $u, $prefix );
-			
-			// If this is a plain link
-			if ( empty( $i ) ) {
-				return 
-				\sprintf( "<a href='%s'>%s</a>", $u, sanitize_escape_text( $t ) );
-			}
-			
-			// This is an image
-			// Fix titles / alt text
-			$a = sanitize_escape_text( \strtr( $m[4] ?? $t, [ '\"' => '"' ] ), false, false );
-			return
-			\sprintf( "<img src='%s' alt='%s' title='%s' />", $u, sanitize_escape_text( $t ), $a );
-		},
-		
-		// Bold / Italic / Deleted / Quote text
-		'/(\*(\*)?|\~\~|\:\")(.*?)\1/'	=>
-		function( $m ) {
-			$i = \strlen( $m[1] );
-			$t = \trim( $m[3] );
-			
-			switch ( true ) {
-				case ( false !== \strpos( $m[1], '~' ) ):
-					return \sprintf( "<del>%s</del>", $t );
-					
-				case ( false !== \strpos( $m[1], ':' ) ):
-					return \sprintf( "<q>%s</q>", $t );
-						
-				default:
-					return ( $i > 1 ) ?
-						\sprintf( "<strong>%s</strong>", $t ) : 
-						\sprintf( "<em>%s</em>", $t );
-			}
-		},
-		
-		// Centered text
-		'/(\n(\-\>+)|\<center\>)([\pL\pN\s]+)((\<\-)|\<\/center\>)/'	=> 
-		function( $m ) {
-			$t = \trim( $m[3] );
-			return \sprintf( '<div class="center;">%s</div>', $t );
-		},
-		
-		// Headings
-		'/\n([#]{1,6}+)\s?(.+)/'			=>
-		function( $m ) {
-			$h = \strlen( trim( $m[1] ) );
-			$t = \trim( $m[2] );
-			return \sprintf( "<h%s>%s</h%s>", $h, $t, $h );
-		}, 
-		
-		// List items
-		'/\n(\*|([0-9]\.+))\s?(.+)/'		=>
-		function( $m ) {
-			$i = \strlen( $m[2] );
-			$t = \trim( $m[3] );
-			return ( $i > 1 ) ?
-				\sprintf( '<ol><li>%s</li></ol>', $t ) : 
-				\sprintf( '<ul><li>%s</li></ul>', $t );
-		},
-		
-		// Merge duplicate lists
-		'/<\/(ul|ol)>\s?<\1>/'			=> 
-		function( $m ) { return ''; },
-		
-		// Blockquotes
-		'/\n\>\s(.*)/'				=> 
-		function( $m ) {
-			$t = \trim( $m[1] );
-			return \sprintf( '<blockquote><p>%s</p></blockquote>', $t );
-		},
-		
-		// Merge duplicate blockquotes
-		'/<\/(p)><\/(blockquote)>\s?<\2>/'	=>
-		function( $m ) { return ''; },
-		
-		// Horizontal rule
-		'/\n-{5,}/'				=>
-		function( $m ) { return '<hr />'; },
-		
-		// Fix paragraphs after block elements
-		'/\n([^\n(\<\/ul|ol|li|h|blockquote|code|pre)?]+)\n/'		=>
-		function( $m ) {
-			return '</p><p>';
-		}, 
-		
-		// Inline code (untrimmed)
-		'/[^\`]\`([^\n`]+)\`/'			=>
-		function( $m ) {
-			return 
-			\strtr( template( 'tpl_codeinline' ), [ 
-				'{code}' => sanitize_escape_text( \trim( $m[1] ), false, false )
-			] );
-		},
-		
-		// Footnote
-		'/(?:\[\^)(?<phrase>[[:alnum:]_\-]*)(?:\])((?:\:)(?:\s+)?' . 
-		'(?<footnote>[[:print:]]*))?/si' =>
-		function( $m ) use ( &$footnotes, &$running_f, &$fmarkers ) {
-			
-			// Definition missing? Make a placeholder
-			if ( empty( $m['footnote'] ) ) {
-				// Total running footnotes
-				$running_f++;
-				
-				// Create placeholder slug
-				$slug		= 
-				'{footnote_marker_' . $running_f . '-' . 
-				sanitize_slug( ( string ) $m['phrase'] ) . '}';
-				
-				// Create list for this phrase
-				$fmarkers[$m['phrase']] ??= [];
-				
-				// Placeholder slug and link text phrase
-				$fmarkers[$m['phrase']][] = $slug;
-				return $slug;
-			}
-			
-			// Footnote definition made separately
-			$footnotes[$m['phrase']] = [
-				'footnote'	=> $m['footnote'],
-				'markers'	=> 
-					$fmarkers[$m['phrase']] ?? []
-			];
-			return '';
-		},
-		
-		// Tables
-		'/(?:\|(?<headers>[^\n]+)\|\n{1}(?:[\+\:\|\-])' . 
-		'(?<align>[\+\:\|\-]{1,})(?:[\|\+]\r?\n){1})?' . 
-		'(?<rows>(?:\|[^\n=]+\|\n){1,})(?:\|[=\|]+\|\n\|' . 
-		'(?<footers>[^\n]+)(?:\|\n))?/m'	=>
-		function( $m ) {
-			return empty( $m ) ? '' : tableBuild( $m );
-		}
-		];
-		
-		// Merge custom markdown filters
-		hook( [ 'markdownfilter', [ 'filters' => $filters ] ] );
-		$filters = 
-		hookArrayResult( 'markdownfilter' )['filters'] ?? $filters;
-	}
-	
-	$html	= \preg_replace_callback_array( $filters, $html );
-	
-	// Parse out footnotes, if any
-	return formatFootnotes( $html, $footnotes );
-}
-
-
 /**
  *  HTTP Response
  */
@@ -12928,13 +11999,13 @@ function getRoot( bool $err = false ) : string {
 	}
 	
 	if ( $err ) {
-		$errors	 = slashPath( \ERROR_ROOT, true );
+		$errors	 = util_slash_path( \ERROR_ROOT, true );
 		return $errors;
 	}
 	
 	// Shortest root directory for this host
 	$hp		= getHostPaths( getHost() );
-	$root		= slashPath( $hp[0], true );
+	$root		= util_slash_path( $hp[0], true );
 	return $root;
 }
 
@@ -13199,7 +12270,7 @@ function formatSites( array $sites ) : array {
 			
 			// Slash basepath
 			$b['basepath'] = 
-				slashPath( $b['basepath'] ?? '/' );
+				util_slash_path( $b['basepath'] ?? '/' );
 		
 			// Set active mode if not set
 			$b['is_active']		??= 1;
@@ -13292,7 +12363,7 @@ function getHostPaths( string $host ) : array {
 		$a = ( bool ) ( $s['is_active'] ?? false );
 		
 		// Path based settings
-		$b = slashPath( $s['basepath'] ?? '/' );
+		$b = util_slash_path( $s['basepath'] ?? '/' );
 		$ss[] = [ $b => $s['settings'] ?? [] ];
 		
 		if ( $a ) {
@@ -13332,7 +12403,7 @@ function hostPathMatch( string $host, string $path ) : bool {
 	$pe	= explode( '/', $path );
 	$px	= '';
 	foreach ( $pe as $k => $v ) {
-		$px .= slashPath( $v );
+		$px .= util_slash_path( $v );
 		if ( \in_array( $px, $pm, true ) ) {
 			return true;
 		}
@@ -13594,7 +12665,7 @@ function sendPage(
 	] ] );
 	
 	// Send redirect with requested code
-	redirect( $code, slashPath( pageRoutePath(), true ) . $page );
+	redirect( $code, util_slash_path( pageRoutePath(), true ) . $page );
 }
 
 /**
@@ -14694,7 +13765,7 @@ function dupRename( string $path ) : string {
 	$i	= 0;
 	
 	while ( \file_exists( $file ) ) {
-		$file = slashPath( $dir, true ) . 
+		$file = util_slash_path( $dir, true ) . 
 			$name . '_' . $i++ . 
 			\rtrim( '.' . $ext, '.' );
 	}
@@ -14946,7 +14017,7 @@ function postModified( $path, $mtime ) : bool {
 		"SELECT updated FROM posts 
 			WHERE post_path = :path", 
 		'bare',
-		[ ':path' => slashPath( $path ) ]
+		[ ':path' => util_slash_path( $path ) ]
 	);
 	
 	if ( empty( $res ) ) {
@@ -14969,7 +14040,7 @@ function postCached( $path ) : bool {
 		"SELECT id FROM posts WHERE post_path = :path
 			LIMIT 1;", 
 		'bare',
-		[ ':path' => slashPath( $path ) ]
+		[ ':path' => util_slash_path( $path ) ]
 	);
 	
 	return empty( $res ) ? false : true; 
@@ -15024,7 +14095,7 @@ function extractFeature(
  *  Get summary or abstract from post
  */
 function extractSummary( array $find ) : string {
-	return html( $find['all'] ?? '', pageRoutePath() );
+	return format_body( $find['all'] ?? '', pageRoutePath() );
 }
 
 /**
@@ -15376,7 +14447,7 @@ function insertPost(
 	int		$mtime 
 ) : bool {
 	$params = [
-		':path'		=> slashPath( $path ), 
+		':path'		=> util_slash_path( $path ), 
 		':pview'	=> $out, 
 		':bare'		=> \strip_tags( $out ), 
 		':summary'	=> $summ, 
@@ -15786,10 +14857,10 @@ function formatPost(
 	
 	// Everything else after the first line is the body
 	$post	= \array_slice( $post, 1 );
-	$body	= html( \implode( "\n", $post ), pageRoutePath() );
+	$body	= format_body( \implode( "\n", $post ), pageRoutePath() );
 	
 	// Calculate read time, if appropriate, from formatted body
-	$rtime	= hasReadTime( $type ) ? readingTime( $body ) : 0;
+	$rtime	= hasReadTime( $type ) ? language_read_time( $body ) : 0;
 	
 	hook( [ 'formatpost', [ 
 		'type'		=> $type,	// Post type
@@ -16253,108 +15324,6 @@ function validateForm(
 	return false;
 }
 
-
-/**
- *  Find word or character count within a block of text
- *  
- *  @param string	$find	Raw text to match
- *  @param string	$mode	Word splitting mode
- *  @return int
- */
-function wordcount( string $find, string $mode = '' ) : int {
-	// Select split type
-	switch( $mode ) {
-		case 'dist':
-			// Words seprated by non-letters and non-punctuation
-			$pat = '/[^\p{L}\p{P}]+/u';
-			break;
-			
-		case 'chars':
-			// All characters
-			$pat = '//u';
-			break;
-			
-		case 'words':
-			// Split into words separated by non-letter/num chars
-			$pat = '/[^\p{L}\p{N}\-_\']+/u';
-			break;
-
-		default:
-			// Simplest split by various separators. E.G. Space
-			$pat = '/[\p{Z}]+/u';
-	}
-	
-	$c = \preg_split( $pat, $find, -1, \PREG_SPLIT_NO_EMPTY );
-	return ( false === $c ) ? 0 : count( $c );
-}
-
-/**
- *  Estimate reading time in minutes based on words/characters in a text block
- *  
- *  @param string $text Text input
- *  @return int
- */
-function readingTime( string $text ) : int {
-	static $sets;
-	if ( !isset( $sets ) ) {
-		// Default character and measurement sets
-		$default = [
-			// Matching type, average matches / minute, character pattern
-			[ 'words', 230, '/[\p{Latin}\p{Greek}\p{Cyrillic}]/u' ],
-			[ 'words', 250, '/[\p{Arabic}\p{Hebrew}]/u' ],
-			
-			[ 'chars', 1000, '/[\p{Han}\p{Hiragana}\p{Katakana}]/u' ]
-		];
-		
-		// Send to hook for additional sets
-		hook( [ 'readingtime', [ 'sets' => $default ] ] );
-		$sets	= hookArrayResult( 'readingtime' )['sets'] ?? $default;
-	}
-	
-	// Remove tags and trim
-	$text	= sanitize_bland( $text );
-	if ( empty( $text ) ) {
-		return 1;
-	}
-	
-	// Default
-	$speed	= 200;
-	$set	= 'words';
-	
-	// Total characters
-	$chars	= wordcount( $text, 'chars' );
-	
-	// Previous character count
-	$prev	= 0;
-	
-	// Guess language type based on search chars to total chars ratio
-	foreach( $sets as $k => $v ) {
-		if ( !preg_match( $v[2], $text ) ) {
-			continue;
-		}
-		
-		// Character set found
-		$m = \preg_split( $v[2], $text );
-		if ( false === $m ) {
-			continue;
-		}
-		
-		$c = count( $m );
-		if ( !$c ) { continue; }
-		
-		// Current character ratio exceeds previous? Set new defaults
-		if ( ( $c / $chars ) > ( $prev / $chars ) ) {
-			$set	= $v[0];
-			$speed	= $v[1];
-			$prev	= $c;
-		}
-	}
-	
-	// Always send back at least 1 minute reading time
-	$rt = ( int ) ceil( wordcount( $text, $set ) / $speed );
-	return ( $rt < 1 ) ? 1 : $rt;
-}
-
 /**
  *  Process search pattern for full text searching
  *  
@@ -16436,7 +15405,7 @@ function searchForm() : string {
  *  @return string
  */
 function searchPagePath( array $data ) : string {
-	return slashPath( pageRoutePath(), true ) . 
+	return util_slash_path( pageRoutePath(), true ) . 
 		'?find=' . $data['find'] . '/';
 }
 
@@ -16548,7 +15517,7 @@ function getSiblings( string $path ) : string {
 	db_result_exec( 
 		"SELECT * FROM post_siblings WHERE post_path = :path", 
 		'bare',
-		[ ':path' => slashPath( $path ) ]
+		[ ':path' => util_slash_path( $path ) ]
 	);
 	
 	hook( [ 'getsiblings', [
@@ -16666,7 +15635,7 @@ function getCommonWords( array $lines, bool $as_array = true ) {
  *  @return string
  */
 function getRelated( string $path ) : string {
-	$path	= slashPath( $path );
+	$path	= util_slash_path( $path );
 	$res	= 
 	db_result_exec( 
 		'SELECT post_bare FROM posts WHERE post_path = :path', 
@@ -16875,7 +15844,7 @@ function staticPage(
  */
 function loadStaticPage( string	$page ) : array {
 	$pdir	= config( 'post_dir', storage_base() );
-	$path	= slashPath( $page );
+	$path	= util_slash_path( $page );
 	
 	return loadText( $pdir . $path );
 }
@@ -16966,7 +15935,7 @@ function showArchive( string $event, array $hook, array $params ) {
 	// Full archive
 	if ( empty( $params['year'] ) ) {
 		$posts	= loadPosts( $page, '', false, $slvl );
-		$prefix	= slashPath( pageRoutePath(), true );
+		$prefix	= util_slash_path( pageRoutePath(), true );
 	
 	// Starting from year?
 	} else {
@@ -16982,7 +15951,7 @@ function showArchive( string $event, array $hook, array $params ) {
 				$date[1] : $date[1] . $s . $date[2];
 		}
 		$stamp	= \trim( $stamp, $s ) . $s;
-		$prefix	= slashPath( pageRoutePath(), true ) . $stamp;
+		$prefix	= util_slash_path( pageRoutePath(), true ) . $stamp;
 		$posts	= loadPosts( $page, $stamp, false, $slvl );
 	}
 	
@@ -17016,7 +15985,7 @@ function showTag( string $event, array $hook, array $params ) {
 	$tag	= sanitize_slug( $params['tag'] );
 	$page	= ( int ) ( $params['page'] ?? 1 );
 	$prefix	= 
-	slashPath( pageRoutePath( 'tagview', 'tags' ), true ) . $tag . '/';
+	util_slash_path( pageRoutePath( 'tagview', 'tags' ), true ) . $tag . '/';
 	
 	// Pagination prep
 	$plimit	= setting( 'page_limit', \PAGE_LIMIT, 'int' );
@@ -17284,7 +16253,7 @@ function runIndex( string $event, array $hook, array $params ) {
 	// Default index render
 	$out	= '';
 	
-	$prefix	= slashPath( pageRoutePath(), true ) . 'archive/';
+	$prefix	= util_slash_path( pageRoutePath(), true ) . 'archive/';
 	$out	= '';
 	$pf	= '';
 	$plist	= [];
