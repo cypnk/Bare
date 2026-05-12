@@ -5276,7 +5276,7 @@ function config_parsed( ?array $new_settings = null ) : array {
 		
 		// Save changes at shutdown
 		\register_shutdown_function( function() {
-			$user	= sanitize_string( $_SERVER['REMOTE_USER'] ?? 'system' );
+			$user	= sanitize_normalize( $_SERVER['REMOTE_USER'] ?? 'system' );
 			
 			config_backup();
 			config_save( null, $user );
@@ -5349,11 +5349,6 @@ function config_realm() : array {
 		!\is_array( $config['defaults'] ?? null ) ||	// Global settings
 		!\is_array( $config['realms'] ?? null )		// Per-domain settings
 	) {
-		config_message( 
-			"Invalid configuration file structure: " . $conf, 
-			'ERROR' 
-		);
-		
 		throw new 
 		\RuntimeException( "Invalid config structure." );
 	}
@@ -5428,32 +5423,25 @@ function config_value_format( mixed $value, string $type, $filter = null ) : mix
 }
 
 /**
- *  Get stored configuration settings or get default
- *  
- *  @param string	$name		Configuration setting name
- *  @param mixed	$default	If not set, fallback value
- *  @param string	$type		String, integer, json, or boolean
- *  @param string	$filter		Optional parse function
- *  @return mixed
+ *  Get all whitelisted extensions
  */
-function config( 
-	?string		$key		= null, 
-			$default	= null, 
-	string		$type		= 'string',
-	string		$filter		= '' 
-) : mixed {
-	static $merged	= null;
+function config_ext_groups( string $group = '' ) : array {
+	// Default whitelist
+	$cs	= config( 'static_ext', [] );
 	
-	$merged ??= config_realm();
+	// Extend whitelist via hooks
+	hook( [ 'extwhitelist', [ 'whitelist' => $cs ] ] );
+	$sent	= hookArrayResult( 'extwhitelist', [] );
 	
-	// Fallback to defaults or send full config on empty key
+	// Filtered whitelist
+	$ext	= empty( $sent ) ? $cs : 
+		\array_merge( $cs, $sent['whitelist'] ?? [] );
 	
-	if ( null === $key ) { return $merged; }
+	$all	= \implode( ',', $ext );
 	
-	$value	= $merged[$key] ?? $default;
-	return empty( $filter ) 
-		? $value 
-		: config_value_format( $value, $type, $filter );
+	return empty( $group ) ? 
+		\array_unique( util_trimmed_list( $all, true ) ) : 
+		\array_unique( util_trimmed_list( $ext[$group] ?? '', true ) );
 }
 
 /**
@@ -5480,6 +5468,35 @@ function config_edit_db_profile( string $profile, array $updates ) : void {
 	\array_replace_recursive( $profiles[$profile] ?? [], $updates );
 	
 	config_parsed( [ 'db_profiles' => $profiles ] );
+}
+
+/**
+ *  Get stored configuration settings or get default
+ *  
+ *  @param string	$key		Configuration setting name
+ *  @param mixed	$default	If not set, fallback value
+ *  @param string	$type		String, integer, json, or boolean
+ *  @param string	$filter		Optional parse function
+ *  @return mixed
+ */
+function config( 
+	?string		$key		= null, 
+			$default	= null, 
+	string		$type		= 'string',
+	string		$filter		= '' 
+) : mixed {
+	static $merged	= null;
+	
+	$merged ??= config_realm();
+	
+	// Fallback to defaults or send full config on empty key
+	
+	if ( null === $key ) { return $merged; }
+	
+	$value	= $merged[$key] ?? $default;
+	return empty( $filter ) 
+		? $value 
+		: config_value_format( $value, $type, $filter );
 }
 
 
