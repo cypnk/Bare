@@ -69,32 +69,8 @@ define( 'STARTUP',	'startup.log' );
  *  The following settings can be overridden in config.json:
  */
 
-// Relative path of assets (JS, CSS etc... ) within the folders of each plugin
-define( 'PLUGIN_ASSETS',	'assets/' );
-
 // Cached index timeout
 define( 'CACHE_TTL',	3200 );
-
-// Default path parameters if any sites in the whitelist above didn't have any
-define( 'DEFAULT_BASEPATH',	<<<JSON
-{
-	"basepath"		: "\/",
-	"is_active"		: 1,
-	"is_maintenance"	: 0,
-	"settings"		: []
-}
-JSON
-);
-
-// Whitelist of recipient addresses that Bare can email (one per line)
-define( 'MAIL_WHITELIST',	<<<LINES
-
-LINES
-);
-
-// Sender email used by Bare (from: address)
-define( 'MAIL_FROM',		'domain@localhost' );
-
 
 // Number of posts on archive index page
 define( 'INDEX_LIMIT',	60 );
@@ -108,151 +84,13 @@ define( 'MAX_PAGE',	500 );
 // Maximum URL length (making this too small may affect searching)
 define( 'MAX_URL_SIZE',	512 );
 
-// Starting date for post archive
-define( 'YEAR_START',	1990 );
-
 // Default language
 define( 'LANGUAGE',	'en-US' );
-
-// Friendly date format
-define( 'DATE_NICE',	'l, F j, Y' );
-// Note: Date format can also be overridden in [lang].config
-// E.G. In en-US.config, "date_nice": "l, F j, Y"
-
-// Default local timezone when not set in config.json
-define( 'TIMEZONE',		'America/New_York' );
-// For a list of valid values for this, see:
-// https://www.php.net/manual/en/timezones.php
-
-// Allow POST method 
-// Should be 0 (meaning false) unless if you have a special need
-// E.G. a plugin
-define( 'ALLOW_POST',	0 );
-
-// Maximum number of tags to recognize in each post
-define( 'TAG_LIMIT',	5 );
-
-// Post summary level shown on indexes E.G. hompage, tags, search etc...
-define( 'SUMMARY_LEVEL',	0 );
-// 0 = Full post view. 1 = Summary, if available, or full post. 2 = Summary view
-
-// Allowed extensions
-define( 'EXT_WHITELIST',	<<<JSON
-{
-	"text"		: "css, js, txt, html, vtt",
-	"images"	: "ico, jpg, jpeg, gif, bmp, png, tif, tiff, svg, webp", 
-	"fonts"		: "ttf, otf, woff, woff2",
-	"audio"		: "ogg, oga, mpa, mp3, m4a, wav, wma, flac",
-	"video"		: "avi, mp4, mkv, mov, ogg, ogv",
-	"documents"	: "doc, docx, ppt, pptx, pdf, epub",
-	"archives"	: "zip, rar, gz, tar"
-}
-JSON
-);
-
-// Show sibling (next/previous published) posts
-define( 'SHOW_SIBLINGS',	1 );
-
-// Show related posts based on content in currently viewing post
-define( 'SHOW_RELATED',		1 );
-
-// Maximum number of related posts to show
-define( 'RELATED_LIMIT',	5 );
-
-// Lines from the bottom of each post to search for features I.E. Summary and tags
-// I.E. "Search somewhere in the bottom X lines for features." Up to 10
-define( 'FEATURE_LINES',	5 );
-
-// Form nonce size
-define( 'TOKEN_BYTES', 		8 );
-
-// Form token nonce hash
-define( 'NONCE_HASH',		'tiger160,4' );
-
-// Default post content type
-define( 'POST_TYPE',		'blogpost' );
-
-// Comma delimited content types which have their read times calculated
-// blogpost, news etc...
-define( 'READTIME_TYPES',	'blogpost' );
-
-// Maximum log file size before rolling over (in bytes)
-define( 'MAX_LOG_SIZE',		5000000 );
-
-// Maximum number of words allowed for searching posts
-define( 'MAX_SEARCH_WORDS',	10 );
-
-// Maximum number of stylesheets to load, if set
-define( 'STYLE_LIMIT',		20 );
-
-// Maximum mumber of script files to load
-define( 'SCRIPT_LIMIT',		10 );
-
-// Maximum mumber of meta tags to load
-define( 'META_LIMIT',		15 );
-
-// Maximum depth when searching for files (E.G. Plugin folders)
-define( 'FOLDER_LIMIT',		15 );
-
-// Streaming file chunks
-define( 'STREAM_CHUNK_SIZE',	4096 );
-
-// Maximum file size before streaming in chunks
-define( 'STREAM_CHUNK_LIMIT',	50000 );
-
-// Application name
-define( 'APP_NAME',		'Bare' );
-
-// Static resource relative path for JS, CSS, static images etc...
-define( 'SHARED_ASSETS',		'/' );
-
-// Whitelist of approved frame sources for embedding media (one per line)
-define( 'FRAME_WHITELIST',	<<<LINES
-https://www.youtube.com
-https://player.vimeo.com
-https://archive.org
-https://peertube.mastodon.host
-https://lbry.tv
-https://odysee.com
-https://playeur.com
-
-LINES
-);
-
-
 
 
 /**
  *  Templates and customization
  */
-
-// When enabled, scripts with a nonce are embedded (for use with plugins)
-// This relies on the 'script-src' content security policy being set correctly
-define( 'NONCED_SCRIPTS',	0 );
-
-// List of stylesheets to load from SHARED_ASSETS (one per line)
-define( 'DEFAULT_STYLESHEETS',		<<<LINES
-{shared_assets}style.css
-
-LINES
-);
-
-// Default JavaScript files
-define( 'DEFAULT_SCRIPTS',		<<<LINES
-
-LINES
-);
-
-// Default meta tags
-define( 'DEFAULT_META',			<<<JSON
-{
-	"meta" : [
-		{ "name" : "generator", "content" : 
-			"Bare; https:\/\/github.com\/cypnk\/Bare" }
-	]
-}
-JSON
-);
 
 /**
  *  Template holder
@@ -1359,7 +1197,7 @@ function util_trimmed_list( string $text, bool $lower = false, string $sep = ','
  */
 function util_functions_list( bool $update = false ) : array {
 	static $functions;
-	if ( $update || !\isset( $functions ) ) {
+	if ( $update || !isset( $functions ) ) {
 		$functions = \get_defined_functions()['user'];
 	}
 	return $functions;
@@ -1490,7 +1328,7 @@ function util_json_decode( array|string $data, int $depth = 10 ) : array {
 	if ( \is_array( $data ) ) { return $data; }
 	
 	// Since PHP 8.3+
-	if ( !\json_validate( $json ) ) { return []; }
+	if ( !\json_validate( $data ) ) { return []; }
 	
 	$depth	= util_int_range( $depth, 1, 50 );
 	$out	= 
@@ -1536,9 +1374,23 @@ function util_json_array(
  *  @return string
  */
 function util_gen_key( int $len = 16, ?string $prefix = null ) : string {
-	$len	= util_int_range( 1, 64 );
+	$len	= util_int_range( $len, 1, 64 );
 	$prefix ??= '';
 	return $prefix . \bin2hex( \random_bytes( \intdiv( $len, 2 ) ) );
+}
+
+/**
+ *  Generate an alphanumeric string with 32 bytes of random data
+ *  
+ *  @return string
+ */
+function util_gen_alphanum() {
+	return 
+	\preg_replace( 
+		'/[^[:alnum:]]/u', 
+		'', 
+		\base64_encode( \random_bytes( 32 ) ) 
+	);
 }
 
 /**
@@ -1772,6 +1624,50 @@ function util_flatten_array(
 }
 
 /**
+ *  Term replacement helper
+ *  Flattens multidimensional array into {$prefix:group:label...} format
+ *  and replaces matching placeholders in content
+ *  
+ *  @param string	$prefix		Replacement prefix E.G. 'lang'
+ *  @param array	$data		Multidimensional array
+ *  @param string	$content	Placeholders to replace
+ *  @return string
+ */ 
+function util_prefix_replace(
+	string		$prefix, 
+	array		$data, 
+	string		$content
+) : string {
+	// Find placeholders with given prefix
+	\preg_match_all( 
+		'/\{' . $prefix . '(\:[\:a-z_]{1,100}+)\}/i', 
+		$content, $m 
+	);
+	// Convert data to :group:label... format
+	$terms	= util_flatten_array( $data );
+	
+	// Replacements list
+	$rpl	= [];
+	
+	$c	= \count( $m );
+	
+	// Set {prefix:group:label... } replacements or empty string
+	for( $i = 0; $i < $c; $i++ ) {
+		if ( !isset( $m[1] ) ) {
+			continue;
+		}
+		
+		if ( !isset( $m[1][$i] ) ) {
+			continue;
+		}
+		$rpl['{' . $prefix . $m[1][$i] . '}']	= 
+			$terms[$m[1][$i]] ?? '';
+	}
+	
+	return \strtr( $content, $rpl );
+}
+
+/**
  *  Format a structured array into a URL query section
  *  
  *  @param array $query Presorted array
@@ -1861,7 +1757,7 @@ function util_has_overlapping_ranges( array $ranges ) : bool {
  *  
  *  @return int
  */
-function util_time_string_int( $stamp = null ) : int {
+function util_time_string_int( $stamp = null ) : ?int {
 	if ( empty( $stamp ) ) { return null; }
 	
 	if ( \is_numeric( $stamp ) ) {
@@ -1980,6 +1876,138 @@ function util_missing( $func ) : bool {
 	}
 	
 	return $fn[$func];
+}
+
+/**
+ *  Length of given string
+ *  
+ *  @param string	$text	Raw input
+ *  @return int
+ */
+function util_len( string $text ) : int {
+	return \mb_strlen( $text, '8bit' );
+}
+
+/**
+ *  Limit string size
+ *  
+ *  @param string	$text	Raw input
+ *  @param int		$start	Beginning index
+ *  @param int		$size	Maximum string length
+ *  @return string
+ */
+function util_truncate( string $text, int $start, int $size ) {
+	if ( util_len( $text ) <= $size ) {
+		return $text;
+	}
+	
+	return \mb_substr( $text, $start, $size, '8bit' );
+}
+
+/**
+ *  Limit a string without cutting off words
+ *  
+ *  @param string	$val	Text to cut down
+ *  @param int		$max	Content length (defaults to 100)
+ *  @return string
+ */
+function util_trim(
+	string		$val, 
+	int		$max		= 100
+) : string {
+	$val	= \trim( $val );
+	$len	= util_len( $val );
+	
+	if ( $len <= $max ) {
+		return $val;
+	}
+	
+	$out	= '';
+	$words	= \preg_split( '/([\.\s]+)/', $val, -1, 
+			\PREG_SPLIT_OFFSET_CAPTURE | 
+			\PREG_SPLIT_DELIM_CAPTURE );
+	
+	for ( $i = 0; $i < \count( $words ); $i++ ) {
+		$w	= $words[$i];
+		// Add if this word's length is less than length
+		if ( $w[1] <= $max ) {
+			$out .= $w[0];
+		}
+	}
+	
+	$out	= \preg_replace( "/\r?\n/", '', $out );
+	
+	// If there's too much overlap
+	if ( util_len( $out ) > $max + 10 ) {
+		$out = util_truncate( $out, 0, $max );
+	}
+	
+	return $out;
+}
+
+/**
+ *  Try to detect if a string contains ASCII-only text
+ *  
+ *  @param string	$text		Text to test
+ *  @return bool
+ */
+function util_is_ascii( string $text ) : bool {
+	return \mb_check_encoding( $text, 'ASCII' );
+}
+
+/**
+ *  Check if a string contains a fragment
+ *  
+ *  @param mixed	$source		Original text
+ *  @param string	$term		Search term
+ */
+function util_text_has( $source, string $term ) : bool {
+	return 
+	( empty( $source ) || empty( $term ) ) ? 
+		false : \str_contains( ( string ) $source, $term );
+}
+/**
+ *  Check if string starts with a fragment
+ *  
+ *  @param string	$find		Needle to search
+ *  @param array	$collection	Haystack to search partials for
+ *  @param bool		$ca		Case insensitive if true (default)
+ *  @return bool
+ */
+function util_text_starts_with( string $find, array $collection, bool $ca = true ) {
+	if ( $ca ) {
+		$find = \strtolower( $find );
+		foreach ( $collection as $c ) {
+			if ( \str_starts_with( $find, \strtolower( $c ) ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+	
+	foreach ( $collection as $c ) {
+		if ( \str_starts_with( $find, $c ) ) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
+ *  Search string for a fragment in an array
+ *  
+ *  @param string	$find		Needle to search
+ *  @param array	$collection	Haystack to search contained string
+ *  @return bool
+ */
+function util_text_needle_search( string $find, array $collection ) : bool {
+	foreach ( $collection as $c ) {
+		if ( util_text_has( $find, $c ) ) {
+			return true;
+		}
+	}
+	
+	return false;
 }
 
 
