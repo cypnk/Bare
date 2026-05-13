@@ -6543,11 +6543,11 @@ function format_lower( string $text ) : string {
 /**
  * Convert an unformatted text block to paragraphs
  * 
- * @link http://stackoverflow.com/a/2959926
- * @param string	$val		Filter variable
- * @param bool		$skipCode	Ignore code blocks
+ *  @link http://stackoverflow.com/a/2959926
+ *  @param string	$val		Filter variable
+ *  @param bool		$skip_code	Ignore code blocks
  */
-function format_paragraphs( $val, $skipCode = false ) {
+function format_paragraphs( $val, $skip_code = false ) {
 	// Escape excluded markdown-sensitive characters
 	static $esc	= [
 		'\\#'	=> '&#35;',
@@ -6563,7 +6563,7 @@ function format_paragraphs( $val, $skipCode = false ) {
 	$out = \strtr( $val, $esc );
 	
 	// Escape block level code first
-	if ( !$skipCode ) {
+	if ( !$skip_code ) {
 		// Format inside code tags
 		$out = \preg_replace_callback( '/<code>(.*)<\/code>/ism',
 		function ( $m ) {
@@ -7351,37 +7351,12 @@ function format_markdown(
 }
 
 /**
- *  Post formatting handler
- *  
- *  @param string	$html		Raw HTML entered by the user
- *  @param string	$prefix		Link path prefix
- *  @param array	$override	Custom filters
- *  @return string
- */
-function format_html( string $html, string $prefix, ?array $override = null ) {
-	hook( [ 'formatting', [ 
-		'html'		=> $html, 
-		'prefix'	=> $prefix 
-	] ] );
-	
-	// Check if formatting was handled or use the default markdown formatter
-	$sent	= hookArrayResult( 'formatting' );
-	
-	return empty( $sent ) 
-		? format_markdown( value : $html, prefix : $prefix ) 
-		: ( $sent['html'] ?? format_markdown( 
-			value		: $html, 
-			prefix		: $prefix, 
-			override	: $override 
-		) );
-}
-
-/**
  *  Content HTML filter
  *  
  *  @param string	$value		Unformatted content
+ *  @param bool		$use_fmt	Use markdown formatting, if true
+ *  @param array	$tag_map	Whitelist of allowed HTML tags, attributes, values etc...
  *  @param string	$prefix		URL path prefix
- *  @param bool		$form		Include form field tags if true
  *  @param bool		$sembed		Skip embedded media shortcodes if true
  *  @param array	$override	Override filters
  *  #param array	$custom		Custom embedded templates
@@ -7389,82 +7364,58 @@ function format_html( string $html, string $prefix, ?array $override = null ) {
  */
 function format_body( 
 	string	$value, 
+	bool	$use_fmt	= true,
+	array	$tag_map	= [],
 	string	$prefix		= '', 
-	bool	$form		= false,
 	bool	$sembed		= false,
 	?array	$override	= null,
 	?array	$custom		= null
 ) : string {
-	static $white	= [];
 	static $sanity;
 	
 	if ( !isset( $sanity ) ) {
 		if ( util_missing( 'libxml_clear_errors' ) ) {
-			$sanity = false;
-			shutdown( 
-				'logError', 
-				'Error: Bare requires the libxml extension be enabled.' 
-			);
+			$sanity	= false;
+			log_error( 'Bare requires the libxml extension.' );
 			return '';
 		} else {
-			$sanity = true;
+			$sanity	= true;
 		}
 	}
 	
 	if ( !$sanity ) { return ''; }
 	
 	// Remove preceding/trailing slashes
-	$prefix		= trim( $prefix, '/' );
+	$prefix		= \trim( $prefix, '/' );
 	
 	// Preliminary cleaning
 	$html		= sanitize_filter( $value, true );
 	
 	// Nothing to format?
-	if ( empty( $html ) ) {
-		return '';
-	}
+	if ( empty( $html ) ) { return ''; }
 	
-	// Apply formatting handler
-	$html		= 
-	format_html( value : $html, prefix : $prefix );
+	// Apply formatting, if enabled
+	if ( $use_fmt ) {
+		$html		= 
+		format_markdown( 
+			value		: $html, 
+			prefix		: $prefix, 
+			override	: $override 
+		);
+	}
 	
 	// Nothing formatted?
-	if ( empty( $html ) ) {
-		return '';
-	}
-	
-	// Format linebreaks and code
-	$html		= format_paragraphs( $html );
-	
-	if ( !isset( $white ) ) {
-		$default_tags = config( 'tag_map', '{}', 'json' );
-		
-		// Include form tags
-		$default_form = 
-		\array_merge_recursive( 
-			$default_tags, 
-			config( 'form_tag_map', '{}', 'json' )
-		);
-		
-		// Tag loader hook
-		hook( [ 'htmltags', [ 
-			'html'		=> $default_tags,
-			'form'		=> $default_form,
-			'form_enabled'	=> $form
-		] ] );
-		
-		$htags		= hookArrayResult( 'htmltags' );
-		
-		// Set custom tags or default tags
-		$white	= $htags['html'] ?? $default_tags;
-		if ( $form ) {
-			$white	= \array_merge( $white, $htags['form'] ?? $default_form );
-		}
-	}
+	if ( empty( $html ) ) { return ''; }
 	
 	// Clean up HTML
-	$clean			= sanitize_html( $html, $white );
-	$clean			= format_paragraphs( $clean, true );
+	$clean		= 
+	format_paragraphs( 
+		sanitize_html( 
+			html	: format_paragraphs( $html, false ), // Line breaks and code
+			tag_map	: $tag_map ?: config( 'tag_map', '{}', 'json' ) 
+		),
+		true
+	);
 	
 	if ( $sembed ) { return $clean; }
 	
@@ -10065,8 +10016,7 @@ function mailMessage(
 	$msg	= 
 	format_body( 
 		value		: $res['message'] ?? $msg, 
-		override	: hookArrayResult( 'markdownfilter' )['filters'] ?? null,
-		custom		: hookArrayResult( 'hostedembeds', [] )['hosted']
+		use_fmt		: false
 	);
 	
 	$ok	= 
@@ -14109,6 +14059,7 @@ function extractFeature(
 function extractSummary( array $find ) : string {
 	return format_body( 
 		value		: $find['all'] ?? '', 
+		use_fmt		: true,
 		prefix		: pageRoutePath(),
 		override	: hookArrayResult( 'markdownfilter' )['filters'] ?? null,
 		custom		: hookArrayResult( 'hostedembeds', [] )['hosted'] ?? null
@@ -14880,6 +14831,7 @@ function formatPost(
 	format_body( 
 		value		: \implode( "\n", $post ), 
 		prefix		: pageRoutePath(),
+		use_fmt		: true,
 		override	: hookArrayResult( 'markdownfilter' )['filters'] ?? null,
 		custom		: hookArrayResult( 'hostedembeds', [] )['hosted'] ?? null
 	);
