@@ -3,25 +3,11 @@
  *  Bare: A single file directory-to-blog
  */
 
-/**
- *  The following 5 settings can also be set in config.json
- */
-
-// Site title
-define( 'PAGE_TITLE',	'Rustic Cyberpunk' );
-
-// Site subtitle/tagline
-define( 'PAGE_SUB',	'Coffee. Code. Cabins.' );
-
-// Number of posts per page
-define( 'PAGE_LIMIT',	12 );
-
-// Whitelisted plugins as comma separated list
-define( 'PLUGINS_ENABLED', '' );
-
 
 /**
- *  These need to be set here in index.php
+ *  Check config.json for custom settings
+ *  
+ *  These need to be set here in index.php:
  */
 
 /**
@@ -66,26 +52,12 @@ define( 'STARTUP',	'startup.log' );
 
 
 /**
- *  The following settings can be overridden in config.json:
+ *  Base defaults
  */
-
-// Cached index timeout
-define( 'CACHE_TTL',	3200 );
-
-// Number of posts on archive index page
-define( 'INDEX_LIMIT',	60 );
-
-// Make this 1 (meaning true) if testing locally or running on Tor
-define( 'SKIP_LOCAL', 	1 );
-
-// Maximum page index
-define( 'MAX_PAGE',	500 );
-
-// Maximum URL length (making this too small may affect searching)
-define( 'MAX_URL_SIZE',	512 );
-
-// Default language
-define( 'LANGUAGE',	'en-US' );
+define( 'DEFAULT_PAGE_TITLE',	'My Site' );
+define( 'DEFAULT_PAGE_SUB',	'A Nice Place' );
+define( 'DEFAULT_LANGUAGE',	'en-US' );
+define( 'DEFAULT_TIMEZONE',	'America\/New_York' );
 
 
 /**
@@ -890,7 +862,7 @@ JSON
  *  These can be overridden by a language file in the CACHE directory
  *  E.G. en-US.json (using the default language of en-US)
  */
-define( 'DEFAULT_LANGUAGE',	<<<JSON
+define( 'DEFAULT_TRANSLATION',	<<<JSON
 {
 	"date_nice"	: "l, F j, Y",
 	"headings"	: {
@@ -6369,8 +6341,8 @@ function language( ?array $sent = null ) : array {
 	}
 	
 	// Set default language and append language file definitions
-	$terms	= util_json_decode( \DEFAULT_LANGUAGE );
-	$lang	= config( 'language', \LANGUAGE );
+	$terms	= util_json_decode( \DEFAULT_TRANSLATION );
+	$lang	= config( 'language', \DEFAULT_LANGUAGE );
 	$file	= config_load_json( $lang . '.json' );
 	if ( !empty( $file ) ) {
 		$terms	= 
@@ -9896,7 +9868,7 @@ function appName() : string {
  *  @param string	$map	Filter function
  */
 function linedConfig( string $param, $def, string $filter ) {
-	$opt = setting( $param, $def );
+	$opt = config( $param, $def );
 	$raw = 
 	\is_array( $opt ) ? 
 		\array_map( $filter, $opt ) : 
@@ -9946,7 +9918,8 @@ function mailMessage(
 		return false;
 	}
 	
-	$mfr	= cleanEmail( setting( 'mail_from', \MAIL_FROM ) );
+	$mfr	= sanitize_email( config( 'mail_from', '' ) );
+	
 	if ( empty( $mfr ) ) {
 		shutdown( 
 			'logError', 
@@ -10270,7 +10243,7 @@ function linePresets(
 	}
 	
 	// Maximum number of items
-	$lim		= setting( $base, $default, 'int' );
+	$lim		= config( $base, $default, 'int' );
 	$prs[$label]	= lineSettings( $data, $lim );
 	
 	return $prs[$label];
@@ -10456,54 +10429,6 @@ function loadText( $raw, bool $fl = true, bool $skip = false ) {
 }
 
 /**
- *  Load file into array, optionally return the first n lines
- *  
- *  @param string	$name	File name to load from storage 
- *  @param int		$lines	Return only the first lines if not zero
- *  @param bool		$filter	Filters lines that start with ; or #
- *  @param bool		$skip	Skip empty lines when loading
- */
-function loadArray( 
-	string		$name,
-	int		$lines	= 0,
-	bool		$filter	= true,
-	bool		$skip	= true
-) {
-	static $loaded	= [];
-	$key		= $name . ( string ) $filter;
-	
-	// Prefiltered ?
-	if ( isset( $loaded[$key] ) ) {
-		return ( $lines > 0 ) ? 
-			\array_slice( $loaded[$key], 0, $lines ) : 
-			$loaded[$key];
-	}
-	
-	$data	= loadText( $name, $skip, true );
-	if ( empty( $data ) ) {
-		return [];
-	}
-	
-	// Filtered?
-	if ( $filter ) {
-		$data	= \array_filter( \array_map( 'trim', $data ) );
-		$data	= 
-		\array_filter( $data, function( $val ) {
-			// Skip if the first line starts with colon or pound
-			return (
-				0 !== \strpos( $val, ';' ) && 
-				0 !== \strpos( $val, '#' )
-			);
-		} );
-	}
-	
-	$loaded[$key] = $data;
-	
-	// Specific number of lines?
-	return ( $lines > 0 ) ? \array_slice( $data, 0, $lines ) : $data;
-}
-
-/**
  *  File saving helper with auto backup
  *  
  *  @param string	$name		Destination file name
@@ -10549,46 +10474,6 @@ function internalState( string $name, $value = null ) {
 	}
 	
 	$state[$name] = $value;
-}
-
-/**
- *  Check if a given hash scheme is valid
- *  
- *  @param string	$algo	Checking hash scheme
- *  @param bool		$hmac	Check HMAC algo list if true
- *  @return bool
- */
-function validHashAlgo( string $algo, bool $hmac = false ) : bool {
-	return 
-	\in_array( 
-		$algo, 
-		( $hmac ? \hash_hmac_algos() : \hash_algos() )
-	) ? true : false;
-}
-
-/**
- *  Helper to determine if given hash algo exists or returns default
- *  
- *  @param string	$token		Configuration setting name
- *  @param string	$default	Defined default value
- *  @param bool		$hmac		Check hash_hmac_algos() if true
- *  @return string
- */
-function hashAlgo(
-	string	$token, 
-	string	$default, 
-	bool	$hmac		= false 
-) : string {
-	static $algos	= [];
-	$t		= $token . ( string ) $hmac;
-	if ( isset( $algos[$t] ) ) {
-		return $algos[$t];
-	}
-	
-	$ht		= setting( $token, $default );
-	$algos[$t]	= validHashAlgo( $ht, $hmac ) ? $ht : $default;
-	
-	return $algos[$t];	
 }
 
 
@@ -10668,7 +10553,7 @@ function navHome() : string {
  *  @return string
  */
 function paginate( int $page, string $prefix, array $posts ) : string {
-	$plimit	= setting( 'page_limit', \PAGE_LIMIT, 'int' );
+	$plimit	= config( 'page_limit', 20, 'int' );
 	$c	= count( $posts );
 	
 	hook( [ 'paginate', [ 
@@ -10751,7 +10636,7 @@ function renderNavLinks(
 function pageFooter() : string {
 	// Footer with home link set
 	$links	= config( 'footer_links', [], 'json' );
-	$flinks	= setting( 'default_footer_links', $links );
+	$flinks	= config( 'default_footer_links', $links );
 	return 
 	render( template( 'tpl_page_footer' ), [ 
 		'footer_links'=> 
@@ -10807,7 +10692,7 @@ function rsettings( string $area, array $modify = [] ) : array {
 				break;
 				
 			case 'styles':
-				$s	= setting( 'default_stylesheets', \DEFAULT_STYLESHEETS );
+				$s	= config( 'default_stylesheets', [] );
 				$s	= \is_array( $s ) ? $s : 
 				linePresets( 
 					'stylesheets', 
@@ -10824,7 +10709,7 @@ function rsettings( string $area, array $modify = [] ) : array {
 				break;
 				
 			case 'scripts':
-				$s	= setting( 'default_scripts', \DEFAULT_SCRIPTS );
+				$s	= config( 'default_scripts', [] );
 				$s	= \is_array( $s ) ? $s : 
 				linePresets( 
 					'scripts', 
@@ -10842,7 +10727,7 @@ function rsettings( string $area, array $modify = [] ) : array {
 			
 			case 'meta':
 				// Load custom meta tags
-				$meta	= setting( 'default_meta', \DEFAULT_META );
+				$meta	= config( 'default_meta', [] );
 				$meta	= 
 					\is_string( $meta ) ? util_json_decode( $meta ) : 
 						[ 'meta' => $meta ];
@@ -10976,7 +10861,7 @@ function regionTags(
 	switch( $region ) {
 		// Render meta tags
 		case 'meta':
-			$i = setting( 'meta_limit', \META_LIMIT, 'int' );
+			$i = config( 'meta_limit', 15, 'int' );
 			foreach ( $rg['meta'] ?? [] as $k => $v ) {
 				if ( $i < 0 ) {
 					break;
@@ -11042,14 +10927,14 @@ function renderRegions( string $tpl ) : string {
 	
 	// Use nonced script tag template if that setting is enabled
 	$tpl	= 
-	setting( 'nonced_scripts', \NONCED_SCRIPTS, 'bool' ) ?
+	config( 'nonced_scripts', 0, 'bool' ) ?
 	regionTags( $tpl, '{body_js}', \TPL_SCRIPT_NONCE_TAG, 'scripts' ) : 
 	regionTags( $tpl, '{body_js}', \TPL_SCRIPT_TAG, 'scripts' );
 	
 	$tpl	= 
 	regionTags( $tpl, '{meta_tags}', \TPL_META_TAG, 'meta' );
 	
-	$sa	= setting( 'shared_assets', \SHARED_ASSETS );
+	$sa	= config( 'asset_dir', 'assets/' );
 	return \strtr( $tpl, [ '{shared_assets}' => $sa ] );
 }
 
@@ -11090,7 +10975,7 @@ function render(
 	$input['feedlink']	= $input['feedlink']	?? pageRoutePath( 'feed' );
 	$input['plugin_assets']	= 
 		$input['plugin_assets'] ?? 
-		util_slash_path( setting( 'plugin_assets', \PLUGIN_ASSETS ), true );
+		util_slash_path( config( 'plugin_asset_dir', 'plugins/' ), true );
 	
 	$out		= [];
 	
@@ -11254,7 +11139,7 @@ function saveCache( string $uri, string $content ) {
 	"REPLACE INTO caches ( cache_id, ttl, content )
 		VALUES ( :id, :ttl, :content );";
 	
-	$ttl	= setting( 'cache_ttl', \CACHE_TTL, 'int' );
+	$ttl	= config( 'cache_ttl', 3600, 'int' );
 	db_insert(
 		$sql, 
 		'bare',
@@ -11278,7 +11163,7 @@ function saveCache( string $uri, string $content ) {
  *  @return string
  */
 function sameSiteCookie() : string {
-	if ( setting( 'cookie_restrict', \COOKIE_RESTRICT, 'bool' ) ) {
+	if ( config( 'cookie_restrict', 1, 'bool' ) ) {
 		return 'Strict';
 	}
 	
@@ -11296,7 +11181,7 @@ function cookiePrefix() : string {
 		return $prefix;
 	}
 	
-	$cpath	= setting( 'cookie_path', \COOKIE_PATH );
+	$cpath	= config( 'cookie_path', '/' );
 	
 	// Enable locking if connection is secure and path is '/'
 	$prefix	= 
@@ -11328,8 +11213,8 @@ function defaultCookieOptions( array $options = [] ) : array {
 		return $opts;
 	}
 	
-	$cexp	= setting( 'cookie_exp', \COOKIE_EXP, 'int' );
-	$cpath	= setting( 'cookie_path', \COOKIE_PATH );
+	$cexp	= config( 'cookie_exp', 604800, 'int' );
+	$cpath	= config( 'cookie_path', '/' );
 	
 	$opts	=  [
 		'expires'	=> 
@@ -11421,7 +11306,7 @@ function sessionCookieParams() : bool {
 	
 	// Override some defaults
 	$options['lifetime']	=  
-		setting( 'cookie_exp', \COOKIE_EXP, 'int' );
+		config( 'cookie_exp', 604800, 'int' );
 	unset( $options['expires'] );
 	
 	hook( [ 'sessioncookieparams', $options ] );
@@ -11567,7 +11452,7 @@ function dateNice( $stamp = null, string $fmt = \DATE_NICE ) : string {
 	static $dn;
 	if ( !isset( $dn ) ) {
 		$dn	= 
-		langVar( 'date_nice', setting( 'date_nice', $fmt ) );
+		langVar( 'date_nice', config( 'date_nice', $fmt ) );
 	}
 	return \gmdate( $dn, util_time_string_int( $stamp ) );
 }
@@ -11729,7 +11614,7 @@ function enforceDates( array $args ) : array {
 	$month	= $args['month'] ?? $m;
 	$day	= $args['day'] ?? $d;
 	
-	$ys	= setting( 'year_start', \YEAR_START, 'int' );
+	$ys	= config( 'year_start', 1900, 'int' );
 	
 	// Enforce date ranges
 	$year	= util_int_range( $year, $ys, $y );
@@ -12022,7 +11907,7 @@ function securityPolicy( string $policy ) : string {
 	// Load defaults
 	if ( !isset( $p ) ) {
 		$p = 
-		setting( 'security_policy', \SECURITY_POLICY, 'json' );
+		config( 'security_policy', \SECURITY_POLICY, 'json' );
 		
 		// Merge custom content security policy
 		hook( [ 'cspload', [ 'policy' => $p ] ] );
@@ -12057,7 +11942,7 @@ function securityPolicy( string $policy ) : string {
 			$prm = [];
 			
 			// Permissions policy override
-			$cfj = setting( 'permisisons-policy', [], 'json' );
+			$cfj = config( 'permisisons-policy', [], 'json' );
 			$def = $p['permissions-policy'] ?? [];
 			$pjp = 
 			\is_array( $cfj ) ? 
@@ -12081,11 +11966,11 @@ function securityPolicy( string $policy ) : string {
 			// Approved frame ancestors ( for embedding media )
 			$frm = 
 			\implode( ' ', 
-				config 
+				config(
 					'frame_whitelist', 
-					\FRAME_WHITELIST, 
-				 	'array',
-					'cleanUrl' 
+					[], 
+				 	'json',
+					'sanitize_url' 
 				) 
 			);
 			
@@ -12154,7 +12039,7 @@ function preamble(
  *  Send list of supported HTTP request methods
  */
 function getAllowedMethods( bool $arr = false ) {
-	$ap	= setting( 'allow_post', \ALLOW_POST, 'int' );
+	$ap	= config( 'allow_post', 0, 'bool' );
 	if ( $arr ) {
 		return $ap ?  
 		[ 'get', 'post', 'head', 'options' ] : 
@@ -12244,10 +12129,10 @@ function formatSites( array $sites ) : array {
 			$b['settings']		??= [];
 			$b['settings']		= 
 			\array_merge( [
-				'page_title'		=> config( 'page_title', \PAGE_TITLE ),
-				'page_sub'		=> config( 'page_sub', \PAGE_SUB ),
-				'page_limit'		=> config( 'page_limit', \PAGE_LIMIT ),
-				'language'		=> config( 'language', \LANGUAGE )
+				'page_title'		=> config( 'page_title', \DEFAULT_PAGE_TITLE ),
+				'page_sub'		=> config( 'page_sub', \DEFAULT_PAGE_SUB ),
+				'page_limit'		=> config( 'page_limit', 12 ),
+				'language'		=> config( 'language', \DEFAULT_LANGUAGE )
 			], $b['settings'] );
 			$f[] = $b;
 		}
@@ -12461,7 +12346,7 @@ function send(
 	
 	// Also save to cache?
 	if ( $cache ) {
-		$ex	= setting( 'cache_ttl', \CACHE_TTL, 'int' );
+		$ex	= config( 'cache_ttl', 3600, 'int' );
 		$full	= request_url();
 		
 		setCacheExp( $ex );
@@ -12543,9 +12428,8 @@ function sendError( int $code, $body ) {
 	}
 	
 	// No error file sent, continue with built-in error page
-	$ptitle	= setting( 'page_title', \PAGE_TITLE );
-	$psub	= setting( 'page_sub', \PAGE_SUB );
-	
+	$ptitle	= config( 'page_title', \DEFAULT_PAGE_TITLE );
+	$psub	= config( 'page_sub', \DEFAULT_PAGE_SUB );
 	
 	// Call error code hook
 	hook( [ 'errorcodesend', [
@@ -12708,382 +12592,6 @@ function sendNotFound(
 ) {
 	visitorError( 404, $vlog );
 	sendError( 404, errorLang( $msg, $default ) );
-}
-
-/**
- *  Generate ETag from file path
- */
-function genEtag( $path ) {
-	static $tags		= [];
-	
-	if ( isset( $tags[$path] ) ) {
-		return $tags[$path];
-	}
-	
-	$tags[$path]		= [];
-	
-	// Find file size header
-	$tags[$path]['fsize']	= \filesize( $path );
-	
-	// Send empty on failure
-	if ( false === $tags[$path]['fsize'] ) {
-		$tags[$path]['fmod'] = 0;
-		$tags[$path]['etag'] = '';
-		return $tags;
-	}
-	
-	// Similar to Nginx ETag algo: 
-	// Lowercase hex of last modified date and filesize
-	$tags[$path]['fmod']	= \filemtime( $path );
-	if ( false !== $tags[$path]['fmod'] ) {
-		$tags[$path]['etag']	= 
-		\sprintf( '%x-%x', 
-			$tags[$path]['fmod'], 
-			$tags[$path]['fsize']
-		);
-	} else {
-		$tags[$path]['etag'] = '';
-	}
-	
-	return $tags[$path];
-}
-
-/**
- *  Create a digest hash of a file
- *  
- *  @param string	$path	File path
- *  @param string	$algo	Hashing scheme
- */
-function fileDigest( string $path, string $algo	= 'sha384' ) : string {
-	static $done	= [];
-	
-	if ( empty( $path ) || empty( $algo ) ) {
-		return '';
-	}
-	
-	$key = $algo . $path;
-	
-	if ( \array_key_exists( $key, $done ) ) {
-		return $done[$key];
-	}
-	
-	if ( !validHashAlgo( $algo, false ) ) {
-		return '';
-	}
-	if ( 
-		empty( $path ) || 
-		!\is_file( $path ) || 
-		!\is_readable( $path ) 
-	) {
-		return '';
-	}
-	
-	$done[$key] = 
-	\base64_encode( \hash_file( $algo, $path, true ) );
-	
-	return $done[$key];
-}
-
-/**
- *  Prepare to send a file instead of an HTTP response
- *  
- *  @param string	$path		File path to send
- *  @param int		$code		HTTP Status code
- *  @param bool		$verify		Verify mime content type
- */
-function sendFilePrep( 
-	string		$path, 
-	int		$code		= 200, 
-	bool		$verify		= true 
-) {
-	scrubOutput();
-	response_code( $code );
-	if ( $code >= 205 ) { exit(); }
-	
-	// Setup content security
-	preamble( '', false, false );
-	
-	// Set content type if mime is found
-	if ( $verify && $code != 206 ) {
-		$mime	= storage_filemime( $path );
-		\header( "Content-Type: {$mime}", true );
-	}
-	\header( "Content-Security-Policy: default-src 'self'", true );	
-}
-
-/**
- *  Open a file stream in binary mode and set blocking mode
- *  
- *  @param mixed	$stream		File resource or false if initializing
- *  @param string	$path		File path
- *  @param string	$mode		File access mode
- *  @param bool		$block		Set blocking mode (defaults to false)
- *  @return resource|false
- */
-function openStream( 
-		&$stream, 
-	string	$path,
-	string	$mode,
-	bool	$block	= false 
-) {
-	$stream = fopen( $path, $mode, false );
-	if ( false === $stream ) {
-		return;
-	}
-	\stream_set_blocking( $stream, $block );
-}
-
-/**
- *  Close opened stream
- *  
- *  @param resource	$stream		Open file stream
- */
-function closeStream( &$stream ) {
-	if ( false === $stream ) {
-		return;
-	}
-	fclose( $stream );
-	$stream = false;
-}
-
-/**
- *  Stream content in chunks within starting and ending limits
- *  
- *  @param resource	$instream	Source input content stream
- *  @param resource	$outstream	Content destination stream
- *  @param int		$int		Starting offset
- *  @param int		$end		Ending offset or end of file
- *  @param callable	$iter		Optional iteration action
- *  @param callable	$abort		Optional abort action
- *  @return int
- */
-function streamChunks( 
-		&$instream, 
-		&$outstream, 
-	int	$start, 
-	int	$end,
-		$iter		= null, 
-		$abort		= null
-) : int {
-	$is_iter	= \is_callable( $iter );
-	$is_abort	= \is_callable( $abort );
-	
-	// Total bytes read
-	$read		= 0;
-	
-	// Seek to new start if not starting from the beginning
-	if ( 0 !== $start ) {
-		\rewind( $instream );
-		\fseek( $instream, $start, \SEEK_SET );
-	}
-	
-	// Check for aborted connection between flushes
-	if ( \connection_aborted() ) {
-		closeStream( $instream );
-		closeStream( $outstream );
-		if ( $is_abort ) {
-			\call_user_func( $abort );
-		}
-		return $read;
-	}
-			
-	// Reset limit while streaming
-	\set_time_limit( 20 );
-	
-	$buf		= 
-	\stream_copy_to_stream( $instream, $outstream, $end );
-	
-	if ( false === $buf ) {
-		if ( $is_iter ) {
-			\call_user_func( $iter );
-		}
-		return 0;
-	}
-	
-	$read += $buf;
-	if ( $is_iter ) {
-		\call_user_func( $iter );
-	}
-	
-	return $read;
-}
-
-/**
- *  Read and output file contents via stream
- *  
- *  @param string	$source Streaming source or read location
- *  @param string	$dest	Output or write destination
- *  @param int		$clen	Maximum content length to stream
- *  @return total bytes read
- */
-function streamFile( 
-	string	$source, 
-	string	$dest, 
-	int	$clen, 
-		$iter		= null, 
-		$abort		= null
-) : int {
-	
-	// Default chunk size
-	$chunk	= setting( 'stream_chunk_size', \STREAM_CHUNK_SIZE, 'int' );
-	$chunk	= util_int_range( $chunk, 2, 32768 );
-	
-	openStream( $from, $source, 'rb' );
-	if ( false === $from ) {
-		return 0;
-	}
-	
-	openStream( $to, $dest, 'w' );
-	if ( false === $dest ) {
-		closeStream( $to );
-		return 0;
-	}
-	
-	\stream_set_chunk_size( $from, $chunk );
-	
-	$total		= 0;
-	$start		= 0;
-	$end		= $chunk - 1;
-	
-	while( $total < $clen ) {
-		$read		= 
-		streamChunks( 
-			$from, $to, $start, $end, $iter, $abort 
-		);
-	
-		if ( empty( $read ) ) {
-			return $total;
-		}
-		
-		$total		+= $read;
-		$start		+= $read;
-		$end		+= $start + $chunk - 1;
-	}
-	
-	closeStream( $to );
-	closeStream( $from );
-	
-	return $read;
-}
-
-/**
- *  Finish file sending functionality
- *  
- *  @param string	$path		File path to send
- */
-function sendFileFinish( $path ) {
-	// Prepare content length and etag headers
-	$tags	= genEtag( $path );
-	$fsize	= $tags['fsize'];
-	$etag	= $tags['etag'];
-	$climit = setting( 'stream_chunk_limit', \STREAM_CHUNK_LIMIT, 'int' );
-	
-	if ( false !== $fsize ) {
-		\header( "Content-Length: {$fsize}", true );
-		if ( !empty( $etag ) ) {
-			\header( "ETag: {$etag}", true );
-		}
-		
-		$fmod	= $tags['fmod'];
-		if ( $fmod ) {
-			\header( 
-				'Last-Modified: ' . 
-				util_rfc_file_date( $fmod ), 
-				true
-			);
-		}
-	}
-	
-	// Send any headers and end buffering
-	flushOutput( true );
-	
-	if ( request_modified( $etag ) && $fsize !== false ) {
-		if ( $fsize <= $climit ) {
-			\readfile( $path );
-			return;
-		}
-		streamFile( $path, 'php://output', $fsize, 'flushOutput', 'visitorAbort' );
-	}
-}
-
-/**
- *  Send file-specific headers
- *  
- *  @param string	$dsp		Content disposition
- *  @param string	$fname		Download file name
- *  @param bool		$cache		Set file cache
- */
-function sendFileHeaders( string $dsp, string $fname, bool $cache ) {
-	// Setup file parameters
-	\header( 
-		"Content-Disposition: {$dsp}; filename=\"{$fname}\"", 
-		true
-	);
-	
-	\header( "Accept-Ranges: bytes", true );
-	
-	// If cached, set long expiration
-	if ( $cache ) {
-		\header( 'Cache-Control:public, max-age=31536000', true );
-		return;
-	}
-	// Uncached
-	\header( 'Cache-Control: must-revalidate', true );
-	\header( 'Expires: 0', true );
-	\header( 'Pragma: no-cache', true );
-}
-
-/**
- *  Prepare to send back a dynamically generated file (E.G. Captcha)
- *  This function is a plugin helper
- *  
- *  @param string	$mime		Generated file's mime content-type
- *  @param string	$fname		File name
- *  @param int		$code		HTTP Status code
- *  @param bool		$cache		Cache generated file if true
- */
-function sendGenFilePrep( 
-	string		$mime, 
-	string		$fname, 
-	int		$code		= 200, 
-	bool		$cache		= false 
-) {
-	sendFilePrep( $fname, $code, false );
-	\header( "Content-Type: {$mime}", true );
-	sendFileHeaders( 'inline', $fname, $cache );
-}
-
-/**
- *  Send a physical file if it exists
- *  
- *  @param string	$path		Physical path relative to script
- *  @param bool		$down		Prompt download if true
- *  @param int		$code		HTTP Status code
- */
-function sendFile(
-	string		$path,
-	bool		$down		= false, 
-	bool		$cache		= true,
-	int		$code		= 200
-) : bool {
-	// No file found
-	if ( !\file_exists( $path ) ) {
-		return false;
-	}
-	
-	// Client save path
-	$fname	= \basename( $path );
-	
-	// Show inline or prompt download
-	$dsp	= $down ? 'attachment' : 'inline';
-	
-	// Prepare to send file
-	sendFilePrep( $path, $code );
-	sendFileHeaders( $dsp, $fname, $cache );
-	
-	// Finish sending file
-	sendFileFinish( $path );
-	return true;
 }
 
 
@@ -13332,14 +12840,14 @@ function request( string $event, array $hook, array $params ) : array {
 	
 	// If posting isn't allowed files should be empty
 	if ( 
-		!setting( 'allow_post', \ALLOW_POST, 'bool' ) && 
+		!config( 'allow_post', 0, 'bool' ) && 
 		!empty( $_FILES ) 
 	) {
 		sendBadMethod();
 	}
 	
 	// Request path hard limit
-	$lurl	= setting( 'max_url_size', \MAX_URL_SIZE, 'int' );
+	$lurl	= config( 'max_url_size', 512, 'int' );
 	if ( strsize( $path ) > $lurl ) {
 		sendBadURI();
 	}
@@ -13375,57 +12883,6 @@ function request( string $event, array $hook, array $params ) : array {
 	// Return with routes and extras in hook
 	return 
 	[ 'path' => $path, 'verb' => $verb, 'routes' => $routes ];
-}
-
-/**
- *  Get all whitelisted extensions
- */
-function extGroups( string $group = '' ) : array {
-	// Default whitelist
-	$cs	= 
-	setting( 'ext_whitelist', whiteLists( util_json_decode( \EXT_WHITELIST ), true ) );
-	
-	// Extend whitelist via hooks
-	hook( [ 'extwhitelist', [ 'whitelist' => $cs ] ] );
-	$sent	= hookArrayResult( 'extwhitelist', [] );
-	
-	// Filtered whitelist
-	$ext	= empty( $sent ) ? $cs : 
-		\array_merge( $cs, $sent['whitelist'] ?? [] );
-	
-	$all	= \implode( ',', $ext );
-	
-	return empty( $group ) ? 
-		\array_unique( util_trimmed_list( $all, true ) ) : 
-		\array_unique( util_trimmed_list( $ext[$group] ?? '', true ) );
-}
-
-/**
- *  Check if the requested path has a whitelisted extension
- *  
- *  @param string	$path		Requested URI
- *  @param string	$group		Specific type I.E. "images"
- */
-function isSafeExt( string $path, string $group = '' ) : bool {
-	static $safe	= [];
-	static $checked	= [];
-	$key		= $group . $path;
-	
-	if ( isset( $checked[$key] ) ) {
-		return $checked[$key];
-	}
-	
-	if ( !isset( $safe[$group] ) ) {
-		$safe[$group]	= extGroups( $group );
-	}
-	
-	$ext		= 
-	\pathinfo( $path, \PATHINFO_EXTENSION ) ?? '';
-	
-	$checked[$key] = 
-	\in_array( \strtolower( $ext ), $safe[$group] );
-	
-	return $checked[$key];
 }
 
 /**
@@ -13563,7 +13020,7 @@ function fileRequest(
 	string		$path, 
 	bool		$dosend = true 
 ) : bool {
-	if ( 0 != \strcmp( 'get', $verb ) || !isSafeExt( $path ) ) {
+	if ( 0 != \strcmp( 'get', $verb ) || !sanitize_is_safe_ext( $path ) ) {
 		return false;
 	}
 	
@@ -13574,7 +13031,7 @@ function fileRequest(
 	$segs	= explode( '/', $path );
 	
 	// Check folder limits
-	$climit	= setting( 'folder_limit', \FOLDER_LIMIT, 'int' );
+	$climit	= config( 'folder_limit', 15, 'int' );
 	$c	= count( $segs );
 	if ( $c > $climit ) {
 		return false;
@@ -13913,7 +13370,7 @@ function timeZoneOffset() : int {
 	}
 	
 	// Timezone from configuration
-	$tz = setting( 'timezone', \TIMEZONE );
+	$tz = config( 'timezone', \DEFAULT_TIMEZONE );
 	$dt = new \DateTime( 'now', new \DateTimeZone( 'UTC' ) );
 	try {
 		$dz = new \DateTimeZone( $tz );
@@ -13921,7 +13378,7 @@ function timeZoneOffset() : int {
 		
 	} catch( \Exception $e ) { // Default fallback
 		shutdown( 'logError', 'Invalid timezone set ' . $tz );
-		$dz = new \DateTimeZone( 'America/New_York' );
+		$dz = new \DateTimeZone( \DEFAULT_TIMEZONE );
 		$ot = $dz->getOffset( $dt );
 	}
 	
@@ -14897,9 +14354,9 @@ function formatPost(
  */
 function filterRequest( string $event, array $hook, array $params ) {
 	$now	= time();
-	$mpage	= setting( 'max_page', \MAX_PAGE, 'int' );
-	$ys	= setting( 'year_start', \YEAR_START, 'int' );
-	$ye	= ( int ) \date( 'Y', $now );
+	$mpage	= config( 'max_page', 500, 'int' );
+	$ys		= config( 'year_start', 1900, 'int' );
+	$ye		= ( int ) \date( 'Y', $now );
 	
 	$filter	= [
 		'id'	=> [
@@ -15012,8 +14469,8 @@ function formatIndex(
 	
 	// Don't cache if no posts found
 	$cache	= empty( $posts ) ? false : $cache;
-	$ptitle	= setting( 'page_title', \PAGE_TITLE );
-	$psub	= setting( 'page_sub', \PAGE_SUB );
+	$ptitle	= config( 'page_title', \DEFAULT_PAGE_TITLE );
+	$psub	= config( 'page_sub', \DEFAULT_PAGE_SUB );
 	
 	// Use the render plugin if added
 	hook( [ 'renderindex', [ 
@@ -15051,7 +14508,7 @@ function formatIndex(
 	$tpl = [
 		'post_title'	=> $ptitle,
 		'page_title'	=> $ptitle,
-		'lang'		=> setting( 'language', \LANGUAGE ),
+		'lang'		=> config( 'language', \DEFAULT_LANGUAGE ),
 		'home'		=> pageRoutePath(),
 		'body_before'	=> $heading
 	];
@@ -15757,8 +15214,8 @@ function staticPage(
 	bool	$cache		= true,
 	string	$lang		= ''
 ) {
-	$ptitle	= setting( 'page_title', \PAGE_TITLE );
-	$psub	= setting( 'page_sub', \PAGE_SUB );
+	$ptitle	= config( 'page_title', \DEFAULT_PAGE_TITLE );
+	$psub	= config( 'page_sub', \DEFAULT_PAGE_SUB );
 	
 	// First line is the title, everything else is the body
 	$title	= title( \array_shift( $post ) );
@@ -16079,14 +15536,14 @@ function showFeed( string $event, array $hook, array $params ) {
 		loadIndex();
 	}
 	
-	$slvl	= setting( 'summary_level', \SUMMARY_LEVEL, 'int' );
+	$slvl	= config( 'summary_level', 0, 'int' );
 	$posts	= loadPosts( 1, '', true, $slvl );
 	if ( empty( $posts ) ) {
 		sendNotFound();
 	}
 	
-	$ptitle	= setting( 'page_title', \PAGE_TITLE );
-	$psub	= setting( 'page_sub', \PAGE_SUB );
+	$ptitle	= config( 'page_title', \DEFAULT_PAGE_TITLE );
+	$psub	= config( 'page_sub', \DEFAULT_PAGE_SUB );
 	
 	// Send to render hook
 	hook( [ 'feedrender', [  
@@ -16138,14 +15595,16 @@ function showPost( string $event, array $hook, array $params ) {
 	}
 	
 	// Related and sibling post settings
-	$sib	= setting( 'show_siblings', \SHOW_SIBLINGS, 'int' ) ? 
-			getSiblings( $path ) : '';
+	$sib	= 
+	config( 'show_siblings', 1, 'int' ) 
+		? getSiblings( $path ) : '';
 	
-	$rel	= setting( 'show_related', \SHOW_RELATED, 'int' ) ? 
-			getRelated( $path ) : '';
+	$rel	= 
+	config( 'show_related', 1, 'int' ) 
+		? getRelated( $path ) : '';
 	
-	$ptitle	= setting( 'page_title', \PAGE_TITLE );
-	$psub	= setting( 'page_sub', \PAGE_SUB );
+	$ptitle	= config( 'page_title', \DEFAULT_PAGE_TITLE );
+	$psub	= config( 'page_sub', \DEFAULT_PAGE_SUB );
 	
 	// Send to render hook
 	hook( [ 'postrender', [ 
@@ -16188,7 +15647,7 @@ function showPost( string $event, array $hook, array $params ) {
 		template( 'tpl_full_page' ), [
 			'page_title'	=> $ptitle,
 			'post_title'	=> $title . ' - ' . $ptitle,
-			'lang'		=> setting( 'language', \LANGUAGE ),
+			'lang'		=> config( 'language', \DEFAULT_LANGUAGE ),
 			'home'		=> pageRoutePath(),
 			'body_before'	=> $heading,
 			'body'		=> $post,
@@ -16207,7 +15666,7 @@ function showPost( string $event, array $hook, array $params ) {
 function runIndex( string $event, array $hook, array $params ) {
 	// Pagination prep
 	$page	= ( int ) ( $params['page'] ?? 1 );
-	$ilimit	= setting( 'index_limit', \INDEX_LIMIT, 'int' );
+	$ilimit	= config( 'index_limit', 60, 'int' );
 	$start	= ( $page - 1 ) * $ilimit;
 	
 	// Load index
@@ -16218,8 +15677,8 @@ function runIndex( string $event, array $hook, array $params ) {
 		sendNotFound();
 	}
 	
-	$ptitle	= setting( 'page_title', \PAGE_TITLE );
-	$psub	= setting( 'page_sub', \PAGE_SUB );
+	$ptitle	= config( 'page_title', \DEFAULT_PAGE_TITLE );
+	$psub	= config( 'page_sub', \DEFAULT_PAGE_SUB );
 	
 	// Send to render hook
 	hook( [ 'indexrender', [ 
@@ -16305,7 +15764,7 @@ function runIndex( string $event, array $hook, array $params ) {
 		template( 'tpl_full_page' ), [
 			'page_title'	=> $ptitle,
 			'post_title'	=> $ptitle,
-			'lang'		=> setting( 'language', \LANGUAGE ),
+			'lang'		=> config( 'language', \DEFAULT_LANGUAGE ),
 			'home'		=> pageRoutePath(),
 			'feedlink'	=> pageRoutePath( 'feed' ),
 			'body_before'	=> $heading,
@@ -16343,7 +15802,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 			'options'	=> [
 				'min_range'	=> 1,
 				'max_range'	=> 500,
-				'default'	=> \PAGE_LIMIT
+				'default'	=> 20
 			]
 		],
 		'index_limit'	=> [
@@ -16352,7 +15811,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 			'options'	=> [
 				'min_range'	=> 1,
 				'max_range'	=> 500,
-				'default'	=> \INDEX_LIMIT
+				'default'	=> 60
 			]
 		],
 		'max_page' => [
@@ -16361,7 +15820,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 			'options'	=> [
 				'min_range'	=> 1,
 				'max_range'	=> 5000,
-				'default'	=> \MAX_PAGE
+				'default'	=> 500
 			]
 		],
 		'max_url_size' => [
@@ -16370,7 +15829,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 			'options'	=> [
 				'min_range'	=> 255,
 				'max_range'	=> 2048,
-				'default'	=> \MAX_URL_SIZE
+				'default'	=> 512
 			]
 		],
 		'summary_level'	=> [
@@ -16379,7 +15838,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 			'options'	=> [
 				'min_range'	=> 0,
 				'max_range'	=> 2,
-				'default'	=> \SUMMARY_LEVEL
+				'default'	=> 0
 			]
 		],
 		'feature_lines'	=> [
@@ -16388,7 +15847,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 			'options'	=> [
 				'min_range'	=> 1,
 				'max_range'	=> 10,
-				'default'	=> \FEATURE_LINES
+				'default'	=> 5
 			]
 		],
 		'timezone'	=> [
@@ -16399,7 +15858,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 				\FILTER_FLAG_STRIP_HIGH	| 
 				\FILTER_FLAG_STRIP_BACKTICK,
 			'options' => [
-				'default' => \TIMEZONE
+				'default' => \DEFAULT_TIMEZONE
 			]
 		],
 		
@@ -16429,9 +15888,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 			'flags'		=> 
 				\FILTER_REQUIRE_SCALAR	|
 				\FILTER_FLAG_EMAIL_UNICODE,
-			'options'	=> [
-				'default'	=> \MAIL_FROM
-			]
+			'options'	=> [ 'default'	=> '' ]
 		],
 		
 		// Mail receiver list
@@ -16449,7 +15906,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 			'options'	=> [
 				'min_range'	=> 1,
 				'max_range'	=> 50,
-				'default'	=> \TAG_LIMIT
+				'default'	=> 20
 			]
 		],
 		
@@ -16460,7 +15917,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 			'options'	=> [
 				'min_range'	=> 300,
 				'max_range'	=> 604800,
-				'default'	=> \CACHE_TTL
+				'default'	=> 3600
 			]
 		],
 		
@@ -16471,7 +15928,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 			'options'	=> [
 				'min_range'	=> 1,
 				'max_range'	=> 60,
-				'default'	=> \DATA_TIMEOUT
+				'default'	=> 5
 			]
 		],
 		
@@ -16480,9 +15937,9 @@ function checkConfig( string $event, array $hook, array $params ) {
 			'filter'	=> \FILTER_VALIDATE_INT,
 			'flags'		=> \FILTER_REQUIRE_SCALAR,
 			'options'	=> [
-				'min_range'	=> \YEAR_START,
+				'min_range'	=> 1900,
 				'max_range'	=> $ye,
-				'default'	=> \YEAR_START
+				'default'	=> 1990
 			]
 		],
 		
@@ -16493,7 +15950,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 			'options'	=> [
 				'min_range'	=> 1,
 				'max_range'	=> 20,
-				'default'	=> \RELATED_LIMIT
+				'default'	=> 5
 			]
 		],
 		'show_siblings'	=> [
@@ -16502,7 +15959,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 			'options'	=> [
 				'min_range'	=> 0,
 				'max_range'	=> 1,
-				'default'	=> \SHOW_SIBLINGS
+				'default'	=> 1
 			]
 		],
 		'show_related'	=> [
@@ -16511,7 +15968,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 			'options'	=> [
 				'min_range'	=> 0,
 				'max_range'	=> 1,
-				'default'	=> \SHOW_RELATED
+				'default'	=> 1
 			]
 		],
 		'readtime_types'=> [
@@ -16560,7 +16017,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 			'options'	=> [
 				'min_range'	=> 1024,
 				'max_range'	=> 5000000,
-				'default'	=> \MAX_LOG_SIZE
+				'default'	=> 5000000
 			]
 		],
 		
@@ -16576,7 +16033,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 			'options'	=> [
 				'min_range'	=> 12,
 				'max_range'	=> 36,
-				'default'	=> \SESSION_BYTES
+				'default'	=> 16
 			]
 		],
 		'session_exp' => [
@@ -16584,7 +16041,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 			'options'	=> [
 				'min_range'	=> 300,
 				'max_range'	=> 3600,
-				'default'	=> \SESSION_LIMIT_EXP
+				'default'	=> 3600
 			]
 		],
 		
@@ -16594,7 +16051,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 			'options'	=> [
 				'min_range'	=> 8,
 				'max_range'	=> 64,
-				'default'	=> \TOKEN_BYTES
+				'default'	=> 12
 			]
 		],
 		'nonce_hash'	=> [
@@ -16612,42 +16069,38 @@ function checkConfig( string $event, array $hook, array $params ) {
 			'options'	=> [
 				'min_range'	=> 0,
 				'max_range'	=> 1,
-				'default'	=> \SKIP_LOCAL
+				'default'	=> 1
 			]
-		],
+ 		],
 		'allow_post'	=> [
 			'filter'	=> \FILTER_VALIDATE_INT,
 			'options'	=> [
 				'min_range'	=> 0,
 				'max_range'	=> 1,
-				'default'	=> \ALLOW_POST
+				'default'	=> 0
 			]
 		],  
 		'frame_whitelist'=> [
 			'filter'	=> \FILTER_CALLBACK,
 			'flags'		=> \FILTER_REQUIRE_ARRAY,
-			'options'	=> 'cleanUrl'
+			'options'	=> 'sanitize_url'
 		], 
 		
 		// Templating settings
-		'shared_assets'	=> [
+		'asset_dir'	=> [
 			'filter'	=> \FILTER_VALIDATE_URL,
-			'options'	=> [
-				'default' => \SHARED_ASSETS
-			],
+			'options'	=> [ 'default' => 'assets/' ],
 		],
-		'plugin_assets'	=> [
+		'plugin_asset_dir'	=> [
 			'filter'	=> \FILTER_VALIDATE_URL,
-			'options'	=> [
-				'default' => \PLUGIN_ASSETS
-			],
+			'options'	=> [ 'default' => 'plugins/' ],
 		],
 		'style_limit'	=> [
 			'filter'	=> \FILTER_VALIDATE_INT,
 			'options'	=> [
 				'min_range'	=> 1,
 				'max_range'	=> 50,
-				'default'	=> \STYLE_LIMIT
+				'default'	=> 10
 			]
 		],
 		'script_limit'	=> [
@@ -16655,7 +16108,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 			'options'	=> [
 				'min_range'	=> 1,
 				'max_range'	=> 50,
-				'default'	=> \SCRIPT_LIMIT
+				'default'	=> 10
 			]
 		],
 		'meta_limit'	=> [
@@ -16663,7 +16116,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 			'options'	=> [
 				'min_range'	=> 1,
 				'max_range'	=> 50,
-				'default'	=> \META_LIMIT
+				'default'	=> 10
 			]
 		]
 	];
