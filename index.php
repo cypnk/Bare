@@ -5455,24 +5455,25 @@ function config_value_format( mixed $value, string $type, $filter = null ) : mix
 
 /**
  *  Get all whitelisted extensions
+ *  
+ *  @param string	$group		Search category
+ *  @param array	$sent		Overridden list
+ *  @return array
  */
-function config_ext_groups( string $group = '' ) : array {
+function config_ext_groups( string $group = '', ?array $sent = null ) : array {
 	// Default whitelist
-	$cs	= config( 'static_ext', [] );
+	static $cs;
+	$cs ??= config( 'static_ext', [] );
 	
-	// Extend whitelist via hooks
-	hook( [ 'extwhitelist', [ 'whitelist' => $cs ] ] );
-	$sent	= hookArrayResult( 'extwhitelist', [] );
+	// Extend whitelist
+	$ext	=  
+	empty( $sent ) 
+		? $cs 
+		: \array_merge( $cs, $sent );
 	
-	// Filtered whitelist
-	$ext	= empty( $sent ) ? $cs : 
-		\array_merge( $cs, $sent['whitelist'] ?? [] );
-	
-	$all	= \implode( ',', $ext );
-	
-	return empty( $group ) ? 
-		\array_unique( util_trimmed_list( $all, true ) ) : 
-		\array_unique( util_trimmed_list( $ext[$group] ?? '', true ) );
+	return empty( $group ) 
+		? \array_unique( util_trimmed_list( \implode( ',', $ext ), true ) ) 
+		: \array_unique( util_trimmed_list( $ext[$group] ?? '', true ) );
 }
 
 /**
@@ -6357,9 +6358,10 @@ function template_render(
 /**
  *  Load and process language file
  *  
+ *  @param array	$sent	Custom language translations
  *  @return array
  */
-function language() {
+function language( ?array $sent = null ) : array {
 	static $data;
 	
 	if ( isset( $data ) ) {
@@ -6376,15 +6378,6 @@ function language() {
 	}
 	
 	$data	= empty( $terms ) ? [] : $terms;
-	// Trigger language load hook
-	hook( [ 'loadlanguage', [ 
-		'lang'	=> $lang, 
-		'zone'	=> config( 'timezone', 'America\/New_York' ),
-		'terms' => $data
-	] ] );
-	
-	// Append new language info, if any
-	$sent	= hookArrayResult( 'loadlanguage' )['terms'] ?? [];
 	if ( !empty( $sent ) ) {
 		$data	= \array_merge( $data, $sent );
 	}
@@ -6397,10 +6390,11 @@ function language() {
  *  
  *  @param string	$name		Language substitution label
  *  @param string	$default	Default value if not given
+ *  @param array	$sent		Custom language translation
  *  @return string
  */
-function language_term( string $name, string $default ) {
-	$data = language();
+function language_term( string $name, string $default, ?array $sent = null ) {
+	$data = language( $sent );
 	return $data[$name] ?? $default;
 }
 
@@ -6409,21 +6403,23 @@ function language_term( string $name, string $default ) {
  *  
  *  @param string	$name		Language substitution label
  *  @param string	$default	Fallback value if not available
+ *  @param array	$sent		Custom language translation
  *  @return string
  */
-function language_error( string $name, string $default ) {
-	$data = language();
+function language_error( string $name, string $default, ?array $sent = null ) {
+	$data = language( $sent );
 	return $data['errors'][$name] ?? $default;
 }
 
 /**
  *  Scan template for language placeholders
  *  
- *  @param string	$tpl	Loaded template data
+ *  @param string	$tpl		Loaded template data
+ *  @param array	$sent		Custom language translation
  *  @return string
  */
-function language_parse( string $tpl ) : string {
-	$tpl		= util_prefix_replace( 'lang', language(), $tpl );
+function language_parse( string $tpl, ?array $sent = null ) : string {
+	$tpl		= util_prefix_replace( 'lang', language( $sent ), $tpl );
 	
 	// Change variable placeholders
 	return \preg_replace( '/\s*__(\w+)__\s*/', ' {\1} ', $tpl );
@@ -6466,25 +6462,23 @@ function language_wordcount( string $find, string $mode = '' ) : int {
 /**
  *  Estimate reading time in minutes based on words/characters in a text block
  *  
- *  @param string $text Text input
+ *  @param string	$text	Text input
+ *  @param array	$load	Language sets with read times
  *  @return int
  */
-function language_read_time( string $text ) : int {
+function language_read_time( string $text, ?array $load = null ) : int {
 	static $sets;
-	if ( !isset( $sets ) ) {
-		// Default character and measurement sets
-		$default = [
-			// Matching type, average matches / minute, character pattern
-			[ 'words', 230, '/[\p{Latin}\p{Greek}\p{Cyrillic}]/u' ],
-			[ 'words', 250, '/[\p{Arabic}\p{Hebrew}]/u' ],
-			
-			[ 'chars', 1000, '/[\p{Han}\p{Hiragana}\p{Katakana}]/u' ]
-		];
+	static $default = [
+		// Matching type, average matches / minute, character pattern
+		[ 'words', 230, '/[\p{Latin}\p{Greek}\p{Cyrillic}]/u' ],
+		[ 'words', 250, '/[\p{Arabic}\p{Hebrew}]/u' ],
 		
-		$sets	= config( 'lang_read_times', $default );
-		hook( [ 'readingtime', [ 'sets' => $sets ] ] );
+		[ 'chars', 1000, '/[\p{Han}\p{Hiragana}\p{Katakana}]/u' ]
+	];
 	
-		$sets	= hookArrayResult( 'readingtime' )['sets'] ?? $sets;
+	$sets ??= $default;
+	if ( !empty( $load ) ) {
+		$sets = \array_merge( $sets, $load );
 	}
 	
 	// Remove tags and trim
@@ -6785,10 +6779,13 @@ function format_label( string $text ) : string {
 /**
  *  Embedded media shortcode list helper and hook trigger
  *  
+ *  @param array	$custom		Overriden embed HTML templates
  *  @return array
  */
-function format_hosted_embeds() : array {
-	$hosted = [
+function format_hosted_embeds( ?array $custom = null ) : array {
+	static $hosted;
+	
+	$hosted ??= [
 		// YouTube syntax
 		'/\[youtube http(s)?\:\/\/(www)?\.?youtube\.com\/watch\?v=([0-9a-z_\-]*)(?:\&t\=([\d]*)s)?\]/is'
 		=> \strtr( template( 'tpl_youtube' ), [ '{src}' => '$3', '{time}' => ( '$4' ?? '0' ) ] ),
@@ -6833,11 +6830,9 @@ function format_hosted_embeds() : array {
 		
 	];
 	
-	// Append custom embeds
-	hook( [ 'hostedembeds', [ 'hosted' => $hosted ] ] );
-	$hosted = 
-	hookArrayResult( 'hostedembeds', [] )['hosted'] ?? $hosted;
-	
+	if ( !empty( $custom ) ) {
+		$hosted = \array_merge( $hosted, $custom );
+	}
 	return $hosted;
 }
 
@@ -6925,18 +6920,17 @@ function format_extract_cc( string $cc, string $prefix = '' ) : string {
 /**
  *  Embedded media
  *  
- *  @param string	$html	Pre-filtered HTML to replace media tags
- *  @param string	$prefix	Source path prefix
+ *  @param string	$html		Pre-filtered HTML to replace media tags
+ *  @param string	$prefix		Source path prefix
+ *  @param array	$custom		Overriden embed HTML templates
  *  @return string
  */
-function format_embeds( string $html, string $prefix = ''  ) : string {
+function format_embeds( string $html, string $prefix = '', ?array $custom = null  ) : string {
 	static $hosted;
 	static $media;	// Locally uploaded
 	
 	// First run?
-	if ( !isset( $hosted ) ) {
-		$hosted	= format_hosted_embeds();
-	}
+	$hosted	??= format_hosted_embeds( $custom );
 	
 	if ( !isset( $media ) ) {
 		// Uploaded media embedding
@@ -7181,13 +7175,15 @@ function format_table( array $m ) : string {
  *  Inspired by : 
  *  @link https://gist.github.com/jbroadway/2836900
  *  
- *  @param string	$html	Pacified text to transform into HTML
- *  @param string	$prefix	URL prefix to prepend text
+ *  @param string	$html		Pacified text to transform into HTML
+ *  @param string	$prefix		URL prefix to prepend text
+ *  @param array	$override	Override filters
  *  @return string
  */
 function format_markdown(
 	string	$html,
-	string	$prefix = '' 
+	string	$prefix		= '',
+	?array	$override	= null
 ) : string {
 	static $filters;
 	
@@ -7343,12 +7339,11 @@ function format_markdown(
 		}
 		];
 		
-		// Merge custom markdown filters
-		hook( [ 'markdownfilter', [ 'filters' => $filters ] ] );
-		$filters = 
-		hookArrayResult( 'markdownfilter' )['filters'] ?? $filters;
 	}
-	
+	// Merge custom markdown filters
+	if ( !empty( $override ) ) {
+		$filters = \array_merge( $filters, $override );
+	}
 	$html	= \preg_replace_callback_array( $filters, $html );
 	
 	// Parse out footnotes, if any
@@ -7358,11 +7353,12 @@ function format_markdown(
 /**
  *  Post formatting handler
  *  
- *  @param string	$html	Raw HTML entered by the user
- *  @param string	$prefix	Link path prefix
+ *  @param string	$html		Raw HTML entered by the user
+ *  @param string	$prefix		Link path prefix
+ *  @param array	$override	Custom filters
  *  @return string
  */
-function format_html( string $html, string $prefix ) {
+function format_html( string $html, string $prefix, ?array $override = null ) {
 	hook( [ 'formatting', [ 
 		'html'		=> $html, 
 		'prefix'	=> $prefix 
@@ -7371,9 +7367,13 @@ function format_html( string $html, string $prefix ) {
 	// Check if formatting was handled or use the default markdown formatter
 	$sent	= hookArrayResult( 'formatting' );
 	
-	return empty( $sent ) ? 
-		format_markdown( $html, $prefix ) : 
-		( $sent['html'] ?? format_markdown( $html, $prefix ) );
+	return empty( $sent ) 
+		? format_markdown( value : $html, prefix : $prefix ) 
+		: ( $sent['html'] ?? format_markdown( 
+			value		: $html, 
+			prefix		: $prefix, 
+			override	: $override 
+		) );
 }
 
 /**
@@ -7383,13 +7383,17 @@ function format_html( string $html, string $prefix ) {
  *  @param string	$prefix		URL path prefix
  *  @param bool		$form		Include form field tags if true
  *  @param bool		$sembed		Skip embedded media shortcodes if true
+ *  @param array	$override	Override filters
+ *  #param array	$custom		Custom embedded templates
  *  @return string
  */
 function format_body( 
 	string	$value, 
-	string	$prefix	= '', 
-	bool	$form	= false,
-	bool	$sembed	= false
+	string	$prefix		= '', 
+	bool	$form		= false,
+	bool	$sembed		= false,
+	?array	$override	= null,
+	?array	$custom		= null
 ) : string {
 	static $white	= [];
 	static $sanity;
@@ -7407,9 +7411,7 @@ function format_body(
 		}
 	}
 	
-	if ( !$sanity ) {
-		return '';
-	}
+	if ( !$sanity ) { return ''; }
 	
 	// Remove preceding/trailing slashes
 	$prefix		= trim( $prefix, '/' );
@@ -7423,7 +7425,8 @@ function format_body(
 	}
 	
 	// Apply formatting handler
-	$html		= format_html( $html, $prefix );
+	$html		= 
+	format_html( value : $html, prefix : $prefix );
 	
 	// Nothing formatted?
 	if ( empty( $html ) ) {
@@ -7466,7 +7469,11 @@ function format_body(
 	if ( $sembed ) { return $clean; }
 	
 	// Apply embedded media
-	return format_embeds( $clean, $prefix );
+	return format_embeds( 
+		html	: $clean, 
+		prefix	: $prefix, 
+		custom	: $custom 
+	);
 }
 
 
@@ -10055,7 +10062,12 @@ function mailMessage(
 	// Format user input
 	$subj	= sanitize_escape_text( sanitize_spaces( $res['subject'] ?? $subject ) );
 	$msg	.= "\r\n\r\nReceived from: " . $ip . "  \r\n" . request_ua();
-	$msg	= format_body( $res['message'] ?? $msg, '', false, true );
+	$msg	= 
+	format_body( 
+		value		: $res['message'] ?? $msg, 
+		override	: hookArrayResult( 'markdownfilter' )['filters'] ?? null,
+		custom		: hookArrayResult( 'hostedembeds', [] )['hosted']
+	);
 	
 	$ok	= 
 	mail( 
@@ -14095,7 +14107,12 @@ function extractFeature(
  *  Get summary or abstract from post
  */
 function extractSummary( array $find ) : string {
-	return format_body( $find['all'] ?? '', pageRoutePath() );
+	return format_body( 
+		value		: $find['all'] ?? '', 
+		prefix		: pageRoutePath(),
+		override	: hookArrayResult( 'markdownfilter' )['filters'] ?? null,
+		custom		: hookArrayResult( 'hostedembeds', [] )['hosted'] ?? null
+	);
 }
 
 /**
@@ -14836,7 +14853,9 @@ function formatPost(
 	int	$fline,
 	bool	$index		= false,
 	string	$custom		= ''
-) : string {	
+) : string {
+	static $lang_sets;
+	
 	// Check for post validity
 	if ( count( $post ) < 3 ) {
 		return '';
@@ -14857,10 +14876,20 @@ function formatPost(
 	
 	// Everything else after the first line is the body
 	$post	= \array_slice( $post, 1 );
-	$body	= format_body( \implode( "\n", $post ), pageRoutePath() );
+	$body	= 
+	format_body( 
+		value		: \implode( "\n", $post ), 
+		prefix		: pageRoutePath(),
+		override	: hookArrayResult( 'markdownfilter' )['filters'] ?? null,
+		custom		: hookArrayResult( 'hostedembeds', [] )['hosted'] ?? null
+	);
 	
 	// Calculate read time, if appropriate, from formatted body
-	$rtime	= hasReadTime( $type ) ? language_read_time( $body ) : 0;
+	if ( !isset( $lang_sets ) ) {
+		$lang_sets	= config( 'lang_read_times', [] );
+		hook( [ 'readingtime', [ 'sets' => $lang_sets ] ] );
+	}
+	$rtime	= hasReadTime( $type ) ? language_read_time( $body, $lang_sets ) : 0;
 	
 	hook( [ 'formatpost', [ 
 		'type'		=> $type,	// Post type
