@@ -28,7 +28,7 @@ define( 'PLUGIN_DIR',	PATH . 'plugins/' );
 // define( 'PLUGIN_DIR',	\realpath( \dirname( __FILE__, 2 ) ) . '/plugins/' );
 
 // Writable directory inside  for plugin data (not directly browsable by visitors)
-define( 'PLUGIN_DATA',	 . 'plugins/' );
+define( 'PLUGIN_DATA',	'plugins/' );
 
 // Custom error file folder (optional)
 define( 'ERROR_ROOT',	PATH . 'errors/' );
@@ -49,7 +49,6 @@ define( 'NOTICE',	'notices.log' );
 
 // A log file created when Bare is first run with information about its enviornment
 define( 'STARTUP',	'startup.log' );
-
 
 /**
  *  Base defaults
@@ -865,6 +864,7 @@ JSON
 define( 'DEFAULT_TRANSLATION',	<<<JSON
 {
 	"date_nice"	: "l, F j, Y",
+	"untitled"	: "(Untitled)",
 	"headings"	: {
 		"related"	: "Related", 
 		"tags"		: "Tags:",
@@ -9643,7 +9643,11 @@ function entry_import( string $path ) : ?array {
 	}
 	
 	// Ensure title exists at least as the first line, if not explicitly set
-	$meta['title']	??= $raw[0] ?? '(Untitled)';
+	if ( !isset( $meta['title'] ) ) {
+		$meta['title'] = isset( $raw[0] ) 
+			? \array_shift( $raw )
+			: language_term( 'untitled', '(Untitled)' );
+	}
 	
 	// Path as slug
 	$meta['slug']	= \pathinfo( $path, \PATHINFO_FILENAME );
@@ -9746,17 +9750,27 @@ function shutdown() {
  */
 function static_file_resolve( string $uri ) : ?string {
 	// Normalize the path
-	$path	= \parse_url( $uri, PHP_URL_PATH );
+	$path	= \parse_url( $uri, \PHP_URL_PATH );
 	$path	= \ltrim( $path, '/' );
 	
 	// Preload registered asset paths
 	$paths	= hook( [ 'register_asset_dir', [] ] );
 	
 	foreach ( $paths as $dir ) {
-		$file = \rtrim( $dir, '/\\' ) . \DIRECTORY_SEPARATOR . $path;
+		$root	= @\realpath( $dir );
+		if ( false === $root ) { continue; }
+		
+		$file	= \rtrim( $root, '/\\' ) . \DIRECTORY_SEPARATOR . $path;
+		$rpath	= @\realpath( $file );
 		
 		// Match first detection
-		if ( \is_file( $file ) ) { return $file; }
+		if ( 
+			( false !== $rpath )			&& 
+			( 0 === \strpos( $rpath, $root ) )	&& 
+			\is_file( $rpath )
+		) {
+			return $rpath
+		}
 	}
 	
 	// Nothing found
@@ -9764,9 +9778,9 @@ function static_file_resolve( string $uri ) : ?string {
 }
 
 function archive_page_url( array $params, int $page ) : string {
-	$year  = $params['year'] ?? null;
-	$month = $params['month'] ?? null;
-	$day   = $params['day'] ?? null;
+	$year	= $params['year'] ?? null;
+	$month	= $params['month'] ?? null;
+	$day	= $params['day'] ?? null;
 	
 	return match( true ) {
 		( null === $year )		=> 
