@@ -5059,6 +5059,37 @@ function response_end_buffers( bool $ebuf = false ) : void {
 	}
 }
 
+/**
+ *  Remove previously set headers, output
+ */
+function response_scrub() : void {
+	// Scrub output buffer
+	response_end_buffers();
+	\header_remove( 'Pragma' );
+
+	// This is best done in php.ini : expose_php = Off
+	\header( 'X-Powered-By: nil', true );
+	\header_remove( 'X-Powered-By' );
+}
+
+/**
+ *  Flush and optionally end output buffers
+ *  
+ *  @param bool		$ebuf		End buffers
+ */
+function response_flush( bool $ebuf = false ) : void {
+	if ( $ebuf ) {
+		while ( \ob_get_level() > 0 ) {
+			\ob_end_flush();
+		}
+	} else {
+		while ( \ob_get_level() > 0 ) {
+			\ob_flush();	
+		}
+	}
+	\flush();
+}
+
 
 /**
  *  Configuration settings and options
@@ -9701,12 +9732,281 @@ function entry_index( string $dir, int $page, int $limit ) : array {
 }
 
 
+/**
+ *  Page handling
+ */
 
+/** 
+ *  Security policy term separator filter
+ *  
+ *  @param array	$frag		Fragment separator
+ *  @return string
+ */
+function page_security_policy_sep( string $frag = '' ) : string {
+	return empty( $frag ) 
+		? '' 
+		: ( \in_array( \trim( $frag ) , [ '', ',', ':', ';', '=' ] ) 
+			? $frag
+			: ''
+		);
+}
 
+/**
+ *  Security policy header value formatter
+ *  
+ *  @param array	$item		Security policy items
+ *  @return string
+ */
+function page_security_policy_items( array $items ) : string {
+	$separator	= $policy['separator']	?? ', ';
+	$joiner		= $policy['joiner']	?? '=';
+	$items		= $policy['items']	?? [];
+	$policy		= '';
+	
+	$separator	= page_security_policy_sep( $separator );
+	$joiner		= page_security_policy_sep( $joiner );
+	foreach( $items as $key => $value ) {
+		$key	= sanitize_bland( $key, true );
+		$value	= sanitize_bland( $value );
+		$policy	.= "{$key}{$joiner}{$value}{$separator}";
+	}
+	
+	return \trim( $policy, $separator );
+}
+
+/**
+ *  Security policy term formatter
+ *  
+ *  @param array	$items		Line-by-line items
+ *  @return string
+ */
+function page_security_policy_terms( array $items, string $separator = '' ) : string {
+	$policy		= '';
+	$separator	= page_security_policy_sep( $separator );
+		
+	foreach ( $items as $item ) {
+		$item	= sanitize_bland( $item );
+		$policy .= "{$item}{$separator}";
+	}
+
+	return \trim( $policy, $separator );
+}
+
+/**
+ *  Page security configuration parser
+ *  
+ *  @param string	$term		Poliey key search
+ *  @param array	$policy		Full security headers to search
+ *  @return string
+ */
+function page_security_policy( string $term, array $policy ) : string {
+	if ( empty( $policy ) ) { return ''; }
+	$term	= \strtolower( $term );
+	
+	return match( $term ) {
+		'permissions', 'permissions-policy'
+			=> page_security_policy_items( $policy['Permissions-Policy'] ?? [] ),
+		
+		'content', 'content-security-policy'
+			=> page_security_policy_items( $policy['Content-Security-Policy'] ?? [] ),
+		
+		'referer', 'referrer', 'referer-policy'
+			=> page_security_policy_terms( $policy['Referer-Policy'] ?? [], ',' ),
+		
+		'transport', 'strict-transport-security', 'transport-security'
+			=> page_security_policy_terms( $policy['Strict-Transport-Security'] ?? [], '; ' ),
+		
+		'xss', 'x-xss', 'x-xss-protection'
+			=> page_security_policy_terms( $policy['X-XSS-Protection'] ?? [], '; ' ),
+		
+		'content-type', 'x-content-type-options'
+			=> page_security_policy_terms( $policy['X-Content-Type-Options'] ?? [] ),
+
+		'frames', 'x-frame', 'x-frame-options', 
+			=> page_security_policy_terms( $policy['X-Frame-Options'] ?? [] ),
+			
+		default	=> ''
+	};
+}
+
+/**
+ *  Page security policy shared header builder
+ *  
+ *  @param bool		$send_csp	Include content security policy, if true
+ *  @param bool		$send_type	Include content mime type, if true
+ *  @return array
+ */
+function page_preamble( bool $send_csp = true, bool $send_type = true ) : array {
+	static $policy;
+	$policy	??= config( 'headers', [] );
+
+	if ( empty( $policy ) ) { return; }
+	
+	$headers = [];
+	
+	// Core policies
+	if ( $send_csp ) {
+		if ( !empty( $header = page_security_policy( 'content', $policy ) ) ) {
+			$headers['Content-Security-Policy']	= $header;
+		}
+	}
+	
+	if ( $send_type ) {
+		if ( !empty( $header = page_security_policy( 'content-type', $policy ) ) ) {
+			$headers['X-Content-Type-Options']	= $header;
+		}
+	}
+	
+	// Other headers
+	if ( !empty( $header = page_security_policy( 'permissions', $policy ) ) ) {
+		$headers['Permissions-Policy']			= $header;
+	}
+	
+	if ( !empty( $header = page_security_policy( 'transport', $policy ) ) ) {
+		$headers['Strict-Transport-Security']		= $header;
+	}
+	
+	if ( !empty( $header = page_security_policy( 'frames', $policy ) ) ) {
+		$headers['X-Frame-Options']			= $header;
+	}
+	
+	if ( !empty( $header = page_security_policy( 'xss', $policy ) ) ) {
+		$headers['X-XSS-Protection']			= $header;
+	}
+
+	if ( !empty( $header = page_security_policy( 'referer' ) ) ) {
+		$headers['X-XSS-Protection']			= $header;
+	}
+	
+	return $headers;
+}
+
+/**
+ *  Print headers, content, and end execution
+ *  TODO: Cache output
+ *  
+ *  @param int		$code		HTTP Status code
+ *  @param string	$content	Page data to send to client
+ *  @param bool		$is_cached	Cache page data if true
+ *  @param bool		$is_feed	Set content to be XML
+ */
+function page_send(
+	int	$code,
+	?string	$content	= null,
+	bool	$is_cached	= false,
+	bool	$is_feed	= false
+) : void {
+	$is_error	= ( $code >= 400 );
+	$is_html	= ( $code >= 200 && $code < 204 );
+	$has_body	= ( null !== $content );
+	$headers 	= [];
+	
+	if ( $is_error && !$has_body ) {
+		$headres = page_preamble( false, false );
+		$headers['Content-Security-Policy'] = "default-src: 'self'";
+	} elseif ( $is_error && $has_body ) {
+		$headers = page_preamble( false, true );
+	} else {
+		if ( $is_feed ) {
+			$headers	= page_preamble( true, false );
+			$headers['Content-Disposition'] = 'inline';
+		} else {
+			$headers	= page_preamble();
+		}
+	}
+	
+	if ( !$has_body ) { response( $code, $headers ); }
+	
+	// Schedule flush
+	shutdown( 'response_flush', [ true ] );
+	
+	// Check gzip prerequisites
+	if ( $code != 304 && \extension_loaded( 'zlib' ) ) {
+		\ob_start( 'ob_gzhandler' );
+	}
+	
+	if ( $is_feed ) {
+		response_xml( 
+			xml	: $content ?? '', 
+			status	: $code, 
+			headers : $headers
+		);
+		return;
+	}
+	response_html( $code, $content ?? '', $headers );
+}
+
+function page_not_found( bool $no_body = false ) : void {
+	if ( $no_body ) { 
+		page_send( 400, null );
+		return;
+	}
+	
+	page_send( 404, language_parse( ) );
+}
 
 /**
  *  Core functionality
  */
+
+/**
+ *  Startup environment logging
+ */
+function startup() {
+	$log = storage_base() . \STARTUP;
+	
+	if ( \file_exists( $log ) ) { return; }
+	
+	// List of required and optional libraries
+	$lib	= [ 
+	'required' => [
+		'libxml_clear_errors'	=> 'libxml',
+		'mime_content_type'	=> 'fileinfo',
+		'mb_strlen'		=> 'mbstring'
+	],
+	'optional' => [ 
+		'normalizer_normalize'	=> 'intl',
+		'imagecreatetruecolor'	=> 'GD',
+		'mail'			=> 'mail'
+	]];
+	
+	// Missing storage
+	$miss	= [ 'required' => [], 'optional' => [] ];
+	
+	// Check PDO too
+	if ( !defined( 'PDO::ATTR_DEFAULT_FETCH_MODE' ) ) {
+		$miss['required'][] = 'pdo-sqlite';
+	}
+	
+	// Log any missing required libraries
+	foreach ( $lib['required'] as $f => $name ) {
+		if ( !\function_exists( $f ) ) {
+			$miss['required'][] = $name;
+		}
+	}
+	// Optional libraries
+	foreach ( $lib['optional'] as $f => $name ) {
+		if ( !\function_exists( $f ) ) {
+			$miss['optional'][] = $name;
+		}
+	}
+	
+	if ( !empty( $miss['required'] ) ) {
+		$msg	= 
+		'These required library(ies) may be missing or disabled: ' . 
+			implode( ', ', $miss['required'] );
+		
+		log_error( util_truncate( sanitize_spaces( $msg ), 0, 2048 ), $log );
+	}
+	
+	if ( !empty( $miss['optional'] ) ) {
+		$msg	= 
+		'These recommended function(s) or library(ies) may be missing or disabled: ' . 
+			implode( ', ', $miss['optional'] );
+		
+		log_info( util_truncate( sanitize_spaces( $msg ), 0, 2048 ), $log );
+	}
+}
 
 /**
  *  Collection of functions to execute after content sent
@@ -9875,160 +10175,6 @@ function appName() : string {
 }
 
 /**
- *  Find a configuration setting as a set of lines or an array and returns filtered
- *  
- *  @param string	$param	Configuration setting name
- *  @param mixed	$def	Default value on empty
- *  @param string	$map	Filter function
- */
-function linedConfig( string $param, $def, string $filter ) {
-	$opt = config( $param, $def );
-	$raw = 
-	\is_array( $opt ) ? 
-		\array_map( $filter, $opt ) : 
-		lineSettings( $opt, -1, $filter );
-	
-	return \array_unique( \array_filter( $raw ) );
-}
-
-/**
- *  Email sending message helper
- *  
- *  @param array	$rec		List of recipients (must match whitelist)
- *  @param string	$subject	Message heading
- *  @param string	$msg		Mail body
- *  @param bool		$html		Format email as HTML if true
- *  @return bool
- */
-function mailMessage(
-	array	$rec,
-	string	$subject,
-	string	$msg,
-	bool	$html		= false
-) : bool {
-	static $hheaders = [
-		'MIME-Version: 1.0',
-		'Content-Type: text/html; charset="UTF-8"',
-		'Content-Transfer-Encoding: base64'
-	];
-	
-	static $theaders = [
-		'MIME-Version: 1.0',
-		'Content-Type: text/plain; charset="UTF-8"'
-	];
-	
-	// Check if mail function is disabled
-	if ( util_missing( 'mail' ) ) {
-		shutdown( 
-			'logError', 
-			'Email: mail() Has been disabled. Check the disable_function list in php.ini.' 
-		);
-		return false;
-	}
-	
-	$msg	 = trim( $msg );
-	if ( empty( $msg ) ) {
-		shutdown( 'logError', 'Email: Message cannot be empty.' );
-		return false;
-	}
-	
-	$mfr	= sanitize_email( config( 'mail_from', '' ) );
-	
-	if ( empty( $mfr ) ) {
-		shutdown( 
-			'logError', 
-			'Email: Sender address is invalid. Check mail_from config setting.' 
-		);
-		return false;
-	}
-	
-	// HTML or plain text headers
-	$headers 	= $html ? $hheaders : $theaders;
-	$headers[]	= 'From: ' . $mfr;
-	$ip		= request_ip( true );
-	
-	// Mailer hook
-	hook( [ 'mailmessage', [ 
-		'headers'	=> $headers,
-		'html'		=> $html,
-		'recipients'	=> $rec,
-		'subject'	=> $subject,
-		'message'	=> $msg,
-		'senderip'	=> $ip,
-		'senderua'	=> request_ua()
-	] ] );
-	
-	// Load mail hook replacements
-	$res	= hookArrayResult( 'mailmessage' );
-	
-	// Override with hook results if any
-	$rcpt	= $res['recipients'] ?? $rec;
-	
-	// Check sender whitelist
-	$mwhite	= 
-	linedConfig( 'mail_whitelist', \MAIL_WHITELIST, 'cleanEmail' );
-	
-	// Nothing in whitelist?
-	if ( empty( $mwhite ) ) {
-		shutdown( 
-			'logError',
-			'Email: No valid recipients found. Check whitelist.'
-		);
-		return false;
-	}
-	
-	// Consistent addresses
-	$mwhite	= \array_unique( \array_map( 'lowercase', $mwhite ) );
-	$rcpt	= \array_unique( \array_map( 'lowercase', $rcpt ) );
-	
-	// Check recipient whitelist
-	$names	= [];
-	foreach( $rcpt as $r ) {
-		if ( \in_array( $r, $mwhite, true ) ) {
-			$names[] = $r;
-		}
-	}
-	
-	if ( empty( $names ) ) {
-		shutdown( 
-			'logError', 
-			'Email: No matching recipients in whiltelist.'
-		);
-		return false;
-	}
-	
-	// Format user input
-	$subj	= sanitize_escape_text( sanitize_spaces( $res['subject'] ?? $subject ) );
-	$msg	.= "\r\n\r\nReceived from: " . $ip . "  \r\n" . request_ua();
-	$msg	= 
-	format_body( 
-		value		: $res['message'] ?? $msg, 
-		use_fmt		: false
-	);
-	
-	$ok	= 
-	mail( 
-		\implode( ',', $names ), 
-		$subj, 
-		$html ? \base64_encode( $msg ) : \strip_tags( $msg ), 
-		\array_map( 'sanitize_spaces', $headers ) 
-	);
-	
-	if ( $ok ) {
-		shutdown( 
-			'logNotice', 
-			'Email: Sent from ' . $ip . ' Subject: ' . $subj
-		);
-		return true;
-	}
-	shutdown( 
-		'logError', 
-		\error_get_last()['message'] ?? 'Email: Error sending message'
-	);
-	return false;
-}
-
-/**
  *  Generic message logging helper for notices and errors
  *  
  *  @param string	$dest		Log storage destination
@@ -10102,72 +10248,6 @@ function logNotice( string $msg ) : bool {
 }
 
 /**
- *  Startup environment logging
- */
-function logStartup() {
-	$log = \CACHE . \STARTUP;
-	
-	if ( \file_exists( $log ) ) {
-		return;
-	}
-	// List of required and optional libraries
-	$lib	= [ 
-	'required' => [
-		'libxml_clear_errors'	=> 'libxml',
-		'mime_content_type'	=> 'fileinfo'
-	],
-	'optional' => [ 
-		'mb_strlen'		=> 'mbstring', 
-		'normalizer_normalize'	=> 'intl',
-		'imagecreatetruecolor'	=> 'GD',
-		'mail'			=> 'mail'
-	]];
-	
-	// Missing storage
-	$miss	= [ 'required' => [], 'optional' => [] ];
-	
-	// Check PDO too
-	if ( !defined( 'PDO::ATTR_DEFAULT_FETCH_MODE' ) ) {
-		$miss['required'][] = 'pdo-sqlite';
-	}
-	
-	// Log any missing required libraries
-	foreach ( $lib['required'] as $f => $name ) {
-		if ( !\function_exists( $f ) ) {
-			$miss['required'][] = $name;
-		}
-	}
-	// Optional libraries
-	foreach ( $lib['optional'] as $f => $name ) {
-		if ( !\function_exists( $f ) ) {
-			$miss['optional'][] = $name;
-		}
-	}
-	
-	if ( !empty( $miss['required'] ) ) {
-		$msg	= 
-		'These required library(ies) may be missing or disabled: ' . 
-			implode( ', ', $miss['required'] );
-		logMessage( 
-			$log, 
-			'date, time, s-comment',
-			truncate( sanitize_spaces( $msg ), 0, 2048 ) 
-		);
-	}
-	
-	if ( !empty( $miss['optional'] ) ) {
-		$msg	= 
-		'These recommended function(s) or library(ies) may be missing or disabled: ' . 
-			implode( ', ', $miss['optional'] );
-		logMessage( 
-			$log, 
-			'date, time, s-comment',
-			truncate( sanitize_spaces( $msg ), 0, 2048 ) 
-		);
-	}
-}
-
-/**
  *  Log visitor error
  *  
  *  @param int		$code	Error type
@@ -10191,7 +10271,7 @@ function visitorError( int $code = 0, string $msg = '-' ) {
  *  Visitor disconnect event helper
  */
 function visitorAbort() {
-	cleanOutput( true );
+	response_end_buffers( true );
 	if ( !\headers_sent() ) {
 		response_status( 205 );
 		die();
@@ -11871,185 +11951,6 @@ function getRoot( bool $err = false ) : string {
 }
 
 /**
- *  Quoted security policy attribute helper
- *   
- *  @param string	$atr	Security policy parameter
- *  @return string
- */
-function quoteSecAttr( string $atr ) : string {
-	// Safe allow list
-	static $allow	= [ 'self', 'src', 'none' ];
-	$atr		= \trim( sanitize_spaces( $atr ) );
-	
-	return 
-	\in_array( $atr, $allow ) ? 
-		$atr : '"' . sanitize_url( $atr ) . '"'; 
-}
-
-/**
- *  Parse security policy attribute value
- *  
- *  @param string	$key	Permisisons policy identifier
- *  @param mixed	$policy	Policy value(s)
- *  @return string
- */
-function parsePermPolicy( string $key, $policy = null ) : string {
-	// No value? Send empty set E.G. "interest-cohort=()"
-	if ( empty( $policy ) ) {
-		return sanitize_bland( $key, true ) . '=()';
-	}
-	
-	// Send specific value(s) E.G. "fullscreen=(self)"
-	return 
-	sanitize_bland( $key, true ) . '=(' . 
-	( \is_array( $policy ) ? 
-		\implode( ' ', \array_map( 'quoteSecAttr', $policy ) ) : 
-		quoteSecAttr( ( string ) $policy ) ) . 
-	')';
-}
-
-/**
- *  Content Security and Permissions Policy settings
- *  
- *  @param string	$policy		Security policy header
- *  @return string
- */
-function securityPolicy( string $policy ) : string {
-	static $p;
-	static $r	= [];
-	
-	// Load defaults
-	if ( !isset( $p ) ) {
-		$p = 
-		config( 'security_policy', \SECURITY_POLICY, 'json' );
-		
-		// Merge custom content security policy
-		hook( [ 'cspload', [ 'policy' => $p ] ] );
-		$p = hookArrayResult( 'cspload' )['policy'] ?? $p;
-	}
-	
-	switch ( $policy ) {
-		case 'common':
-		case 'common-policy':
-			if ( isset( $r['common'] ) ) {
-				return $r['common'];
-			}
-			
-			// Common header override
-			$cfj = 
-			config 
-				'common-policy', 
-				$p['common-policy'] ?? [], 
-				'array',
-				'bland' 
-			);
-			$r['common'] = \implode( "\n", $cfj );
-			
-			return $r['common'];
-			
-		case 'permissions':
-		case 'permissions-policy':
-			if ( isset( $r['permissions'] ) ) {
-				return $r['permissions'];
-			}
-			
-			$prm = [];
-			
-			// Permissions policy override
-			$cfj = config( 'permisisons-policy', [], 'json' );
-			$def = $p['permissions-policy'] ?? [];
-			$pjp = 
-			\is_array( $cfj ) ? 
-				\array_merge( $def, $cfj ) : $def;
-			
-			foreach ( $pjp as $k => $v ) {
-				$prm[]	= parsePermPolicy( $k, $v );
-			}
-			
-			$r['permissions'] = \implode( ', ', $prm );
-			return $r['permissions'];
-		
-		case 'content-security':
-		case 'content-security-policy':
-			if ( isset( $r['content'] ) ) {
-				return $r['content'];
-			}
-			$csp = '';
-			$cjp = $p['content-security-policy'] ?? [];
-			
-			// Approved frame ancestors ( for embedding media )
-			$frm = 
-			\implode( ' ', 
-				config(
-					'frame_whitelist', 
-					[], 
-				 	'json',
-					'sanitize_url' 
-				) 
-			);
-			
-			foreach ( $cjp as $k => $v ) {
-				$csp .= 
-				( 0 == \strcmp( $k, 'frame-ancestors' ) ) ? 
-					"$k $v $frm;" : "$k $v;";
-			}
-			$r['content'] = \rtrim( $csp, ';' );
-			return $r['content'];
-	}
-	
-	return '';
-}
-
-
-/**
- *  Safety headers
- *  
- *  @param string	$chk	Content checksum
- *  @param bool		$send	CSP Send Content Security Policy header
- *  @param bool		$type	Send content type (html)
- */
-function preamble(
-	string	$chk		= '', 
-	bool	$send_csp	= true,
-	bool	$send_type	= true
-) {
-	if ( $send_type ) {
-		\header( 
-			'Content-Type: text/html; charset=utf-8', 
-			true 
-		);
-	}
-	
-	// Set common policy headers
-	$chead	= explode( "\n", securityPolicy( 'common-policy' ) );
-	foreach ( $chead as $h ) {
-		\header( $h, true );
-	}
-	
-	// Set default permissions policy header
-	$perms = securityPolicy( 'permissions-policy' );
-	if ( !empty( $perms ) ) {
-		\header( 'Permissions-Policy: ' . $perms , true );
-	}
-	
-	// If sending CSP and content checksum isn't used
-	if ( $send_csp ) {
-		$csp = securityPolicy( 'content-security-policy' );
-		if ( !empty( $csp ) ) {
-			\header( 'Content-Security-Policy: ' . $csp, true );
-		}
-	
-	// Content checksum used
-	} elseif ( !empty( $chk ) ) {
-		\header( 
-			"Content-Security-Policy: default-src " .
-			"'self' '{$chk}'", 
-			true
-		);
-	}
-}
-
-/**
  *  Send list of supported HTTP request methods
  */
 function getAllowedMethods( bool $arr = false ) {
@@ -12283,111 +12184,6 @@ function setCacheExp( int $ttl ) {
 }
 
 /**
- *  Clean the output buffer without flushing
- *  
- *  @param bool		$ebuf		End buffers
- */
-function cleanOutput( bool $ebuf = false ) {
-	if ( $ebuf ) {
-		while ( \ob_get_level() > 0 ) {
-			\ob_end_clean();
-		}
-		return;
-	}
-	
-	while ( \ob_get_level() && \ob_get_length() > 0 ) {
-		\ob_clean();
-	}
-}
-
-/**
- *  Remove previously set headers, output
- */
-function scrubOutput() {
-	// Scrub output buffer
-	cleanOutput();
-	\header_remove( 'Pragma' );
-	
-	// This is best done in php.ini : expose_php = Off
-	\header( 'X-Powered-By: nil', true );
-	\header_remove( 'X-Powered-By' );
-}
-
-/**
- *  Flush and optionally end output buffers
- *  
- *  @param bool		$ebuf		End buffers
- */
-function flushOutput( bool $ebuf = false ) {
-	if ( $ebuf ) {
-		while ( \ob_get_level() > 0 ) {
-			\ob_end_flush();
-		}
-	} else {
-		while ( \ob_get_level() > 0 ) {
-			\ob_flush();	
-		}
-	}
-	flush();
-}
-
-/**
- *  Print headers, content, and end execution
- *  
- *  @param int		$code		HTTP Status code
- *  @param string	$content	Page data to send to client
- *  @param bool		$cache		Cache page data if true
- */
-function send(
-	int		$code		= 200,
-	string		$content	= '',
-	bool		$cache		= false,
-	bool		$feed		= false
-) {
-	scrubOutput();
-	response_status( $code );
-	
-	if ( $feed ) {
-		\header(
-			'Content-Type: application/xml; charset=utf-8', 
-			true 
-		);
-		\header( 'Content-Disposition: inline', true );
-		preamble( '', true, false );
-	} else {
-		preamble();
-	}
-	
-	// Also save to cache?
-	if ( $cache ) {
-		$ex	= config( 'cache_ttl', 3600, 'int' );
-		$full	= request_url();
-		
-		setCacheExp( $ex );
-		shutdown( 'saveCache', [ $full, $content ] );
-	}
-	
-	hook( [ 'contentsend', [ 
-		'code'		=> 200,
-		'content'	=> $content, 
-		'cache'		=> $cache,
-		'feed'		=> $feed
-	] ] );
-	
-	// Schedule flush
-	shutdown( 'flushOutput', [ true ] );
-	
-	// Check gzip prerequisites
-	if ( $code != 304 && \extension_loaded( 'zlib' ) ) {
-		\ob_start( 'ob_gzhandler' );
-	}
-	echo $content;
-	
-	// End
-	die();
-}
-
-/**
  *  Error file sending helper
  *  
  *  @param string	$path		Error file path
@@ -12459,7 +12255,7 @@ function sendError( int $code, $body ) {
 	
 	// Send custom errors
 	if ( !empty( $html ) ) {
-		send( $code, $html );
+		page_send( $code, $html );
 	}
 	
 	// Send standard error page if nothing handled
@@ -12469,7 +12265,7 @@ function sendError( int $code, $body ) {
 		'code'		=> $code,
 		'body'		=> $body 
 	];
-	send( $code, render( template( 'tpl_error_page' ), $params ) );
+	page_send( $code, render( template( 'tpl_error_page' ), $params ) );
 }
 
 /**
@@ -12497,7 +12293,7 @@ function sendOverride( string $event, bool $feed = false ) {
 		return;
 	}
 	
-	send( 
+	page_send( 
 		( int ) ( $sent['code'] ?? 200 ), 
 		$html, 
 		( bool ) ( $sent['cache'] ?? true ),
@@ -12557,7 +12353,7 @@ function sendBadURI(
 	string	$default	= \MSG_INVALID
 ) {
 	visitorError( 414, $vlog );
-	send( 414, errorLang( $msg, $default ) );
+	page_send( 414, errorLang( $msg, $default ) );
 }
 
 /**
@@ -12625,7 +12421,7 @@ function redirect(
 	int		$code		= 200,
 	string		$path		= ''
 ) {
-	cleanOutput( true );
+	response_end_buffers( true );
 	
 	$url	= \parse_url( $path );
 	$host	= $url['host'] ?? '';
@@ -12748,10 +12544,10 @@ function handleCache( string $path ) {
 	
 	// Is this a feed?
 	if ( 0 === \strcasecmp( \basename( $path ), 'feed' ) ) {
-		send( 200, $cache, false, true );
+		page_send( 200, $cache, false, true );
 	}
 	
-	send( 200, $cache, false );
+	page_send( 200, $cache, false );
 }
 
 /**
@@ -12819,7 +12615,7 @@ function methodPreParse( string $verb, string $path, array $routes ) {
 		// Nothing else implemented
 		default:
 			visitorError( 405, 'Method' );
-			send( 405 );
+			page_send( 405 );
 	}
 }
 
@@ -14554,7 +14350,7 @@ function formatIndex(
 	);
 	
 	// Send results
-	send( 200, $page_t, $cache );
+	page_send( 200, $page_t, $cache );
 }
 
 
@@ -15285,7 +15081,7 @@ function staticPage(
 		true 
 	);
 	
-	send( 200, $page_t, $cache );
+	page_send( 200, $page_t, $cache );
 }
 
 /**
@@ -15579,7 +15375,7 @@ function showFeed( string $event, array $hook, array $params ) {
 		'body'		=> \implode( '', $posts )
 	];
 	
-	send( 200, render( template( 'tpl_feed' ), $tpl ), true, true );
+	page_send( 200, render( template( 'tpl_feed' ), $tpl ), true, true );
 }
 
 /**
@@ -15670,7 +15466,7 @@ function showPost( string $event, array $hook, array $params ) {
 		true 
 	);
 	
-	send( 200, $page_t, true );
+	page_send( 200, $page_t, true );
 }
 
 
@@ -15788,7 +15584,7 @@ function runIndex( string $event, array $hook, array $params ) {
 		true 
 	);
 	
-	send( 200, $page_t, true );
+	page_send( 200, $page_t, true );
 }
 
 /**
@@ -16209,7 +16005,7 @@ function addBlogRoutes( string $event, array $hook, array $params ) {
 }
 
 // Environment check
-logStartup();
+startup();
 
 /**
  *  Begin event registry
