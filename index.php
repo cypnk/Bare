@@ -30,11 +30,6 @@ define( 'PLUGIN_DIR',	PATH . 'plugins/' );
 // Writable directory inside  for plugin data (not directly browsable by visitors)
 define( 'PLUGIN_DATA',	'plugins/' );
 
-// Custom error file folder (optional)
-define( 'ERROR_ROOT',	PATH . 'errors/' );
-// Use this if error files are outside web root
-// define( 'ERROR_ROOT',	\realpath( \dirname( __FILE__, 2 ) ) . '/errors/' );
-
 // Configuration filename (optional, overrides most constants here)
 define( 'CONFIG',	'config.json' );
 
@@ -856,100 +851,12 @@ JSON
 );
 
 
-/**
- *  Default language placholders 
- *  These can be overridden by a language file in the CACHE directory
- *  E.G. en-US.json (using the default language of en-US)
- */
-define( 'DEFAULT_TRANSLATION',	<<<JSON
-{
-	"date_nice"	: "l, F j, Y",
-	"untitled"	: "(Untitled)",
-	"headings"	: {
-		"related"	: "Related", 
-		"tags"		: "Tags:",
-		"readtime"	: "{time} min read"
-	}, 
-	"forms"		: {
-		"search"	: {
-			"placeholder"	: "Find posts by title or body",
-			"button"	: "Search"
-		}
-	},
-	"nav"		: {
-		"previous"	: "Previous",
-		"next"		: "Next",
-		"home"		: "Home",
-		"about"		: "About",
-		"archive"	: "Archive",
-		"feed"		: "Feed"
-	}, 
-	"errors"	: {
-		"error"		: "Error",
-		"generic"	: "An error has occured",
-		"returnhome"	: "<a href=\"{home}\">Return home<\/a>",
-		"noposts"	: "No more posts. Return <a href=\"{home}\">home<\/a>.",
-		"notfound"	: "Page not found",
-		"noroute"	: "No route defined",
-		"badmethod"	: "Method not allowed",
-		"nomethod"	: "Method not implemented",
-		"denied"	: "Access denied",
-		"invalid"	: "Invalid request",
-		"codedetect"	: "Server-side code detected",
-		"expired"	: "This form has expired",
-		"toomany"	: "Too many requests"
-	}
-}
-JSON
-);
-
-
 // Meta, script, and stylesheet tag templates
 define( 'TPL_META_TAG',	'<meta name="{name}" content="{content}">' );
 define( 'TPL_SCRIPT_TAG', '<script src="{url}"></script>' );
 define( 'TPL_SCRIPT_NONCE_TAG', '<script src="{url}" nonce="{nonce}"></script>' );
 define( 'TPL_STYLE_TAG', '<link rel="stylesheet" href="{url}">' );
 
-// Content Security and Permissions Policy headers
-define( 'SECURITY_POLICY',	<<<JSON
-{
-	"content-security-policy": {
-		"default-src"			: "'none'",
-		"img-src"			: "*",
-		"base-uri"			: "'self'",
-		"style-src"			: "'self'",
-		"script-src"			: "'self'",
-		"font-src"			: "'self'",
-		"form-action"			: "'self'",
-		"frame-ancestors"		: "'self'",
-		"frame-src"			: "*",
-		"media-src"			: "'self'",
-		"connect-src"			: "'self'",
-		"worker-src"			: "'self'",
-		"child-src"			: "'self'",
-		"require-trusted-types-for"	: "'script'"
-	},
-	"permissions-policy": {
-		"accelerometer"			: [ "none" ],
-		"camera"			: [ "none" ],
-		"fullscreen"			: [ "self" ],
-		"geolocation"			: [ "none" ],
-		"gyroscope"			: [ "none" ],
-		"interest-cohort"		: [],
-		"payment"			: [ "none" ],
-		"usb"				: [ "none" ],
-		"microphone"			: [ "none" ],
-		"magnetometer"			: [ "none" ]
-	}, 
-	"common-policy": [
-		"X-XSS-Protection: 1; mode=block",
-		"X-Content-Type-Options: nosniff",
-		"X-Frame-Options: SAMEORIGIN",
-		"Referrer-Policy: no-referrer, strict-origin-when-cross-origin"
-	]
-}
-JSON
-);
 
 /**
  *  URL validation regular expressions
@@ -1004,47 +911,6 @@ define( 'MSG_TOOMANY',		'Too many requests' );
 define( 'MSG_FILERANGE',	'Invalid file range requested' );
 
 
-/**
- *  Database constants
- */
-
-
-// General database location placeholder (future use)
-define( 'DATA',			'' );
-
-// Database connection timeout
-define( 'DATA_TIMEOUT',		15 );
-
-
-
-/**
- *  Session settings
- */
-
-// Staleness check
-define( 'SESSION_EXP',		300 );
-
-// ID random bytes
-define( 'SESSION_BYTES',	12 );
-
-
-/**
- *  Cookie defaults
- */
-
-// Base expiration
-define( 'COOKIE_EXP', 		604800 ); // 7 Days
-
-// Refresh if less than this left
-define( 'COOKIE_REFRESH',	86400 ); // 1 Day
-
-// Base domain path
-define( 'COOKIE_PATH',		'/' );
-
-// Restrict cookies to same-site origin (I.E. No third party can snoop)
-define( 'COOKIE_RESTRICT',	1 );
-
-
 
 
 /**********************************************************************
@@ -1094,7 +960,7 @@ function trace( string $message, array $context = [] ) : void {
 function error_page() : void {
 	\http_response_code( 500 );
 	echo "An unexpected error occurred. Please try again later.";
-	exit;
+	exit( 1 );
 }
 
 /**
@@ -4974,7 +4840,7 @@ function response( int $code, array $headers = [], $body = null ) : void {
 	response_status( $code );
 	response_headers( $headers, $ct_sent, $lo_sent );
 	
-	if ( null !== $body && !$is_redir) {
+	if ( null !== $body && !$is_redir ) {
 		response_body( $body, $ct_sent );
 	}
 	
@@ -6372,7 +6238,7 @@ function language( ?array $sent = null ) : array {
 	}
 	
 	// Set default language and append language file definitions
-	$terms	= util_json_decode( \DEFAULT_TRANSLATION );
+	$terms	= config( 'default_translation', [], 'json' );
 	$lang	= config( 'language', \DEFAULT_LANGUAGE );
 	$file	= config_load_json( $lang . '.json' );
 	if ( !empty( $file ) ) {
@@ -9840,7 +9706,7 @@ function page_preamble( bool $send_csp = true, bool $send_type = true ) : array 
 	static $policy;
 	$policy	??= config( 'headers', [] );
 
-	if ( empty( $policy ) ) { return; }
+	if ( empty( $policy ) ) { return []; }
 	
 	$headers = [];
 	
@@ -10084,13 +9950,13 @@ function archive_page_url( array $params, int $page ) : string {
 	
 	return match( true ) {
 		( null === $year )		=> 
-			"/$year",
+			"/{$year}",
 		( $year && $month && $day)	=>
-			"/$year/$month/$day/page$page",
+			"/{$year}/{$month}/{$day}/page{$page}",
 		( $year && $month )		=> 
-			"/$year/$month/page$page",
+			"/{$year}/{$month}/page{$page}",
 		default				=> 
-			"/$year/page$page"
+			"/{$year}/page{$page}"
 	};
 }
 
