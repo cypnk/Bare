@@ -275,7 +275,7 @@ define( 'TEMPLATES', <<<HTML
 
 
 ## Post on full listing indexes
---- tpl_index_post ---L
+--- tpl_index_post ---
 {before_index_post}
 <article class="{post_idx_wrap_classes}">{before_item_post}
 	<div class="{post_idx_wrap_classes}">{before_index_post_heading}
@@ -2538,7 +2538,7 @@ function sanitize_attribute(
 	$sanitizer	= 
 	match( true ) {
 		isset( $rule['filter'] )	&& 
-		defined( $rule['filter'] )	&& 
+		\defined( $rule['filter'] )	&& 
 		\is_int( \constant( $rule['filter'] ) )
 			=> function( $v ) use ( $rule ) {
 				$filter		= \constant( $rule['filter'] );
@@ -3152,9 +3152,9 @@ function storage_base() : string {
 		return $options['storage_dir'];
 	}
 	
-	if ( defined( 'STORAGE_DIR' ) ) { 
-		$storage_dir = 
-		\rtrim( STORAGE_DIR, '\\/' ) . \DIRECTORY_SEPARATOR; 
+	if ( \defined( 'STORAGE_DIR' ) ) { 
+		$sdir		= \constant( 'STORAGE_DIR' );
+		$storage_dir	= \rtrim( $sdir, '\\/' ) . \DIRECTORY_SEPARATOR; 
 		
 		storage_options( [ 'storage_dir' => $storage_dir ] );
 		return $storage_dir;
@@ -3394,7 +3394,7 @@ function log_file( string $fname = 'messages.log' ) : string {
 	static $file;
 	if ( !isset( $file ) ) {
 		$file	= storage_base() . 
-		defined( 'LOG_FILE' ) 
+		\defined( 'LOG_FILE' ) 
 			? \constant( 'LOG_FILE' ) 
 			: $fname;
 	}
@@ -3425,8 +3425,8 @@ function log_cleanup( string $log_file ) : void {
 	static $ret;
 	
 	$ret	??= 
-	defined( 'LOG_MAX_RETENTION' ) 
-		? LOG_MAX_RETENTION 
+	\defined( 'LOG_MAX_RETENTION' ) 
+		? \constant( 'LOG_MAX_RETENTION' ) 
 		: 7;
 	
 	$files		= \glob( $log_file . '.*.log' );
@@ -3456,8 +3456,8 @@ function log_rotate( string $log_file ) : void {
 	static $max_size;
 	
 	$max_size	??= 
-	defined( 'LOG_MAX_SIZE' ) 
-		? LOG_MAX_SIZE
+	\defined( 'LOG_MAX_SIZE' ) 
+		? \constant( 'LOG_MAX_SIZE' )
 		: 5242880;
 	
 	if ( !\is_readable( $log_file ) ) { return; }
@@ -4975,8 +4975,8 @@ function config_core_path(
 	bool	$is_dir		= false 
 ) : string {
 	$path	= 
-	defined( $constant ) 
-		? constant( $constant ) 
+	\defined( $constant ) 
+		? \constant( $constant ) 
 		: storage_base() . $name;
 	
 	return $is_dir 
@@ -5317,7 +5317,12 @@ function config_value_format( mixed $value, string $type, $filter = null ) : mix
 			return config_lines( $lines, true, $filter );
 		} )(),
 		
-		'json'			=> util_json_decode( ( string ) $value ),
+		'json'			=> ( function() use ( $value ) {
+			return \is_array( $value ) 
+				? util_json_decode( $value )
+				: util_json_decode( ( string ) $value );
+		} )(),
+		
 		default			=> sanitize_text( $value )
 	};
 }
@@ -5767,8 +5772,8 @@ function template_load(
 	}
 	
 	$dir		??= 
-	defined( 'TEMPLATE_DIR' ) 
-		? TEMPLATE_DIR
+	\defined( 'TEMPLATE_DIR' ) 
+		? \constant( 'TEMPLATE_DIR' )
 		: __DIR__;
 	
 	$vdir		= 
@@ -6128,15 +6133,15 @@ function template_parse(
  */
 function template_load_static() : array {
 	$raw		= 
-	defined( 'TEMPLATES' ) && \is_string( TEMPLATES )
-		? TEMPLATES 
+	\defined( 'TEMPLATES' ) && \is_string( TEMPLATES )
+		? \constant( 'TEMPLATES' ) 
 		: '';
 	
 	// Try to get a default loaded template if nothing defined
 	if ( empty( $raw ) ) {
 		$fraw	= 
-		defined( 'TEMPLATE_FILE' ) && \is_string( TEMPLATE_FILE )
-			? TEMPLATE_FILE
+		\defined( 'TEMPLATE_FILE' ) && \is_string( TEMPLATE_FILE )
+			? \constant( 'TEMPLATE_FILE' )
 			: '';
 		
 		if ( empty( $fraw ) || !\is_readable( $fraw ) )  { return []; }
@@ -8691,8 +8696,8 @@ function db_maintenance( \PDO $dbh, array $config ) : void {
 		);";
 	
 	$db_maint	??= 
-	defined( 'DB_MAINT' ) 
-		? DB_MAINT
+	\defined( 'DB_MAINT' ) 
+		? \constant( 'DB_MAINT' )
 		: 7;
 	
 	$maint		= $db_maint * 86400;
@@ -9620,7 +9625,7 @@ function page_security_policy_sep( string $frag = '' ) : string {
 /**
  *  Security policy header value formatter
  *  
- *  @param array	$item		Security policy items
+ *  @param array	$items		Security policy items
  *  @return string
  */
 function page_security_policy_items( array $items ) : string {
@@ -9808,8 +9813,10 @@ function page_not_found( bool $no_body = false ) : void {
 		return;
 	}
 	
-	page_send( 404, language_parse( ) );
+	$tpl	= template( 'tpl_error_notfound' ) ?: MSG_NOTFOUND;
+	page_send( 404, language_parse( $tpl ) );
 }
+
 
 /**
  *  Core functionality
@@ -9840,7 +9847,7 @@ function startup() {
 	$miss	= [ 'required' => [], 'optional' => [] ];
 	
 	// Check PDO too
-	if ( !defined( 'PDO::ATTR_DEFAULT_FETCH_MODE' ) ) {
+	if ( !\defined( 'PDO::ATTR_DEFAULT_FETCH_MODE' ) ) {
 		$miss['required'][] = 'pdo-sqlite';
 	}
 	
@@ -9935,7 +9942,7 @@ function static_file_resolve( string $uri ) : ?string {
 			( 0 === \strpos( $rpath, $root ) )	&& 
 			\is_file( $rpath )
 		) {
-			return $rpath
+			return $rpath;
 		}
 	}
 	
