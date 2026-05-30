@@ -8,8 +8,8 @@
 			"page_limit"	: 12,
 			"timezone"	: "America\/New_York",
 			"language"	: "en-US",
-			"post_dir"	: "{{STORAGE_DIR}}/posts",
-			"file_dir"	: "{{STORAGE_DIR}}/posts",
+			"post_dir"	: "{{STORAGE_DIR}}posts",
+			"file_dir"	: "{{STORAGE_DIR}}posts",
 			"asset_dir"	: "assets/",
 			"plugins"	: [],
 			"main_links"	: [
@@ -45,11 +45,12 @@
 		"post_dir"		: "posts",
 		"template_dir"		: "templates",
 		"date_format"		: "l, F j, Y",
-		"page_title"		: "My Site",
-		"page_sub"		: "A Nice Place",
+		"page_title"		: "{{DEFAULT_PAGE_TITLE}}",
+		"page_sub"		: "{{DEFAULT_PAGE_SUB}}",
 		"plugins"		: [],
 		"asset_dir"		: "assets/",
 		"plugin_asset_dir"	: "plugins/",
+		"error_root"		: "{{PATH}}errors/",
 		"page_limit"		: 20,
 		"index_limit"		: 60,
 		"related_limit"		: 5,
@@ -73,10 +74,11 @@
 		"entry_fields"		: [ "title", "tags", "summary", "author", "updated" ],
 		"session_regen"		: 1800,
 		"cookie_exp"		: 604800,
+		"cookie_refresh"	: 86400,
 		"cookie_path"		: "/",
 		"mail_from"		: "domain@localhost",
-		"timezone"		: "America\/New_York",
-		"language"		: "en-US",
+		"timezone"		: "{{DEFAULT_TIMEZONE}}",
+		"language"		: "{{DEFAULT_LANGUAGE}}",
 		"skip_local"		: 1,
 		"static_ext"		: {
 			"text"		: [ "css", "js", "txt", "html", "vtt" ],
@@ -112,15 +114,19 @@
 					"magnetometer"		: "(none)"
 				}
 			},
-			"Content-Security-Policy": [
-				"default-src 'self'",
-				"script-src 'self'",
-				"style-src 'self'",
-				"img-src 'self' data:",
-				"font-src 'self'",
-				"object-src 'none'",
-				"frame-ancestors 'none'"
-			],
+			"Content-Security-Policy": {
+				"separator"	: "; ",
+				"joiner"	: " ",
+				"items"		: {
+					"default-src"		: "'self'",
+					"script-src"		: "'self'",
+					"style-src"		: "'self'",
+					"img-src"		: "'self' data:",
+					"font-src"		: "'self'",
+					"object-src"		: "'none'",
+					"frame-ancestors"	: "'none'"
+				}
+			},
 			"Referrer-Policy" : [
 				"no-referrer",
 				"strict-origin-when-cross-origin"
@@ -129,12 +135,9 @@
 				"max-age=63072000",
 				"includeSubDomains"
 			],
-			"X-Content-Type-Options" : "nosniff",
-			"X-Frame-Options" : "SAMEORIGIN",
-			"X-XSS-Protection" : [
-				"1",
-				"mode=block"
-			]
+			"X-Content-Type-Options" : [ "nosniff" ],
+			"X-Frame-Options" : [ "SAMEORIGIN" ],
+			"X-XSS-Protection" : [ "1", "mode=block" ]
 		},
 		
 		"tag_map"	: {
@@ -799,6 +802,45 @@
 		"500": {
 			"status"	: "Internal Server Error",
 			"verbs"		: [ "*" ]
+		}
+	},
+	
+	"default_translation" : {
+		"date_nice"	: "l, F j, Y",
+		"untitled"	: "(Untitled)",
+		"headings"	: {
+			"related"	: "Related", 
+			"tags"		: "Tags:",
+			"readtime"	: "{time} min read"
+		}, 
+		"forms"		: {
+			"search"	: {
+				"placeholder"	: "Find posts by title or body",
+				"button"	: "Search"
+			}
+		},
+		"nav"		: {
+			"previous"	: "Previous",
+			"next"		: "Next",
+			"home"		: "Home",
+			"about"		: "About",
+			"archive"	: "Archive",
+			"feed"		: "Feed"
+		}, 
+		"errors"	: {
+			"error"		: "Error",
+			"generic"	: "An error has occured",
+			"returnhome"	: "<a href=\"{home}\">Return home<\/a>",
+			"noposts"	: "No more posts. Return <a href=\"{home}\">home<\/a>.",
+			"notfound"	: "Page not found",
+			"noroute"	: "No route defined",
+			"badmethod"	: "Method not allowed",
+			"nomethod"	: "Method not implemented",
+			"denied"	: "Access denied",
+			"invalid"	: "Invalid request",
+			"codedetect"	: "Server-side code detected",
+			"expired"	: "This form has expired",
+			"toomany"	: "Too many requests"
 		}
 	},
 	
