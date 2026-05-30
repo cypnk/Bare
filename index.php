@@ -9804,12 +9804,12 @@ function page_send(
 		);
 		return;
 	}
-	response_html( $code, $content ?? '', $headers );
+	response_html( $content ?? '', $code, $headers );
 }
 
 function page_not_found( bool $no_body = false ) : void {
 	if ( $no_body ) { 
-		page_send( 400, null );
+		page_send( 404, null );
 		return;
 	}
 	
