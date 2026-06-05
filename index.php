@@ -8691,9 +8691,7 @@ function db_maintenance( \PDO $dbh, array $config ) : void {
 	static $db_maint;
 	static $sql	= 
 	"SELECT settings FROM maintenance_meta
-		WHERE maintenance_id = (
-			SELECT MAX( maintenance_id ) FROM maintenance_meta
-		);";
+		WHERE id = ( SELECT MAX( id ) FROM maintenance_meta );";
 	
 	$db_maint	??= 
 	\defined( 'DB_MAINT' ) 
