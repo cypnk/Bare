@@ -6,17 +6,17 @@ CREATE TABLE IF NOT EXISTS schema_meta (
 );
 
 CREATE TABLE IF NOT EXISTS maintenance_meta (
-	maintenance_id INTEGER PRIMARY KEY AUTOINCREMENT,
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	settings TEXT NOT NULL DEFAULT '{}'
 );
+CREATE INDEX idx_maintenance_updated ON maintenance_meta ( updated_at );
 
-CREATE TRIGGER trg_update_maintenance_meta
-BEFORE UPDATE ON maintenance_meta
-FOR EACH ROW
+CREATE TRIGGER maintenance_meta_update AFTER UPDATE ON maintenance_meta FOR EACH ROW
+WHEN OLD.updated_at = NEW.updated_at
 BEGIN
 	UPDATE maintenance_meta SET updated_at = CURRENT_TIMESTAMP
-		WHERE maintenance_id = NEW.maintenance_id;
+		WHERE id = NEW.id;
 END;
 
 -- Cache tables
@@ -54,7 +54,7 @@ END;-- --
 
 -- Change only update period when TTL is empty
 CREATE TRIGGER cache_after_update AFTER UPDATE ON caches FOR EACH ROW 
-WHEN NEW.updated < OLD.updated AND NEW.ttl = 0
+WHEN NEW.updated = OLD.updated AND NEW.ttl = 0
 BEGIN
 	UPDATE caches SET updated = CURRENT_TIMESTAMP 
 		WHERE rowid = NEW.rowid;
@@ -62,7 +62,7 @@ END;-- --
 
 -- Change expiration period when TTL exists
 CREATE TRIGGER cache_after_update_ttl AFTER UPDATE ON caches FOR EACH ROW 
-WHEN NEW.updated < OLD.updated AND NEW.ttl <> 0
+WHEN NEW.updated = OLD.updated AND NEW.ttl <> 0
 BEGIN
 	-- Change expiration
 	UPDATE caches SET updated = CURRENT_TIMESTAMP, 
