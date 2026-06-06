@@ -4866,7 +4866,7 @@ function response_json( array $data, int $status = 200, array $headers = [] ) : 
 	exit;
 }
 
-function response_text( string $text, int $status = 200, array $headers = []) : void {
+function response_text( string $text, int $status = 200, array $headers = [] ) : void {
 	$headers['Content-Type'] ??= 'text/plain; charset=UTF-8';
 	response( $status, $headers, $text );
 	exit;
@@ -8136,7 +8136,7 @@ function hook( array $params ) {
  *  @param string	$default	Fallback content
  *  @return string
  */
-function hookStringResult( string $event, string $default = '' ) : string {
+function hook_string( string $event, string $default = '' ) : string {
 	$sent	= hook( [ $event, '' ] );
 	return 
 	( !empty( $sent ) && \is_string( $sent ) ) ? $sent : $default;
@@ -8149,7 +8149,7 @@ function hookStringResult( string $event, string $default = '' ) : string {
  *  @param array	$default	Fallback content
  *  @return array
  */
-function hookArrayResult( string $event, array $default = [] ) : array {
+function hook_array( string $event, array $default = [] ) : array {
 	$sent	= hook( [ $event, '' ] );
 	return 
 	( !empty( $sent ) && \is_array( $sent ) ) ? $sent : $default;
@@ -8162,8 +8162,8 @@ function hookArrayResult( string $event, array $default = [] ) : array {
  *  @param string	$default	Fallback html content
  *  @return string
  */
-function hookHTML( string $event, string $default = '' ) : string {
-	return hookArrayResult( $event )['html'] ?? $default;
+function hook_html( string $event, string $default = '' ) : string {
+	return hook_array( $event )['html'] ?? $default;
 }
 
 /**
@@ -8175,7 +8175,7 @@ function hookHTML( string $event, string $default = '' ) : string {
  *  @param bool		$full		Render full regions
  *  @return string
  */
-function hookTemplateRender( 
+function hook_template_render( 
 	string	$event, 
 	string	$default,
 	array	$input,
@@ -8183,8 +8183,8 @@ function hookTemplateRender(
 ) : string {
 	return 
 	template_render( 
-		hookArrayResult( $event )['template'] ?? 
-		hookStringResult( $event, $default ), $input, $full
+		hook_array( $event )['template'] ?? 
+		hook_string( $event, $default ), $input, $full
 	);
 }
 
@@ -8198,7 +8198,7 @@ function hookTemplateRender(
  *  @param bool		$full		Render full regions
  *  @return string
  */
-function hookWrap( 
+function hook_wrap( 
 	string		$before, 
 	string		$after, 
 	string		$tpl		= '', 
@@ -8211,8 +8211,8 @@ function hookWrap(
 	] ] );
 	
 	// Prepend any HTML output and render the new ( or old ) template
-	$html	= hookHTML( $before ) . 
-			hookTemplateRender( $before, $tpl, $input, $full );
+	$html	= hook_html( $before ) . 
+			hook_template_render( $before, $tpl, $input, $full );
 	
 	// Call "after" event hook
 	hook( [ $after, [ 
@@ -8224,7 +8224,7 @@ function hookWrap(
 	] ] );
 	
 	// Send any replaced HTML or already rendered HTML
-	return hookHTML( $after, $html );
+	return hook_html( $after, $html );
 }
 
 
@@ -9983,6 +9983,7 @@ function archive_title_from_params( array $params ) : string {
 	};
 }
 
+
 /**
  *  Main Bare plugin
  */
@@ -10494,7 +10495,7 @@ function navHome() : string {
 	
 	$url	= pageRoutePath();
 	hook( [ 'homelink', [ 'url' => $url ] ] );
-	$html	= hookHTML( 'homelink' );
+	$html	= hook_html( 'homelink' );
 	if ( !empty( $html ) ) {
 		$home = $html;
 		return $html;
@@ -10530,7 +10531,7 @@ function paginate( int $page, string $prefix, array $posts ) : string {
 		'type'		=> 'nextprev'
 	] ] );
 	
-	$html	= hookHTML( 'paginate' );
+	$html	= hook_html( 'paginate' );
 	if ( !empty( $html ) ) {
 		return $html;
 	}
@@ -10625,7 +10626,7 @@ function loadClasses() : array {
 	hook( [ 'loadcssclasses', [ 'classes' => $cls ] ] );
 	
 	// Intercept extra classes and/or existing class replacements
-	$sent	= hookArrayResult( 'loadcssclasses' )['classes'] ?? [];
+	$sent	= hook_array( 'loadcssclasses' )['classes'] ?? [];
 	if ( !empty( $sent ) ) {
 		$cls	= \array_merge( $cls, $sent );
 	}
@@ -10669,7 +10670,7 @@ function rsettings( string $area, array $modify = [] ) : array {
 				// Merge plugin stylesheets
 				hook( [ 'stylesloaded', [ 'styles' => $s ] ] );
 				$store['styles'] = 
-				hookArrayResult( 'stylesloaded' )['styles'] ?? $s;
+				hook_array( 'stylesloaded' )['styles'] ?? $s;
 				
 				break;
 				
@@ -10686,7 +10687,7 @@ function rsettings( string $area, array $modify = [] ) : array {
 				// Merge plugin script files
 				hook( [ 'scriptsloaded', [ 'scripts' => $s ] ] );
 				$store['scripts'] = 
-				hookArrayResult( 'scriptsloaded' )['scripts'] ?? $s;
+				hook_array( 'scriptsloaded' )['scripts'] ?? $s;
 				
 				break;
 			
@@ -10700,7 +10701,7 @@ function rsettings( string $area, array $modify = [] ) : array {
 				// Merge plugin meta tags
 				hook( [ 'metaloaded', [ 'meta' => $meta ] ] );
 				$store['meta'] = 
-				hookArrayResult( 'metaloaded' )['meta'] ?? $meta;
+				hook_array( 'metaloaded' )['meta'] ?? $meta;
 				
 				break;
 			
@@ -10957,7 +10958,7 @@ function render(
 		'placeholders'	=> $out 
 	] ] );
 	
-	$out	= hookArrayResult( 'templaterender', $out );
+	$out	= hook_array( 'templaterender', $out );
 	
 	// Parse appended
 	$tpl		= parseLang( \strtr( $cache[$key], $out ) );
@@ -11972,7 +11973,7 @@ function getHost() : string {
 	] ] );
 	
 	// Override if sent by plugin
-	$host	= hookStringResult( 'gethost', $host );
+	$host	= hook_string( 'gethost', $host );
 	return $host;
 }
 
@@ -12122,7 +12123,7 @@ function sendError( int $code, $body ) {
 	] ] );
 	
 	// Handle custom errors
-	$html	= hookHTML( 'errorcodesend' );
+	$html	= hook_html( 'errorcodesend' );
 	
 	// Send custom errors
 	if ( !empty( $html ) ) {
@@ -13199,8 +13200,8 @@ function extractSummary( array $find ) : string {
 		value		: $find['all'] ?? '', 
 		use_fmt		: true,
 		prefix		: pageRoutePath(),
-		override	: hookArrayResult( 'markdownfilter' )['filters'] ?? null,
-		custom		: hookArrayResult( 'hostedembeds', [] )['hosted'] ?? null
+		override	: hook_array( 'markdownfilter' )['filters'] ?? null,
+		custom		: hook_array( 'hostedembeds', [] )['hosted'] ?? null
 	);
 }
 
@@ -13302,7 +13303,7 @@ function initPostFeatures( array $post ) : array {
 	
 	// Intercept feature extras
 	$sent	= 
-	hookArrayResult( 'postfeatureinit' )['features'] ?? [];
+	hook_array( 'postfeatureinit' )['features'] ?? [];
 	
 	return empty( $sent ) ? 
 		$features : \array_merge( $features, $sent );
@@ -13330,7 +13331,7 @@ function postFeatures( array &$post, int $flines ) : array {
 	] ] );
 	
 	// Intercept feature extraction, if available
-	$sent	= hookArrayResult( 'postfeatures' );
+	$sent	= hook_array( 'postfeatures' );
 	if ( !empty( $sent ) ) {
 		return $sent;
 	}
@@ -13792,7 +13793,7 @@ function formatTags( array $tags, bool $index = false ) : string {
 		'tags'	=> $tags,
 		'index'	=> $index
 	] ] );
-	$html	= hookHTML( 'formattags' );
+	$html	= hook_html( 'formattags' );
 	if ( !empty( $html ) ) {
 		return $html;
 	}
@@ -13836,7 +13837,7 @@ function hasReadTime( string $type ) : bool {
 		hook( [ 'hasreadtime', [ 'types' => $default ] ] );
 		
 		$rtypes		= 
-		hookArrayResult( 'hasreadtime' )['types'] ?? $default;
+		hook_array( 'hasreadtime' )['types'] ?? $default;
 	}
 	
 	return \in_array( $type, $rtypes, true );
@@ -13880,7 +13881,7 @@ function formatMeta(
 		'custom'	=> $custom
 	] ] );
 	
-	$sent	= hookArrayResult( 'formatmeta' );
+	$sent	= hook_array( 'formatmeta' );
 	if (  !empty( $sent ) ) {
 		return $sent;
 	}
@@ -13892,7 +13893,7 @@ function formatMeta(
 	// Format read time, if appropriate
 	$read	= 
 	hasReadTime( $type ) ? 
-		hookWrap( 
+		hook_wrap( 
 			'beforereadtime',
 			'afterreadtime',
 			template( 'tpl_read_time' ), 
@@ -13901,11 +13902,11 @@ function formatMeta(
 	hook( [ 'formatreadtime',	[ 'read'	=> $read ] ] );
 	
 	return [
-		'title'		=> hookStringResult( 'formattitle', $title ),
+		'title'		=> hook_string( 'formattitle', $title ),
 		'date_utc'	=> $pub,
 		'date_rfc'	=> util_rfc_date( $pub ),
-		'date_stamp'	=> hookStringResult( 'formatpublished', dateNice( $pub ) ),
-		'read_time'	=> hookStringResult( 'formatreadtime', $read ),
+		'date_stamp'	=> hook_string( 'formatpublished', dateNice( $pub ) ),
+		'read_time'	=> hook_string( 'formatreadtime', $read ),
 		'tags'		=> formatTags( $tags, $index ),
 		'permalink'	=> 
 		request_origin() . dateSlug( \basename( $path ), $pub )
@@ -13970,8 +13971,8 @@ function formatPost(
 		value		: \implode( "\n", $post ), 
 		prefix		: pageRoutePath(),
 		use_fmt		: true,
-		override	: hookArrayResult( 'markdownfilter' )['filters'] ?? null,
-		custom		: hookArrayResult( 'hostedembeds', [] )['hosted'] ?? null
+		override	: hook_array( 'markdownfilter' )['filters'] ?? null,
+		custom		: hook_array( 'hostedembeds', [] )['hosted'] ?? null
 	);
 	
 	// Calculate read time, if appropriate, from formatted body
@@ -13999,7 +14000,7 @@ function formatPost(
 		'custom'	=> $custom	// Custom post type
 	] ] ) ;
 	
-	$html	= hookHTML( 'formatpost' );
+	$html	= hook_html( 'formatpost' );
 	
 	// If the hook rendered this post, send it back
 	if ( !empty( $html ) ) {
@@ -14170,7 +14171,7 @@ function formatIndex(
 	$links		= config( 'main_links', [], 'json' );
 	$mlinks		= setting( 'default_main_links', $links );
 	$heading	= 
-	hookWrap( 
+	hook_wrap( 
 		'beforepostindexheading',
 		'afterpostindexheading',
 		template( 'tpl_page_heading' ), [
@@ -14212,7 +14213,7 @@ function formatIndex(
 	$tpl['body_after']	.= pageFooter();
 	
 	$page_t	= 
-	hookWrap( 
+	hook_wrap( 
 		'beforepostindex',
 		'afterpostindex',
 		template( 'tpl_full_page'), 
@@ -14509,7 +14510,7 @@ function searchData( string $find ) : string {
 function searchForm() : string {
 	// Send search form hook output
 	return
-	hookWrap( 
+	hook_wrap( 
 		'beforesearchform',
 		'afterearchform',
 		genForm( 'search', [ 'session' => 'none' ] ), 
@@ -14585,12 +14586,12 @@ function previewLink(
 	
 	// Return hook result as array if not rendering
 	if ( $nr ) {
-		$out	= hookArrayResult( 'previewlink' );
+		$out	= hook_array( 'previewlink' );
 		if ( !empty( $out ) ) {
 			return $out;
 		}
 	}  else {
-		$out	= hookHTML( 'previewlink' );
+		$out	= hook_html( 'previewlink' );
 		if ( !empty( $out ) ) {
 			return $out;
 		}
@@ -14644,7 +14645,7 @@ function getSiblings( string $path ) : string {
 		'path'	=> $path
 	] ] );
 	
-	$out	= hookHTML( 'getsiblings' );
+	$out	= hook_html( 'getsiblings' );
 	if ( !empty( $out ) ) {
 		return $out;
 	}
@@ -14724,7 +14725,7 @@ function getCommonWords( array $lines, bool $as_array = true ) {
 		
 		// Send to hook for additional stop words
 		hook( [ 'stopwords', [ 'words' => $stop ] ] );
-		$stop	= hookArrayResult( 'stopwords' )['words'] ?? $stop;
+		$stop	= hook_array( 'stopwords' )['words'] ?? $stop;
 		
 	}
 	
@@ -14817,7 +14818,7 @@ function getRelated( string $path ) : string {
 		'limit'		=> $rlimit
 	] ] );
 	
-	$html	= hookHTML( 'getrelated' );
+	$html	= hook_html( 'getrelated' );
 	if ( !empty( $html ) ) {
 		return $html;
 	}
@@ -14917,7 +14918,7 @@ function staticPage(
 	// Assemble page components
 	$slinks	= setting( 'default_' . $label . '_links', $links );
 	$heading = 
-	hookWrap( 
+	hook_wrap( 
 		'before' . $label . 'heading',
 		'after' . $label . 'heading',
 		template( 'tpl_' . $label . '_heading' ), [
@@ -14934,7 +14935,7 @@ function staticPage(
 	);
 	
 	$page_t	= 
-	hookWrap( 
+	hook_wrap( 
 		'before' . $label . 'page',
 		'after' . $label . 'page',
 		template( 'tpl_' . $label . '_page' ) , [
@@ -15305,7 +15306,7 @@ function showPost( string $event, array $hook, array $params ) {
 	$links		= config( 'main_links', [], 'json' );
 	$mlinks		= setting( 'default_main_links', $links );
 	$heading	= 
-	hookWrap( 
+	hook_wrap( 
 		'beforepostpageheading',
 		'afterpostpageheading',
 		template( 'tpl_page_heading' ), [
@@ -15322,7 +15323,7 @@ function showPost( string $event, array $hook, array $params ) {
 	);
 	
 	$page_t	= 
-	hookWrap( 
+	hook_wrap( 
 		'beforepostpage',
 		'afterpostpage',
 		template( 'tpl_full_page' ), [
@@ -15385,7 +15386,7 @@ function runIndex( string $event, array $hook, array $params ) {
 		if ( empty( $d ) && \is_numeric( $e ) ) {
 			$d	= $e;
 			$out	.= 
-			hookWrap(
+			hook_wrap(
 				'beforepostitemheading',
 				'beforepostitemheading',
 				template( 'tpl_index_header' ), 
@@ -15397,7 +15398,7 @@ function runIndex( string $event, array $hook, array $params ) {
 		if ( is_array( $v ) ) {
 			foreach( $v as $p ) {
 				$pf		= 
-				hookWrap(
+				hook_wrap(
 					'beforepostitem', 
 					'afterpostitem', 
 					template( 'tpl_index' ), 
@@ -15410,7 +15411,7 @@ function runIndex( string $event, array $hook, array $params ) {
 	}
 	
 	$out	= 
-	hookWrap( 
+	hook_wrap( 
 		'beforepostindex', 
 		'afterpostindex', 
 		template( 'tpl_index_wrap' ), 
@@ -15420,7 +15421,7 @@ function runIndex( string $event, array $hook, array $params ) {
 	$links		= config( 'main_links', [], 'json' );
 	$mlinks		= setting( 'default_main_links', $links );
 	$heading	= 
-	hookWrap( 
+	hook_wrap( 
 		'beforearchiveheading',
 		'afterarchiveheading',
 		template( 'tpl_page_heading' ), [
@@ -15439,7 +15440,7 @@ function runIndex( string $event, array $hook, array $params ) {
 	$pages	= ( count( $plist ) < $ilimit ) ? 
 			'' : paginate( $page, $prefix, $plist );
 	$page_t	= 
-	hookWrap( 
+	hook_wrap( 
 		'beforearchiveindex',
 		'afterarchiveindex',
 		template( 'tpl_full_page' ), [
