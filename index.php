@@ -3094,7 +3094,7 @@ function storage_write_file( string $path, string $data ) : bool {
 	
 	// Move temp to permanent location
 	if ( !\rename( $tmp_file, $path ) ) {
-		if ( !\copy($tmp_file, $path) || !\unlink($tmp_file)) {
+		if ( !\copy( $tmp_file, $path ) || !\unlink( $tmp_file ) ) {
 			storage_release_lock( $lock_handle, $lock_file );
 			\error_log( "Failed to replace '{$path}' with '{$tmp_file}' by {$id}" );
 			
@@ -3106,6 +3106,51 @@ function storage_write_file( string $path, string $data ) : bool {
 	storage_release_lock( $lock_handle, $lock_file );
 	storage_temp_cleanup( $path );
 	return true;
+}
+
+/**
+ *  Rename if a file by that name already exists in destination
+ *  
+ *  @param string	$path	Original file name
+ */
+function storage_dup_rename( string $path ) : string {
+	$info	= \pathinfo( $path );
+	$ext	= sanitize_filename( $info['extension'] ?? '' );
+	$name	= sanitize_filename( $info['filename'] );
+	$dir	= $info['dirname'];
+	$file	= $path;
+	$i	= 0;
+	
+	while ( \file_exists( $file ) ) {
+		$file = util_slash_path( $dir, true ) . 
+			$name . '_' . $i++ . 
+			\rtrim( '.' . $ext, '.' );
+	}
+	
+	return $file;
+}
+
+/**
+ *  Given a compelete file path, prefix a term to the filename and 
+ *  return a unique file name path
+ *  
+ *  @param string	$path		Original file path
+ *  @param string	$prefix		Path prepend fragment
+ *  @param bool		$overwrite	Prevent duplicates by overwriting file path
+ *  @return string
+ */
+function storage_prefix_path(
+	string	$path, 
+	string	$prefix, 
+	bool	$overwrite	= false 
+) : string {
+	$fname	= 
+	rtrim( \dirname( $path ), \DIRECTORY_SEPARATOR ) . 
+		\DIRECTORY_SEPARATOR . 
+		$prefix . \basename( $path );
+	
+	// Avoid duplicates?
+	return $overwrite ? $fname : storage_dup_rename( $fname );
 }
 
 
@@ -9656,12 +9701,18 @@ function startup() : void {
 	if ( !$initialized ) {
 		\date_default_timezone_set( 'UTC' );
 		\ignore_user_abort( true );
+		
 		\set_exception_handler( 'error_handle' );
 		\set_error_handler( function ( $severity, $message, $file, $line ) {
 			throw new
 			\ErrorException( $message, 0, $severity, $file, $line );
 		} );
+		
 		init_startup_log();
+		
+		// Higher level shutdown functions
+		\register_shutdown_function( 'shutdown' );
+		
 		sess_init();
 		$initialized = true;
 	}
@@ -10011,36 +10062,6 @@ function visitorError( int $code = 0, string $msg = '-' ) {
 }
 
 /**
- *  Visitor disconnect event helper
- */
-function visitorAbort() {
-	response_end_buffers( true );
-	if ( !\headers_sent() ) {
-		response_status( 205 );
-		die();
-	}
-	visitorError( 499, 'Client disconnect' );
-	die();
-}
-
-/**
- *  Exception recording helper
- *  
- *  @param Exception	$e	Thrown error
- *  @param string	$msg	Optional override of default error format
- */
-function logException( \Exception $e, ?string $msg = null ) {
-	$msg	??= 'Error: {msg} File: {file} Line: {line}';
-	$err	= 
-	\strtr( $msg, [
-		'{msg}'		=> $e->getMessage(),
-		'{file}'	=> $e->getFile(),
-		'{line}'	=> $e->getLine()
-	] );
-	shutdown( 'logError', $err );
-}
-
-/**
  *  Helper to turn items (one per line) into a unique value array
  *  
  *  @param string	$text	Lined settings (one per line)
@@ -10084,21 +10105,6 @@ function linePresets(
 	$prs[$label]	= lineSettings( $data, $lim );
 	
 	return $prs[$label];
-}
-
-/**
- *  Filter file extension
- *  
- *  @param string	$ext		Raw file extension or empty
- *  @return string
- */
-function filterExt( ?string $ext ) : string {
-	return 
-	empty( $ext ) ? '' : 
-	\preg_replace( 
-		'/[[:space:]]+/', 
-		sanitize_bland( title( $ext ), true ), '' 
-	);
 }
 
 /**
@@ -10263,39 +10269,6 @@ function loadText( $raw, bool $fl = true, bool $skip = false ) {
 	\reset( $data );
 	$loaded[$key]	= $data;
 	return $data;
-}
-
-/**
- *  File saving helper with auto backup
- *  
- *  @param string	$name		Destination file name
- *  @param string	$data		File contents
- *  @param int		$fx		Prefix 'bkp.', suffix '.bkp', or nothing
- *  @param bool		$append		Append to file instead of replacing it
- */
-function saveFile( 
-	string	$name, 
-	string	$data, 
-	int	$fx		= 0,
-	bool	$append		= false
-) : bool {
-	$file = \CACHE . $name;
-	
-	// Backup failed? Don't overwrite
-	if ( !backupFile( $file, true, 'bkp', $fx ) ) {
-		return false;
-	}
-	
-	if ( $append ) {
-		return 
-		( false === \file_put_contents( 
-			$file, $data, \FILE_APPEND | \LOCK_EX 
-		) ) ? false : true;
-	}
-	
-	return 
-	( false === \file_put_contents( $file, $data, \LOCK_EX ) ) ? 
-		false : true;
 }
 
 /**
@@ -12721,51 +12694,6 @@ function filterDir( $path, ?string $root = null ) {
 	}
 	$path	= \substr( $path, $pos + $lp );
 	return \trim( $path ?? '' );
-}
-
-/**
- *  Rename if a file by that name already exists in destination
- *  
- *  @param string	$path	Original file name
- */
-function dupRename( string $path ) : string {
-	$info	= \pathinfo( $path );
-	$ext	= filterExt( $info['extension'] ?? '' );
-	$name	= $info['filename'];
-	$dir	= $info['dirname'];
-	$file	= $path;
-	$i	= 0;
-	
-	while ( \file_exists( $file ) ) {
-		$file = util_slash_path( $dir, true ) . 
-			$name . '_' . $i++ . 
-			\rtrim( '.' . $ext, '.' );
-	}
-	
-	return $file;
-}
-
-/**
- *  Given a compelete file path, prefix a term to the filename and 
- *  return a unique file name path
- *  
- *  @param string	$path		Original file path
- *  @param string	$prefix		Path prepend fragment
- *  @param bool		$overwrite	Prevent duplicates by overwriting file path
- *  @return string
- */
-function prefixPath(
-	string	$path, 
-	string	$prefix, 
-	bool	$overwrite	= false 
-) : string {
-	$fname	= 
-	rtrim( \dirname( $path ), \DIRECTORY_SEPARATOR ) . 
-		\DIRECTORY_SEPARATOR . 
-		$prefix . \basename( $path );
-	
-	// Avoid duplicates?
-	return $overwrite ? $fname : dupRename( $fname );
 }
 
 /**
