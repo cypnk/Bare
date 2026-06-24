@@ -20,7 +20,7 @@ define( 'PATH',		\realpath( \dirname( __FILE__ ) ) . '/' );
 // Cache directory. Must be writable (chmod -R 0755 on *nix)
 define( 'STORAGE_DIR',	PATH . 'cache/' );
 // Use this instead if you keep the cache outside the web root
-// define( 'CACHE',	\realpath( \dirname( __FILE__, 2 ) ) . '/cache/' );
+// define( 'STORAGE_DIR',	\realpath( \dirname( __FILE__, 2 ) ) . '/cache/' );
 
 // Plugins directory
 define( 'PLUGIN_DIR',	PATH . 'plugins/' );
@@ -52,6 +52,21 @@ define( 'DEFAULT_PAGE_TITLE',	'My Site' );
 define( 'DEFAULT_PAGE_SUB',	'A Nice Place' );
 define( 'DEFAULT_LANGUAGE',	'en-US' );
 define( 'DEFAULT_TIMEZONE',	'America\/New_York' );
+
+/**
+ *  Messages
+ */
+define( 'MSG_NOTFOUND',		'Page not found' );
+define( 'MSG_NOROUTE',		'No route defined' );
+define( 'MSG_BADMETHOD',	'Method not allowed' );
+define( 'MSG_NOMETHOD',		'Method not implemented' );
+define( 'MSG_GENERIC',		'An error has occured' );
+define( 'MSG_DENIED',		'Access denied' );
+define( 'MSG_INVALID',		'Invalid request' );
+define( 'MSG_CODEDETECT',	'Server-side code detected' );
+define( 'MSG_EXPIRED',		'This form has expired' );
+define( 'MSG_TOOMANY',		'Too many requests' );
+define( 'MSG_FILERANGE',	'Invalid file range requested' );
 
 
 /**
@@ -676,259 +691,10 @@ HTML
 ); // End of templates
 
 
-/**
- *  Overridable CSS classes on HTML elements and content segments
- *  These can also be set in config.json
- */
-define( 'DEFAULT_CLASSES', <<<JSON
-{
-	"body_classes"			: "",
-	
-	"heading_classes"		: "",
-	"heading_wrap_classes"		: "content", 
-	"heading_h_classes"		: "",
-	"heading_a_classes"		: "",
-	"tagline_classes"		: "",
-	"items_wrap_classes"		: "content", 
-	"no_posts_wrap"			: "content",
-	
-	"main_nav_classes"		: "main",
-	"main_ul_classes"		: "", 
-	
-	"pagination_wrap_classes"	: "content", 
-	"list_wrap_classes"		: "content", 
-	
-	"home_classes"			: "content",
-	"home_wrap_classes"			: "",
-	"about_classes"			: "content",
-	"about_wrap_classes"		: "",
-	
-	"post_index_wrap_classes"	: "content",
-	"post_index_ul_wrap_classes"	: "index",
-	"post_index_header_classes"	: "",
-	"post_index_header_h_classes"	: "",
-	"post_index_item_classes"	: "",
-	
-	"post_classes"			: "",
-	"post_wrap_classes"		: "",
-	"post_heading_classes"		: "",
-	"post_heading_h_classes"	: "",
-	"post_heading_a_classes"	: "",
-	"post_heading_wrap_classes"	: "content",
-	"post_body_wrap_classes"	: "content",
-	"post_body_content_classes"	: "",
-	"post_body_tag_classes"		: "",
-	"post_pub_classes"		: "",
-	
-	"post_idx_classes"		: "",
-	"post_idx_wrap_classes"		: "",
-	"post_idx_heading_classes"	: "",
-	"post_idx_heading_h_classes"	: "",
-	"post_idx_heading_a_classes"	: "",
-	"post_idx_heading_wrap_classes"	: "content",
-	"post_idx_body_wrap_classes"	: "content",
-	"post_idx_body_content_classes"	: "",
-	"post_idx_body_tag_classes"	: "",
-	"post_idx_pub_classes"		: "",
-	
-	"footer_classes"		: "",
-	"footer_wrap_classes"		: "content", 
-	"footer_nav_classes"		: "",
-	"footer_ul_classes"		: "",
-	
-	"crumb_classes"			: "",
-	"crumb_wrap_classes"		: "",
-	"crumb_sub_classes"		: "",
-	"crumb_sub_wrap_classes"	: "",
-	
-	"crumb_item_classes"		: "",
-	"crumb_link_classes"		: "",
-	"crumb_current_classes"		: "",
-	"crumb_current_item"		: "",
-	"pagination_classes"		: "",
-	"pagination_ul_classes"		: "",
-	
-	"nav_link_classes"		: "",
-	"nav_link_a_classes"		: "",
-	
-	"list_classes"			: "related",
-	"list_h_classes"		: "",
-	
-	"tag_wrap_classes"		: "tags",
-	"tag_heading_classes"		: "",
-	"tag_index_wrap_classes"	: "tags",
-	"tag_index_heading_classes"	: "",
-	"tag_ul_classes"		: "tags",
-	"tag_item_classes"		: "",
-	"tag_item_a_classes"		: "",
-	"tag_index_item_classes"	: "",
-	"tag_index_item_a_classes"	: "",
-	
-	"sibling_wrap_classes"		: "content",
-	"sibling_nav_classes"		: "siblings",
-	"sibling_nav_ul_classes"	: "",
-	
-	"related_wrap_classes"		: "content",
-	"related_h_classes"		: "",
-	"related_nav_classes"		: "related",
-	"related_ul_classes"		: "related",
-	
-	"nextprev_wrap_classes"		: "content", 
-	"nextprev_nav_classes"		: "siblings",
-	"nextprev_ul_classes"		: "",
-	"nextprev_next_classes"		: "",
-	"nextprev_next_a_classes"	: "",
-	"nextprev_prev_classes"		: "",
-	"nextprev_prev_a_classes"	: "",
-	
-	"nav_home_link_classes"		: "",
-	"nav_home_link_a_classes"	: "",
-	
-	"nav_current_classes"		: "",
-	"nav_current_s_classes"		: "",
-	"nav_prev_classes"		: "",
-	"nav_prev_a_classes"		: "",
-	"nav_noprev_classes"		: "",
-	"nav_noprev_s_classes"		: "",
-	"nav_next_classes"		: "",
-	"nav_next_a_classes"		: "",
-	"nav_nonext_classes"		: "",
-	"nav_nonext_s_classes"		: "",
-	
-	"nav_first1_classes"		: "",
-	"nav_first1_a_classes"		: "",
-	"nav_first2_classes"		: "",
-	"nav_first2_a_classes"		: "",
-	"nav_first_s_classes"		: "",
-	
-	"nav_last_s_classes"		: "",
-	"nav_last1_classes"		: "",
-	"nav_last1_a_classes"		: "",
-	"nav_last2_classes"		: "",
-	"nav_last2_a_classes"		: "",
-	
-	"code_wrap_classes"		: "",
-	"code_classes"			: "",
-	
-	"footnote_nav_classes"		: "footnotes",
-	"footnote_ul_classes"		: "",
-	"footnote_phrase_classes"	: "",
-	"footnote_s_classes"		: "",
-	"footnote_a_classes"		: "",
-	"footnote_ba_classes"		: "",
-	"footnote_def_classes"		: "",
-	
-	"form_classes"			: "",
-	"fieldset_classes"		: "",
-	"search_form_classes"		: "",
-	"search_form_wrap_classes"	: "",
-	"search_fieldset_classes"	: "",
-	"field_wrap"			: "",
-	"button_wrap"			: "",
-	"label_classes"			: "",
-	"special_classes"		: "",
-	"input_classes"			: "",
-	"desc_classes"			: "",
-	"search_input_classes"		: "",
-	"search_button_classes"		: "",
-	
-	"submit_classes"		: "",
-	"alt_classes"			: "",
-	"warn_classes"			: "",
-	"action_classes"		: "", 
-	
-	"table_classes"			: "",
-	"table_header_classes"		: "",
-	"table_body_classes"		: "",
-	"table_footer_classes"		: "",
-	"table_row_classes"		: "",
-	"table_row_odd_classes"		: "",
-	"table_row_even_classes"	: "",
-	"table_th_classes"		: "",
-	"table_td_classes"		: ""
-}
-JSON
-);
-
-
-// Meta, script, and stylesheet tag templates
-define( 'TPL_META_TAG',	'<meta name="{name}" content="{content}">' );
-define( 'TPL_SCRIPT_TAG', '<script src="{url}"></script>' );
-define( 'TPL_SCRIPT_NONCE_TAG', '<script src="{url}" nonce="{nonce}"></script>' );
-define( 'TPL_STYLE_TAG', '<link rel="stylesheet" href="{url}">' );
-
-
-/**
- *  URL validation regular expressions
- */
-define(
-	'RX_URL', 
-	'~^(http|ftp)(s)?\:\/\/((([\pL\pN\-]{1,25})(\.)?){2,9})($|\/.*$){4,255}$~i'
-);
-define( 'RX_XSS2',		'/(<(s(?:cript|tyle)).*?)/ism' );
-define( 'RX_XSS3',		'/(document\.|window\.|eval\(|\(\))/ism' );
-define( 'RX_XSS4',		'/(\\~\/|\.\.|\\\\|\-\-)/sm' );
-
-
-// URL routing placeholders
-define( 'ROUTE_MARK',	<<<JSON
-{
-	"*"	: "(?<all>.+)",
-	":id"	: "(?<id>[1-9][0-9]*)",
-	":page"	: "(?<page>[1-9][0-9]*)",
-	":label": "(?<label>[\\\\pL\\\\pN\\\\s_\\\\-]{1,30})",
-	":nonce": "(?<nonce>[a-z0-9]{10,30})",
-	":token": "(?<token>[a-z0-9\\\\+\\\\=\\\\-\\\\%]{10,255})",
-	":meta"	: "(?<meta>[a-z0-9\\\\+\\\\=\\\\-\\\\%]{7,255})",
-	":tag"	: "(?<tag>[\\\\pL\\\\pN\\\\s_\\\\,\\\\-]{1,30})",
-	":tags"	: "(?<tags>[\\\\pL\\\\pN\\\\s_\\\\,\\\\-]{1,255})",
-	":year"	: "(?<year>[2][0-9]{3})",
-	":month": "(?<month>[0-3][0-9]{1})",
-	":day"	: "(?<day>[0-9][0-9]{1})",
-	":slug"	: "(?<slug>[\\\\pL\\\\-\\\\d]{1,100})",
-	":tree"	: "(?<tree>[\\\\pL\\\\/\\\\-_\\\\d\\\\s]{1,255})",
-	":file"	: "(?<file>[\\\\pL_\\\\-\\\\d\\\\.\\\\s]{1,120})",
-	":find"	: "(?<find>[\\\\pL\\\\pN\\\\s\\\\-_,\\\\.\\\\:\\\\+]{2,255})",
-	":redir": "(?<redir>[a-z_\\\\:\\\\/\\\\-\\\\d\\\\.\\\\s]{1,120})",
-	":lang" : "(?<lang>[a-z]{2,3})(?:-(?<locale>[a-z]{2,8}))?"
-}
-JSON
-);
-
-/**
- *  Messages
- */
-define( 'MSG_NOTFOUND',		'Page not found' );
-define( 'MSG_NOROUTE',		'No route defined' );
-define( 'MSG_BADMETHOD',	'Method not allowed' );
-define( 'MSG_NOMETHOD',		'Method not implemented' );
-define( 'MSG_GENERIC',		'An error has occured' );
-define( 'MSG_DENIED',		'Access denied' );
-define( 'MSG_INVALID',		'Invalid request' );
-define( 'MSG_CODEDETECT',	'Server-side code detected' );
-define( 'MSG_EXPIRED',		'This form has expired' );
-define( 'MSG_TOOMANY',		'Too many requests' );
-define( 'MSG_FILERANGE',	'Invalid file range requested' );
-
-
-
 
 /**********************************************************************
  *                      Caution editing below
  **********************************************************************/
-
-
-
-/**
- *  Environment preparation
- */
-\date_default_timezone_set( 'UTC' );
-\ignore_user_abort( true );
-\register_shutdown_function( 'shutdown' );
-
-
-
-
 
 /**
  *  Errors and messaging
@@ -2756,6 +2522,7 @@ function sanitize_is_safe_ext( string $path, array $groups, string $name = '' ) 
 }
 
 
+
 /**
  *  Storage, reading, and writing
  */
@@ -3481,7 +3248,7 @@ function log_rotate( string $log_file ) : void {
 /**
  *  Core log writer
  *  
- *  @param string	$pair		Log file loaction and message combination
+ *  @param array	$pair		Log file loaction and message combination
  */
 function log_message_write( ?array $pair = null ) : void {
 	static $reg	= false;
@@ -6484,9 +6251,8 @@ function format_paragraphs( $val, $skip_code = false ) {
 	];
 	
 	$out		= \preg_replace_callback_array( $filters, $out );
-	if ( $skipCode ) {
-		return $out;
-	}
+	if ( $skip_code ) { return $out; }
+	
 	$filters	= [
 		// Remove <br>, <p> tags inside <pre> and <code>
 		'#<(pre|code)(.*)?>(.*)<\/\1>#ism'	=>
@@ -7272,7 +7038,7 @@ function format_body(
 	if ( $use_fmt ) {
 		$html		= 
 		format_markdown( 
-			value		: $html, 
+			html		: $html, 
 			prefix		: $prefix, 
 			override	: $override 
 		);
@@ -9608,7 +9374,7 @@ function entry_index( string $dir, int $page, int $limit ) : array {
 /** 
  *  Security policy term separator filter
  *  
- *  @param array	$frag		Fragment separator
+ *  @param string	$frag		Fragment separator
  *  @return string
  */
 function page_security_policy_sep( string $frag = '' ) : string {
@@ -9743,7 +9509,7 @@ function page_preamble( bool $send_csp = true, bool $send_type = true ) : array 
 		$headers['X-XSS-Protection']			= $header;
 	}
 
-	if ( !empty( $header = page_security_policy( 'referer' ) ) ) {
+	if ( !empty( $header = page_security_policy( 'referer', $policy ) ) ) {
 		$headers['X-XSS-Protection']			= $header;
 	}
 	
@@ -9816,30 +9582,34 @@ function page_not_found( bool $no_body = false ) : void {
 }
 
 
+
 /**
  *  Core functionality
  */
 
+
+
 /**
- *  Startup environment logging
+ *  Application initizlization log
  */
-function startup() {
+function init_startup_log() : void {
 	$log = storage_base() . \STARTUP;
 	
 	if ( \file_exists( $log ) ) { return; }
 	
 	// List of required and optional libraries
 	$lib	= [ 
-	'required' => [
-		'libxml_clear_errors'	=> 'libxml',
-		'mime_content_type'	=> 'fileinfo',
-		'mb_strlen'		=> 'mbstring'
-	],
-	'optional' => [ 
-		'normalizer_normalize'	=> 'intl',
-		'imagecreatetruecolor'	=> 'GD',
-		'mail'			=> 'mail'
-	]];
+		'required' => [
+			'libxml_clear_errors'	=> 'libxml',
+			'mime_content_type'	=> 'fileinfo',
+			'mb_strlen'		=> 'mbstring'
+		],
+		'optional' => [ 
+			'normalizer_normalize'	=> 'intl',
+			'imagecreatetruecolor'	=> 'GD',
+			'mail'			=> 'mail'
+		]
+	];
 	
 	// Missing storage
 	$miss	= [ 'required' => [], 'optional' => [] ];
@@ -9855,6 +9625,7 @@ function startup() {
 			$miss['required'][] = $name;
 		}
 	}
+	
 	// Optional libraries
 	foreach ( $lib['optional'] as $f => $name ) {
 		if ( !\function_exists( $f ) ) {
@@ -9877,6 +9648,43 @@ function startup() {
 		
 		log_info( util_truncate( sanitize_spaces( $msg ), 0, 2048 ), $log );
 	}
+}
+
+function startup() : void {
+	static $initialized	= false;
+	
+	if ( !$initialized ) {
+		\date_default_timezone_set( 'UTC' );
+		\ignore_user_abort( true );
+		\set_exception_handler( 'error_handle' );
+		\set_error_handler( function ( $severity, $message, $file, $line ) {
+			throw new
+			\ErrorException( $message, 0, $severity, $file, $line );
+		} );
+		init_startup_log();
+		sess_init();
+		$initialized = true;
+	}
+
+	// Load plugins, if any
+	$dir		= \rtrim( PLUGIN_DIR, '/' ) . '/';
+	if ( \is_dir( $dir ) ) { 
+		$files		= \glob( $dir . '*/plugin.php' );
+		if ( count( $files ) ) { 
+			\sort( $files );
+			
+			foreach ( $files as $plugin ) {
+				require_once $plugin;
+			}
+		}
+	}
+	
+	$functions	= util_functions_list( true );
+	plugin_init();
+	hook_autoload();
+	
+	$routes	= route_resolve();
+	route( $routes, request_uri(), request_method() );
 }
 
 /**
@@ -9988,8 +9796,8 @@ function archive_title_from_params( array $params ) : string {
  *  Main Bare plugin
  */
 #[Plugin(
-	name:		'Bare',
-	priority:	1000
+	name		: 'Bare',
+	priority	: 1000
 )]
 function bare( Plugin $meta ) {
 	$base_dir 	= 
@@ -10003,6 +9811,69 @@ function bare( Plugin $meta ) {
 		$dirs[] = $dir;
 		return $dirs;
 	} ] );
+}
+
+/**
+ *  Handle archive request with pagination
+ *
+ *  @param array	$params		Route parameters
+ */
+#[Route( pattern: '/{year:int}/{month:int}/{day:int}/page{page:int}?', method: 'get' )]
+#[Route( pattern: '/{year:int}/{month:int}/{day:int}', method: 'get' )]
+#[Route( pattern: '/{year:int}/{month:int}/page{page:int}?', method: 'get' )]
+#[Route( pattern: '/{year:int}/{month:int}', method: 'get' )]
+#[Route( pattern: '/{year:int}/page{page:int}?', method: 'get' )]
+#[Route( pattern: '/{year:int}', method: 'get' )]
+function bare_archive( array $params ) {
+	// TODO: Build archive
+	[ $start, $end, $page ]	= util_date_range( $params, true );
+	
+	die( 'Bare archive' );
+}
+
+#[Route( pattern: '/{year:int}/{month:int}/{day:int}/{slug:str}', method: 'get' )]
+function bare_post( array $params ) {
+	// TODO: Read post
+	
+	die( 'Bare post' );
+} 
+
+#[Route( pattern: '/tags/{tag:str}/page{page:int}?', method: 'get' )]
+#[Route( pattern: '/tags/{tag:str}', method: 'get' )]
+function bare_tags( array $params ) {
+	// TODO: Tag search
+
+	die( 'Bare tags' );
+}
+
+#[Route( pattern: '/feed', method: 'get')]
+function bare_feed( array $params ) {
+	// TODO: Search archive
+	
+	die( 'Bare feed' );
+}
+
+#[Route( pattern: '/about/{tree:str}?', method: 'get' )]
+function bare_about( array $params ) {
+	// TODO: About page etc...
+	
+	die( 'Bare about' );
+}
+
+#[Route( pattern: '/?find={find:str}/page{page:int}?', method: 'get')]
+#[Route( pattern: '/?find={find:str}', method: 'get')]
+function bare_search( array $params ) {
+	// TODO: Search archive
+	
+	die( 'Bare search' );
+}
+
+#[Route( pattern: '/page{page:page}?', method: 'get' )]
+#[Route( pattern: '/', method: 'get' )]
+function bare_index( array $params ) {
+	// TODO: Index
+	
+	die( 'Bare index' );
 }
 
 
