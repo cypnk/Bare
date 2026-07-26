@@ -828,7 +828,7 @@ function util_timestamp( string $format = 'Y-m-d H:i:s.u' ) : string {
  *  @return string
  */
 function util_get_id( string $label, bool $use_stamp = true ) : string {
-	$id	= ( string ) ( \getmypid() ?: uniqid() );
+	$id	= ( string ) ( \getmypid() ?: \uniqid() );
 	$stamp	= $use_stamp 
 		? \sprintf( '%.6F', \microtime( true ) ) . '_'
 		: '';
@@ -1000,13 +1000,13 @@ function util_gen_alphanum() {
 /**
  *  Generate globally unique identifier
  *  
- *  @param string	$mode	UUID mode, defaults to sortable v7
+ *  @param string	$mode	UUID mode, defaults to  v4
  *  @return string
  */
 function util_gen_uuid( ?string $mode = null ) : string {
-	$mode	= \strtolower( $mode ?? 'v4' );
+	$mode	??= 'v4';
 	
-	if ( 'v4' == $mode ) {
+	if ( 0 === \strcasecmp( 'v4', $mode ) ) {
 		$data	= \random_bytes( 16 );
 		$data[6]= \chr( ( \ord( $data[6] ) & 0x0f ) | 0x40 );
 		$data[8]= \chr( ( \ord( $data[8] ) & 0x3f ) | 0x80 );
@@ -1039,6 +1039,7 @@ function util_gen_uuid( ?string $mode = null ) : string {
 function util_gen_guid() : string {
 	return util_gen_uuid( 'v4' );
 }
+
 
 /**
  *  Cached timezone list helper
@@ -1085,11 +1086,11 @@ function util_date_is_future( \DateTime $start ) : bool {
 function util_date_range( array $params, bool $limit_now = false ) : array {
 	static $now	= null;
 	
-	$now	??= new \DateTime();
-	$year	= $params['year']	?? null;
-	$month	= $params['month']	?? null;
-	$day	= $params['day']	?? null;
-	$page	= ( int ) ( $params['page'] ?? 1 );
+	$now		??= new \DateTime();
+	$year		= $params['year']	?? null;
+	$month		= $params['month']	?? null;
+	$day		= $params['day']	?? null;
+	$page		= ( int ) ( $params['page'] ?? 1 );
 	
 	if ( null === $year ) { 
 		return [];
@@ -1134,7 +1135,7 @@ function util_date_range( array $params, bool $limit_now = false ) : array {
 			( clone $start )->modify( '+1 year' )
 	};
 	
-	$end = ( $limit_now && $limit > $now ) ? $now : $limit;
+	$end	= ( $limit_now && $limit > $now ) ? $now : $limit;
 	return [ $start, $end, $page ];
 }
 
@@ -1257,13 +1258,9 @@ function util_prefix_replace(
 	
 	// Set {prefix:group:label... } replacements or empty string
 	for( $i = 0; $i < $c; $i++ ) {
-		if ( !isset( $m[1] ) ) {
-			continue;
-		}
+		if ( !isset( $m[1] ) ) { continue; }
+		if ( !isset( $m[1][$i] ) ) { continue; }
 		
-		if ( !isset( $m[1][$i] ) ) {
-			continue;
-		}
 		$rpl['{' . $prefix . $m[1][$i] . '}']	= 
 			$terms[$m[1][$i]] ?? '';
 	}
@@ -1302,7 +1299,7 @@ function util_unique_terms( string $value ) : array {
 	return \array_unique( 
 		\preg_split( 
 			pattern	: '/[[:space:]]+/', 
-			subject	: trim( $value ), 
+			subject	: \trim( $value ), 
 			flags	: \PREG_SPLIT_NO_EMPTY 
 		)
 	);
@@ -1425,9 +1422,7 @@ function util_lib_version( string $spec, ?string $lib ) : bool {
 	}
 	
 	// Currently running extensions
-	if ( empty( $ext ) ) {
-		$ext = \get_loaded_extensions();
-	}
+	$ext	??= \get_loaded_extensions();
 	
 	foreach ( $ext as $e ) {
 		if ( \str_starts_with( $e, $lib ) ) {
@@ -1446,7 +1441,7 @@ function util_lib_version( string $spec, ?string $lib ) : bool {
 }
 
 /**
- *  Suhosin aware checking for function availability
+ *  Checking for function availability
  *  
  *  @param string	$func	Function name
  *  @return bool		True If the function isn't available 
@@ -1455,29 +1450,9 @@ function util_missing( $func ) : bool {
 	static $exts;
 	static $blocked;
 	static $fn	= [];
-	if ( isset( $fn[$func] ) ) {
-		return $fn[$func];
-	}
 	
-	if ( \extension_loaded( 'suhosin' ) ) {
-		if ( !isset( $exts ) ) {
-			$exts = \ini_get( 'suhosin.executor.func.blacklist' );
-		}
-		if ( !empty( $exts ) ) {
-			if ( !isset( $blocked ) ) {
-				$blocked = util_trimmed_list( $exts, true );
-			}
-			
-			$search		= \strtolower( $func );
-			
-			$fn[$func]	= (
-				false	== \function_exists( $func ) && 
-				true	== \array_search( $search, $blocked ) 
-			);
-		}
-	} else {
-		$fn[$func] = !\function_exists( $func );
-	}
+	if ( isset( $fn[$func] ) ) { return $fn[$func]; }
+	$fn[$func] = !\function_exists( $func );
 	
 	return $fn[$func];
 }
@@ -1623,14 +1598,14 @@ function util_text_needle_search( string $find, array $collection ) : bool {
  *  @return array
  */
 function util_split_lines( string $text, int $lim = -1, bool $tr = true ) : array {
-	return $tr ?
-	\preg_split( 
+	return $tr 
+	? \preg_split( 
 		'/\s*\R\s*/', 
 		trim( $text ), 
 		$lim, 
 		\PREG_SPLIT_NO_EMPTY 
-	) : 
-	\preg_split( '/\R/', $text, $lim, \PREG_SPLIT_NO_EMPTY );
+	) 
+	: \preg_split( '/\R/', $text, $lim, \PREG_SPLIT_NO_EMPTY );
 }
 
 /**
@@ -1640,9 +1615,9 @@ function util_split_lines( string $text, int $lim = -1, bool $tr = true ) : arra
  *  @return string
  */
 function util_slash_path( string $path, bool $suffix = false ) : string {
-	return $suffix ?
-		\rtrim( $path, '/\\' ) . '/' : 
-		'/'. \ltrim( $path, '/\\' );
+	return $suffix 
+		? \rtrim( $path, '/\\' ) . '/' 
+		: '/'. \ltrim( $path, '/\\' );
 }
 
 
@@ -1686,11 +1661,9 @@ function sanitize_filter(
 	$html		= \preg_replace( $filters, '', $html );
 	
 	// Convert Unicode character entities?
-	if ( $entities ) {
-		$html	= \htmlentities( $html, \ENT_QUOTES | \ENT_SUBSTITUTE, 'UTF-8' );
-	}
-	
-	return \trim( $html );
+	return $entities 
+		? \htmlentities( \trim( $html ), \ENT_QUOTES | \ENT_SUBSTITUTE, 'UTF-8' )
+		: \trim( $html );
 }
 
 /**
@@ -1765,10 +1738,9 @@ function sanitize_uri( string $raw, ?string $base = null ) : string|null {
 	);
 	$final		= \trim( \implode( '/', $segments ), '/' );
 	
-	if ( $base && !\str_starts_with( $final, $base ) ) {
-		return null;
-	}
-	return $final;
+	return ( $base && !\str_starts_with( $final, $base ) ) 
+		? null
+		: $final;
 }
 
 /**
@@ -1816,8 +1788,7 @@ function sanitize_input_array( string $source, array $filter ) : array {
 		default			=> \INPUT_GET
 	};
 	
-	$data	= \filter_input_array( $dtype, $filter, true );
-	return empty( $data ) ? [] : $data;
+	return \filter_input_array( $dtype, $filter, true ) ?: [];
 }
 
 /**
@@ -1853,17 +1824,15 @@ function sanitize_url( string $text, bool $xss = true ) : string {
 	// Absolute paths?
 	if ( \preg_match( '~^[a-z][a-z0-9+\-.]*://~i', $text ) ) {
 		// Default filter
-		if ( !\filter_var( $text, \FILTER_VALIDATE_URL ) ) {
-			return '';
-		}
-		
-		return sanitize_escape_text( $text, false, false );
+		return ( !\filter_var( $text, \FILTER_VALIDATE_URL ) ) 
+			? ''
+			: sanitize_escape_text( $text, false, false );
 	}
 	
 	$path	= sanitize_uri( $text ) ?? '';
-	if ( null === $path || '' === $path ) { return ''; }
-	
-	return sanitize_escape_text( $path, false, false );
+	return ( null === $path || '' === $path )
+		? '' 
+		: sanitize_escape_text( $path, false, false );
 }
 
 /**
@@ -1941,7 +1910,7 @@ function sanitize_query(
 	}
 	
 	$result_lower = \array_change_key_case( $result, \CASE_LOWER );
-	return $result;
+	return $lower_keys ? $result_lower : $result;
 }
 
 /**
@@ -2440,7 +2409,7 @@ function sanitize_cast_to_string( mixed $value ) : string {
 		}
 		return '';
 	}
-	return ( string ) $value;
+	return \is_array( $value ) ? '' : ( string ) $value;
 }
 
 function sanitize_cast_to_int( mixed $value ) : int {
@@ -2454,8 +2423,8 @@ function sanitize_cast_to_int( mixed $value ) : int {
  *  @return string
  */
 function sanitize_email( string $email ) : string {
-	return 
-	\filter_var( $email, \FILTER_VALIDATE_EMAIL ) ? $email : '';
+	return \filter_var( $email, \FILTER_VALIDATE_EMAIL ) 
+		? $email : '';
 }
 
 /**
@@ -2466,9 +2435,10 @@ function sanitize_email( string $email ) : string {
  *  @return string
  */
 function sanitize_prepend_path( string $v, string $prefix ) : string {
-	$v = trim( $v, '"\'' );
-	return \preg_match( '/^\//', $v ) ?
-		sanitize_url( $prefix . $v ) : sanitize_url( $v );
+	$v	= \trim( $v, '"\'' );
+	return \preg_match( '/^\//', $v ) 
+		? sanitize_url( $prefix . $v ) 
+		: sanitize_url( $v );
 }
 
 /**
@@ -2482,9 +2452,7 @@ function sanitize_prepend_path( string $v, string $prefix ) : string {
  *  @return string 
  */
 function sanitize_normalize( string $text ) : string {
-	if ( util_missing( 'normalizer_normalize' ) ) {
-		return $text;
-	}
+	if ( util_missing( 'normalizer_normalize' ) ) { return $text; }
 	
 	$normal = 
 	\normalizer_normalize( \sanitize_bland( $text ), \Normalizer::FORM_C );
@@ -2504,13 +2472,8 @@ function sanitize_is_safe_ext( string $path, array $groups, string $name = '' ) 
 	static $checked	= [];
 	$key		= $name . $path;
 	
-	if ( isset( $checked[$key] ) ) {
-		return $checked[$key];
-	}
-	
-	if ( !isset( $safe[$name] ) ) {
-		$safe[$name]	= $groups;
-	}
+	if ( isset( $checked[$key] ) ) { return $checked[$key]; }
+	$safe[$name]	??= $groups;
 	
 	$ext		= 
 	\pathinfo( $path, \PATHINFO_EXTENSION ) ?? '';
@@ -2520,7 +2483,6 @@ function sanitize_is_safe_ext( string $path, array $groups, string $name = '' ) 
 	
 	return $checked[$key];
 }
-
 
 
 /**
@@ -2543,7 +2505,7 @@ function storage_options( ?array $new_options = null ) : array {
 		'lock_wait'	=> 10,
 		'lock_stale'	=> 600,
 		'temp_stale'	=> 3600,
-		'writable'	=> [ 'data', 'storage', 'uploads', 'media' ]
+		'writable'	=> [ 'cache', 'data', 'storage', 'uploads', 'media' ]
 	];
 	
 	if( !empty( $new_options ) ) {
@@ -2592,6 +2554,7 @@ function storage_filemtime( string $fpath ) : int {
  *  @return string
  */
 function storage_filemime( string $fpath ) : string {
+	static $finfo;
 	static $text_types = [
 		'txt'	=> 'text/plain',
 		'css'	=> 'text/css',
@@ -2604,7 +2567,6 @@ function storage_filemime( string $fpath ) : string {
 		'csv'	=> 'text/csv',
 		'md'	=> 'text/markdown'
 	];
-	static $finfo;
 	
 	$ext	= \strtolower( \pathinfo( $fpath, \PATHINFO_EXTENSION ) );
 	
@@ -2626,7 +2588,7 @@ function storage_filemime( string $fpath ) : string {
  *  @return resource
  */
 function storage_file_open( string $fpath, string $mode = 'rb' ) {
-	$mode = sanitize_normalize_fmode( $mode );
+	$mode		= sanitize_normalize_fmode( $mode );
 	if ( empty( $mode ) )  {
 		throw new 
 		\InvalidArgumentException( 'Invalid file open mode' );
@@ -2648,9 +2610,7 @@ function storage_file_open( string $fpath, string $mode = 'rb' ) {
  *  @return mixed		String hash on success or false
  */
 function storage_file_hash( string $fpath ) : string|false {
-	if ( !\is_readable( $fpath ) ) {
-		return false;
-	}
+	if ( !\is_readable( $fpath ) ) { return false; }
 	
 	$handle	= @\fopen( $fpath, 'rb' );
 	if ( !$handle ) { return false; }
@@ -2694,7 +2654,8 @@ function storage_dirtype_lock( string $lock_file, int $tries = 3 ) : bool {
 		// Try to acquire lock atomically
 		if ( !\mkdir( $lock_dir ) && !\is_dir( $lock_dir ) ) {
 			$tries--;
-			\time_nanosleep( 0, 100000 );
+			$t = 0; // Silence IDE "positive int" error
+			\time_nanosleep( $t, 100000 );
 			continue;
 		}
 		
@@ -2710,18 +2671,19 @@ function storage_dirtype_lock( string $lock_file, int $tries = 3 ) : bool {
 /**
  *  Obtains an exclusive file lock with retry
  *  
- *  @param resource	$handle		File resource
+ *  @param mixed	$handle		File handle
  *  @param int		$tries		Number of attempts
  *  @return bool			True on success
  */
-function storage_filetype_lock( $handle, int $tries = 3 ) : bool {
+function storage_filetype_lock( &$handle, int $tries = 3 ) : bool {
 	$locked	= false;
 	for ( $i = 0; $i < $tries; $i++ ) {
 		if ( \flock( $handle, \LOCK_EX | \LOCK_NB ) ) {
 			$locked = true;
 			break;
 		}
-		\time_nanosleep( 0, 100000 );
+		$t = 0;
+		\time_nanosleep( $t, 100000 );
 	}
 	
 	return $locked;
@@ -2760,13 +2722,17 @@ function storage_clean_stale_lock(
 /**
  *  Remove directory of filetype lock
  *  
- *  @param resource	$handle		File resource
+ *  @param mixed	$handle		File handle
  *  @param string	$lock_file	File lock path
  */
-function storage_release_lock( $handle, string $lock_file ) : void {
+function storage_release_lock( &$handle, string $lock_file ) : void {
 	$ltype	= storage_options()['lock_type'];
 	if ( 0 === \strcasecmp( 'file', $ltype ) ) {
-		if ( \is_resource( $handle ) || $handle instanceof \SplFileObject ) {
+		if ( null === $handle ) { return; }
+		if ( $handle instanceof \SplFileObject ) {
+			@$handle->flock( \LOCK_UN );
+			$handle = null;
+		} elseif ( \is_resource( $handle ) ) {
 			@\flock( $handle, \LOCK_UN );
 			@\fclose( $handle );
 		}
@@ -2784,11 +2750,9 @@ function storage_release_lock( $handle, string $lock_file ) : void {
  *  @param array	$files		List of file resources
  */
 function storage_close_files( array $files ) : void {
-	foreach( $files as $item ) {
-		if ( 
-			\is_resource( $item )				&& 
-			'stream' === \get_resource_type( $item )
-		) {
+	foreach( $files as &$item ) {
+		if ( $item instanceof \SplFileObject ) { $item = null; }
+		if (  \is_resource( $item ) && 'stream' === \get_resource_type( $item ) ) {
 			\fclose( $item );
 		}
 	}
@@ -2808,7 +2772,8 @@ function storage_check_wait( string $lock_file, int $start, int $max_wait ) : bo
 		return false;
 	}
 	
-	usleep( 100000 );
+	$t = 0;
+	\time_nanosleep( $t, 100000 );
 	return true;		
 }
 
@@ -2852,7 +2817,8 @@ function storage_lock_file( string $lock_file, string $mode ) : false|\resource 
 			return false; 
 		}
 		
-		\usleep( 100000 );
+		$t = 0;
+		\time_nanosleep( $t, 100000 );
 	}
 }
 
@@ -2982,10 +2948,11 @@ function storage_temp_cleanup( string $path ) : void {
 	$pattern	= $path . '.*' . ( $options['tmp_ext'] ?? '.tmp' );
 	
 	\register_shutdown_function( function() use( $pattern, $stale ) {
+		$check = time() - $stale;
 		try {
 			foreach ( \glob( $pattern, \GLOB_NOSORT ) as $file ) {
 				$mtime = \filemtime( $file );
-				if ( false !== $mtime && $mtime < time() - $stale ) { 
+				if ( false !== $mtime && $mtime < $check ) { 
 					@\unlink( $file );
 				}
 			}
@@ -3043,63 +3010,97 @@ function storage_append( string $path, string $data, bool $block = false ) : boo
  *  @return bool		True on success
  */
 function storage_write_file( string $path, string $data ) : bool {
-	$options	= storage_options();
-	$lock_file	= $path . '.lock';
-	$ext		= $options['tmp_ext'] ?? '.tmp';
 	
 	// Unique lock signature
 	$id		= storage_get_id();
 	
-	$tmp_file	= 
-	$path . '.' . $id . '.' . 
-		\bin2hex( \random_bytes( 4 ) ) . $ext;
-	
-	$lock_handle	= storage_lock_file( $lock_file, 'c+' );
-	if ( !$lock_handle ) {
-		\error_log( "Unable to acquire lock for '{$lock_file}' by {$id}" );
+	// Check if able to overwrite
+	if ( \file_exists( $path ) && !\is_writable( $path ) ) {
+		$msg	= "Target file exists, but is not writable";
+		\error_log( $msg . ": path '{$path}' by {$id}" );
 		
 		throw new 
-		\RuntimeException( "Unable to acquire lock" );
+		\RuntimeException( $msg );
 	}
 	
-	$tmp_handle	= \fopen( $tmp_file, 'c' );
-	if ( !$tmp_handle ) {
-		storage_release_lock( $lock_handle, $lock_file );
-		\error_log( "Unable to create temp file '{$tmp_file}' by {$id}" );
+	$options	= storage_options();
+	$lock_file	= $path . '.lock';
+	$ext		= $options['tmp_ext'] ?? '.tmp';
+	$tmp_handle	= null;
+	$lock_handle	= false;
+	$tmp_file	= $path . '.' . $id . '.' . \bin2hex( \random_bytes( 4 ) ) . $ext;
+	
+	try {
+		$lock_handle	= storage_lock_file( $lock_file, 'c+' );
+	} catch( \Throwable $e ) {
+		$msg		= "Unable to acquire lock";
+		\error_log( $msg . " for '{$lock_file}' by {$id}: {$e->getMessage()}" );
 		
 		throw new 
-		\RuntimeException( "Unable to open temp file" );
+		\RuntimeException( $msg );
+	}
+	
+	if ( !$lock_handle ) { // Usually shouldn't come this far if there was an error
+		$msg		= "Unable to acquire lock";
+		\error_log( $msg . " for '{$lock_file}' by {$id}" );
+		
+		throw new 
+		\RuntimeException( $msg );
+	}
+	
+	try {
+		$tmp_handle	= \fopen( $tmp_file, 'c' );
+	} catch( \Throwable $e ) {
+		$msg		= "Unable to create temp file";
+		\error_log( $msg . " '{$tmp_file}' by {$id}: {$e->getMessage()}" );
+		
+		throw new 
+		\RuntimeException( $msg );
+	}
+	
+	if ( !$tmp_handle ) { // Above catch failed for some reason
+		$msg		= "Unable to create temp file";
+		storage_release_lock( $lock_handle, $lock_file );
+		\error_log( $msg . " '{$tmp_file}' by {$id}" );
+		
+		throw new 
+		\RuntimeException( $msg );
 	}
 	
 	// Write and finish
 	$state = \fwrite( $tmp_handle, $data );
 	if ( false === $state || $state < \strlen( $data ) ) {
-		\fclose($tmp_handle);
+		$msg		= "Failed to write temp file";
+		@\fclose( $tmp_handle );
 		storage_release_lock( $lock_handle, $lock_file );
+		\error_log( $msg . " {$tmp_file} by {$id}" );
 		
 		throw new 
-		\RuntimeException( "Failed to write temp file" );
+		\RuntimeException( $msg );
 	}
-	
-	\fclose( $tmp_handle );
+
+	// Done write, prepare to move
+	@\fclose( $tmp_handle );
 	
 	// Cleanup
 	if ( \file_exists( $path ) && !\is_writable( $path ) ) {
+		$msg	= "Target file is not writable";
 		storage_release_lock( $lock_handle, $lock_file );
-		\error_log( "Target file '{$path}' is not writable by {$id}" );
+		\error_log( $msg . ": path '{$path}' by {$id}" );
 		
 		throw new 
-		\RuntimeException( "Target file is not writable" );
+		\RuntimeException( $msg );
 	}
 	
 	// Move temp to permanent location
 	if ( !\rename( $tmp_file, $path ) ) {
 		if ( !\copy( $tmp_file, $path ) || !\unlink( $tmp_file ) ) {
+			$msg	= "Failed to replace file";
 			storage_release_lock( $lock_handle, $lock_file );
-			\error_log( "Failed to replace '{$path}' with '{$tmp_file}' by {$id}" );
+			\error_log( $msg . ": path'{$path}' with '{$tmp_file}' by {$id}" );
 			
 			throw new 
-			\RuntimeException( "Failed to replace file" );
+			\RuntimeException( $msg );
 		}
 	}
 	
@@ -3145,7 +3146,7 @@ function storage_prefix_path(
 	bool	$overwrite	= false 
 ) : string {
 	$fname	= 
-	rtrim( \dirname( $path ), \DIRECTORY_SEPARATOR ) . 
+	\rtrim( \dirname( $path ), \DIRECTORY_SEPARATOR ) . 
 		\DIRECTORY_SEPARATOR . 
 		$prefix . \basename( $path );
 	
@@ -3182,9 +3183,9 @@ function log_check_level( string $level ) : ?string {
 		'ERROR'		=> 4 
 	];
 	
-	// Change to info or above in production
+	// Changed from debug
 	if( !\defined( 'LOG_LEVEL' ) ) {
-		define( 'LOG_LEVEL', 'DEBUG' );
+		define( 'LOG_LEVEL', 'INFO' );
 	}
 	
 	$level		= \strtoupper( $level );
@@ -3278,7 +3279,7 @@ function log_rotate( string $log_file ) : void {
 	if ( !$fsize ) { return; }
 	
 	if ( $fsize > $max_size ) {
-		$stamp		= date( 'Ymd_His' );
+		$stamp		= \date( 'Ymd_His' );
 		$archive	= "{$log_file}.{$stamp}.log";
 		if ( !\rename( $log_file, $archive ) ) {
 			\error_log( "Failed to archive log: {$log_file}" );
@@ -3303,7 +3304,8 @@ function log_message_write( ?array $pair = null ) : void {
 		$reg	= true;
 		\register_shutdown_function( 'log_message_write' );
 	}
-	
+
+	// New message added to queue
 	if ( null !== $pair ) {
 		[ $msg_file, $entry ] = $pair;
 		
@@ -3316,7 +3318,8 @@ function log_message_write( ?array $pair = null ) : void {
 	
 	// Shutdown action
 	$grouped	= [];
-	foreach ( $cache as [ $file, $entry ] ) {
+	foreach ( $cache as $set ) {
+		list( $file, $entry ) = $set;
 		$grouped[$file][] = $entry;
 	}
 	
@@ -3372,16 +3375,10 @@ function log_msg(
 	string		$level		= 'INFO',
 	?string		$file		= null
 ) : void {
-	if ( empty( log_check_level( $level ) ) ) {
-		return;
-	}
+	if ( empty( log_check_level( $level ) ) ) { return; }
 	
 	if ( \is_array( $context ) ) {
-		$msg =
-		\json_encode( 
-			$context, 
-			\JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE
-		);
+		$msg	= util_json_encode( $context );
 		
 		// Since PHP 8.3
 		if ( !\json_validate( $msg ) ) {
@@ -3728,7 +3725,7 @@ function request_canonical_ip() : array {
 		if ( \preg_match( '/^\[?([a-fA-F0-9:.]+)\]?(:\d+)?$/', $raw, $match ) ) {
 			$ip	= $match[1];
 		} elseif ( 'unknown' === \strtolower( $raw ) ) {
-			$ip = 'unknown';
+			$ip	= 'unknown';
 		} else {
 			$ip	= $raw;
 		}
@@ -3786,7 +3783,7 @@ function request_uri( ?string $sent = null ) : string {
 	if ( isset( $uri[$sent] ) ) { return $uri[$sent]; }
 	
 	$raw		= 
-	$sent	=== 'default' 
+	$sent === 'default' 
 		? ( $_SERVER['REQUEST_URI'] ?? '' )
 		: $sent;
 	
@@ -3944,7 +3941,7 @@ function request_accept_header( string $header ) : array {
 		$parsed[]	= [ 'term' => $term, 'q' => $quality ];
 	}
 	
-	usort( $parsed, fn( $a, $b ) => $b['q'] <=> $a['q'] );
+	\usort( $parsed, fn( $a, $b ) => $b['q'] <=> $a['q'] );
 	
 	return \array_column( $parsed, 'term' );
 }
@@ -3984,9 +3981,7 @@ function request_lang() : array {
 /**
  *  Small helper to check if this is a ranged request
  *  
- *  @return Return description
- *  
- *  @details More details
+ *  @return bool
  */
 function request_is_ranged() : bool {
 	$range	= \trim( $_SERVER['HTTP_RANGE'] ?? '' );
@@ -4221,11 +4216,9 @@ function response_check_not_modified(
 	?int		$client_mtime	= null
 ) : bool {
 	$etag		= \trim( $etag, " \t\n\r\0\x0B\"'" );
+	$etag_clean	= \trim( \ltrim( $etag, 'W/' ), "\"" );
 	
-	$etag_clean	= \ltrim( $etag, 'W/' );
-	$etag_clean	= \trim( $etag, "\"" );
-	
-	if( null !== $client_etag && '' !== $client_etag ) {
+	if ( null !== $client_etag && '' !== $client_etag ) {
 		$tags	= 
 		\array_map(
 			static function ( $tag ) {
@@ -4347,7 +4340,8 @@ function response_save_meta_cache( string $fpath, array $meta ) : void {
 				\JSON_UNESCAPED_UNICODE | 
 				\JSON_THROW_ON_ERROR 
 		);
-		
+
+		// TODO: Move to storage_* functions
 		if ( false === \file_put_contents( $tmp, $data, \LOCK_EX ) ) {
 			throw new 
 			\RuntimeException( "Failed to write temp cache file" );
@@ -4365,23 +4359,25 @@ function response_save_meta_cache( string $fpath, array $meta ) : void {
 /**
  *  Generate static file metadata
  *  
- *  @param string	$path	Location on disk
+ *  @param string	$path		Location on disk
+ *  @param bool		$is_cached	Enable metadata caching and retreival
  *  @return array
  */
-function response_file_metadata( string $path ) : array {
-	static $cache = [];
+function response_file_metadata( string $path, bool $is_cached = false ) : array {
+	static $cached = [];
 	$fpath	= \realpath( $path ) ?: $path;
 	
-	// Local cache?
-	if ( isset( $cache[$fpath] ) ) {
-		return $cache[$fpath];
-	}
-	
 	// File cache?
-	$fcache	= response_get_meta_cache( $fpath );
-	if ( \is_array( $fcache ) ) {
-		$cache[$fpath]	= $fcache;
-		return $fcache;
+	if ( $is_cached ) {
+		if ( isset( $cached[$fpath] ) ) {
+			return $cached[$fpath];
+		}
+		
+		$fcache	= response_get_meta_cache( $fpath );
+		if ( \is_array( $fcache ) ) {
+			$cached[$fpath]	= $fcache;
+			return $fcache;
+		}
 	}
 	
 	if ( !\is_file( $fpath ) ) {
@@ -4403,9 +4399,11 @@ function response_file_metadata( string $path ) : array {
 		'content_length'	=> $fsize,
 		'mtime'			=> $mtime
 	];
-	
-	response_save_meta_cache( $fpath, $meta );
-	$cache[$fpath] = $meta;
+
+	if ( $is_cached ) {
+		response_save_meta_cache( $fpath, $meta );
+		$cached[$fpath] = $meta;
+	}
 	return $meta;
 }
 
@@ -4537,9 +4535,7 @@ function response_file_range(
 		\flush();
 		
 		while( $chunk > 0 && !\feof( $handle ) ) {
-			if ( \connection_aborted() ) {
-				break;
-			}
+			if ( \connection_aborted() ) { break; }
 			
 			$rsize	= \min( 8192, $chunk );
 			echo \fread( $handle, $rsize );
@@ -4579,7 +4575,7 @@ function response_file(
 	if ( response_check_not_modified( 
 		$etag, $mtime, $client_etag, $client_mtime 
 	) ) {
-		exit;
+		exit();
 	}
 	
 	try {
@@ -4590,13 +4586,15 @@ function response_file(
 			response_file_stream( $meta, $handle, $fpath, $download );
 		}
 	} catch( \Throwable $e ) {
-		log_error( "File response error: {$e->getMessage()}" );
+		$msg	= "File response error";
+		log_error( $msg . ": {$e->getMessage()}" );
 		response_status( 500 );
-		echo "File response error";
+		echo $msg;
 	} finally {
 		if ( \is_resource( $handle ) ) { \fclose( $handle ); }
 	}
-	exit;
+	
+	exit();
 }
 
 /**
@@ -4612,18 +4610,18 @@ function response_body( mixed $body, bool $ct_sent ) : void {
 	$is_html	= !$is_json && \preg_match( '/<[^>]+>/', ( string ) $body );
 	
 	if ( !$ct_sent ) {
-		\header( match( true ) {
+		$header	= 
+		match( true ) {
 			$is_json	=> 'Content-Type: application/json; charset=utf-8',
 			$is_html	=> 'Content-Type: text/html; charset=utf-8',
 			default		=> 'Content-Type: text/plain; charset=utf-8'
-		}, true );
+		};
+		
+		\header( $header, true );
 	}
 	
 	echo match( true ) {
-		$is_json	=> 
-		\json_encode( $body, 
-			\JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES
-		),
+		$is_json	=> util_json_encode( $body ),
 		default		=> $body
 	};
 }
@@ -4662,26 +4660,26 @@ function response( int $code, array $headers = [], $body = null ) : void {
 			\RuntimeException( "Redirect requires a Location header" );
 		}
 		\flush();
-		exit;
+		exit();
 	}
 }
 
 function response_html( string $html, int $status = 200, array $headers = [] ) : void {
 	$headers['Content-Type'] ??= 'text/html; charset=UTF-8';
 	response( $status, $headers, $html );
-	exit;
+	exit();
 }
 
 function response_json( array $data, int $status = 200, array $headers = [] ) : void {
 	$headers['Content-Type'] ??= 'application/json; charset=UTF-8';
 	response( $status, $headers, $data );
-	exit;
+	exit();
 }
 
 function response_text( string $text, int $status = 200, array $headers = [] ) : void {
 	$headers['Content-Type'] ??= 'text/plain; charset=UTF-8';
 	response( $status, $headers, $text );
-	exit;
+	exit();
 }
 
 /**
@@ -4691,7 +4689,7 @@ function response_options( array $headers = [] ) : void {
 	$method	= request_method();
 	if ( 0 === \strcasecmp( 'options', $method ) ) {
 		response( 204, $headers );
-		exit;
+		exit();
 	}
 }
 
@@ -4716,7 +4714,7 @@ function response_xml(
 	response_options( $headers );
 	
 	response( $status, $headers, $xml );
-	exit;
+	exit();
 }
 
 /**
@@ -4814,7 +4812,7 @@ function config_file() : string {
  *  @return string
  */
 function config_message_file() : string {
-	static $mssage_log;
+	static $message_log;
 	$message_log	??= config_core_path( 'CONFIG_LOG', 'config_messages.log' );
 	
 	return $message_log;
@@ -4967,56 +4965,16 @@ function config_write( string $json ) : bool {
 }
 
 /**
- *  Processed configuration settings
- *  
- *  @param array	$new_settings	Optional new settings to merge with existing ones
- *  @return array
- */
-function config_parsed( ?array $new_settings = null ) : array {
-	static $settings	= [];
-	static $reg		= false;
-	
-	// Skip first load
-	if ( !$reg ) {
-		$reg = true;
-		if ( empty( $settings ) ) {
-			$settings = 
-			config_expand_constants(
-				config_load_json( config_file() ), true
-			);
-		}
-		
-		// Save changes at shutdown
-		\register_shutdown_function( function() {
-			$user	= sanitize_normalize( $_SERVER['REMOTE_USER'] ?? 'system' );
-			
-			config_backup();
-			config_save( null, $user );
-		} );
-	}
-	
-	if ( null === $new_settings ) {
-		return $settings;
-	}
-	
-	$settings	= \array_replace_recursive( $settings, $new_settings );
-	$settings	= config_expand_constants( $settings );
-	
-	return $settings;
-}
-
-/**
  *  Save parsed or preloaded configuation settings
  *  
- *  @param array	$settings	Optional new settings
+ *  @param array	$settings	New settings
  *  @param string	$modified_by	Modification source, defaults to 'system'
  *  @return bool			True on success
  */
 function config_save( 
-	?array	$settings	= null, 
+	array	$settings	= null, 
 	string	$modified_by	= 'system' 
 ) : bool {
-	$settings		??= config_parsed();
 	$settings['_meta']	= [
 		'last_saved'	=> date( 'c' ),
 		'modified_by'	=> $modified_by
@@ -5038,6 +4996,38 @@ function config_save(
 	}
 	
 	return config_write( $json );
+}
+
+/**
+ *  Processed configuration settings
+ *  
+ *  @param array	$new_settings	Optional new settings to merge with existing ones
+ *  @return array
+ */
+function config_parsed( ?array $new_settings = null ) : array {
+	static $expanded	= [];
+	static $settings	= [];
+	static $reg		= false;
+	
+	$settings		??= config_load_json( config_file() );
+	$expanded		??= config_expand_constants( $settings, true );
+	
+	if ( null === $new_settings ) { return $expanded; }
+
+	// Merge new settings
+	$settings	= \array_replace_recursive( $settings, $new_settings );
+	
+	// Save changes at shutdown
+	\register_shutdown_function( function() use ( $settings ) {
+		$user	= sanitize_normalize( $_SERVER['REMOTE_USER'] ?? 'system' );
+		
+		config_backup();
+		config_save( $settings, $user );
+	} );
+
+	// Expand changes
+	$expanded	= config_expand_constants( $settings, true );
+	return $expanded;
 }
 
 /**
@@ -5170,14 +5160,14 @@ function config_ext_groups( string $group = '', ?array $sent = null ) : array {
  */
 function config_edit_db_profile( string $profile, array $updates ) : void {
 	$profiles = config( 'db_profiles' ) ?? [];
-	if ( !isset( $profiles[$profile] ) ) {
+	if ( isset( $profiles[$profile] ) ) {
 		config_message(
-			"New database profile {$profile} created",
+			"Database profile {$profile} edited",
 			'INFO'
 		);
 	} else {
 		config_message(
-			"Database profile {$profile} edited",
+			"New database profile {$profile} created",
 			'INFO'
 		);
 	}
@@ -5582,12 +5572,14 @@ function template_load(
 		throw new 
 		\RuntimeException( "Invalid template type" );
 	}
-	
+
+	// Custom template file directory
 	$dir		??= 
 	\defined( 'TEMPLATE_DIR' ) 
 		? \constant( 'TEMPLATE_DIR' )
 		: __DIR__;
-	
+
+	// Custom view directory
 	$vdir		= 
 	( null === $root ) 
 		? '/views/' 
@@ -5651,7 +5643,6 @@ function template_load(
  */
 function template_partials(
 	string	$template,
-	
 	array	$vars		= [],
 	int	$depth		= 0,
 	array	$seen		= []
