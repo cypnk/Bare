@@ -3,15 +3,22 @@
 		{
 			"domain"	: "localhost",
 			"alias"		: [ "test.local", "test.dev" ],
-			"page_title"	: "Rustic Cyberpunk",
-			"page_sub"	: "Coffee. Code. Cabins.",
-			"page_limit"	: 12,
+			"name"		: "Rustic Cyberpunk",
+			"description"	: "Coffee. Code. Cabins.",
+			"post_dir"	: "{{STORAGE_DIR}}posts/",
+			"file_dir"	: "{{STORAGE_DIR}}posts/",
+			"show_related"	: true,
+			"related_limit"	: 5,
+			"index_limit"	: 60,
+			"summary_level"	: 0,
+			"show_siblings"	: true,
+			"tag_limit"	: 5,
+			"gmt_offset"	: -4,
 			"timezone"	: "America\/New_York",
 			"language"	: "en-US",
-			"post_dir"	: "{{STORAGE_DIR}}posts",
-			"file_dir"	: "{{STORAGE_DIR}}posts",
-			"asset_dir"	: "assets/",
 			"plugins"	: [],
+			"entry_ext"	: "md",
+			"entry_fields"	: [ "title", "tags", "summary", "author", "updated" ],
 			"main_links"	: [
 				{ "url" : "{home}about", "text" : "{lang:nav:about}" },
 				{ "url" : "{home}archive", "text" : "{lang:nav:archive}" },
@@ -42,44 +49,31 @@
 	"defaults" : {
 		"app"			: "Bare",
 		"author"		: "admin",
-		"post_dir"		: "posts",
-		"template_dir"		: "templates",
-		"date_format"		: "l, F j, Y",
-		"page_title"		: "{{DEFAULT_PAGE_TITLE}}",
-		"page_sub"		: "{{DEFAULT_PAGE_SUB}}",
+		"name"			: "My Page",
+		"description"		: "A Nice Place",
 		"plugins"		: [],
+		"file_dir"		: "{{STORAGE_DIR}}files/",
+		"template_dir"		: "{{STORAGE_DIR}}templates/",
 		"asset_dir"		: "assets/",
 		"plugin_asset_dir"	: "plugins/",
 		"error_root"		: "{{PATH}}errors/",
-		"page_limit"		: 20,
-		"index_limit"		: 60,
-		"related_limit"		: 5,
-		"show_related"		: true,
-		"meta_limit"		: 15,
-		"style_limit"		: 20,
-		"script_limit"		: 15,
-		"tag_limit"		: 5,
+		"date_format"		: "l, F j, Y",
 		"max_page"		: 500,
 		"max_url_size"		: 512,
 		"max_posts"		: 1000,
 		"max_search_words"	: 10,
-		"summary_level"		: 0,
-		"show_siblings"		: true,
 		"posts_per_page"	: 10,
 		"cache_ttl"		: 3600,
 		"max_log_size"		: 5000000,
 		"folder_limit"		: 15,
-		"entry_ext"		: "md",
-		"entry_meta_lines"	: 10,
-		"entry_fields"		: [ "title", "tags", "summary", "author", "updated" ],
 		"session_regen"		: 1800,
 		"cookie_exp"		: 604800,
 		"cookie_refresh"	: 86400,
 		"cookie_path"		: "/",
 		"mail_from"		: "domain@localhost",
-		"timezone"		: "{{DEFAULT_TIMEZONE}}",
-		"language"		: "{{DEFAULT_LANGUAGE}}",
-		"skip_local"		: 1,
+		"gmt_offset"		: -4,
+		"timezone"		: "America\/New_York",
+		"language"		: "en-US",
 		"static_ext"		: {
 			"text"		: [ "css", "js", "txt", "html", "vtt" ],
 			"images"	: [ "ico", "jpg", "jpeg", "gif", "bmp", "png", "tif", "tiff", "svg", "webp" ], 
@@ -138,6 +132,39 @@
 			"X-Content-Type-Options" : [ "nosniff" ],
 			"X-Frame-Options" : [ "SAMEORIGIN" ],
 			"X-XSS-Protection" : [ "1", "mode=block" ]
+		},
+
+		"type_patterns": {
+			"all_phrase"	: "[^/]{1,254}",
+			"all_text"	: "[\\p{L}\\p{N}\\p{M}\\p{P}\\p{Zs}]{1,254}",
+			"all_segment"	: "[\\p{L}\\p{N}\\p{M}\\-_]{1,64}",
+			"all_any"	: ".{1,255}",
+			"int"		: "\\d+",
+			"str"		: "[^/]+",
+			"uuid"		: "[0-9a-fA-F\\-]{36}",
+			"slug"		: "[a-z0-9\\-]+",
+			"hex"		: "[0-9a-fA-F]+",
+			"alpha"		: "[a-zA-Z]+",
+			"bool"		: "true|false|1|0",
+			"email"		: "[^@]+@[^@]+\\.[^/]+",
+			"ip"		: "\\d{1,3}(\\.\\d{1,3}){3}",
+			"alnum"		: "[a-zA-Z0-9]+",
+			"file"		: "[^/]+\\.[a-zA-Z0-9]+",
+			"lang"		: "[a-z]{2,3}(-[A-Z]{2})?",
+			"date"		: "\\d{4}-\\d{2}-\\d{2}",
+			"time"		: "\\d{2}:\\d{2}(:\\d{2})?",
+			"datetime"	: "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2})?",
+			"year"		: "\\d{4}",
+			"month"		: "(0[1-9]|1[0-2])",
+			"day"		: "(0[1-9]|[12][0-9]|3[01])",
+			"phone"		: "\\+?\\d{7,15}",
+			"zip"		: "\\d{5}(-\\d{4})?",
+			"currency"	: "[A-Z]{3}",
+			"token"		: "[A-Za-z0-9\\-_]+",
+			"hash"		: "[A-Fa-f0-9]{32,64}",
+			"username"	: "[\\p{L}0-9_]{3,32}",
+			"domain"	: "[A-Za-z0-9.-]+\\.[A-Za-z]{2,}",
+			"version"	: "v\\d+(\\.\\d+)*"
 		},
 		
 		"tag_map"	: {
@@ -728,7 +755,43 @@
 				"PRAGMA locking_mode = NORMAL;"
 			],
 			"init_exec"	: [
-				"PRAGMA encoding= \"UTF-8\";",
+				"PRAGMA encoding = \"UTF-8\";",
+				"PRAGMA auto_vacuum = 2;",
+				"PRAGMA temp_store = 2;",
+				"PRAGMA secure_delete = 1;"
+			],
+			"post_exec": [
+				"PRAGMA foreign_keys = ON;"
+			],
+			"maint_exec": [
+				"ANALYZE", 
+				"PRAGMA quick_check;",
+				"PRAGMA wal_checkpoint(FULL);"
+			]
+		},
+		"logs"		: {
+			"dsn"		: "sqlite:{{STORAGE_DIR}}/logs.sqlite",
+			"installed"	: false,
+			"version"	: "1.0.0",
+			"schema"	: "{{STORAGE_DIR}}/schema/logs.sqlite.sql",
+			"username"	: null,
+			"password"	: null,
+			"options"	: {
+				"ATTR_TIMEOUT"			: "{{DB_TIMEOUT}}",
+				"ATTR_DEFAULT_FETCH_MODE"	: "FETCH_ASSOC",
+				"ATTR_PERSISTENT"		: false,
+				"ATTR_EMULATE_PREPARES"		: false,
+				"ATTR_ERRMODE"			: "ERRMODE_EXCEPTION"
+			},
+			"pre_exec"	: [
+				"PRAGMA journal_mode = WAL;",
+				"PRAGMA busy_timeout = {{DB_TIMEOUT}};",
+				"PRAGMA trusted_schema = OFF;",
+				"PRAGMA synchronous = FULL;",
+				"PRAGMA locking_mode = NORMAL;"
+			],
+			"init_exec"	: [
+				"PRAGMA encoding = \"UTF-8\";",
 				"PRAGMA auto_vacuum = 2;",
 				"PRAGMA temp_store = 2;",
 				"PRAGMA secure_delete = 1;"
@@ -804,7 +867,7 @@
 			"verbs"		: [ "*" ]
 		}
 	},
-	
+
 	"default_translation" : {
 		"date_nice"	: "l, F j, Y",
 		"untitled"	: "(Untitled)",
