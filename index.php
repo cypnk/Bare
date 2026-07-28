@@ -22,17 +22,6 @@ define( 'STORAGE_DIR',	PATH . 'cache/' );
 // Use this instead if you keep the cache outside the web root
 // define( 'STORAGE_DIR',	\realpath( \dirname( __FILE__, 2 ) ) . '/cache/' );
 
-// Plugins directory
-define( 'PLUGIN_DIR',	PATH . 'plugins/' );
-// Use this if you keep plugins outside the web root
-// define( 'PLUGIN_DIR',	\realpath( \dirname( __FILE__, 2 ) ) . '/plugins/' );
-
-// Writable directory inside  for plugin data (not directly browsable by visitors)
-define( 'PLUGIN_DATA',	'plugins/' );
-
-// Configuration filename (optional, overrides most constants here)
-define( 'CONFIG',	'config.json' );
-
 // Error log filename (will be created if it doesn't exist)
 define( 'ERROR',	'errors.log' );
 
@@ -5184,6 +5173,21 @@ function config_edit_db_profile( string $profile, array $updates ) : void {
 }
 
 /**
+ *  Return preset plugin directory, defaults to PATH relative 'plugins/'
+ *  
+ *  @return string
+ */
+function config_plugin_dir() : string {
+	static $dir;
+	$dir ??= 
+	defined( 'PLUGIN_DIR' )
+		? constant( 'PLUGIN_DIR' )
+		: PATH . 'plugins' . \DIRECTORY_SEPARATOR;
+	
+	return \is_dir( $dir ) ? $dir : PATH;
+}
+
+/**
  *  Preset language if set via constant, defaults to 'en-US'
  *  
  *  @return string
@@ -7191,9 +7195,7 @@ function view_include( string $file, array $data ) : string {
 			include $file;
 			return \ob_get_clean();
 		} catch ( \Throwable $e ) {
-			if ( \ob_get_level() > 0 ) {
-				\ob_end_clean();
-			}
+			response_end_buffers( true );
 			
 			log_msg( "Error in view {$file}: {$e->getMessage()}", 'ERROR' );
 			return '';
@@ -7211,10 +7213,10 @@ function view_include( string $file, array $data ) : string {
 function view_paths( ?string $prefix = null, ?string $path = null ) : array {
 	// Default view path
 	static $paths;
-	$paths ??= [ '' => PLUGIN_DIR ];
+	$paths ??= [ '' => config_plugin_dir() ];
 	
 	if ( null !== $prefix && null !== $path ) {
-		$paths[$prefix]	= \rtrim( $path, '/' );
+		$paths[$prefix]	= \rtrim( $path, '\\/' );
 	}
 	
 	return $paths;
@@ -7302,7 +7304,7 @@ function view_render( string $layout, array $vars = [] ) : string {
 	static $cache	= [];
 	static $stack	= [];
 	
-	if ( \in_array( $layout, $stack, true ) ) {
+	if ( util_value_exists_ci( $layout, $stack ) ) {
 		log_msg( "Recursive view detected: {$layout}", 'ERROR' );
 		
 		throw new 
@@ -7351,6 +7353,7 @@ class Route {
 	 *  
 	 *  @param string	$pattern	Match regex pattern
 	 *  @param string	$method		Normalized request method
+	 *  @param array	$roles		Optional user roles
 	 *  @param string	$name		Optional main handler
 	 *  @param array	$middleware	Added handlers before main handler
 	 *  @param bool		$auth		Requrires authentication (for plugin use)
@@ -7372,7 +7375,11 @@ class Route {
  *  @return array
  */
 function route_patterns( ?array $new_patterns = null ) : array {
-	static $type_patterns	= [
+	static $type_patterns;
+
+	// Presets
+	$type_patterns ??= 
+	config( 'type_petterns', [
 		'path'		=> '.+',
 		'int'		=> '\d+',
 		'str'		=> '[^/]+',
@@ -7388,23 +7395,22 @@ function route_patterns( ?array $new_patterns = null ) : array {
 		'alnum'		=> '[a-zA-Z0-9]+',
 		'file'		=> '[^/]+\.[a-zA-Z0-9]+',
 		'lang'		=> '[a-z]{2,3}(-[A-Z]{2,8})?'
-	];
+	], 'json' );
 	
-	if ( !empty( $new_patterns ) ) {
-		foreach ( $new_patterns as $name => $pattern ) {
-			$esc	= \str_replace( '~', '\~', $pattern );
-			$test	= @\preg_match( "~^{$esc}~", '' );
-			if ( false === $test ) {
-				throw new 
-				\InvalidArgumentException(
-					"Invalid regex pattern for type '{$name}'"
-				);
-			}
+	if ( empty( $new_patterns ) ) { return $type_patterns; }
+	
+	foreach ( $new_patterns as $name => $pattern ) {
+		$esc	= \str_replace( '~', '\~', $pattern );
+		$test	= @\preg_match( "~^{$esc}~", '' );
+		if ( false === $test ) {
+			throw new 
+			\InvalidArgumentException(
+				"Invalid regex pattern for type '{$name}'"
+			);
 		}
-		
-		$type_patterns = \array_merge( $type_patterns, $new_patterns );
 	}
 	
+	$type_patterns = \array_merge( $type_patterns, $new_patterns );
 	return $type_patterns;
 }
 
@@ -7438,9 +7444,7 @@ function route_cleanup( string $url ) : string {
  */
 function route_compile( string $pattern ) : string {
 	$pattern = \rtrim( $pattern, '/' );
-	if ( '' === $pattern ) {
-		$pattern = '/';
-	}
+	if ( '' === $pattern ) { $pattern = '/'; }
 	
 	$place		= [];
 	$pattern	= 
@@ -7705,9 +7709,7 @@ function plugin_autoload() : array {
 	// Nothing to load
 	if ( empty( $pl ) ) { return []; }
 	
-	$dir		= \rtrim( PLUGIN_DIR, '/' ) . '/' ; // Trailing path
-	if ( !\is_dir( $dir ) ) { return []; }
-	
+	$dir		= config_plugin_dir();
 	$files		=  \glob( $dir . '*/plugin.php' );
 	if ( empty( $files ) ) { return []; }
 	
@@ -9755,19 +9757,6 @@ function startup() : void {
 		
 		sess_init();
 		$initialized = true;
-	}
-
-	// Load plugins, if any
-	$dir		= \rtrim( PLUGIN_DIR, '/' ) . '/';
-	if ( \is_dir( $dir ) ) { 
-		$files		= \glob( $dir . '*/plugin.php' );
-		if ( count( $files ) ) { 
-			\sort( $files );
-			
-			foreach ( $files as $plugin ) {
-				require_once $plugin;
-			}
-		}
 	}
 	
 	$functions	= util_functions_list( true );
