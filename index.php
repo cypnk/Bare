@@ -45,13 +45,6 @@ define( 'NOTICE',	'notices.log' );
 // A log file created when Bare is first run with information about its enviornment
 define( 'STARTUP',	'startup.log' );
 
-/**
- *  Base defaults
- */
-define( 'DEFAULT_PAGE_TITLE',	'My Site' );
-define( 'DEFAULT_PAGE_SUB',	'A Nice Place' );
-define( 'DEFAULT_LANGUAGE',	'en-US' );
-define( 'DEFAULT_TIMEZONE',	'America\/New_York' );
 
 /**
  *  Messages
@@ -843,10 +836,12 @@ function util_get_id( string $label, bool $use_stamp = true ) : string {
  *  @param array	$items	Searching haystack
  *  @return bool
  */
-function util_key_exists_ci( string $value, array $items ) : bool {
+function util_value_exists_ci( string $value, array $items ) : bool {
+	if ( empty( $items ) ) { return false; }
+	
 	return \in_array( 
 		\strtolower( $value ), 
-		\array_map( 'strtolower', \array_keys( $items ) ) 
+		\array_map( 'strtolower', $items ) 
 	);
 }
 
@@ -856,6 +851,18 @@ function util_key_exists_ci( string $value, array $items ) : bool {
  *  @param string	$key	Array key needle
  *  @param array	$items	Searching haystack
  *  @return bool
+ */
+function util_key_exists_ci( string $key, array $items ) : bool {
+	if ( empty( $items ) ) { return false; }
+	return \array_key_exists( $key, \array_change_key_case( $items, \CASE_LOWER ) );
+}
+
+/**
+ *  Case insensitive array key search with value return
+ *  
+ *  @param string	$key	Array key needle
+ *  @param array	$items	Searching haystack
+ *  @return mixed
  */
 function util_value_key_exists_ci( string $key, array $items ) : mixed {
 	foreach ( $items as $k => $v ) {
@@ -2247,19 +2254,14 @@ function sanitize_attribute(
 	array		$rule 
 ) : void {
 	$value		= $node->getAttribute( $attr );
-	if ( !\preg_match( '/^[a-z][a-z0-9\-]*$/i', $attr ) ) { return; }
+	if ( !\preg_match( '/^[a-z][a-z0-9_\-]*$/i', $attr ) ) { return; }
 	
 	// Limited subset of allowed values
 	if ( isset( $rule['allowed'] ) ) {
 		if ( \is_array( $rule['allowed'] ) ) {
-			if ( \in_array( 
-				\strtolower( $value ), 
-				\array_map( 'strtolower', $rule['allowed'] ), 
-				false	
-			) ) {
+			if ( util_value_exists_ci( $value,  $rule['allowed'] ) ) {
 				$new_node->setAttribute( $attr, $value );
 			}
-			
 			return;
 		
 		} else {
@@ -2340,28 +2342,31 @@ function sanitize_html( $html, $tag_map ) {
 		if ( !$node instanceof \DOMElement ) { return null; }
 		
 		$tag		= null; // Default
-		$original_tag	= \strtolower( $node->nodeName );
+		$original_tag	= $node->nodeName;
 		foreach ( $tag_map as $key => $rules ) {
-			if ( 
-				0 === \strcasecmp( $key, $original_tag )	|| 
-				\in_array( 
-					$original_tag , 
-					\array_map( 'strtolower', $rules['alias'] ?? [] ), 
-					false
-				)
-			) {
+			if ( 0 === \strcasecmp( $key, $original_tag ) ) {
 				$tag = $key; // Assign if valid
 				break;
 			}
+			
+		 	$alias = $rules['alias'] ?? [];
+			if ( !\is_array( $alias ) ) { continue; }
+			
+			if ( util_value_exists_ci( $original_tag,  $alias ) ) {
+				$tag = $key;
+				break;
+			}
 		}
-		
+
+		// Not found
 		if ( null === $tag ) { return null; }
 		
-		$new_tag	= \strtolower( $tag );
-		if ( !\preg_match( '/^[a-z][a-z0-9\-]*$/', $new_tag ) ) {
-			$new_tag = 'div';
-		}
-		
+		$new_tag	= 
+		\preg_match( '/^[a-z][a-z0-9_\-]*$/i', $tag ) 
+			? \strtolower( $tag )
+			: 'div';
+
+		// Special cases
 		if ( \in_array( $new_tag, [ 'code', 'pre', 'kbd' ], true ) ) {
 			return sanitize_escape_node( $node, $cleaned );
 		}
@@ -2467,10 +2472,11 @@ function sanitize_normalize( string $text ) : string {
  *  @param array	$groups		Configuration groups
  *  @param string	$name		Specific type I.E. "images"
  */
-function sanitize_is_safe_ext( string $path, array $groups, string $name = '' ) : bool {
+function sanitize_is_safe_ext( string $path, array $groups, ?string $name = null ) : bool {
 	static $safe	= [];
 	static $checked	= [];
 	$key		= $name . $path;
+	$name		??= 'all';
 	
 	if ( isset( $checked[$key] ) ) { return $checked[$key]; }
 	$safe[$name]	??= $groups;
@@ -2478,8 +2484,7 @@ function sanitize_is_safe_ext( string $path, array $groups, string $name = '' ) 
 	$ext		= 
 	\pathinfo( $path, \PATHINFO_EXTENSION ) ?? '';
 	
-	$checked[$key] = 
-	\in_array( \strtolower( $ext ), $safe[$name] );
+	$checked[$key] = util_value_exists_ci( $ext, $safe[$name] );
 	
 	return $checked[$key];
 }
@@ -3513,12 +3518,12 @@ function request_method() : string {
 	$supported	= 
 	[ 'get', 'post', 'put', 'delete', 'patch', 'options', 'head' ];
 	
-	$temp		= 
-	\strtolower( \trim( $_SERVER['REQUEST_METHOD'] ?? '' ) );
+	$temp		= \trim( $_SERVER['REQUEST_METHOD'] ?? '' );
+	if ( empty( $temp ) ) { return 'unsupported'; } // Normally, this shouldn't happen
 	
 	$method		= 
-	\in_array( $temp, $supported, true ) 
-		? $temp 
+	\util_value_exists_ci( $temp, $supported ) 
+		? \strtolower( $temp ) 
 		: 'unsupported';
 	
 	return $method;
@@ -5179,6 +5184,66 @@ function config_edit_db_profile( string $profile, array $updates ) : void {
 }
 
 /**
+ *  Preset language if set via constant, defaults to 'en-US'
+ *  
+ *  @return string
+ */
+function config_default_lang() : string {
+	static $lang;
+	$lang ??= 
+	defined( 'DEFAULT_LANGUAGE' ) 
+		? constant( 'DEFAULT_LANGUAGE' ) 
+		: 'en-US';
+
+	return $lang;
+}
+
+/**
+ *  Preset timezone if set via constant, defaults to 'America/New_York'
+ *  
+ *  @return string
+ */
+function config_default_tz() : string {
+	static $tz;
+	$tz	??=
+	defined( 'DEFAULT_TIMEZONE' )
+		? constant( 'DEFAULT_TIMEZONE' )
+		: 'America\/New_York';
+	
+	return $tz;
+}
+
+/**
+ *  Preset site title, defaults to 'My Place'
+ *  
+ *  @return string
+ */
+function config_default_title() : string {
+	static $title;
+	$title	??=
+	defined( 'DEFAULT_PAGE_TITLE' )
+		? constant( 'DEFAULT_PAGE_TITLE' )
+		: 'My Place';
+	
+	return $title;
+}
+
+/**
+ *  Preset site subtitle, defaults to 'A Nice Place'
+ *  
+ *  @return string
+ */
+function config_default_desc() : string {
+	static $desc;
+	$desc	??=
+	defined( 'DEFAULT_PAGE_SUB' )
+		? constant( 'DEFAULT_PAGE_SUB' )
+		: 'A Nice Place';
+	
+	return $desc;
+}
+
+/**
  *  Get stored configuration settings or get default
  *  
  *  @param string	$key		Configuration setting name
@@ -5577,8 +5642,8 @@ function template_load(
 	$dir		??= 
 	\defined( 'TEMPLATE_DIR' ) 
 		? \constant( 'TEMPLATE_DIR' )
-		: __DIR__;
-
+		: config( 'template_dir', __DIR__ );
+	
 	// Custom view directory
 	$vdir		= 
 	( null === $root ) 
@@ -6041,13 +6106,11 @@ function template_render(
 function language( ?array $sent = null ) : array {
 	static $data;
 	
-	if ( isset( $data ) ) {
-		return $data;
-	}
+	if ( isset( $data ) ) { return $data; }
 	
 	// Set default language and append language file definitions
 	$terms	= config( 'default_translation', [], 'json' );
-	$lang	= config( 'language', \DEFAULT_LANGUAGE );
+	$lang	= config( 'language', config_default_lang() );
 	$file	= config_load_json( $lang . '.json' );
 	if ( !empty( $file ) ) {
 		$terms	= 
@@ -6385,9 +6448,9 @@ function format_footnotes( string $html, array $footnotes ) : string {
 			template( 'tpl_footnote' ), 
 			[
 				'{backlinks}'	=> 
-				$multi ? 
-					$k . '. ' . \implode( ', ', $back ) : 
-					$back[0],
+				$multi 
+					? $k . '. ' . \implode( ', ', $back ) 
+					: $back[0],
 				'{id}'		=> $slug,
 				'{footnote}'	=> $v['footnote']
 			] 
@@ -6427,10 +6490,8 @@ function format_nice_date( $stamp = null, string $fmt = 'l, F j, Y' ) : string {
  *  @param int		$max	Maximum string length
  *  @return string
  */
-function format_title( $text, int $max = 255 ) : string {
-	if ( \is_array( $text ) ) {
-		return '';
-	}
+function format_title( mixed $text, int $max = 255 ) : string {
+	if ( \is_array( $text ) ) { return ''; }
 	
 	// Unify spaces, tabs, returns etc...
 	return 
@@ -6522,9 +6583,7 @@ function format_hosted_embeds( ?array $custom = null ) : array {
 function format_extract_cc( string $cc, string $prefix = '' ) : string {
 	
 	$cc	= \trim( $cc );
-	if ( empty( $cc ) ) {
-		return '';
-	}
+	if ( empty( $cc ) ) { return ''; }
 	
 	$dd	= '';
 	$src	= '';
@@ -6537,9 +6596,7 @@ function format_extract_cc( string $cc, string $prefix = '' ) : string {
 	
 	// Parse captions
 	foreach ( $defs as $d ) {
-		if ( empty( $d ) ) {
-			continue;
-		}
+		if ( empty( $d ) ) { continue; }
 		
 		\parse_str( $d, $p );
 		
@@ -6604,19 +6661,16 @@ function format_extract_cc( string $cc, string $prefix = '' ) : string {
 function format_embeds( string $html, string $prefix = '', ?array $custom = null  ) : string {
 	static $hosted;
 	static $media;	// Locally uploaded
-	
-	// First run?
-	$hosted	??= format_hosted_embeds( $custom );
-	
-	if ( !isset( $media ) ) {
-		// Uploaded media embedding
-		$rx = '/\[(?<type>audio|video) ' . 
+
+	// Uploaded media embedding
+	static $rx = '/\[(?<type>audio|video) ' . 
 			'(?:\[(?<captions>(.*?))\]\s+?)?' . 
 			'(?:\((?<preview>.*?)\)\s+?)?' . 
 			'(?<src>[^\]]+)\]/s';
-		
-		$media	= [ $rx => 
-		
+	
+	// First run?
+	$hosted	??= format_hosted_embeds( $custom );
+	$media	??= [ $rx => 
 		function( $m ) use ( $prefix ) {
 			$i = \trim( $m['type'] ?? '' );		// Media type
 			$p = \trim( $m['preview'] ?? '' );	// Thumbnail or preview
@@ -6658,9 +6712,8 @@ function format_embeds( string $html, string $prefix = '', ?array $custom = null
 					return '';
 			}
 		}
-		];
-	}
-		
+	];
+	
 	$html	= 
 	\preg_replace( 
 		\array_keys( $hosted ), 
@@ -6668,8 +6721,7 @@ function format_embeds( string $html, string $prefix = '', ?array $custom = null
 		$html 
 	);
 	
-	return
-	\preg_replace_callback_array( $media, $html );
+	return \preg_replace_callback_array( $media, $html );
 }
 
 /**
@@ -6868,9 +6920,7 @@ function format_markdown(
 	$footnotes		= [];
 	$fmarkers		= [];
 	
-	if ( empty( $filters ) ) {
-		$filters	= 
-		[
+	$filters		??= [
 		// Links / Images with alt text and titles
 		'/(\!)?\[([^\[]+)\]\(([^\"\)]+)(?:\"(([^\"]|\\\")+)\")?\)/s'	=> 
 		function( $m ) use ( $prefix ) {
@@ -7013,9 +7063,8 @@ function format_markdown(
 		function( $m ) {
 			return empty( $m ) ? '' : format_table( $m );
 		}
-		];
-		
-	}
+	];
+	
 	// Merge custom markdown filters
 	if ( !empty( $override ) ) {
 		$filters = \array_merge( $filters, $override );
@@ -7054,9 +7103,9 @@ function format_body(
 			$sanity	= false;
 			log_error( 'Bare requires the libxml extension.' );
 			return '';
-		} else {
-			$sanity	= true;
 		}
+		
+		$sanity	= true;
 	}
 	
 	if ( !$sanity ) { return ''; }
@@ -11751,10 +11800,10 @@ function formatSites( array $sites ) : array {
 			$b['settings']		??= [];
 			$b['settings']		= 
 			\array_merge( [
-				'page_title'		=> config( 'page_title', \DEFAULT_PAGE_TITLE ),
-				'page_sub'		=> config( 'page_sub', \DEFAULT_PAGE_SUB ),
+				'page_title'		=> config( 'page_title', config_default_title() ),
+				'page_sub'		=> config( 'page_sub', config_default_desc() ),
 				'page_limit'		=> config( 'page_limit', 12 ),
-				'language'		=> config( 'language', \DEFAULT_LANGUAGE )
+				'language'		=> config( 'language', config_default_lang() )
 			], $b['settings'] );
 			$f[] = $b;
 		}
@@ -11945,8 +11994,8 @@ function sendError( int $code, $body ) {
 	}
 	
 	// No error file sent, continue with built-in error page
-	$ptitle	= config( 'page_title', \DEFAULT_PAGE_TITLE );
-	$psub	= config( 'page_sub', \DEFAULT_PAGE_SUB );
+	$ptitle	= config( 'page_title', config_default_title() );
+	$psub	= config( 'page_sub', config_default_desc() );
 	
 	// Call error code hook
 	hook( [ 'errorcodesend', [
@@ -12842,7 +12891,7 @@ function timeZoneOffset() : int {
 	}
 	
 	// Timezone from configuration
-	$tz = config( 'timezone', \DEFAULT_TIMEZONE );
+	$tz = config( 'timezone', config_default_tz() );
 	$dt = new \DateTime( 'now', new \DateTimeZone( 'UTC' ) );
 	try {
 		$dz = new \DateTimeZone( $tz );
@@ -12850,7 +12899,7 @@ function timeZoneOffset() : int {
 		
 	} catch( \Exception $e ) { // Default fallback
 		shutdown( 'logError', 'Invalid timezone set ' . $tz );
-		$dz = new \DateTimeZone( \DEFAULT_TIMEZONE );
+		$dz = new \DateTimeZone( config_default_tz() );
 		$ot = $dz->getOffset( $dt );
 	}
 	
@@ -13941,8 +13990,8 @@ function formatIndex(
 	
 	// Don't cache if no posts found
 	$cache	= empty( $posts ) ? false : $cache;
-	$ptitle	= config( 'page_title', \DEFAULT_PAGE_TITLE );
-	$psub	= config( 'page_sub', \DEFAULT_PAGE_SUB );
+	$ptitle	= config( 'page_title', config_default_title() );
+	$psub	= config( 'page_sub', config_default_desc() );
 	
 	// Use the render plugin if added
 	hook( [ 'renderindex', [ 
@@ -13980,7 +14029,7 @@ function formatIndex(
 	$tpl = [
 		'post_title'	=> $ptitle,
 		'page_title'	=> $ptitle,
-		'lang'		=> config( 'language', \DEFAULT_LANGUAGE ),
+		'lang'		=> config( 'language', config_default_lang() ),
 		'home'		=> pageRoutePath(),
 		'body_before'	=> $heading
 	];
@@ -14686,8 +14735,8 @@ function staticPage(
 	bool	$cache		= true,
 	string	$lang		= ''
 ) {
-	$ptitle	= config( 'page_title', \DEFAULT_PAGE_TITLE );
-	$psub	= config( 'page_sub', \DEFAULT_PAGE_SUB );
+	$ptitle	= config( 'page_title', config_default_title() );
+	$psub	= config( 'page_sub', config_default_desc() );
 	
 	// First line is the title, everything else is the body
 	$title	= title( \array_shift( $post ) );
@@ -15014,8 +15063,8 @@ function showFeed( string $event, array $hook, array $params ) {
 		sendNotFound();
 	}
 	
-	$ptitle	= config( 'page_title', \DEFAULT_PAGE_TITLE );
-	$psub	= config( 'page_sub', \DEFAULT_PAGE_SUB );
+	$ptitle	= config( 'page_title', config_default_title() );
+	$psub	= config( 'page_sub', config_default_desc() );
 	
 	// Send to render hook
 	hook( [ 'feedrender', [  
@@ -15075,8 +15124,8 @@ function showPost( string $event, array $hook, array $params ) {
 	config( 'show_related', 1, 'int' ) 
 		? getRelated( $path ) : '';
 	
-	$ptitle	= config( 'page_title', \DEFAULT_PAGE_TITLE );
-	$psub	= config( 'page_sub', \DEFAULT_PAGE_SUB );
+	$ptitle	= config( 'page_title', config_default_title() );
+	$psub	= config( 'page_sub', config_default_desc() );
 	
 	// Send to render hook
 	hook( [ 'postrender', [ 
@@ -15119,7 +15168,7 @@ function showPost( string $event, array $hook, array $params ) {
 		template( 'tpl_full_page' ), [
 			'page_title'	=> $ptitle,
 			'post_title'	=> $title . ' - ' . $ptitle,
-			'lang'		=> config( 'language', \DEFAULT_LANGUAGE ),
+			'lang'		=> config( 'language', config_default_lang() ),
 			'home'		=> pageRoutePath(),
 			'body_before'	=> $heading,
 			'body'		=> $post,
@@ -15149,8 +15198,8 @@ function runIndex( string $event, array $hook, array $params ) {
 		sendNotFound();
 	}
 	
-	$ptitle	= config( 'page_title', \DEFAULT_PAGE_TITLE );
-	$psub	= config( 'page_sub', \DEFAULT_PAGE_SUB );
+	$ptitle	= config( 'page_title', config_default_title() );
+	$psub	= config( 'page_sub', config_default_desc() );
 	
 	// Send to render hook
 	hook( [ 'indexrender', [ 
@@ -15236,7 +15285,7 @@ function runIndex( string $event, array $hook, array $params ) {
 		template( 'tpl_full_page' ), [
 			'page_title'	=> $ptitle,
 			'post_title'	=> $ptitle,
-			'lang'		=> config( 'language', \DEFAULT_LANGUAGE ),
+			'lang'		=> config( 'language', config_default_lang() ),
 			'home'		=> pageRoutePath(),
 			'feedlink'	=> pageRoutePath( 'feed' ),
 			'body_before'	=> $heading,
@@ -15330,7 +15379,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 				\FILTER_FLAG_STRIP_HIGH	| 
 				\FILTER_FLAG_STRIP_BACKTICK,
 			'options' => [
-				'default' => \DEFAULT_TIMEZONE
+				'default' => config_default_tz()
 			]
 		],
 		
