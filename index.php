@@ -8712,7 +8712,7 @@ function db_get( string $profile = 'main', ?array $new_profiles = null ) : \PDO 
 	}
 	
 	$config		= $saved[$profile] ?? null;
-	if ( null === !$config ) {
+	if ( null === $config ) {
 		throw new 
 		\InvalidArgumentException( "Unknown DB profile: {$profile}" );
 	}
@@ -9129,9 +9129,7 @@ function form_session_key( string $form_name, bool $use_id = false ) : string {
 	static $keys	= [];
 	sess_init();
 	
-	if ( isset( $keys[$form_name] ) ) {
-		return $keys[$form_name];
-	}
+	if ( isset( $keys[$form_name] ) ) { return $keys[$form_name]; }
 	
 	$phrase		= 
 	$use_id 
@@ -9149,7 +9147,7 @@ function form_session_key( string $form_name, bool $use_id = false ) : string {
  *  @return array
  */
 function form_get_token( string $method = 'post' ) : array {
-	$filter	= [
+	static $filter	= [
 		'nonce'		=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS, 
 		'token'		=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS 
 	];
@@ -9284,13 +9282,13 @@ function form_validate(
 	
 	$status	= 
 	form_token_validate( 
-		$form_name, 
-		$method, 
-		$nonce, 
-		$token, 
-		$meta['issued'] ?? null, 
-		$meta['ttl']	?? null, 
-		$meta['once']	?? null
+		form_name	: $form_name, 
+		method		: $method, 
+		nonce		: $nonce, 
+		token		: $token, 
+		issued		: $meta['issued'] ?? null, 
+		ttl		: $meta['ttl']	?? null, 
+		once		: $meta['once']	?? null
 	);
 	
 	if ( $status !== 'ok' ) {
@@ -9540,10 +9538,10 @@ function page_security_policy_sep( string $frag = '' ) : string {
 /**
  *  Security policy header value formatter
  *  
- *  @param array	$items		Security policy items
+ *  @param array	$policy		Security policy items
  *  @return string
  */
-function page_security_policy_items( array $items ) : string {
+function page_security_policy_items( array $policy ) : string {
 	$separator	= $policy['separator']	?? ', ';
 	$joiner		= $policy['joiner']	?? '=';
 	$items		= $policy['items']	?? [];
@@ -9682,13 +9680,16 @@ function page_send(
 	bool	$is_cached	= false,
 	bool	$is_feed	= false
 ) : void {
+	static $zlib;
+	$zlib		??= \extension_loaded( 'zlib' );
+	
 	$is_error	= ( $code >= 400 );
 	$is_html	= ( $code >= 200 && $code < 204 );
-	$has_body	= ( null !== $content );
+	$has_body	= ( null !== $content ) || $is_html;
 	$headers 	= [];
 	
 	if ( $is_error && !$has_body ) {
-		$headres = page_preamble( false, false );
+		$headers = page_preamble( false, false );
 		$headers['Content-Security-Policy'] = "default-src: 'self'";
 	} elseif ( $is_error && $has_body ) {
 		$headers = page_preamble( false, true );
@@ -9707,9 +9708,7 @@ function page_send(
 	shutdown( 'response_flush', [ true ] );
 	
 	// Check gzip prerequisites
-	if ( $code != 304 && \extension_loaded( 'zlib' ) ) {
-		\ob_start( 'ob_gzhandler' );
-	}
+	if ( $code != 304 && $zlib ) { \ob_start( 'ob_gzhandler' ); }
 	
 	if ( $is_feed ) {
 		response_xml( 
