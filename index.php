@@ -892,8 +892,9 @@ function util_array_normalize_keys( array $items ) : array {
 function util_int_range( $val, int $min, int $max ) : int {
 	$out = ( int ) $val;
 	
-	return 
-	( $out > $max ) ? $max : ( ( $out < $min ) ? $min : $out );
+	return util_missing( 'clamp' )  
+	? ( $out > $max ) ? $max : ( ( $out < $min ) ? $min : $out )
+	: clamp( $val, $min, $max );
 }
 
 /**
@@ -1405,11 +1406,13 @@ function util_rfc_file_date( $stamp = null ) : string {
  *  @param string	$lib		Optional library name, case sensitive
  *  @return bool
  */
-function util_lib_version( string $spec, ?string $lib ) : bool {
+function util_lib_version( string $spec, ?string $lib = null ) : bool {
 	static $ext;
 	
 	// Fix for 7.4.0 etc... appearing higher than 7.4
-	$spec = \rtrim( $spec, '.0' );
+	$spec	= \rtrim( $spec, '.0' );
+	
+	$lib	??= '';
 	
 	// Empty library? Check PHP
 	if ( empty( $lib ) ) {
@@ -1493,21 +1496,27 @@ function util_trim(
 	$val	= \trim( $val );
 	$len	= util_len( $val );
 	
-	if ( $len <= $max ) {
-		return $val;
-	}
+	if ( $len <= $max ) { return $val; }
 	
 	$out	= '';
-	$words	= \preg_split( '/([\.\s]+)/', $val, -1, 
-			\PREG_SPLIT_OFFSET_CAPTURE | 
-			\PREG_SPLIT_DELIM_CAPTURE );
+	$words	= 
+	\preg_split( 
+		pattern	: '/([\.\s]+)/', 
+		subject	: $val, 
+		limit	: -1, 
+		flags	: \PREG_SPLIT_OFFSET_CAPTURE | \PREG_SPLIT_DELIM_CAPTURE 
+	);
+
+	// No words?
+	if ( false === $words ) {
+		$out	= \preg_replace( '/[[:space:]]+/', ' ', $val );
+		return util_truncate( $out, 0, $max );
+	}
 	
 	for ( $i = 0; $i < \count( $words ); $i++ ) {
 		$w	= $words[$i];
 		// Add if this word's length is less than length
-		if ( $w[1] <= $max ) {
-			$out .= $w[0];
-		}
+		if ( $w[1] <= $max ) { $out .= $w[0]; }
 	}
 	
 	$out	= \preg_replace( "/\r?\n/", '', $out );
@@ -1594,14 +1603,16 @@ function util_text_needle_search( string $find, array $collection ) : bool {
  *  @return array
  */
 function util_split_lines( string $text, int $lim = -1, bool $tr = true ) : array {
-	return $tr 
-	? \preg_split( 
-		'/\s*\R\s*/', 
-		trim( $text ), 
-		$lim, 
-		\PREG_SPLIT_NO_EMPTY 
-	) 
-	: \preg_split( '/\R/', $text, $lim, \PREG_SPLIT_NO_EMPTY );
+	$text	= \trim( $text );
+	$lines	= 
+	\preg_split( 
+		pattern	: $tr ? '/\s*\R\s*/' : '/\R/', 
+		subject	: $text, 
+		limit	: $lim, 
+		flags	: \PREG_SPLIT_NO_EMPTY 
+	);
+
+	return ( false === $lines ) ? [ $text ] : $lines;
 }
 
 /**
@@ -1703,6 +1714,27 @@ function sanitize_escape_text(
 }
 
 /**
+ *  Prevent directory traversal within URL segments
+ *  
+ *  @param string	$path	Folder or URI path
+ *  @return string
+ */
+function sanitize_path_traversal( string $path ) : string {
+	$segments	= 
+	\array_filter( 
+		\explode( '/', \preg_replace( '/\\\\/', '/', $path )  ),
+		static function( $seg ) {
+			$seg = \trim( $seg );
+			return 
+				!\str_starts_with( $seg, '..' )	&& 
+				!\str_ends_with( $seg, '..' );
+		}
+	);
+	
+	return \trim( \implode( '/', $segments ), '/' );
+}
+
+/**
  *  Cleaned URI with parsed path components
  *  
  *  @param string	$raw	Raw URI from source
@@ -1710,7 +1742,8 @@ function sanitize_escape_text(
  *  @return string
  */
 function sanitize_uri( string $raw, ?string $base = null ) : string|null {
-	$path	= \trim( \parse_url( $raw, \PHP_URL_PATH ) ?? '', '/' );
+	$path	= \preg_replace( '/\\\\/', '/', $path ) ;
+	$path	= \trim( \parse_url( $path, \PHP_URL_PATH ) ?? '', '/' );
 	$depth	= 0;
 	$max_d	= 10;
 	
@@ -1727,12 +1760,7 @@ function sanitize_uri( string $raw, ?string $base = null ) : string|null {
 	} while( $changed );
 	
 	// Prevent directory traversal
-	$segments	= 
-	\array_filter( 
-		\explode( '/', $path ), 
-		fn( $seg ) => $seg !== '..' && $seg !== '.' 
-	);
-	$final		= \trim( \implode( '/', $segments ), '/' );
+	$final	= sanitize_path_traversal( $path );
 	
 	return ( $base && !\str_starts_with( $final, $base ) ) 
 		? null
@@ -2341,7 +2369,7 @@ function sanitize_html( $html, $tag_map ) {
 		 	$alias = $rules['alias'] ?? [];
 			if ( !\is_array( $alias ) ) { continue; }
 			
-			if ( util_value_exists_ci( $original_tag,  $alias ) ) {
+			if ( util_value_exists_ci( $original_tag, $alias ) ) {
 				$tag = $key;
 				break;
 			}
@@ -3199,12 +3227,11 @@ function log_check_level( string $level ) : ?string {
  */
 function log_file( string $fname = 'messages.log' ) : string {
 	static $file;
-	if ( !isset( $file ) ) {
-		$file	= storage_base() . 
+	$file	??= 
+		storage_base() . 
 		\defined( 'LOG_FILE' ) 
 			? \constant( 'LOG_FILE' ) 
 			: $fname;
-	}
 	return $file;
 }
 
@@ -5133,7 +5160,7 @@ function config_value_format( mixed $value, string $type, $filter = null ) : mix
 function config_ext_groups( string $group = '', ?array $sent = null ) : array {
 	// Default whitelist
 	static $cs;
-	$cs ??= config( 'static_ext', [] );
+	$cs ??= config( 'static_ext', [], 'json' );
 	
 	// Extend whitelist
 	$ext	=  
@@ -5153,7 +5180,7 @@ function config_ext_groups( string $group = '', ?array $sent = null ) : array {
  *  @param array $updates Override configuration presets
  */
 function config_edit_db_profile( string $profile, array $updates ) : void {
-	$profiles = config( 'db_profiles' ) ?? [];
+	$profiles = config( 'db_profiles', [], 'json' );
 	if ( isset( $profiles[$profile] ) ) {
 		config_message(
 			"Database profile {$profile} edited",
@@ -5355,7 +5382,7 @@ function template_blocks( string $template, array $context ) : string {
 		template_patterns( 'block' ), $template, $matches, 
 		\PREG_SET_ORDER 
 	);
-
+	
 	foreach ( $matches as $match ) {
 		$key		= $match[1];
 		$content	= $match[2];
@@ -6292,6 +6319,10 @@ function format_lower( string $text ) : string {
  *  @param bool		$skip_code	Ignore code blocks
  */
 function format_paragraphs( $val, $skip_code = false ) {
+	// Preset filters
+	static $para_filters;
+	static $code_filters;
+	
 	// Escape excluded markdown-sensitive characters
 	static $esc	= [
 		'\\#'	=> '&#35;',
@@ -6311,9 +6342,8 @@ function format_paragraphs( $val, $skip_code = false ) {
 		// Format inside code tags
 		$out = \preg_replace_callback( '/<code>(.*)<\/code>/ism',
 		function ( $m ) {
-			if ( empty( $m[1] ) ) {
-				return '';
-			}
+			if ( empty( $m[1] ) ) { return ''; }
+			
 			return 
 			\strtr( template( 'tpl_codeblock' ), [ 
 				'{code}' => sanitize_escape_text( \trim( $m[1] ), false, false )
@@ -6321,42 +6351,26 @@ function format_paragraphs( $val, $skip_code = false ) {
 		}, $out );	
 	}
 	
-	$filters	= 
-	[
+	$para_filters	??= [
 		// Turn consecutive line breaks to new paragraph
-		'#\s{2,}\n|\n{2}#'		=>
-		function( $m ) {
-			return '</p><p>';
-		},
+		'#\s{2,}\n|\n{2}#'		=> function( $m ) { return '</p><p>'; },
 		
 		// Turn consecutive <br>s to paragraph breaks
-		'#(?:<br\s*/?>\s*?){2,}#'	=>
-		function( $m ) {
-			return '</p><p>';
-		},
+		'#(?:<br\s*/?>\s*?){2,}#'	=> function( $m ) { return '</p><p>'; },
 		
 		// Remove <br> abnormalities
-		'#<p>(\s*<br\s*/?>)+#'		=> 
-		function( $m ) {
-			return '</p><p>';
-		},
+		'#<p>(\s*<br\s*/?>)+#'		=> function( $m ) { return '</p><p>'; },
 		
-		'#<br\s*/?>(\s*</p>)+#'		=> 
-		function( $m ) {
-			return '<p></p>';
-		},
+		'#<br\s*/?>(\s*</p>)+#'		=> function( $m ) { return '<p></p>'; },
 		
 		// Breaks after tags
-		'#</([\w\d]+)>(\s*<br\s*/?>)#'	=> 
-		function( $m ) {
-			return '</' . $m[1] . '>';
-		},
+		'#</([\w\d]+)>(\s*<br\s*/?>)#'	=> function( $m ) { return '</' . $m[1] . '>'; },
 	];
 	
-	$out		= \preg_replace_callback_array( $filters, $out );
+	$out		= \preg_replace_callback_array( $para_filters, $out );
 	if ( $skip_code ) { return $out; }
 	
-	$filters	= [
+	$code_filters	??= [
 		// Remove <br>, <p> tags inside <pre> and <code>
 		'#<(pre|code)(.*)?>(.*)<\/\1>#ism'	=>
 		function( $m ) {
@@ -6365,14 +6379,12 @@ function format_paragraphs( $val, $skip_code = false ) {
 				'</p><p>'	=> "\n\n",
 				'<p>'		=> ''
 			] );
-			return 
-			'<' . $m[1] . ( $m[2] ?? '' ) . '>' . 
-			$v . 
-			'</' . $m[1] . '>';
+			$t = $m[2] ?? '';
+			return "<{$m[1]}{$t}>{$v}<\/{$m[1]}>";
 		},
 		
 		// Block of code
-		'#^`{3,}([^`{3,}]+)`{3,}#mU' =>
+		'#^`{3,}([^`{3,}]+)`{3,}#mU'		=>
 		function( $m ) {
 			return
 			\strtr( template( 'tpl_codeblock' ), [ 
@@ -6381,7 +6393,7 @@ function format_paragraphs( $val, $skip_code = false ) {
 		}
 	];
 	
-	return \preg_replace_callback_array( $filters, $out );
+	return \preg_replace_callback_array( $code_filters, $out );
 }
 
 /**
@@ -6393,9 +6405,7 @@ function format_paragraphs( $val, $skip_code = false ) {
  */
 function format_footnotes( string $html, array $footnotes ) : string {
 	// No footnotes? Send content as-is
-	if ( empty( $footnotes ) ) {
-		return $html;
-	}
+	if ( empty( $footnotes ) ) { return $html; }
 	
 	$slug	= '';		// Footnote ID link slug
 	$foot	= '';		// Formatted footnote
@@ -6407,9 +6417,7 @@ function format_footnotes( string $html, array $footnotes ) : string {
 	// Replace placeholder markers with links
 	foreach( $footnotes as $k => $v ) {
 		// No placeholders in body text?
-		if ( empty( $v['markers'] ) ) {
-			continue;
-		}
+		if ( empty( $v['markers'] ) ) { continue; }
 		
 		// Generate ID slug from part of footnote and its hash
 		$slug	= 
@@ -6475,15 +6483,12 @@ function format_footnotes( string $html, array $footnotes ) : string {
  *  Friendly datetime stamp
  *  
  *  @param mixed	$stamp		Raw datetime stamp, defaults to now
- *  @param string	$fmt		Format from config.json or [lang].json
  *  @return string
  */
-function format_nice_date( $stamp = null, string $fmt = 'l, F j, Y' ) : string {
+function format_nice_date( $stamp = null ) : string {
 	static $dn;
-	if ( !isset( $dn ) ) {
-		$dn	= 
-		language_term( 'date_nice', config( 'date_nice', $fmt ) );
-	}
+	$dn	??= language_term( 'date_nice', config( 'date_nice', 'l, F j, Y' ) );
+	
 	return \gmdate( $dn, util_time_string_int( $stamp ) );
 }
 
@@ -6585,7 +6590,6 @@ function format_hosted_embeds( ?array $custom = null ) : array {
  *  @return string
  */
 function format_extract_cc( string $cc, string $prefix = '' ) : string {
-	
 	$cc	= \trim( $cc );
 	if ( empty( $cc ) ) { return ''; }
 	
@@ -6823,7 +6827,7 @@ function format_table_row( array $cells, array $align, string $tpl, int $oe = 0 
 function format_table( array $m ) : string {
 	// Table cell alignment definition
 	$align = 
-	\array_map( function( $a ) {
+	\array_map( static function( $a ) {
 		$a = \trim( $a );
 		
 		return 
@@ -8112,6 +8116,40 @@ function db_params_in(
 }
 
 /**
+ *  Helper to populate optional parameters with equivalent named parameters
+ *  
+ *  @param array	$params		Key-value pairs with keys matching table field names
+ *  @param bool		$is_insert	Format as insert if true
+ *  @return string
+ */
+function db_params_sql( array $params, bool $is_insert ) : string {
+	$sql	= '';
+
+	// Skip null properties
+	$params	= \array_filter( $params, fn( $v ) => !\is_null( $v ) );
+	
+	// Insert mode
+	if ( $is_insert ) {
+		$sql .= '( ';
+		foreach( $params as $k => $v ) {
+			$sql .= "{$k}, ";
+		}
+		$sql = \trim( $sql, ', ' ) . ' ) VALUES ( ';
+		foreach( $params as $k => $v ) {
+			$sql .= ":{$k}, ";
+		}
+		return \trim( $sql, ', ' ) . ' )';
+	}
+
+	// Update mode
+	foreach( $params as $k => $v ) {
+		$sql .= "{$k} = :{$k}, ";
+	}
+	
+	return \trim( $sql, ', ' );
+}
+
+/**
  *  Get or create cached PDO Statements
  *  
  *  @param PDO		$dbh	Database connection
@@ -8122,13 +8160,13 @@ function db_stmt( ?\PDO $dbh, string $sql ) {
 	static $cache = [];
 	if ( empty( $dbh ) && empty( $sql ) ) {
 		\array_map( 
-			function( $v ) { return null; }, 
+			static function( $v ) { return null; }, 
 			$cache 
 		);
 		return null;
 	}
 	
-	$key = \sha1( \spl_object_hash( $dbh ) . ':' . $sql );
+	$key = \sha1( \spl_object_id( $dbh ) . ':' . $sql );
 	
 	if ( isset( $cache[$key] ) ) {
 		return $cache[$key];
@@ -8140,10 +8178,7 @@ function db_stmt( ?\PDO $dbh, string $sql ) {
 		return $stmt;
 		
 	} catch ( \PDOException $e ) {
-		log_msg( 
-			"Failed to prepare statement with {$sql}: {$e->getMessage()}", 
-			'ERROR' 
-		);
+		log_error( "Failed to prepare statement with {$sql}: {$e->getMessage()}" );
 		
 		throw new 
 		\RuntimeException( "Database statement preparation failed" );
@@ -8185,6 +8220,14 @@ function db_exec( \PDOStatement $stmt, array $params, string $context ) : bool {
 	return false;
 }
 
+/**
+ *  Execute larger SQL statements
+ *  
+ *  @param PDO		$dbh		PDO Database handle
+ *  @param string	$sql		SQL statement block
+ *  @param string	$context	Execution metadata info
+ *  @return bool
+ */
 function db_exec_batch( \PDO $dbh, string $sql, string $context = 'Batch SQL' ) : bool {
 	if ( empty( trim( $sql ) ) ) {
 		log_msg( "Empty SQL passed to db_exec_batch", 'WARN' );
@@ -8214,6 +8257,14 @@ function db_exec_batch( \PDO $dbh, string $sql, string $context = 'Batch SQL' ) 
 	return false;
 }
 
+/**
+ *  Get PDO attribute info from given handle
+ *  
+ *  @param PDO		$dbh		PDO Database handle
+ *  @param int		$attribute	PDO attribute constant
+ *  @param mixed	$default	Optional default value
+ *  @return mixed
+ */
 function db_get_property( \PDO $dbh, int $attribute, $default = null ) : mixed {
 	try {
 		$value = $dbh->getAttribute( $attribute );
@@ -8225,6 +8276,12 @@ function db_get_property( \PDO $dbh, int $attribute, $default = null ) : mixed {
 	}
 }
 
+/**
+ *  Try to get current PDO database driver name, defaults to 'unknown'
+ *  
+ *  @param PDO		$dbh		PDO Database handle
+ *  @return string
+ */
 function db_get_driver( \PDO $dbh ) : string {
 	static $supported = [ 'pgsql', 'sqlite', 'mysql' ];
 	
@@ -8298,16 +8355,14 @@ function db_sql_now_diff( \PDO $dbh, string $column = 'last_run' ) : string {
  *  @return array
  */
 function db_profile_info( \PDO $dbh, string $profile = 'main' ) : array {
-	static $cache	= [];
+	static $cache;
 
 	// Load saved profile config
-	if ( empty( $cache ) ) {
-		$cache = config( 'db_profiles' );
-	}
-
+	$cache ??= config( 'db_profiles', [], 'json' );
 	$config = $cache[$profile] ?? null;
 	if ( !$config ) {
 		log_msg( "Unknown DB profile: {$profile}", 'ERROR' );
+		
 		throw new 
 		\InvalidArgumentException( "Unknown DB profile" );
 	}
@@ -8420,14 +8475,16 @@ function db_batch_schema(
 			continue;
 		}
 	}
-	
+
+	// No schema file found
 	if ( false === $found ) {
 		log_error( "Failed to read schema file: {$sql_file}" );
 		
 		throw new
 		\RuntimeException( "Unable to load schema file" );
 	}
-	
+
+	// Nothing in schema file
 	if ( empty( trim( $found ) ) ) {
 		log_error( "Schema file is empty: {$sql_file}" );
 		
@@ -8438,11 +8495,14 @@ function db_batch_schema(
 	try {
 		$dbh->beginTransaction();
 		$dbh->exec( $found );
-		
-		db_exec( db_stmt( $dbh, $sql ), [
-			':version'	=> $ver,
-			':comment'	=> $comment
-		], "Schema file {$sql_file}" );
+
+		// Only insert metadata if meta table is found
+		if ( false !== \stripos( $found, 'create table schema_meta' ) ) {
+			db_exec( db_stmt( $dbh, $sql ), [
+				':version'	=> $ver,
+				':comment'	=> $comment
+			], "Schema file {$sql_file}" );
+		}
 		
 		$dbh->commit();
 		
@@ -8615,7 +8675,6 @@ function db_maintenance( \PDO $dbh, array $config ) : void {
  *  @return mixed
  */
 function db_with_transaction( \PDO $dbh, callable $fn ) : mixed {
-	
 	try {
 		$dbh->beginTransaction();
 		$result	= $fn( $dbh );
@@ -8647,16 +8706,13 @@ function db_get( string $profile = 'main', ?array $new_profiles = null ) : \PDO 
 		return $dbh[$profile];
 	}
 	
+	$saved	??= config( 'db_profiles' );
 	if ( !empty( $new_profiles ) ) {
 		$saved	= \array_replace_recursive( $saved, $new_profiles );
 	}
 	
-	if ( empty( $saved ) ) {
-		$saved	= config( 'db_profiles' );
-	}
-	
 	$config		= $saved[$profile] ?? null;
-	if ( !$config ) {
+	if ( null === !$config ) {
 		throw new 
 		\InvalidArgumentException( "Unknown DB profile: {$profile}" );
 	}
@@ -8848,11 +8904,21 @@ function sess_open( $save_path, $session_name ) { return true; }
 function sess_close() { return true; }
 
 /**
- *  Create session ID in the database and return it
+ *  Create session ID
  *  
  *  @return string
  */
-function sess_create() { return \bin2hex( \random_bytes( 32 ) ); }
+function sess_create_id() { return \bin2hex( \random_bytes( 32 ) ); }
+
+/**
+ *  Validate session ID
+ *  
+ *  @param string	$session_id	Unique identifier
+ *  @return bool
+ */
+function sess_validate_id( $session_id ) {
+	return \preg_match( '/^[a-f0-9]{64}$/', $session_id ) === 1;
+}
 
 /**
  *  Read session data by ID
@@ -8862,7 +8928,7 @@ function sess_create() { return \bin2hex( \random_bytes( 32 ) ); }
  */
 function sess_read( $session_id ) {
 	$dbh	= db_get( 'sessions' );
-	$stmt	=
+	$stmt	= 
 	$dbh->prepare(
 	"SELECT session_data FROM sessions
 		WHERE session_id = :id
@@ -8949,30 +9015,27 @@ function sess_gc( $maxlifetime ) {
 }
 
 /**
- *  Delete session
- *  
- *  @param string	$session_id	Unique identifier
- *  @return bool
- */
-function sess_validate( $session_id ) {
-	return \preg_match( '/^[a-f0-9]{64}$/', $session_id ) === 1;
-}
-
-/**
- *  Delete session
+ *  Update session data with timestamp
  *  
  *  @param string	$session_id	Unique identifier
  *  @return bool
  */
 function sess_update_timestamp( $session_id, $data ) {
 	$dbh	= db_get( 'sessions' );
-	$stmt	=
-	$dbh->prepare( 
+
+	return db_with_transaction( $dbh, function( \PDO $dbh ) use ( $session_id, $data ) {
+		$stmt	=
+		$dbh->prepare( 
 		"UPDATE sessions
-		SET expires_at = DATETIME('now', '+1 hour')
-		WHERE session_id = :id"
-	);
-	return $stmt->execute( [ ':id' => $session_id ] );
+			SET expires_at = DATETIME('now', '+1 hour'), 
+			data = :data
+			WHERE session_id = :id"
+		);
+		return $stmt->execute( [ 
+			':id'	=> $session_id, 
+			':data'	=> $data
+		] );
+	} );
 }
 
 function sess_off() : void {
@@ -8995,7 +9058,7 @@ function sess_init() : void {
 		'httponly'	=> true, 
 		'secure'	=> request_is_tls(), 
 		'samesite'	=> 'Strict', 
-		'path'		=> '/', 
+		'path'		=> config( 'cookie_path', '/' ), 
 	] );
 	
 	$start	??= 
@@ -9006,8 +9069,9 @@ function sess_init() : void {
 		'sess_write', 
 		'sess_destroy', 
 		'sess_gc', 
-		'sess_create', 
-		'sess_validate' 
+		'sess_create_id', 
+		'sess_validate_id',
+		'sess_update_timestamp'
 	);
 	
 	if ( \session_status() === \PHP_SESSION_NONE ) {
@@ -9018,11 +9082,11 @@ function sess_init() : void {
 			);
 			
 			throw new 
-			\RuntimeException( "Session start failed due to headers" );
+			\RuntimeException( "Session start failed due to headers already sent" );
 		}
 		
 		try {
-			if ( !\session_start() ) {
+			if ( !\session_start() ) { // Something else went wrong
 				log_error( "Session failed to start" );
 				
 				throw new 
