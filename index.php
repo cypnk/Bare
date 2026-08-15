@@ -749,711 +749,688 @@ function error_handle( \Throwable $e ) : void {
 
 
 /**
- *  Utilities
+ *  @class General utilities
  */
-
-/**
- *  Clear empty content of spaces
- *  
- *  @param array	$data		Input contents from the user
- *  @return array
- */
-function util_filter_empty( array $data ) : array {
-	return \array_filter( \array_map( 'trim', $data ), 'strlen' );
-}
-
-/**
- *  String to list helper
- *  
- *  @param string	$text	Input text to break into items
- *  @param bool		$lower	Convert Mixed/Uppercase text to lowercase if true
- *  @param string	$sep	String delimiter, defaults to comma
- *  @return array
- */
-function util_trimmed_list( string $text, bool $lower = false, string $sep = ',' ) : array {
-	$map = \array_map( 'trim', \explode( $sep, $text ) );
-	return $lower ? \array_map( 'strtolower', $map ) : $map;
-}
-
-/**
- *  Get list of current user-defined functions
- *  
- *  @param bool		$update	Force cache refresh
- *  @return array
- */
-function util_functions_list( bool $update = false ) : array {
-	static $functions;
-	if ( $update || !isset( $functions ) ) {
-		$functions = \get_defined_functions()['user'];
-	}
-	return $functions;
-}
-
-/**
- *  Get formatted timestamp
- *  
- *  @param string	$format	Timestamp format
- *  @return string
- */
-function util_timestamp( string $format = 'Y-m-d H:i:s.u' ) : string {
-	$dt = \DateTime::createFromFormat( 
-		'U.u', \sprintf( '%.6F', \microtime( true ) ) 
-	);
-	return $dt ? $dt->format( $format ) : '';
-}
-
-/**
- *  Generate a unique, sortable timestamp based on set label
- *  
- *  @param string	$label		Stamp descriptor for categories etc...
- *  @param bool		$use_stamp	Use timestamp prefix, if true
- *  @return string
- */
-function util_get_id( string $label, bool $use_stamp = true ) : string {
-	$id	= ( string ) ( \getmypid() ?: \uniqid() );
-	$stamp	= $use_stamp 
-		? \sprintf( '%.6F', \microtime( true ) ) . '_'
-		: '';
+final class Util {
 	
-	return "{$stamp}{$label}_{$id}";
-}
-
-/**
- *  Case insensitive array value search
- *  
- *  @param string	$value	Array value needle
- *  @param array	$items	Searching haystack
- *  @return bool
- */
-function util_value_exists_ci( string $value, array $items ) : bool {
-	if ( empty( $items ) ) { return false; }
-	
-	return \in_array( 
-		\strtolower( $value ), 
-		\array_map( 'strtolower', $items ) 
-	);
-}
-
-/**
- *  Case insensitive array key search
- *  
- *  @param string	$key	Array key needle
- *  @param array	$items	Searching haystack
- *  @return bool
- */
-function util_key_exists_ci( string $key, array $items ) : bool {
-	if ( empty( $items ) ) { return false; }
-	return \array_key_exists( $key, \array_change_key_case( $items, \CASE_LOWER ) );
-}
-
-/**
- *  Case insensitive array key search with value return
- *  
- *  @param string	$key	Array key needle
- *  @param array	$items	Searching haystack
- *  @return mixed
- */
-function util_value_key_exists_ci( string $key, array $items ) : mixed {
-	foreach ( $items as $k => $v ) {
-		if ( 0 === \strcasecmp( $k, $key ) ) {
-			return $v;
+	/**
+	 *  Check if a specific library or if PHP is the given version or above
+	 *  
+	 *  @param string	$spec		Minimum supported version
+	 *  @param string	$lib		Optional library name, case sensitive
+	 *  @return bool
+	 */
+	public static function lib_version( string $spec, ?string $lib = null ) : bool {
+		static $ext;
+		
+		// Fix for 7.4.0 etc... appearing higher than 7.4
+		$spec	= \rtrim( $spec, '.0' );
+		
+		$lib	??= '';
+		
+		// Empty library? Check PHP
+		if ( empty( $lib ) ) {
+			return 
+			\version_compare( \rtrim( \PHP_VERSION, '.0' ), $spec, '>=' );
 		}
-	}
-	return null;
-}
-
-/**
- *  Recursively convert array keys to lowercase
- *  
- *  @param array	$items	Collection to format
- *  @return array
- */
-function util_array_normalize_keys( array $items ) : array {
-	$normal	= [];
-	foreach( $items as $key => $value ) {
-		$lkey		= \is_string( $key ) ? \strtolower( $key ) : $key;
-		$normal[$lkey]	= 
-		\is_array( $value ) && !\array_is_list( $value )
-			? util_array_normalize_keys( $value ) 
-			: $value;
-	}
-	
-	return $normal;
-}
-
-/**
- *  Filter number within min and max range, inclusive
- *  
- *  @param mixed	$val		Given default value
- *  @param int		$min		Minimum, returned if less than this
- *  @param int		$max		Maximum, returned if greater than this
- *  @return int
- */
-function util_int_range( $val, int $min, int $max ) : int {
-	$out = ( int ) $val;
-	
-	return util_missing( 'clamp' )  
-	? ( $out > $max ) ? $max : ( ( $out < $min ) ? $min : $out )
-	: clamp( $val, $min, $max );
-}
-
-/**
- *  Safely encode array to JSON
- *  
- *  @return string
- */
-function util_json_encode( array $data = [] ) : string {
-	if ( empty( $data ) ) {  return ''; }
-	
-	$out = 
-	\json_encode( 
-		$data, 
-		\JSON_HEX_TAG | \JSON_HEX_APOS | \JSON_HEX_QUOT | 
-		\JSON_HEX_AMP | \JSON_UNESCAPED_UNICODE | 
-		\JSON_PRETTY_PRINT 
-	);
-	
-	return ( false === $out ) ? '' : $out;
-}
-
-/**
- *  Safely decode JSON to array
- *  
- *  @param string|array		$data	Content to encode
- *  @param int			$depth	Optional maximum encode depth
- *  @return array
- */
-function util_json_decode( array|string $data, int $depth = 10 ) : array {
-	if ( empty( $data ) ) { return []; }
-	
-	if ( \is_array( $data ) ) { return $data; }
-	
-	// Since PHP 8.3+
-	if ( !\json_validate( $data ) ) { return []; }
-	
-	$depth	= util_int_range( $depth, 1, 50 );
-	$out	= 
-	\json_decode( 
-		\util_utf8( $data ), true, $depth, 
-		\JSON_BIGINT_AS_STRING
-	);
-	
-	if ( \json_last_error() !== \JSON_ERROR_NONE ) { return []; }
-	if ( empty( $out ) || false === $out ) { return []; }
-	
-	return $out;
-}
-
-/**
- *  Ensure JSON content is valid
- *  
- *  @param array|string	$json	Raw field data
- *  @param bool		$values	Return values only when true
- *  @param int		$depth	Maximum decode depth, if parsing string
- *  @return array
- */
-function util_json_array( 
-	array|string	$json,
-	bool		$values	= false, 
-	int		$depth	= 10 
-) : array {
-	if ( \is_array( $json ) ) {
-		return $values 
-			? \array_values( $json ) 
-			: $json;
-	}
-	
-	$data	= \util_json_decode( $json, $depth );
-	return $values ? \array_values( $data ) : $data;
-}
-
-/**
- *  Generate a random string ID based on given random bytes
- *  
- *  @param int		$bytes		Size of random bytes
- *  @param string	$prefix 	Random ID prefix
- *  @return string
- */
-function util_gen_key( int $len = 16, ?string $prefix = null ) : string {
-	$len	= util_int_range( $len, 1, 64 );
-	$prefix ??= '';
-	return $prefix . \bin2hex( \random_bytes( \intdiv( $len, 2 ) ) );
-}
-
-/**
- *  Generate an alphanumeric string with 32 bytes of random data
- *  
- *  @return string
- */
-function util_gen_alphanum() {
-	return 
-	\preg_replace( 
-		'/[^[:alnum:]]/u', 
-		'', 
-		\base64_encode( \random_bytes( 32 ) ) 
-	);
-}
-
-/**
- *  Generate globally unique identifier
- *  
- *  @param string	$mode	UUID mode, defaults to  v4
- *  @return string
- */
-function util_gen_uuid( ?string $mode = null ) : string {
-	$mode	??= 'v4';
-	
-	if ( 0 === \strcasecmp( 'v4', $mode ) ) {
-		$data	= \random_bytes( 16 );
-		$data[6]= \chr( ( \ord( $data[6] ) & 0x0f ) | 0x40 );
-		$data[8]= \chr( ( \ord( $data[8] ) & 0x3f ) | 0x80 );
 		
-		$out	= \str_split( \bin2hex( $data ), 4 );
-	} else {
-		$now	= ( int ) ( \microtime( true ) * 1000 );
-		$sub	= ( int ) ( \hrtime()[1] / 1_000_000 );
-		$stamp	= ( $now << 12 ) | ( $sub & 0x0FFF );
+		// Currently running extensions
+		$ext	??= \get_loaded_extensions();
 		
-		$hex	= \str_pad( \dechex( $stamp ), 15, '0', \STR_PAD_LEFT );
-		$hex[12]= '7';
-		
-		$data	= \random_bytes( 8 );
-		$rdata	= \bin2hex( $data );
-		$pfx	= \substr( $rdata, 0, 4 );
-		$pfx[0]	= \dechex( ( \hexdec( $pfx[0] ) & 0x3 ) | 0x8 );
-		
-		$out	= \str_split( $hex . $pfx . \substr( $rdata, 4 ), 4 );
-	}
-	
-	return \vsprintf( '%s-%s-%s-%s-%s', $out );
-}
-
-/**
- *  Random UUID shortcut
- *  
- *  @return string
- */
-function util_gen_guid() : string {
-	return util_gen_uuid( 'v4' );
-}
-
-
-/**
- *  Cached timezone list helper
- *  
- *  @return array
- */
-function util_timezone_list() : array {
-	static $cache	= null;
-	$cache		??= \timezone_identifiers_list();
-	
-	return $cache;
-}
-
-/**
- *  Check if given timezone is valid
- *  
- *  @param string	$tz	Raw timezone
- *  @return bool
- */
-function util_timezone_valid( string $tz ) : bool {
-	return \in_array( $tz, util_timezone_list(), true );
-}
-
-/**
- *  Check if given date is in the future
- *  
- *  @param DateTime	$start	Sent stamp
- *  @return bool
- */
-function util_date_is_future( \DateTime $start ) : bool {
-	static $now	= null;
-	$now		??= new \DateTime();
-	
-	return $start > $now;
-}
-
-/**
- *  Format request date format to archive limit range
- *  
- *  @param array	$params		Raw URL param
- *  @param bool		$limit_now	Limit to current date, if true
- *  @return array
- */
-function util_date_range( array $params, bool $limit_now = false ) : array {
-	static $now	= null;
-	
-	$now		??= new \DateTime();
-	$year		= $params['year']	?? null;
-	$month		= $params['month']	?? null;
-	$day		= $params['day']	?? null;
-	$page		= ( int ) ( $params['page'] ?? 1 );
-	
-	if ( null === $year ) { 
-		return [];
-	}
-	
-	if ( !\ctype_digit( ( string ) $year ) || $year < 1 ) {
-		return [];
-	}
-	
-	if ( null !== $month && ( $month < 1 || $month > 12 ) ) {
-		return [];
-	}
-	
-	if ( null !== $day ) {
-		if ( null === $month || null === $year ) { return []; }
-		if ( !\checkdate( ( int ) $month, ( int ) $day, ( int ) $year ) ) {
-			return [];
+		foreach ( $ext as $e ) {
+			if ( \str_starts_with( $e, $lib ) ) {
+				$lv = \phpversion( $e );
+				
+				// Error getting version?
+				if ( false === $lv ) { return false; }
+				
+				return 
+				\version_compare( \rtrim( $lv, '.0' ), $spec, '>=' );
+			}
 		}
-	}
-	
-	$start	= 
-	match( true ) {
-		( $year && $month && $day )	=> 
-			new \DateTime( "{$year}-{$month}-{$day} 00:00:00" ),
 		
-		( $year && $month )		=>
-			new \DateTime( "{$year}-{$month}-01 00:00:00" ),
-			
-		default				=> 
-			new \DateTime( "{$year}-01-01 00:00:00" )
-	};
+		// Extension not found
+		return false;
+	}
 	
-	$limit	= 
-	match( true ) {
-		( $year && $month && $day )	=> 
-			( clone $start )->modify( '+1 day' ),
+	/**
+	 *  Checking for function availability
+	 *  
+	 *  @param string	$func	Function name
+	 *  @return bool		True If the function isn't available 
+	 */
+	public static function missing( string $func ) : bool {
+		static $exts;
+		static $blocked;
+		static $fn	= [];
 		
-		( $year && $month )		=>
-			( clone $start )->modify( '+1 month' ),
-			
-		default				=> 
-			( clone $start )->modify( '+1 year' )
-	};
-	
-	$end	= ( $limit_now && $limit > $now ) ? $now : $limit;
-	return [ $start, $end, $page ];
-}
-
-/**
- *  Attempt to detect text encoding
- *  
- *  @param string	$text		Searching block
- *  @param array	$encodings	List of possible encodings
- *  @return string
- */
-function util_detect_encoding( string $text, array $encodings ) : string {
-	foreach ( $encodings as $enc ) {
-		if ( \mb_check_encoding( $text, $enc ) ) {
-			return $enc;
-		}
+		if ( isset( $fn[$func] ) ) { return $fn[$func]; }
+		$fn[$func] = !\function_exists( $func );
+		
+		return $fn[$func];
 	}
 	
-	return \mb_detect_encoding( $text, \mb_detect_order(), true ) ?: 'ISO-8859-1';
-}
-
-/**
- *  Attempt to convert text to UTF-8
- *  
- *  @param string	$text Converting block
- *  @return string
- */
-function util_utf8( string $text, string $default = 'ISO-8859-1' ) : string {
-	static $pool	= 
-	[ 'UTF-8', 'ISO-8859-15', 'Windows-1252', 'Shift_JIS', 'EUC-JP', 
-		'GB2312', 'GBK', 'Big5', 'ASCII', 'MacRoman', 'KOI8-R', 
-		'UTF-16', 'UTF-32', 'ISO-8859-1'];
-	
-	$enc		= util_detect_encoding( $text, $pool ) ?? $default;
-	$out		= \mb_convert_encoding( $text, 'UTF-8', $enc );
-	return ( false === $out ) ? '' : $out;
-}
-
-/**
- *  Recursively convert array values to lowercase
- *  
- *  @param array	$tree	Raw catalog to process
- *  @return array
- */
-function util_normalize_array( array $tree ) : array {
-	$normal	= [];
-	
-	foreach ( $tree as $key => $value ) {
-		if ( \is_array( $value ) ) {
-			$normal[$key] = util_normalize_array( $value );
-		} elseif ( \is_string( $value ) ) {
-			$normal[$key] = \strtolower( $value );
-		} else {
-			$normal[$key] = $value;
-		}
+	/**
+	 *  Clear empty content of spaces
+	 *  
+	 *  @param array	$data		Input contents from the user
+	 *  @return array
+	 */
+	public static function filter_empty( array $data ) : array {
+		return \array_filter( \array_map( 'trim', $data ), 'strlen' );
 	}
 	
-	return $normal;
-}
-
-/**
- *  Flatten a multi-dimensional array into a path map
- *  
- *  @link https://stackoverflow.com/a/2703121
- *  
- *  @param array	$items		Raw item map (parsed JSON)
- *  @param string	$delim		Phrase separator in E.G. {lang:}
- *  @return array
- */ 
-function util_flatten_array(
-	array		$items, 
-	string		$delim	= ':'
-) : array {
-	$it	= new \RecursiveIteratorIterator( 
+	/**
+	 *  String to list helper
+	 *  
+	 *  @param string	$text	Input text to break into items
+	 *  @param bool		$lower	Convert Mixed/Uppercase text to lowercase if true
+	 *  @param string	$sep	String delimiter, defaults to comma
+	 *  @return array
+	 */
+	public static function trimmed_list(
+		string	$text, 
+		bool	$lower	= false, 
+		string	$sep	= ','
+	) : array {
+		$map = \array_map( 'trim', \explode( $sep, $text ) );
+		return $lower ? \array_map( 'strtolower', $map ) : $map;
+	}
+	
+	/**
+	 *  Get list of current user-defined functions
+	 *  
+	 *  @param bool		$update	Force cache refresh
+	 *  @return array
+	 */
+	public static function functions_list( bool $update = false ) : array {
+		static $functions;
+		if ( $update || !isset( $functions ) ) {
+			$functions = \get_defined_functions()['user'];
+		}
+		return $functions;
+	}
+	
+	/**
+	 *  Get formatted timestamp
+	 *  
+	 *  @param string	$format	Timestamp format
+	 *  @return string
+	 */
+	public static function timestamp( string $format = 'Y-m-d H:i:s.u' ) : string {
+		$dt = \DateTime::createFromFormat( 
+			'U.u', \sprintf( '%.6F', \microtime( true ) ) 
+		);
+		return $dt ? $dt->format( $format ) : '';
+	}
+	
+	/**
+	 *  Generate a unique, sortable timestamp based on set label
+	 *  
+	 *  @param string	$label		Stamp descriptor for categories etc...
+	 *  @param bool		$use_stamp	Use timestamp prefix, if true
+	 *  @return string
+	 */
+	public static function get_id( string $label, bool $use_stamp = true ) : string {
+		$id	= ( string ) ( \getmypid() ?: \uniqid() );
+		$stamp	= $use_stamp 
+			? \sprintf( '%.6F', \microtime( true ) ) . '_'
+			: '';
+		
+		return "{$stamp}{$label}_{$id}";
+	}
+	
+	/**
+	 *  Case insensitive array value search
+	 *  
+	 *  @param string	$value	Array value needle
+	 *  @param array $items	Searching haystack
+	 *  @return bool
+	 */
+	public static function value_exists_ci( string $value, array $items ) : bool {
+		if ( empty( $items ) ) { return false; }
+		
+		return \in_array( 
+			\strtolower( $value ), 
+			\array_map( 'strtolower', $items ) 
+		);
+	}
+	
+	/**
+	 *  Case insensitive array key search
+	 *  
+	 *  @param string	$key	Array key needle
+	 *  @param array	$items	Searching haystack
+	 *  @return bool
+	 */
+	public static function key_exists_ci( string $key, array $items ) : bool {
+		if ( empty( $items ) ) { return false; }
+		return \array_key_exists( $key, \array_change_key_case( $items, \CASE_LOWER ) );
+	}
+	
+	/**
+	 *  Case insensitive array key search with value return
+	 *  
+	 *  @param string	$key	Array key needle
+	 *  @param array	$items	Searching haystack
+	 *  @return mixed
+	 */
+	public static function value_key_exists_ci( string $key, array $items ) : mixed {
+		foreach ( $items as $k => $v ) {
+			if ( 0 === \strcasecmp( $k, $key ) ) { return $v; }
+		}
+		return null;
+	}
+	
+	/**
+	 *  Recursively convert array keys to lowercase
+	 *  
+	 *  @param array	$items	Collection to format
+	 *  @return array
+	 */
+	public static function array_normalize_keys( array $items ) : array {
+		$normal	= [];
+		foreach( $items as $key => $value ) {
+			$lkey		= \is_string( $key ) ? \strtolower( $key ) : $key;
+			$normal[$lkey]	= 
+			\is_array( $value ) && !\array_is_list( $value )
+				? static::array_normalize_keys( $value ) 
+				: $value;
+		}
+		return $normal;
+	}
+	
+	/**
+	 *  Recursively convert array values to lowercase
+	 *  
+	 *  @param array	$tree	Raw catalog to process
+	 *  @return array
+	 */
+	public static function normalize_array( array $tree ) : array {
+		$normal	= [];
+		
+		foreach ( $tree as $key => $value ) {
+			if ( \is_array( $value ) ) {
+				$normal[$key] = static::normalize_array( $value );
+			} elseif ( \is_string( $value ) ) {
+				$normal[$key] = \strtolower( $value );
+			} else {
+				$normal[$key] = $value;
+			}
+		}
+		
+		return $normal;
+	}
+	
+	/**
+	 *  Flatten a multi-dimensional array into a path map
+	 *  
+	 *  @link https://stackoverflow.com/a/2703121
+	 *  
+	 *  @param array	$items		Raw item map (parsed JSON)
+	 *  @param string	$delim		Phrase separator in E.G. {lang:}
+	 *  @return array
+	 */ 
+	public static function flatten_array(
+		array		$items, 
+		string		$delim	= ':'
+	) : array {
+		$it	= 
+		new \RecursiveIteratorIterator( 
 			new \RecursiveArrayIterator( $items )
 		);
-	
-	$out	= [];
-	foreach ( $it as $leaf ) {
-		$path = '';
-		foreach ( \range( 0, $it->getDepth() ) as $depth ) {
-			$path .= 
-			\sprintf( 
-				"$delim%s", 
-				$it->getSubIterator( $depth )->key() 
-			);
+		
+		$out	= [];
+		foreach ( $it as $leaf ) {
+			$path = '';
+			foreach ( \range( 0, $it->getDepth() ) as $depth ) {
+				$path .= 
+				\sprintf( 
+					"$delim%s", 
+					$it->getSubIterator( $depth )->key() 
+				);
+			}
+			$out[$path] = $leaf;
 		}
-		$out[$path] = $leaf;
+		
+		return $out;
 	}
 	
-	return $out;
-}
-
-/**
- *  Term replacement helper
- *  Flattens multidimensional array into {$prefix:group:label...} format
- *  and replaces matching placeholders in content
- *  
- *  @param string	$prefix		Replacement prefix E.G. 'lang'
- *  @param array	$data		Multidimensional array
- *  @param string	$content	Placeholders to replace
- *  @return string
- */ 
-function util_prefix_replace(
-	string		$prefix, 
-	array		$data, 
-	string		$content
-) : string {
-	// Find placeholders with given prefix
-	\preg_match_all( 
-		'/\{' . $prefix . '(\:[\:a-z_]{1,100}+)\}/i', 
-		$content, $m 
-	);
-	// Convert data to :group:label... format
-	$terms	= util_flatten_array( $data );
-	
-	// Replacements list
-	$rpl	= [];
-	
-	$c	= \count( $m );
-	
-	// Set {prefix:group:label... } replacements or empty string
-	for( $i = 0; $i < $c; $i++ ) {
-		if ( !isset( $m[1] ) ) { continue; }
-		if ( !isset( $m[1][$i] ) ) { continue; }
+	/**
+	 *  Term replacement helper
+	 *  Flattens multidimensional array into {$prefix:group:label...} format
+	 *  and replaces matching placeholders in content
+	 *  
+	 *  @param string	$prefix		Replacement prefix E.G. 'lang'
+	 *  @param array	$data		Multidimensional array
+	 *  @param string	$content	Placeholders to replace
+	 *  @return string
+	 */ 
+	public static function prefix_replace(
+		string		$prefix, 
+		array		$data, 
+		string		$content
+	) : string {
+		// Find placeholders with given prefix
+		\preg_match_all( 
+			'/\{' . $prefix . '(\:[\:a-z_]{1,100}+)\}/i', 
+			$content, $m 
+		);
+		// Convert data to :group:label... format
+		$terms	= static::flatten_array( $data );
 		
-		$rpl['{' . $prefix . $m[1][$i] . '}']	= 
-			$terms[$m[1][$i]] ?? '';
-	}
-	
-	return \strtr( $content, $rpl );
-}
-
-/**
- *  Format a structured array into a URL query section
- *  
- *  @param array $query Presorted array
- *  @return string
- */
-function util_array_to_query( array $query ) : string {
-	$parts = [];
-	
-	foreach ( $query as $key => $value ) {
-		if ( '' === $key ) { continue; }
+		// Replacements list
+		$rpl	= [];
 		
-		foreach ( ( array ) $value as $v ) {
-			$parts[] = 
-			\urlencode( $key ) . '=' . \urlencode( $v ?? '' );
-		}
-	}
-	
-	return implode( '&', $parts );
-}
-
-/**
- *  Get a list of tokens separated by spaces
- *  
- *  @param string	$text		Raw text containing repeated words
- *  @return array
- */
-function util_unique_terms( string $value ) : array {
-	return \array_unique( 
-		\preg_split( 
-			pattern	: '/[[:space:]]+/', 
-			subject	: \trim( $value ), 
-			flags	: \PREG_SPLIT_NO_EMPTY 
-		)
-	);
-}
-
-/**
- *  Combine start, end ranges without overlap
- *  
- *  @param array	$ranges	Raw range sets
- *  @return array
- */
-function util_merge_ranges( array $ranges ) : array {
-	if ( empty( $ranges ) ) { return []; }
-	
-	\usort( $ranges, fn( $a, $b ) => $a[0] <=> $b[0] );
-	$merged	= [ $ranges[0] ];
-	
-	foreach ( \array_slice( $ranges, 1 ) as [ $start, $end ] ) {
-		[ $last_start, $last_end ] = end( $merged );
+		$c	= \count( $m );
 		
-		if ( $start <= $last_end + 1 ) {
-			$last_index		= \array_key_last( $merged );
-			$merged[ $last_index ]	= 
-			[ $last_start, max( $last_end, $end ) ];
+		// Set {prefix:group:label... } replacements or empty string
+		for ( $i = 0; $i < $c; $i++ ) {
+			if ( !isset( $m[1] ) ) { continue; }
+			if ( !isset( $m[1][$i] ) ) { continue; }
 			
-			continue;
+			$rpl['{' . $prefix . $m[1][$i] . '}']	= 
+				$terms[$m[1][$i]] ?? '';
 		}
 		
-		$merged[] = [ $start, $end ];
+		return \strtr( $content, $rpl );
+	}
+		
+	/**
+	 *  Filter number within min and max range, inclusive
+	 *  
+	 *  @param mixed	$val		Given default value
+	 *  @param int		$min		Minimum, returned if less than this
+	 *  @param int		$max		Maximum, returned if greater than this
+	 *  @return int
+	 */
+	public static function int_range( $val, int $min, int $max ) : int {
+		$out = ( int ) $val;
+		
+		return ( $out > $max ) ? $max : ( ( $out < $min ) ? $min : $out );
 	}
 	
-	return $merged;
-}
-
-/**
- *  Check if given ranges have overlapping values
- *  
- *  @param array	$ranges	Raw range sets
- *  @return bool
- */
-function util_has_overlapping_ranges( array $ranges ) : bool {
-	\usort( $ranges, fn( $a, $b ) => $a[0] <=> $b[0] );
-	$rcount = count( $ranges );
-	
-	for ( $i = 1; $i < $rcount; $i++ ) {
-		if ( $ranges[$i][0] < $ranges[$i - 1][1] ) {
-			return true;
+	/**
+	 *  Attempt to detect text encoding
+	 *  
+	 *  @param string	$text		Searching block
+	 *  @param array	$encodings	List of possible encodings
+	 *  @return string
+	 */
+	public static function detect_encoding( string $text, array $encodings ) : string {
+		foreach ( $encodings as $enc ) {
+			if ( \mb_check_encoding( $text, $enc ) ) {
+				return $enc;
+			}
 		}
+		
+		return \mb_detect_encoding( $text, \mb_detect_order(), true ) ?: 'ISO-8859-1';
 	}
 	
-	return false;
-}
-
-/**
- *  Convert timestamp to int if it's not in integer format
- *  
- *  @return int
- */
-function util_time_string_int( $stamp = null ) : ?int {
-	if ( empty( $stamp ) ) { return null; }
-	
-	if ( \is_numeric( $stamp ) ) {
-		return ( int ) $stamp;
+	/**
+	 *  Attempt to convert text to UTF-8
+	 *  
+	 *  @param string	$text Converting block
+	 *  @return string
+	 */
+	public static function utf8( string $text, string $default = 'ISO-8859-1' ) : string {
+		static $pool	= 
+		[ 'UTF-8', 'ISO-8859-15', 'Windows-1252', 'Shift_JIS', 'EUC-JP', 
+			'GB2312', 'GBK', 'Big5', 'ASCII', 'MacRoman', 'KOI8-R', 
+			'UTF-16', 'UTF-32', 'ISO-8859-1'];
+		
+		$enc		= static::detect_encoding( $text, $pool ) ?? $default;
+		$out		= \mb_convert_encoding( $text, 'UTF-8', $enc );
+		return ( false === $out ) ? '' : $out;
 	}
 	
-	$st = \ltrim( \preg_replace( '/[^0-9\/]+/', '', $stamp ), '/' );
-	return \strtotime( empty( $st ) ? 'now' : $st );
-}
-
-/**
- *  UTC timestamp
- *  
- *  @param mixed	$stamp	Plain timestamp or null to generate new
- *  @return string
- */
-function util_utc( $stamp = null ) : string {
-	return 
-	\gmdate( 'Y-m-d\TH:i:s', util_time_string_int( $stamp ?? 'now' ) );
-}
-
-/**
- *  Feed timestamp
- *  
- *  @param mixed	$stamp		Optional timestamp, defaults to 'now'
- *  @return string
- */
-function util_rfc_date( $stamp = null ) : string {
-	return 
-	\gmdate( 'D, d M Y H:i:s O', util_time_string_int( $stamp ?? 'now' ) );
-}
-
-/**
- *  File modified timestamp
- *  
- *  @param mixed	$stamp		Optional timestamp, defaults to 'now'
- *  @return string
- */
-function util_rfc_file_date( $stamp = null ) : string {
-	return 
-	\gmdate( 'D, d M Y H:i:s T', util_time_string_int( $stamp ?? 'now' ) );
-}
-
-/**
- *  Check if a specific library or if PHP is the given version or above
- *  
- *  @param string	$spec		Minimum supported version
- *  @param string	$lib		Optional library name, case sensitive
- *  @return bool
- */
-function util_lib_version( string $spec, ?string $lib = null ) : bool {
-	static $ext;
+	/**
+	 *  Safely encode array to JSON
+	 *  
+	 *  @param array	$data		Content to be encoded
+	 *  @return string
+	 */
+	public static function json_uencode( array $data = [] ) : string {
+		if ( empty( $data ) ) {  return ''; }
+		
+		$out = 
+		\json_encode( 
+			$data, 
+			\JSON_HEX_TAG | \JSON_HEX_APOS | \JSON_HEX_QUOT | 
+			\JSON_HEX_AMP | \JSON_UNESCAPED_UNICODE | 
+			\JSON_PRETTY_PRINT 
+		);
+		return ( false === $out ) ? '' : $out;
+	}
 	
-	// Fix for 7.4.0 etc... appearing higher than 7.4
-	$spec	= \rtrim( $spec, '.0' );
+	/**
+	 *  Safely decode JSON to array
+	 *  
+	 *  @param string|array		$data	Content to encode
+	 *  @param int			$depth	Optional maximum encode depth
+	 *  @return array
+	 */
+	public static function json_udecode( array|string $data, int $depth = 10 ) : array {
+		if ( empty( $data ) ) { return []; }	
+		if ( \is_array( $data ) ) { return $data; }
+		
+		// Since PHP 8.3+
+		if ( !\json_validate( $data ) ) { return []; }
+		
+		$depth	= static::int_range( $depth, 1, 50 );
+		$out	= 
+		\json_decode( 
+			static::utf8( $data ), true, $depth, 
+			\JSON_BIGINT_AS_STRING
+		);
+		
+		if ( \json_last_error() !== \JSON_ERROR_NONE ) { return []; }
+		if ( empty( $out ) || false === $out ) { return []; }
+		return $out;
+	}
 	
-	$lib	??= '';
+	/**
+	 *  Ensure JSON content is valid
+	 *  
+	 *  @param array|string	$json	Raw field data
+	 *  @param bool		$values	Return values only when true
+	 *  @param int		$depth	Maximum decode depth, if parsing string
+	 *  @return array
+	 */
+	public static function json_uarray( 
+		array|string	$json,
+		bool		$values	= false, 
+		int		$depth	= 10 
+	) : array {
+		if ( \is_array( $json ) ) {
+			return $values 
+				? \array_values( $json ) 
+				: $json;
+		}
+			
+		$data	= static::json_udecode( $json, $depth );
+		return $values ? \array_values( $data ) : $data;
+	}
 	
-	// Empty library? Check PHP
-	if ( empty( $lib ) ) {
+	/**
+	 *  Generate a random string ID based on given random bytes
+	 *  
+	 *  @param int		$bytes		Size of random bytes
+	 *  @param string	$prefix 	Random ID prefix
+	 *  @return string
+	 */
+	public static function gen_key( int $len = 16, ?string $prefix = null ) : string {
+		$len	= static::int_range( $len, 1, 64 );
+		$prefix ??= '';
+		return $prefix . \bin2hex( \random_bytes( \intdiv( $len, 2 ) ) );
+	}
+	
+	/**
+	 *  Generate an alphanumeric string with 32 bytes of random data
+	 *  
+	 *  @return string
+	 */
+	public static function gen_alphanum() : string {
 		return 
-		\version_compare( \rtrim( \PHP_VERSION, '.0' ), $spec, '>=' );
+		\preg_replace( 
+			'/[^[:alnum:]]/u', 
+			'', 
+			\base64_encode( \random_bytes( 32 ) ) 
+		);
 	}
 	
-	// Currently running extensions
-	$ext	??= \get_loaded_extensions();
-	
-	foreach ( $ext as $e ) {
-		if ( \str_starts_with( $e, $lib ) ) {
-			$lv = \phpversion( $e );
+	/**
+	 *  Generate globally unique identifier
+	 *  
+	 *  @param string	$mode	UUID mode, defaults to  v4
+	 *  @return string
+	 */
+	public static function gen_uuid( ?string $mode = null ) : string {
+		$mode	??= 'v4';
+		
+		if ( 0 === \strcasecmp( 'v4', $mode ) ) {
+			$data	= \random_bytes( 16 );
+			$data[6]= \chr( ( \ord( $data[6] ) & 0x0f ) | 0x40 );
+			$data[8]= \chr( ( \ord( $data[8] ) & 0x3f ) | 0x80 );
 			
-			// Error getting version?
-			if ( false === $lv ) { return false; }
+			$out	= \str_split( \bin2hex( $data ), 4 );
+		} else {
+			$now	= ( int ) ( \microtime( true ) * 1000 );
+			$sub	= ( int ) ( \hrtime()[1] / 1_000_000 );
+			$stamp	= ( $now << 12 ) | ( $sub & 0x0FFF );
 			
-			return 
-			\version_compare( \rtrim( $lv, '.0' ), $spec, '>=' );
+			$hex	= \str_pad( \dechex( $stamp ), 15, '0', \STR_PAD_LEFT );
+			$hex[12]= '7';
+			
+			$data	= \random_bytes( 8 );
+			$rdata	= \bin2hex( $data );
+			$pfx	= \substr( $rdata, 0, 4 );
+			$pfx[0]	= \dechex( ( \hexdec( $pfx[0] ) & 0x3 ) | 0x8 );
+			
+			$out	= \str_split( $hex . $pfx . \substr( $rdata, 4 ), 4 );
 		}
+		
+		return \vsprintf( '%s-%s-%s-%s-%s', $out );
 	}
 	
-	// Extension not found
-	return false;
-}
-
-/**
- *  Checking for function availability
- *  
- *  @param string	$func	Function name
- *  @return bool		True If the function isn't available 
- */
-function util_missing( $func ) : bool {
-	static $exts;
-	static $blocked;
-	static $fn	= [];
+	/**
+	 *  Random UUID shortcut
+	 *  
+	 *  @return string
+	 */
+	public static function gen_guid() : string {
+		return static::gen_uuid( 'v4' );
+	}
 	
-	if ( isset( $fn[$func] ) ) { return $fn[$func]; }
-	$fn[$func] = !\function_exists( $func );
+	/**
+	 *  Cached timezone list helper
+	 *  
+	 *  @return array
+	 */
+	public static function timezone_list() : array {
+		static $cache	= null;
+		$cache		??= \timezone_identifiers_list();
+		
+		return $cache;
+	}
 	
-	return $fn[$func];
+	/**
+	 *  Check if given timezone is valid
+	 *  
+	 *  @param string	$tz	Raw timezone
+	 *  @return bool
+	 */
+	public static function timezone_valid( string $tz ) : bool {
+		return \in_array( $tz, static::timezone_list(), true );
+	}
+	
+	/**
+	 *  Check if given date is in the future
+	 *  
+	 *  @param DateTime	$start	Sent stamp
+	 *  @return bool
+	 */
+	public static function date_is_future( \DateTime $start ) : bool {
+		static $now	= null;
+		$now		??= new \DateTime();
+		
+		return $start > $now;
+	}
+	
+	/**
+	 *  Format request date format to archive limit range
+	 *  
+	 *  @param array	$params		Raw URL param
+	 *  @param bool		$limit_now	Limit to current date, if true
+	 *  @return array
+	 */
+	public static function date_range( array $params, bool $limit_now = false ) : array {
+		static $now	= null;
+		
+		$now		??= new \DateTime();
+		$year		= $params['year']	?? null;
+		$month		= $params['month']	?? null;
+		$day		= $params['day']	?? null;
+		$page		= ( int ) ( $params['page'] ?? 1 );
+		
+		if ( null === $year ) { return []; }
+		
+		if ( !\ctype_digit( ( string ) $year ) || $year < 1 ) {
+			return [];
+		}
+		
+		if ( null !== $month && ( $month < 1 || $month > 12 ) ) {
+			return [];
+		}
+		
+		if ( null !== $day ) {
+			if ( null === $month || null === $year ) { return []; }
+			if ( !\checkdate( ( int ) $month, ( int ) $day, ( int ) $year ) ) {
+				return [];
+			}
+		}
+		
+		$start	= 
+		match( true ) {
+			( $year && $month && $day )	=> 
+			new \DateTime( "{$year}-{$month}-{$day} 00:00:00" ),
+				
+			( $year && $month )		=>
+			new \DateTime( "{$year}-{$month}-01 00:00:00" ),
+			
+			default				=> 
+			new \DateTime( "{$year}-01-01 00:00:00" )
+		};
+		
+		$limit	= 
+		match( true ) {
+			( $year && $month && $day )	=> 
+			( clone $start )->modify( '+1 day' ),
+			
+			( $year && $month )		=>
+			( clone $start )->modify( '+1 month' ),
+			
+			default				=> 
+			( clone $start )->modify( '+1 year' )
+		};
+		
+		$end	= ( $limit_now && $limit > $now ) ? $now : $limit;
+		return [ $start, $end, $page ];
+	}
+	
+	/**
+	 *  Format a structured array into a URL query section
+	 *  
+	 *  @param array $query Presorted array
+	 *  @return string
+	 */
+	public static function array_to_query( array $query ) : string {
+		$parts = [];
+		
+		foreach ( $query as $key => $value ) {
+			if ( '' === $key ) { continue; }
+			
+			foreach ( ( array ) $value as $v ) {
+				$parts[] = 
+				\urlencode( $key ) . '=' . \urlencode( $v ?? '' );
+			}
+		}
+		
+		return \implode( '&', $parts );
+	}
+	
+	/**
+	 *  Combine start, end ranges without overlap
+	 *  
+	 *  @param array	$ranges	Raw range sets
+	 *  @return array
+	 */
+	public static function merge_ranges( array $ranges ) : array {
+		if ( empty( $ranges ) ) { return []; }
+		
+		\usort( $ranges, fn( $a, $b ) => $a[0] <=> $b[0] );
+		$merged	= [ $ranges[0] ];
+		
+		foreach ( \array_slice( $ranges, 1 ) as [ $start, $end ] ) {
+			[ $last_start, $last_end ] = end( $merged );
+			
+			if ( $start <= $last_end + 1 ) {
+				$last_index		= \array_key_last( $merged );
+				$merged[ $last_index ]	= 
+				[ $last_start, max( $last_end, $end ) ];
+				
+				continue;
+			}
+			
+			$merged[] = [ $start, $end ];
+		}
+		
+		return $merged;
+	}
+	
+	/**
+	 *  Check if given ranges have overlapping values
+	 *  
+	 *  @param array	$ranges	Raw range sets
+	 *  @return bool
+	 */
+	public static function has_overlapping_ranges( array $ranges ) : bool {
+		\usort( $ranges, fn( $a, $b ) => $a[0] <=> $b[0] );
+		$rcount = count( $ranges );
+		
+		for ( $i = 1; $i < $rcount; $i++ ) {
+			if ( $ranges[$i][0] < $ranges[$i - 1][1] ) { return true; }
+		}
+		
+		return false;
+	}
+	
+	/**
+	 *  Convert timestamp to int if it's not in integer format
+	 *  
+	 *  @return int
+	 */
+	public static function time_string_int( $stamp = null ) : ?int {
+		if ( empty( $stamp ) ) { return null; }
+		
+		if ( \is_numeric( $stamp ) ) { return ( int ) $stamp; }
+		
+		$st = \ltrim( \preg_replace( '/[^0-9\/]+/', '', $stamp ), '/' );
+		return \strtotime( empty( $st ) ? 'now' : $st );
+	}
+	
+	/**
+	 *  UTC timestamp
+	 *  
+	 *  @param mixed	$stamp	Plain timestamp or null to generate new
+	 *  @return string
+	 */
+	public static function utc( $stamp = null ) : string {
+		return 
+		\gmdate( 'Y-m-d\TH:i:s', static::time_string_int( $stamp ?? 'now' ) );
+	}
+	
+	/**
+	 *  Feed timestamp
+	 *  
+	 *  @param mixed	$stamp		Optional timestamp, defaults to 'now'
+	 *  @return string
+	 */
+	public static function rfc_date( $stamp = null ) : string {
+		return 
+		\gmdate( 'D, d M Y H:i:s O', static::time_string_int( $stamp ?? 'now' ) );
+	}
+	
+	/**
+	 *  File modified timestamp
+	 *  
+	 *  @param mixed	$stamp		Optional timestamp, defaults to 'now'
+	 *  @return string
+	 */
+	function rfc_file_date( $stamp = null ) : string {
+		return 
+		\gmdate( 'D, d M Y H:i:s T', static::time_string_int( $stamp ?? 'now' ) );
+	}
 }
 
 /**
@@ -1664,7 +1641,7 @@ function sanitize_filter(
 		'/[\xE0-\xEF](?![\x80-\xBF]{2})/u',
 		'/[\xF0-\xF4](?![\x80-\xBF]{3})/u'
 	];
-	$html		= util_utf8( \trim( $html ) );	// Convert to UTF-8
+	$html		= Util::utf8( \trim( $html ) );	// Convert to UTF-8
 	$html		= \preg_replace( $filters, '', $html );
 	
 	// Convert Unicode character entities?
@@ -1986,7 +1963,7 @@ function sanitize_filename( string $name ) : string|null {
  *  @return string
  */
 function sanitize_password( string $password ) : string {
-	return util_utf8( \trim( $password ) );
+	return Util::utf8( \trim( $password ) );
 }
 
 /**
@@ -2062,7 +2039,7 @@ function sanitize_slug( string $text, string $prefix = 'node-' ) : string {
 	$text	= \mb_strtolower( $text, 'UTF-8' );
 	$text	= \trim( $text, '-' );
 	
-	return empty( $text ) ? util_gen_key( 16, $prefix ) : $text;
+	return empty( $text ) ? Util::gen_key( 16, $prefix ) : $text;
 }
 
 /**
@@ -2276,7 +2253,7 @@ function sanitize_attribute(
 	// Limited subset of allowed values
 	if ( isset( $rule['allowed'] ) ) {
 		if ( \is_array( $rule['allowed'] ) ) {
-			if ( util_value_exists_ci( $value,  $rule['allowed'] ) ) {
+			if ( Util::value_exists_ci( $value,  $rule['allowed'] ) ) {
 				$new_node->setAttribute( $attr, $value );
 			}
 			return;
@@ -2369,7 +2346,7 @@ function sanitize_html( $html, $tag_map ) {
 		 	$alias = $rules['alias'] ?? [];
 			if ( !\is_array( $alias ) ) { continue; }
 			
-			if ( util_value_exists_ci( $original_tag, $alias ) ) {
+			if ( Util::value_exists_ci( $original_tag, $alias ) ) {
 				$tag = $key;
 				break;
 			}
@@ -2474,7 +2451,7 @@ function sanitize_prepend_path( string $v, string $prefix ) : string {
  *  @return string 
  */
 function sanitize_normalize( string $text ) : string {
-	if ( util_missing( 'normalizer_normalize' ) ) { return $text; }
+	if ( Util::missing( 'normalizer_normalize' ) ) { return $text; }
 	
 	$normal = 
 	\normalizer_normalize( \sanitize_bland( $text ), \Normalizer::FORM_C );
@@ -2501,7 +2478,7 @@ function sanitize_is_safe_ext( string $path, array $groups, ?string $name = null
 	$ext		= 
 	\pathinfo( $path, \PATHINFO_EXTENSION ) ?? '';
 	
-	$checked[$key] = util_value_exists_ci( $ext, $safe[$name] );
+	$checked[$key] = Util::value_exists_ci( $ext, $safe[$name] );
 	
 	return $checked[$key];
 }
@@ -2543,7 +2520,7 @@ function storage_options( ?array $new_options = null ) : array {
  *  @return string
  */
 function storage_get_id() : string {
-	return util_get_id( 'storage', true );
+	return Util::get_id( 'storage', true );
 }
 
 /**
@@ -2948,7 +2925,7 @@ function storage_backup_path( string $name ) : string {
 	do {
 		$bkp = storage_base() 
 			. $base . '.'
-			. util_timestamp( 'Y-m-d_H-i-s_' )
+			. Util::timestamp( 'Y-m-d_H-i-s_' )
 			. \uniqid( '', true ) . $ext;
 	} while ( \file_exists( $bkp ) );
 	
@@ -3187,7 +3164,7 @@ function storage_prefix_path(
  *  @return string
  */
 function log_get_id() : string {
-	return util_get_id( 'log', false );
+	return Util::get_id( 'log', false );
 }
 
 /**
@@ -3369,7 +3346,7 @@ function log_message_write( ?array $pair = null ) : void {
  */
 function log_format( string $msg, string $level = 'INFO' ) : string {
 	$id		= log_get_id();
-	$timestamp	= util_timestamp();
+	$timestamp	= Util::timestamp();
 	
 	$script		= 
 	sanitize_spaces( \basename( $_SERVER['SCRIPT_NAME'] ?? 'unknown' ) );
@@ -3399,7 +3376,7 @@ function log_msg(
 	if ( empty( log_check_level( $level ) ) ) { return; }
 	
 	if ( \is_array( $context ) ) {
-		$msg	= util_json_encode( $context );
+		$msg	= Util::json_uencode( $context );
 		
 		// Since PHP 8.3
 		if ( !\json_validate( $msg ) ) {
@@ -3538,7 +3515,7 @@ function request_method() : string {
 	if ( empty( $temp ) ) { return 'unsupported'; } // Normally, this shouldn't happen
 	
 	$method		= 
-	\util_value_exists_ci( $temp, $supported ) 
+	Util::value_exists_ci( $temp, $supported ) 
 		? \strtolower( $temp ) 
 		: 'unsupported';
 	
@@ -3601,12 +3578,12 @@ function request_canonical_forwarded() : array {
 	$parsed	= [];
 	
 	// Split by comma: each element is a proxy hop
-	$hops	= util_trimmed_list( $raw, false, ',' );
+	$hops	= Util::trimmed_list( $raw, false, ',' );
 	
 	// Gather forwarded values
 	foreach ( $hops as $hop ) {
 		$entry	= [];
-		$pairs	= util_trimmed_list( $hop, true, ';' );
+		$pairs	= Util::trimmed_list( $hop, true, ';' );
 
 		foreach ( $pairs as $pair ) {
 			[ $key, $val ]	= 
@@ -3643,7 +3620,7 @@ function request_canonical_forwarded() : array {
 		}
 	}
 	
-	$parsed		= \array_map( 'util_array_normalize_keys', $parsed );
+	$parsed		= \array_map( 'Util::array_normalize_keys', $parsed );
 	$coarse_last	= [];
 	foreach ( $parsed as $entry ) {
 		foreach ( $entry as $k => $v ) {
@@ -3887,7 +3864,7 @@ function request_url() : string {
 	$query	= sanitize_query( true, true ) ?? '';
 	$query	= 
 	\is_array( $query )
-		? util_array_to_query( $query ) 
+		? Util::array_to_query( $query ) 
 		: ( string ) $query;
 	
 	return request_origin() . '/' . 
@@ -4057,7 +4034,7 @@ function request_range_header( int $fsize ) : array {
 		$ranges[]	= [ $start, $end ];
 	}
 	
-	return util_merge_ranges( $ranges );
+	return Util::merge_ranges( $ranges );
 }
 
 
@@ -4642,7 +4619,7 @@ function response_body( mixed $body, bool $ct_sent ) : void {
 	}
 	
 	echo match( true ) {
-		$is_json	=> util_json_encode( $body ),
+		$is_json	=> Util::json_uencode( $body ),
 		default		=> $body
 	};
 }
@@ -5142,8 +5119,8 @@ function config_value_format( mixed $value, string $type, $filter = null ) : mix
 		
 		'json'			=> ( function() use ( $value ) {
 			return \is_array( $value ) 
-				? util_json_decode( $value )
-				: util_json_decode( ( string ) $value );
+				? Util::json_udecode( $value )
+				: Util::json_udecode( ( string ) $value );
 		} )(),
 		
 		default			=> sanitize_text( $value )
@@ -5169,8 +5146,8 @@ function config_ext_groups( string $group = '', ?array $sent = null ) : array {
 		: \array_merge( $cs, $sent );
 	
 	return empty( $group ) 
-		? \array_unique( util_trimmed_list( \implode( ',', $ext ), true ) ) 
-		: \array_unique( util_trimmed_list( $ext[$group] ?? '', true ) );
+		? \array_unique( Util::trimmed_list( \implode( ',', $ext ), true ) ) 
+		: \array_unique( Util::trimmed_list( $ext[$group] ?? '', true ) );
 }
 
 /**
@@ -5494,7 +5471,7 @@ function template_compare_var( mixed $chk, mixed $val, bool $case_flag ) : bool 
 function template_get_placeholders( array $vars ) : array {
 	if ( empty( $vars ) ) { return []; }
 	
-	$flat = util_flatten_array( $vars );
+	$flat = Util::flatten_array( $vars );
 	return \array_combine(
 		\array_map( fn( $key ) => '{{' . $key . '}}', \array_keys( $flat ) ),
 		\array_map( fn($val) => \is_scalar( $val ) ? ( string ) $val : '', $flat )
@@ -6145,7 +6122,7 @@ function language( ?array $sent = null ) : array {
 	$file	= config_load_json( $lang . '.json' );
 	if ( !empty( $file ) ) {
 		$terms	= 
-		\array_merge_recursive( $terms,  util_json_decode( $file ) );
+		\array_merge_recursive( $terms,  Util::json_udecode( $file ) );
 	}
 	
 	$data	= empty( $terms ) ? [] : $terms;
@@ -6190,7 +6167,7 @@ function language_error( string $name, string $default, ?array $sent = null ) {
  *  @return string
  */
 function language_parse( string $tpl, ?array $sent = null ) : string {
-	$tpl		= util_prefix_replace( 'lang', language( $sent ), $tpl );
+	$tpl		= Util::prefix_replace( 'lang', language( $sent ), $tpl );
 	
 	// Change variable placeholders
 	return \preg_replace( '/\s*__(\w+)__\s*/', ' {\1} ', $tpl );
@@ -6489,7 +6466,7 @@ function format_nice_date( $stamp = null ) : string {
 	static $dn;
 	$dn	??= language_term( 'date_nice', config( 'date_nice', 'l, F j, Y' ) );
 	
-	return \gmdate( $dn, util_time_string_int( $stamp ) );
+	return \gmdate( $dn, Util::time_string_int( $stamp ) );
 }
 
 /**
@@ -6600,7 +6577,7 @@ function format_extract_cc( string $cc, string $prefix = '' ) : string {
 	$p	= [];
 	
 	// Find multiple caption definitions if any
-	$defs	= util_trimmed_list( $cc, false, '][' );
+	$defs	= Util::trimmed_list( $cc, false, '][' );
 	
 	// Parse captions
 	foreach ( $defs as $d ) {
@@ -7107,7 +7084,7 @@ function format_body(
 	static $sanity;
 	
 	if ( !isset( $sanity ) ) {
-		if ( util_missing( 'libxml_clear_errors' ) ) {
+		if ( Util::missing( 'libxml_clear_errors' ) ) {
 			$sanity	= false;
 			log_error( 'Bare requires the libxml extension.' );
 			return '';
@@ -7285,7 +7262,7 @@ function view_resolve_path( array $paths, string $layout ) : string {
  *  Auto-scan and register view layout attributes
  */
 function view_resolve() : void {
-	$functions	= util_functions_list();
+	$functions	= Util::functions_list();
 	foreach ( $functions as $fn ) {
 		$ref	= new \ReflectionFunction( $fn );
 		$attrs	= $ref->getAttributes( View::class );
@@ -7308,7 +7285,7 @@ function view_render( string $layout, array $vars = [] ) : string {
 	static $cache	= [];
 	static $stack	= [];
 	
-	if ( util_value_exists_ci( $layout, $stack ) ) {
+	if ( Util::value_exists_ci( $layout, $stack ) ) {
 		log_msg( "Recursive view detected: {$layout}", 'ERROR' );
 		
 		throw new 
@@ -7552,7 +7529,7 @@ function route_lookup( array $routes ) : array {
  *  @details More details
  */
 function route_resolve() : array {
-	$functions	= util_functions_list();
+	$functions	= Util::functions_list();
 	$routes		= [];
 	foreach ( $functions as $handler ) {
 		$ref		= new \ReflectionFunction( $handler );
@@ -7725,7 +7702,7 @@ function plugin_autoload() : array {
 	}
 	
 	// Refresh loaded functions
-	$functions	= util_functions_list( true );
+	$functions	= Util::functions_list( true );
 	
 	$plugins	= [];
 	foreach ( $functions as $fn ) {
@@ -7938,7 +7915,7 @@ function hook_registry( string $action, string $name, ...$args ) : mixed {
  *  Load event hooks from current script
  */
 function hook_autoload() : void {
-	$functions = util_functions_list();
+	$functions = Util::functions_list();
 	foreach ( $functions as $handler ) {
 		$ref	= 
 		\is_array( $handler ) 
@@ -9822,7 +9799,7 @@ function startup() : void {
 		$initialized = true;
 	}
 	
-	$functions	= util_functions_list( true );
+	$functions	= Util::functions_list( true );
 	plugin_init();
 	hook_autoload();
 	
@@ -9969,7 +9946,7 @@ function bare( Plugin $meta ) {
 #[Route( pattern: '/{year:int}', method: 'get' )]
 function bare_archive( array $params ) {
 	// TODO: Build archive
-	[ $start, $end, $page ]	= util_date_range( $params, true );
+	[ $start, $end, $page ]	= Util::date_range( $params, true );
 	
 	die( 'Bare archive' );
 }
@@ -10512,7 +10489,7 @@ function renderNavLinks(
 			$def
 ) {
 	$links	= \is_array( $def ) ? $def : 
-			util_json_decode( $def )[ 'links'] ?? [];
+			Util::json_udecode( $def )[ 'links'] ?? [];
 	
 	$out	= '';
 	$tpl	= template( 'tpl_page_nav_link' );
@@ -10631,7 +10608,7 @@ function rsettings( string $area, array $modify = [] ) : array {
 				// Load custom meta tags
 				$meta	= config( 'default_meta', [] );
 				$meta	= 
-					\is_string( $meta ) ? util_json_decode( $meta ) : 
+					\is_string( $meta ) ? Util::json_udecode( $meta ) : 
 						[ 'meta' => $meta ];
 				
 				// Merge plugin meta tags
@@ -10915,7 +10892,7 @@ function render(
  *  @return string
  */
 function genId( int $bytes = 16 ) : string {
-	return \bin2hex( \random_bytes( util_int_range( $bytes, 1, 64 ) ) );
+	return \bin2hex( \random_bytes( Util::int_range( $bytes, 1, 64 ) ) );
 }
 
 /**
@@ -10955,7 +10932,7 @@ function genAlphaNum() : string {
  *  @return string
  */
 function genCodeKey( int $size = 24 ) : string {
-	$size	= util_int_range( $size, 1, 24 );
+	$size	= Util::int_range( $size, 1, 24 );
 	$code	= '';
 	while ( strsize( $code ) < $size ) {
 		$code .= genAlphaNum();
@@ -11356,7 +11333,7 @@ function dateNice( $stamp = null, string $fmt = \DATE_NICE ) : string {
 		$dn	= 
 		langVar( 'date_nice', config( 'date_nice', $fmt ) );
 	}
-	return \gmdate( $dn, util_time_string_int( $stamp ) );
+	return \gmdate( $dn, Util::time_string_int( $stamp ) );
 }
 
 /**
@@ -11403,7 +11380,7 @@ function title( $text, int $max = 255 ) : string {
  *  @return string 
  */
 function normal( string $text ) : string {
-	if ( util_missing( 'normalizer_normalize' ) ) {
+	if ( Util::missing( 'normalizer_normalize' ) ) {
 		return $text;
 	}
 	
@@ -11440,7 +11417,7 @@ function whiteLists( array $groups, bool $lower = false ) : array {
 	
 	foreach ( $groups as $k => $v ) { 
 		$ext[labelName( $k )] = 
-		\implode( ',', util_trimmed_list( $v, $lower ) );
+		\implode( ',', Util::trimmed_list( $v, $lower ) );
 	}
 	
 	return $ext;
@@ -11519,20 +11496,20 @@ function enforceDates( array $args ) : array {
 	$ys	= config( 'year_start', 1900, 'int' );
 	
 	// Enforce date ranges
-	$year	= util_int_range( $year, $ys, $y );
+	$year	= Util::int_range( $year, $ys, $y );
 	
 	// Current year? Enforce month to current month or January of this year
 	$month	= ( $y == $year ) ? 
-			util_int_range( $month, 1, $m ) : 
-			util_int_range( $month, 1, 12 );
+			Util::int_range( $month, 1, $m ) : 
+			Util::int_range( $month, 1, 12 );
 	
 	// Days in requested year and month
 	$days	= ( int ) \date( 't', \mktime( 0, 0, 0, $month, 1, $year ) );
 	
 	// No more than the number of days in requested or current year/month
 	$day	= ( $year == $y && $month == $m ) ? 
-			util_int_range( $day, 1, $d ) : 
-			util_int_range( $day, 1, $days );
+			Util::int_range( $day, 1, $d ) : 
+			Util::int_range( $day, 1, $days );
 	
 	// Format date to string array
 	return [
@@ -11895,7 +11872,7 @@ function getHost() : string {
 	if ( isset( $host ) ) { return $host; }
 	
 	$sk	= getSitesEnabled();
-	$sw	= util_trimmed_list( implode( ',', array_keys( $sk ) ), true );
+	$sw	= Util::trimmed_list( implode( ',', array_keys( $sk ) ), true );
 	$raw	= request_host();
 
 	$host	= isset( $sw[$raw] ) ? lowercase( $raw ) : '';
@@ -12976,7 +12953,7 @@ function getPub( $path ) : string {
 	$path	= \ltrim( $path, '/' );
 	$fr	= cutSlug( $path );
 	
-	return util_utc( empty( $fr ) ? 'now' : $fr );
+	return Util::utc( empty( $fr ) ? 'now' : $fr );
 }
 
 /**
@@ -13017,8 +12994,8 @@ function postModified( $path, $mtime ) : bool {
 	}
 	
 	// Remove fine resolution issues
-	$ft = \strtotime( util_utc( $res[0]['updated'] ) );
-	$mt = \strtotime( util_utc( $mtime ) );
+	$ft = \strtotime( Util::utc( $res[0]['updated'] ) );
+	$mt = \strtotime( Util::utc( $mtime ) );
 	
 	return ( $mt > $ft ) ? false : true;
 }
@@ -13104,7 +13081,7 @@ function extractSummary( array $find ) : string {
  */
 function extractTags( array $find ) : array {
 	// Clean tags
-	$tags	= \array_filter( util_trimmed_list( $find['tags'] ?? '' ) );
+	$tags	= \array_filter( Util::trimmed_list( $find['tags'] ?? '' ) );
 	
 	// No tags left after cleaning?
 	if ( empty( $tags ) ) {
@@ -13135,7 +13112,7 @@ function extractTags( array $find ) : array {
  *  @return array
  */
 function extractMeta( array $find ) : array {
-	return util_json_decode( $find['all'] ?? '' );
+	return Util::json_udecode( $find['all'] ?? '' );
 }
 
 /**
@@ -13450,7 +13427,7 @@ function insertPost(
 		':bare'		=> \strip_tags( $out ), 
 		':summary'	=> $summ, 
 		':type'		=> $type,		
-		':updated'	=> util_utc( $mtime ), 
+		':updated'	=> Util::utc( $mtime ), 
 		':pub'		=> $pub
 	];
 	
@@ -13722,7 +13699,7 @@ function hasReadTime( string $type ) : bool {
 	static $rtypes;
 	if ( !isset( $rtypes ) ) {
 		$rtt		= setting( 'readtime_types', \READTIME_TYPES );
-		$default	= util_trimmed_list( $rtt, true );
+		$default	= Util::trimmed_list( $rtt, true );
 		
 		// Send to hook for additional types
 		hook( [ 'hasreadtime', [ 'types' => $default ] ] );
@@ -13795,7 +13772,7 @@ function formatMeta(
 	return [
 		'title'		=> hook_string( 'formattitle', $title ),
 		'date_utc'	=> $pub,
-		'date_rfc'	=> util_rfc_date( $pub ),
+		'date_rfc'	=> Util::rfc_date( $pub ),
 		'date_stamp'	=> hook_string( 'formatpublished', dateNice( $pub ) ),
 		'read_time'	=> hook_string( 'formatreadtime', $read ),
 		'tags'		=> formatTags( $tags, $index ),
@@ -14228,7 +14205,7 @@ function genMetaKey(
 ) : string {
 	static $gen	= [];
 	
-	$params		= util_json_encode( $data );
+	$params		= Util::json_uencode( $data );
 	$key		= \hash( 'tiger160,4', $params );
 	
 	if ( \array_key_exists( $key, $gen ) && !$reset ) {
@@ -15134,7 +15111,7 @@ function showFeed( string $event, array $hook, array $params ) {
 		'tagline'	=> $psub,
 		'home'		=> request_origin(),
 		'path'		=> request_url(),
-		'date_gen'	=> util_rfc_date(),
+		'date_gen'	=> Util::rfc_date(),
 		'body'		=> \implode( '', $posts )
 	];
 	
@@ -15579,7 +15556,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 			'filter'	=> \FILTER_CALLBACK,
 			'options'	=> 
 			function( $v ) {
-				return util_json_array( $v );
+				return Util::json_uarray( $v );
 			}
 		], 
 		
