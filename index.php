@@ -1433,175 +1433,197 @@ final class Util {
 	}
 }
 
-/**
- *  Length of given string
- *  
- *  @param string	$text	Raw input
- *  @return int
- */
-function util_len( string $text ) : int {
-	return \mb_strlen( $text, '8bit' );
-}
 
 /**
- *  Limit string size
- *  
- *  @param string	$text	Raw input
- *  @param int		$start	Beginning index
- *  @param int		$size	Maximum string length
- *  @return string
+ *  @class Text utilities
  */
-function util_truncate( string $text, int $start, int $size ) {
-	if ( util_len( $text ) <= $size ) {
-		return $text;
+final class Text {
+	/**
+	 *  Get a list of tokens separated by spaces
+	 *  
+	 *  @param string	$text		Raw text containing repeated words
+	 *  @return array
+	 */
+	public static function unique_terms( string $value ) : array {
+		return \array_unique( 
+			\preg_split( 
+				pattern	: '/[[:space:]]+/', 
+				subject	: \trim( $value ), 
+				flags	: \PREG_SPLIT_NO_EMPTY 
+			)
+		);
 	}
 	
-	return \mb_substr( $text, $start, $size, '8bit' );
-}
-
-/**
- *  Limit a string without cutting off words
- *  
- *  @param string	$val	Text to cut down
- *  @param int		$max	Content length (defaults to 100)
- *  @return string
- */
-function util_trim(
-	string		$val, 
-	int		$max		= 100
-) : string {
-	$val	= \trim( $val );
-	$len	= util_len( $val );
-	
-	if ( $len <= $max ) { return $val; }
-	
-	$out	= '';
-	$words	= 
-	\preg_split( 
-		pattern	: '/([\.\s]+)/', 
-		subject	: $val, 
-		limit	: -1, 
-		flags	: \PREG_SPLIT_OFFSET_CAPTURE | \PREG_SPLIT_DELIM_CAPTURE 
-	);
-
-	// No words?
-	if ( false === $words ) {
-		$out	= \preg_replace( '/[[:space:]]+/', ' ', $val );
-		return util_truncate( $out, 0, $max );
+	/**
+	 *  Length of given string
+	 *  
+	 *  @param string	$text	Raw input
+	 *  @return int
+	 */
+	public static function size( string $text ) : int {
+		return \mb_strlen( $text, '8bit' );
 	}
 	
-	for ( $i = 0; $i < \count( $words ); $i++ ) {
-		$w	= $words[$i];
-		// Add if this word's length is less than length
-		if ( $w[1] <= $max ) { $out .= $w[0]; }
+	/**
+	 *  Limit string size
+	 *  
+	 *  @param string	$text	Raw input
+	 *  @param int		$start	Beginning index
+	 *  @param int		$size	Maximum string length
+	 *  @return string
+	 */
+	public static function truncate( string $text, int $start, int $size ) {
+		if ( static::size( $text ) <= $size ) { return $text; }
+		
+		return \mb_substr( $text, $start, $size, '8bit' );
 	}
 	
-	$out	= \preg_replace( "/\r?\n/", '', $out );
-	
-	// If there's too much overlap
-	if ( util_len( $out ) > $max + 10 ) {
-		$out = util_truncate( $out, 0, $max );
+	/**
+	 *  Limit a string without cutting off words
+	 *  
+	 *  @param string	$val	Text to cut down
+	 *  @param int		$max	Content length (defaults to 100)
+	 *  @return string
+	 */
+	public static function strim(
+		string		$val, 
+		int		$max		= 100
+	) : string {
+		$val	= \trim( $val );
+		$len	= static::size( $val );
+		
+		if ( $len <= $max ) { return $val; }
+		
+		$out	= '';
+		$words	= 
+		\preg_split( 
+			pattern	: '/([\.\s]+)/', 
+			subject	: $val, 
+			limit	: -1, 
+			flags	: \PREG_SPLIT_OFFSET_CAPTURE | \PREG_SPLIT_DELIM_CAPTURE 
+		);
+		
+		// No words?
+		if ( false === $words ) {
+			$out	= \preg_replace( '/[[:space:]]+/', ' ', $val );
+			return static::truncate( $out, 0, $max );
+		}
+		
+		for ( $i = 0; $i < \count( $words ); $i++ ) {
+			$w	= $words[$i];
+			// Add if this word's length is less than length
+			if ( $w[1] <= $max ) { $out .= $w[0]; }
+		}
+		
+		$out	= \preg_replace( "/\r?\n/", '', $out );
+		
+		// If there's too much overlap
+		if ( static::size( $out ) > $max + 10 ) {
+			$out = static::truncate( $out, 0, $max );
+		}
+		
+		return $out;
 	}
 	
-	return $out;
-}
-
-/**
- *  Try to detect if a string contains ASCII-only text
- *  
- *  @param string	$text		Text to test
- *  @return bool
- */
-function util_is_ascii( string $text ) : bool {
-	return \mb_check_encoding( $text, 'ASCII' );
-}
-
-/**
- *  Check if a string contains a fragment
- *  
- *  @param mixed	$source		Original text
- *  @param string	$term		Search term
- */
-function util_text_has( $source, string $term ) : bool {
-	return 
-	( empty( $source ) || empty( $term ) ) ? 
-		false : \str_contains( ( string ) $source, $term );
-}
-/**
- *  Check if string starts with a fragment
- *  
- *  @param string	$find		Needle to search
- *  @param array	$collection	Haystack to search partials for
- *  @param bool		$ca		Case insensitive if true (default)
- *  @return bool
- */
-function util_text_starts_with( string $find, array $collection, bool $ca = true ) {
-	if ( $ca ) {
-		$find = \strtolower( $find );
+	/**
+	 *  Try to detect if a string contains ASCII-only text
+	 *  
+	 *  @param string	$text		Text to test
+	 *  @return bool
+	 */
+	public static function is_ascii( string $text ) : bool {
+		return \mb_check_encoding( $text, 'ASCII' );
+	}
+	
+	/**
+	 *  Check if a string contains a fragment
+	 *  
+	 *  @param mixed	$source		Original text
+	 *  @param string	$term		Search term
+	 */
+	public static function has( $source, string $term ) : bool {
+		return 
+		( empty( $source ) || empty( $term ) ) ? 
+			false : \str_contains( ( string ) $source, $term );
+	}
+	
+	/**
+	 *  Check if string starts with a fragment
+	 *  
+	 *  @param string	$find		Needle to search
+	 *  @param array	$collection	Haystack to search partials for
+	 *  @param bool		$ca		Case insensitive if true (default)
+	 *  @return bool
+	 */
+	public static function starts_with( 
+		string	$find, 
+		array	$collection, 
+		bool	$ca		= true 
+	) : bool {
+		if ( $ca ) {
+			$find = \strtolower( $find );
+			foreach ( $collection as $c ) {
+				if ( \str_starts_with( $find, \strtolower( $c ) ) ) {
+					return true;
+				}
+			}
+			return false;
+		}
+		
 		foreach ( $collection as $c ) {
-			if ( \str_starts_with( $find, \strtolower( $c ) ) ) {
+			if ( \str_starts_with( $find, $c ) ) {
 				return true;
 			}
 		}
 		return false;
 	}
 	
-	foreach ( $collection as $c ) {
-		if ( \str_starts_with( $find, $c ) ) {
-			return true;
+	/**
+	 *  Search string for a fragment in an array
+	 *  
+	 *  @param string	$find		Needle to search
+	 *  @param array	$collection	Haystack to search contained string
+	 *  @return bool
+	 */
+	public static function needle_search( string $find, array $collection ) : bool {
+		foreach ( $collection as $c ) {
+			if ( static::has( $find, $c ) ) { return true; }
 		}
-	}
-	return false;
-}
-
-/**
- *  Search string for a fragment in an array
- *  
- *  @param string	$find		Needle to search
- *  @param array	$collection	Haystack to search contained string
- *  @return bool
- */
-function util_text_needle_search( string $find, array $collection ) : bool {
-	foreach ( $collection as $c ) {
-		if ( util_text_has( $find, $c ) ) {
-			return true;
-		}
+		return false;
 	}
 	
-	return false;
-}
-
-/**
- *  Split a block of text into an array of lines
- *  
- *  @param string	$text	Raw text to split into lines
- *  @param int		$lim	Max line limit, defaults to unlimited
- *  @param bool		$tr	Also trim lines if true
- *  @return array
- */
-function util_split_lines( string $text, int $lim = -1, bool $tr = true ) : array {
-	$text	= \trim( $text );
-	$lines	= 
-	\preg_split( 
-		pattern	: $tr ? '/\s*\R\s*/' : '/\R/', 
-		subject	: $text, 
-		limit	: $lim, 
-		flags	: \PREG_SPLIT_NO_EMPTY 
-	);
-
-	return ( false === $lines ) ? [ $text ] : $lines;
-}
-
-/**
- *  Path prefix slash (/) helper
- *  @param string	$path	Folder or directory
- *  @param bool		$suffix	Add to end, if true
- *  @return string
- */
-function util_slash_path( string $path, bool $suffix = false ) : string {
-	return $suffix 
-		? \rtrim( $path, '/\\' ) . '/' 
-		: '/'. \ltrim( $path, '/\\' );
+	/**
+	 *  Split a block of text into an array of lines
+	 *  
+	 *  @param string	$text	Raw text to split into lines
+	 *  @param int		$lim	Max line limit, defaults to unlimited
+	 *  @param bool		$tr	Also trim lines if true
+	 *  @return array
+	 */
+	public static function split_lines( string $text, int $lim = -1, bool $tr = true ) : array {
+		$text	= \trim( $text );
+		$lines	= 
+		\preg_split( 
+			pattern	: $tr ? '/\s*\R\s*/' : '/\R/', 
+			subject	: $text, 
+			limit	: $lim, 
+			flags	: \PREG_SPLIT_NO_EMPTY 
+		);
+		
+		return ( false === $lines ) ? [ $text ] : $lines;
+	}
+	
+	/**
+	 *  Path prefix slash (/) helper
+	 *  @param string	$path	Folder or directory
+	 *  @param bool		$suffix	Add to end, if true
+	 *  @return string
+	 */
+	public static function slash_path( string $path, bool $suffix = false ) : string {
+		return $suffix 
+			? \rtrim( $path, '/\\' ) . '/' 
+			: '/'. \ltrim( $path, '/\\' );
+	}
 }
 
 
@@ -3122,7 +3144,7 @@ function storage_dup_rename( string $path ) : string {
 	$i	= 0;
 	
 	while ( \file_exists( $file ) ) {
-		$file = util_slash_path( $dir, true ) . 
+		$file = Text::slash_path( $dir, true ) . 
 			$name . '_' . $i++ . 
 			\rtrim( '.' . $ext, '.' );
 	}
@@ -6399,7 +6421,7 @@ function format_footnotes( string $html, array $footnotes ) : string {
 		// Generate ID slug from part of footnote and its hash
 		$slug	= 
 		sanitize_slug( 
-			util_trim( \strip_tags( $v['footnote'] ), 20 ) 
+			Text::strim( \strip_tags( $v['footnote'] ), 20 ) 
 		) . '-' . \hash( 'crc32b', $v['footnote'] );
 		
 		// Multiple backlinks to this footnote?
@@ -6481,7 +6503,7 @@ function format_title( mixed $text, int $max = 255 ) : string {
 	
 	// Unify spaces, tabs, returns etc...
 	return 
-	util_trim( sanitize_spaces( ( string ) $text ), $max );
+	Text::strim( sanitize_spaces( ( string ) $text ), $max );
 }
 
 /**
@@ -6494,7 +6516,7 @@ function format_label( string $text ) : string {
 	$text	= sanitize_spaces( $text, '_' );
 	
 	return 
-	util_trim( \preg_replace( 
+	Text::strim( \preg_replace( 
 		'/[^a-z0-9_\-\.]/i', '', sanitize_normalize( $text ) 
 	), 50 );
 }
@@ -6850,7 +6872,7 @@ function format_table( array $m ) : string {
 			$oe
 		);
 		$oe++;
-	}, util_split_lines( $m['rows'] ?? '', -1, true ) );
+	}, Text::split_lines( $m['rows'] ?? '', -1, true ) );
 	
 	$body = \implode( '', $rows );
 	
@@ -9765,7 +9787,7 @@ function init_startup_log() : void {
 		'These required library(ies) may be missing or disabled: ' . 
 			implode( ', ', $miss['required'] );
 		
-		log_error( util_truncate( sanitize_spaces( $msg ), 0, 2048 ), $log );
+		log_error( Text::truncate( sanitize_spaces( $msg ), 0, 2048 ), $log );
 	}
 	
 	if ( !empty( $miss['optional'] ) ) {
@@ -9773,7 +9795,7 @@ function init_startup_log() : void {
 		'These recommended function(s) or library(ies) may be missing or disabled: ' . 
 			implode( ', ', $miss['optional'] );
 		
-		log_info( util_truncate( sanitize_spaces( $msg ), 0, 2048 ), $log );
+		log_info( Text::truncate( sanitize_spaces( $msg ), 0, 2048 ), $log );
 	}
 }
 
@@ -10139,7 +10161,7 @@ function visitorError( int $code = 0, string $msg = '-' ) {
  *  @return array
  */
 function lineSettings( string $text, int $lim, string $filter = '' ) : array {
-	$ln = \array_unique( util_split_lines( $text ) );
+	$ln = \array_unique( Text::split_lines( $text ) );
 	
 	$rt = ( ( count( $ln ) > $lim ) && $lim > -1 ) ? 
 		\array_slice( $ln, 0, $lim ) : $ln;
@@ -10206,7 +10228,7 @@ function backupFile(
 	
 	// Backup file name inferred from full file path
 	$name	= 
-	util_slash_path( \dirname( $file ), true ) . $prefix . 
+	Text::slash_path( \dirname( $file ), true ) . $prefix . 
 		\gmdate( 'Ymd\THis' ) . '.' . 
 		\basename( $file ) . $suffix;
 	
@@ -10234,7 +10256,7 @@ function loadFile(
 	}
 	
 	// Relative path to storage
-	$fname	= util_slash_path( $root, true ) . $name;
+	$fname	= Text::slash_path( $root, true ) . $name;
 	
 	// Check folder location
 	if ( empty( filterDir( $fname, $root ) ) ) {
@@ -10549,7 +10571,7 @@ function loadClasses() : array {
 	// Add new or appened classes while removing duplicates
 	foreach( $cls as $k => $v ) {
 		$cv['{' . $k . '}'] = 
-			\implode( ' ', util_unique_terms( sanitize_bland( $v, true ) ) );
+			\implode( ' ', Text::unique_terms( sanitize_bland( $v, true ) ) );
 	}
 	return $cv;
 }
@@ -10647,7 +10669,7 @@ function getClasses( string $name ) : array {
 		if ( 0 != \strcmp( $n , $k ) ) {
 			continue;
 		}
-		$va	= util_unique_terms( $v );
+		$va	= Text::unique_terms( $v );
 		break;
 	}
 	
@@ -10854,7 +10876,7 @@ function render(
 	$input['feedlink']	= $input['feedlink']	?? pageRoutePath( 'feed' );
 	$input['plugin_assets']	= 
 		$input['plugin_assets'] ?? 
-		util_slash_path( config( 'plugin_asset_dir', 'plugins/' ), true );
+		Text::slash_path( config( 'plugin_asset_dir', 'plugins/' ), true );
 	
 	$out		= [];
 	
@@ -11725,13 +11747,13 @@ function getRoot( bool $err = false ) : string {
 	}
 	
 	if ( $err ) {
-		$errors	 = util_slash_path( \ERROR_ROOT, true );
+		$errors	 = Text::slash_path( \ERROR_ROOT, true );
 		return $errors;
 	}
 	
 	// Shortest root directory for this host
 	$hp		= getHostPaths( getHost() );
-	$root		= util_slash_path( $hp[0], true );
+	$root		= Text::slash_path( $hp[0], true );
 	return $root;
 }
 
@@ -11817,7 +11839,7 @@ function formatSites( array $sites ) : array {
 			
 			// Slash basepath
 			$b['basepath'] = 
-				util_slash_path( $b['basepath'] ?? '/' );
+				Text::slash_path( $b['basepath'] ?? '/' );
 		
 			// Set active mode if not set
 			$b['is_active']		??= 1;
@@ -11910,7 +11932,7 @@ function getHostPaths( string $host ) : array {
 		$a = ( bool ) ( $s['is_active'] ?? false );
 		
 		// Path based settings
-		$b = util_slash_path( $s['basepath'] ?? '/' );
+		$b = Text::slash_path( $s['basepath'] ?? '/' );
 		$ss[] = [ $b => $s['settings'] ?? [] ];
 		
 		if ( $a ) {
@@ -11950,7 +11972,7 @@ function hostPathMatch( string $host, string $path ) : bool {
 	$pe	= explode( '/', $path );
 	$px	= '';
 	foreach ( $pe as $k => $v ) {
-		$px .= util_slash_path( $v );
+		$px .= Text::slash_path( $v );
 		if ( \in_array( $px, $pm, true ) ) {
 			return true;
 		}
@@ -12106,7 +12128,7 @@ function sendPage(
 	] ] );
 	
 	// Send redirect with requested code
-	redirect( $code, util_slash_path( pageRoutePath(), true ) . $page );
+	redirect( $code, Text::slash_path( pageRoutePath(), true ) . $page );
 }
 
 /**
@@ -12986,7 +13008,7 @@ function postModified( $path, $mtime ) : bool {
 		"SELECT updated FROM posts 
 			WHERE post_path = :path", 
 		'bare',
-		[ ':path' => util_slash_path( $path ) ]
+		[ ':path' => Text::slash_path( $path ) ]
 	);
 	
 	if ( empty( $res ) ) {
@@ -13009,7 +13031,7 @@ function postCached( $path ) : bool {
 		"SELECT id FROM posts WHERE post_path = :path
 			LIMIT 1;", 
 		'bare',
-		[ ':path' => util_slash_path( $path ) ]
+		[ ':path' => Text::slash_path( $path ) ]
 	);
 	
 	return empty( $res ) ? false : true; 
@@ -13422,7 +13444,7 @@ function insertPost(
 	int		$mtime 
 ) : bool {
 	$params = [
-		':path'		=> util_slash_path( $path ), 
+		':path'		=> Text::slash_path( $path ), 
 		':pview'	=> $out, 
 		':bare'		=> \strip_tags( $out ), 
 		':summary'	=> $summ, 
@@ -14393,7 +14415,7 @@ function searchForm() : string {
  *  @return string
  */
 function searchPagePath( array $data ) : string {
-	return util_slash_path( pageRoutePath(), true ) . 
+	return Text::slash_path( pageRoutePath(), true ) . 
 		'?find=' . $data['find'] . '/';
 }
 
@@ -14505,7 +14527,7 @@ function getSiblings( string $path ) : string {
 	db_result_exec( 
 		"SELECT * FROM post_siblings WHERE post_path = :path", 
 		'bare',
-		[ ':path' => util_slash_path( $path ) ]
+		[ ':path' => Text::slash_path( $path ) ]
 	);
 	
 	hook( [ 'getsiblings', [
@@ -14623,7 +14645,7 @@ function getCommonWords( array $lines, bool $as_array = true ) {
  *  @return string
  */
 function getRelated( string $path ) : string {
-	$path	= util_slash_path( $path );
+	$path	= Text::slash_path( $path );
 	$res	= 
 	db_result_exec( 
 		'SELECT post_bare FROM posts WHERE post_path = :path', 
@@ -14640,7 +14662,7 @@ function getRelated( string $path ) : string {
 		return '';
 	}
 	
-	$lines	= util_split_lines( $text );
+	$lines	= Text::split_lines( $text );
 	if ( empty( $lines ) ) {
 		return '';
 	}
@@ -14832,7 +14854,7 @@ function staticPage(
  */
 function loadStaticPage( string	$page ) : array {
 	$pdir	= config( 'post_dir', storage_base() );
-	$path	= util_slash_path( $page );
+	$path	= Text::slash_path( $page );
 	
 	return loadText( $pdir . $path );
 }
@@ -14923,7 +14945,7 @@ function showArchive( string $event, array $hook, array $params ) {
 	// Full archive
 	if ( empty( $params['year'] ) ) {
 		$posts	= loadPosts( $page, '', false, $slvl );
-		$prefix	= util_slash_path( pageRoutePath(), true );
+		$prefix	= Text::slash_path( pageRoutePath(), true );
 	
 	// Starting from year?
 	} else {
@@ -14939,7 +14961,7 @@ function showArchive( string $event, array $hook, array $params ) {
 				$date[1] : $date[1] . $s . $date[2];
 		}
 		$stamp	= \trim( $stamp, $s ) . $s;
-		$prefix	= util_slash_path( pageRoutePath(), true ) . $stamp;
+		$prefix	= Text::slash_path( pageRoutePath(), true ) . $stamp;
 		$posts	= loadPosts( $page, $stamp, false, $slvl );
 	}
 	
@@ -14973,7 +14995,7 @@ function showTag( string $event, array $hook, array $params ) {
 	$tag	= sanitize_slug( $params['tag'] );
 	$page	= ( int ) ( $params['page'] ?? 1 );
 	$prefix	= 
-	util_slash_path( pageRoutePath( 'tagview', 'tags' ), true ) . $tag . '/';
+	Text::slash_path( pageRoutePath( 'tagview', 'tags' ), true ) . $tag . '/';
 	
 	// Pagination prep
 	$plimit	= setting( 'page_limit', \PAGE_LIMIT, 'int' );
@@ -15243,7 +15265,7 @@ function runIndex( string $event, array $hook, array $params ) {
 	// Default index render
 	$out	= '';
 	
-	$prefix	= util_slash_path( pageRoutePath(), true ) . 'archive/';
+	$prefix	= Text::slash_path( pageRoutePath(), true ) . 'archive/';
 	$out	= '';
 	$pf	= '';
 	$plist	= [];
