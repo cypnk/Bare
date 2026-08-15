@@ -1628,881 +1628,884 @@ final class Text {
 
 
 /**
- *  Sanitizing and Filtering
+ *  @class Sanitizing and filtering
  */
-
-/**
- *  Strip unusable characters from raw text/html and conform to UTF-8
- *  
- *  @param string	$html	Raw content body to be cleaned
- *  @param bool		$entities Convert to HTML entities
- *  @return string
- */
-function sanitize_filter( 
-	string		$html, 
-	bool		$entities	= false 
-) : string {
-	static $filters	= [
+final class Sanitize {
 	
-		// Remove control chars except linebreaks/tabs etc...
-		'/[\x00-\x08\x0B\x0C\x0E-\x1F\x80-\x9F]/u',
+	/**
+	 *  Strip unusable characters from raw text/html and conform to UTF-8
+	 *  
+	 *  @param string	$html	Raw content body to be cleaned
+	 *  @param bool		$entities Convert to HTML entities
+	 *  @return string
+	 */
+	public static function filter( 
+		string		$html, 
+		bool		$entities	= false 
+	) : string {
+		static $filters	= [
+			
+			// Remove control chars except linebreaks/tabs etc...
+			'/[\x00-\x08\x0B\x0C\x0E-\x1F\x80-\x9F]/u',
+			
+			// Non-characters
+			'/[\x{fdd0}-\x{fdef}]/u',
+			'/[\x{FFFE}-\x{FFFF}]/u',
+			'/[\x{1FFFE}-\x{1FFFF}]/u',
+			
+			// UTF unassigned, formatting, and half surrogate pairs
+			'/[\p{Cs}\p{Cf}\p{Cn}]/u',
+			
+			// Invalid UTF-8 byte sequences
+			'/[\xC0-\xC1]|\xF5-\xFF/u',
+			
+			// Overlong 2, 3, and 4-byte sequences
+			'/[\xC2-\xDF](?![\x80-\xBF])/u',
+			'/[\xE0-\xEF](?![\x80-\xBF]{2})/u',
+			'/[\xF0-\xF4](?![\x80-\xBF]{3})/u'
+		];
+		$html		= Util::utf8( \trim( $html ) );	// Convert to UTF-8
+		$html		= \preg_replace( $filters, '', $html );
 		
-		// Non-characters
-		'/[\x{fdd0}-\x{fdef}]/u',
-		'/[\x{FFFE}-\x{FFFF}]/u',
-		'/[\x{1FFFE}-\x{1FFFF}]/u',
-		
-		// UTF unassigned, formatting, and half surrogate pairs
-		'/[\p{Cs}\p{Cf}\p{Cn}]/u',
-		
-		// Invalid UTF-8 byte sequences
-		'/[\xC0-\xC1]|\xF5-\xFF/u',
-		
-		// Overlong 2, 3, and 4-byte sequences
-		'/[\xC2-\xDF](?![\x80-\xBF])/u',
-		'/[\xE0-\xEF](?![\x80-\xBF]{2})/u',
-		'/[\xF0-\xF4](?![\x80-\xBF]{3})/u'
-	];
-	$html		= Util::utf8( \trim( $html ) );	// Convert to UTF-8
-	$html		= \preg_replace( $filters, '', $html );
-	
-	// Convert Unicode character entities?
-	return $entities 
-		? \htmlentities( \trim( $html ), \ENT_QUOTES | \ENT_SUBSTITUTE, 'UTF-8' )
-		: \trim( $html );
-}
-
-/**
- *  HTML safe character entities in UTF-8
- *  
- *  @param string	$v	Raw text to turn to HTML entities
- *  @param bool		$quotes	Convert quotes (defaults to true)
- *  @param bool		$spaces	Convert spaces to "&nbsp;*" (defaults to true)
- *  @param bool		$html	HTML Block
- *  @return string
- */
-function sanitize_escape_text(
-	string		$text, 
-	bool		$quotes		= false, 
-	bool		$spaces		= true,
-	bool		$html		= true 
-) : string {
-	$qflag	= $quotes ? \ENT_QUOTES : \ENT_NOQUOTES;
-	$hflag	= $html ? \ENT_HTML5 : 0;
-	$text	= sanitize_filter( $text );
-	$depth	= 0;
-	$max_d	= 100;
-	
-	do {
-		$depth++;
-		if ( $depth > $max_d ) { return ''; }
-		
-		$decoded	= \htmlspecialchars_decode( $text, $qflag );
-		$changed	= ( 0 !== \strcmp( $decoded, $text ) );
-		$text		= $decoded;
-	} while ( $changed );
-	
-	$text	= sanitize_filter( $text );
-	$flags	= $qflag | $hflag | \ENT_SUBSTITUTE;
-	$text	= \htmlspecialchars( $text, $flags, 'UTF-8' );
-	
-	return ( $spaces ) ? \strtr( $text, [ 
-			' ' => '&nbsp;',
-			'	' => '&nbsp;&nbsp;&nbsp;&nbsp;'
-		] ) : $text;
-}
-
-/**
- *  Prevent directory traversal within URL segments
- *  
- *  @param string	$path	Folder or URI path
- *  @return string
- */
-function sanitize_path_traversal( string $path ) : string {
-	$segments	= 
-	\array_filter( 
-		\explode( '/', \preg_replace( '/\\\\/', '/', $path )  ),
-		static function( $seg ) {
-			$seg = \trim( $seg );
-			return 
-				!\str_starts_with( $seg, '..' )	&& 
-				!\str_ends_with( $seg, '..' );
-		}
-	);
-	
-	return \trim( \implode( '/', $segments ), '/' );
-}
-
-/**
- *  Cleaned URI with parsed path components
- *  
- *  @param string	$raw	Raw URI from source
- *  @param string	$base	Prefix if required
- *  @return string
- */
-function sanitize_uri( string $raw, ?string $base = null ) : string|null {
-	$path	= \preg_replace( '/\\\\/', '/', $path ) ;
-	$path	= \trim( \parse_url( $path, \PHP_URL_PATH ) ?? '', '/' );
-	$depth	= 0;
-	$max_d	= 10;
-	
-	// Normalize
-	do {
-		$depth++;
-		if ( $depth > $max_d ) { return null; }
-		
-		$decoded	= sanitize_filter( \rawurldecode( $path ) );	// Invalid chars
-		$decoded	= \preg_replace( '#/{2,}#', '/', $decoded );	// Collapse
-		
-		$changed	= ( $decoded !== $path );
-		$path		= $decoded;
-	} while( $changed );
-	
-	// Prevent directory traversal
-	$final	= sanitize_path_traversal( $path );
-	
-	return ( $base && !\str_starts_with( $final, $base ) ) 
-		? null
-		: $final;
-}
-
-/**
- *  Attempt to stop URI/URL injection
- *  
- *  @param string	$tex	Raw text input
- *  @return string
- */
-function sanitize_strip_xss( string $text ) : string {
-	static $patterns	= [
-		'/expression\s*\(.*?\)/i',			// Probably not needed
-		'/(\\~\/|\.\.|\\\\|\-\-)/sm',			// Directory traversal
-		'/(<(s(?:cript|tyle)).*?)/ism',			// Injection
-		'/(document\s*\.|window\s*\.)/i',		// Events and scripts
-		'/\beval\s*\(/i',
-		'/url\(\s*(?:javascript|jscript|livescript|vbscript|data)\s*[:&colon;][^\)]*\)/i'
-	];
-	
-	$text	= \preg_replace( '/\/\*.*?\*\//s', '', $text );	// Comments
-	$text	= \trim( $text, "'\"" );
-	do {
-		$original = $text;
-		foreach ( $patterns as $rx ) {
-			$text = \preg_replace( $rx, '',  $text );
-		}
-	} while ( 0 !== \strcasecmp( $text, $original ) );
-	
-	return \trim( $text, "'\"" );
-}
-
-/**
- *  User input and environment data filtering helper
- *  
- *  @param string	$source		Data source type, defaults to 'get'
- *  @param array	$filter		Input processing filters
- */
-function sanitize_input_array( string $source, array $filter ) : array {
-	$dtype	= 
-	match( \strtolower( $source ) ) {
-		'post'			=> \INPUT_POST,
-		'cookie'		=> \INPUT_COOKIE,
-		'server'		=> \INPUT_SERVER,
-		'env', 'environment'	=> \INPUT_ENV,
-		
-		default			=> \INPUT_GET
-	};
-	
-	return \filter_input_array( $dtype, $filter, true ) ?: [];
-}
-
-/**
- *  Attempt to filter host name
- *  
- *  @param string	$txt	Raw host definition
- */
-function sanitize_host( string $txt ) : string {
-	return \mb_strtolower( \rtrim( 
-		\parse_url( $txt, \PHP_URL_HOST ) ?? '', 
-		" \t\n\r\0\x0B." 
-	) );
-}
-
-/**
- *  Attempt to filter URL
- *  This is not a 100% foolproof method, but it's better than nothing
- *  
- *  @param string	$txt	Raw URL attribute value
- *  @param bool		$xss	Filter XSS possibilities
- *  @return string
- */
-function sanitize_url( string $text, bool $xss = true ) : string {
-	$text = \trim( $text );
-	
-	// Nothing to clean
-	if ( '' === $text ) { return ''; }
-	
-	if ( $xss ) {
-		$text = sanitize_strip_xss( $text );
+		// Convert Unicode character entities?
+		return $entities 
+			? \htmlentities( \trim( $html ), \ENT_QUOTES | \ENT_SUBSTITUTE, 'UTF-8' )
+			: \trim( $html );
 	}
 	
-	// Absolute paths?
-	if ( \preg_match( '~^[a-z][a-z0-9+\-.]*://~i', $text ) ) {
-		// Default filter
-		return ( !\filter_var( $text, \FILTER_VALIDATE_URL ) ) 
-			? ''
-			: sanitize_escape_text( $text, false, false );
-	}
-	
-	$path	= sanitize_uri( $text ) ?? '';
-	return ( null === $path || '' === $path )
-		? '' 
-		: sanitize_escape_text( $path, false, false );
-}
-
-/**
- *  Attempt to decode encoded URLs
- *  
- *  @param string	$url	Raw URL string
- *  @param int		$limit	Decoding depth limit
- *  @return mixed
- */
-function sanitize_urldecode( string $url, int $limit = 10 ) : ?string {
-	$url	= \trim( $url );
-	if ( '' === $url ) { return ''; }
-	
-	$prev		= '';
-	$current	= $url;
-	$depth		= 0;
-	
-	while ( $current !== $prev ) {
-		if ( $depth > $limit ) { return null; }
+	/**
+	 *  HTML safe character entities in UTF-8
+	 *  
+	 *  @param string	$v	Raw text to turn to HTML entities
+	 *  @param bool		$quotes	Convert quotes (defaults to true)
+	 *  @param bool		$spaces	Convert spaces to "&nbsp;*" (defaults to true)
+	 *  @param bool		$html	HTML Block
+	 *  @return string
+	 */
+	public static function escape_text(
+		string		$text, 
+		bool		$quotes		= false, 
+		bool		$spaces		= true,
+		bool		$html		= true 
+	) : string {
+		$qflag	= $quotes ? \ENT_QUOTES : \ENT_NOQUOTES;
+		$hflag	= $html ? \ENT_HTML5 : 0;
+		$text	= static::filter( $text );
+		$depth	= 0;
+		$max_d	= 100;
 		
-		$prev		= $current;
-		$current	= \urldecode( $prev );
-		$depth++;
-	}
-	
-	return $current;
-}
-
-/**
- *  Filter and optionally parse query into usable segments
- *  
- *  @param bool		$parsed		Process into sanitized array
- *  @param bool		$lower_keys	Make array keys lowercase, if true
- *  @return mixed
- */
-function sanitize_query( 
-	bool	$parsed		= true, 
-	bool	$lower_keys	= false 
-) : string|array {
-	static $query;
-	static $result;
-	static $result_lower;
-	
-	$query	??= $_SERVER['QUERY_STRING'] ?? '';
-
-	if ( isset( $result ) && isset( $result_lower ) ) {
-		return $parsed 
-			? ( $lower_keys ? $result_lower : $result )
-			: $query;
-	}
-	
-	$result	= [];
-	$pairs	= \explode( '&', $query );
-	foreach ( $pairs as $pair ) {
-		if ( '' === $pair ) { continue; }
+		do {
+			$depth++;
+			if ( $depth > $max_d ) { return ''; }
+			
+			$decoded	= \htmlspecialchars_decode( $text, $qflag );
+			$changed	= ( 0 !== \strcmp( $decoded, $text ) );
+			$text		= $decoded;
+		} while ( $changed );
 		
-		[ $key, $value ] = 
-		\array_map( 
-			'sanitize_urldecode', 
-			\explode( '=', $pair, 2 ) + [ 1 => '' ] 
+		$text	= static::filter( $text );
+		$flags	= $qflag | $hflag | \ENT_SUBSTITUTE;
+		$text	= \htmlspecialchars( $text, $flags, 'UTF-8' );
+		
+		return ( $spaces ) ? \strtr( $text, [ 
+				' ' => '&nbsp;',
+				'	' => '&nbsp;&nbsp;&nbsp;&nbsp;'
+			] ) : $text;
+	}
+	
+	/**
+	 *  Prevent directory traversal within URL segments
+	 *  
+	 *  @param string	$path	Folder or URI path
+	 *  @return string
+	 */
+	public static function path_traversal( string $path ) : string {
+		$segments	= 
+		\array_filter( 
+			\explode( '/', \preg_replace( '/\\\\/', '/', $path )  ),
+			static function( $seg ) {
+				$seg = \trim( $seg );
+				return 
+					!\str_starts_with( $seg, '..' )	&& 
+					!\str_ends_with( $seg, '..' );
+			}
 		);
 		
-		if ( '' === $key || null === $key ) { continue; }
+		return \trim( \implode( '/', $segments ), '/' );
+	}
+	
+	/**
+	 *  User input and environment data filtering helper
+	 *  
+	 *  @param string	$source		Data source type, defaults to 'get'
+	 *  @param array	$filter		Input processing filters
+	 *  @return array
+	 */
+	public static function input_array( string $source, array $filter ) : array {
+		$dtype	= 
+		match( \strtolower( $source ) ) {
+			'post'			=> \INPUT_POST,
+			'cookie'		=> \INPUT_COOKIE,
+			'server'		=> \INPUT_SERVER,
+			'env', 'environment'	=> \INPUT_ENV,
+			
+			default			=> \INPUT_GET
+		};
 		
-		// Preserve duplicates
-		if ( isset( $result[$key] ) ) {
-			if ( \is_array( $result[$key] ) ) {
-				$result[$key][] = $value;
+		return \filter_input_array( $dtype, $filter, true ) ?: [];
+	}
+	
+	/**
+	 *  Attempt to filter host name
+	 *  
+	 *  @param string	$txt	Raw host definition
+	 *  @return array
+	 */
+	public static function host( string $txt ) : string {
+		return \mb_strtolower( \rtrim( 
+			\parse_url( $txt, \PHP_URL_HOST ) ?? '', 
+			" \t\n\r\0\x0B." 
+		) );
+	}
+	
+	/**
+	 *  Attempt to stop URI/URL injection
+	 *  
+	 *  @param string	$tex	Raw text input
+	 *  @return string
+	 */
+	public static function strip_xss( string $text ) : string {
+		static $patterns	= [
+			'/expression\s*\(.*?\)/i',			// Probably not needed
+			'/(\\~\/|\.\.|\\\\|\-\-)/sm',			// Directory traversal
+			'/(<(s(?:cript|tyle)).*?)/ism',			// Injection
+			'/(document\s*\.|window\s*\.)/i',		// Events and scripts
+			'/\beval\s*\(/i',
+			'/url\(\s*(?:javascript|jscript|livescript|vbscript|data)\s*[:&colon;][^\)]*\)/i'
+		];
+		
+		$text	= \preg_replace( '/\/\*.*?\*\//s', '', $text );	// Comments
+		$text	= \trim( $text, "'\"" );
+		do {
+			$original = $text;
+			foreach ( $patterns as $rx ) {
+				$text = \preg_replace( $rx, '',  $text );
+			}
+		} while ( 0 !== \strcasecmp( $text, $original ) );
+		
+		return \trim( $text, "'\"" );
+	}
+	
+	/**
+	 *  Cleaned URI with parsed path components
+	 *  
+	 *  @param string	$raw	Raw URI from source
+	 *  @param string	$base	Prefix if required
+	 *  @return string
+	 */
+	public static function uri( string $raw, ?string $base = null ) : string|null {
+		$path	= \preg_replace( '/\\\\/', '/', $path ) ;
+		$path	= \trim( \parse_url( $path, \PHP_URL_PATH ) ?? '', '/' );
+		$depth	= 0;
+		$max_d	= 10;
+		
+		// Normalize
+		do {
+			$depth++;
+			if ( $depth > $max_d ) { return null; }
+			
+			$decoded	= static::filter( \rawurldecode( $path ) );	// Invalid chars
+			$decoded	= \preg_replace( '#/{2,}#', '/', $decoded );	// Collapse
+			
+			$changed	= ( $decoded !== $path );
+			$path		= $decoded;
+		} while( $changed );
+		
+		// Prevent directory traversal
+		$final	= static::path_traversal( $path );
+		
+		return ( $base && !\str_starts_with( $final, $base ) ) 
+			? null
+			: $final;
+	}
+	
+	/**
+	 *  Attempt to filter URL
+	 *  This is not a 100% foolproof method, but it's better than nothing
+	 *  
+	 *  @param string	$txt	Raw URL attribute value
+	 *  @param bool		$xss	Filter XSS possibilities
+	 *  @return string
+	 */
+	public static function url( string $text, bool $xss = true ) : string {
+		$text = \trim( $text );
+		
+		// Nothing to clean
+		if ( '' === $text ) { return ''; }
+		
+		if ( $xss ) {
+			$text = static::strip_xss( $text );
+		}
+		
+		// Absolute paths?
+		if ( \preg_match( '~^[a-z][a-z0-9+\-.]*://~i', $text ) ) {
+			// Default filter
+			return ( !\filter_var( $text, \FILTER_VALIDATE_URL ) ) 
+				? ''
+				: static::escape_text( $text, false, false );
+		}
+		
+		$path	= static::uri( $text ) ?? '';
+		return ( null === $path || '' === $path )
+			? '' 
+			: static::escape_text( $path, false, false );
+	}
+	
+	/**
+	 *  Attempt to decode encoded URLs
+	 *  
+	 *  @param string	$url	Raw URL string
+	 *  @param int		$limit	Decoding depth limit
+	 *  @return mixed
+	 */
+	public static function surldecode( string $url, int $limit = 10 ) : ?string {
+		$url	= \trim( $url );
+		if ( '' === $url ) { return ''; }
+		
+		$prev		= '';
+		$current	= $url;
+		$depth		= 0;
+		
+		while ( $current !== $prev ) {
+			if ( $depth > $limit ) { return null; }
+			
+			$prev		= $current;
+			$current	= \urldecode( $prev );
+			$depth++;
+		}
+		
+		return $current;
+	}
+	
+	/**
+	 *  Filter and optionally parse query into usable segments
+	 *  
+	 *  @param bool		$parsed		Process into sanitized array
+	 *  @param bool		$lower_keys	Make array keys lowercase, if true
+	 *  @return mixed
+	 */
+	public static function query( 
+		bool	$parsed		= true, 
+		bool	$lower_keys	= false 
+	) : string|array {
+		static $query;
+		static $result;
+		static $result_lower;
+		
+		$query	??= $_SERVER['QUERY_STRING'] ?? '';
+		
+		if ( isset( $result ) && isset( $result_lower ) ) {
+			return $parsed 
+				? ( $lower_keys ? $result_lower : $result )
+				: $query;
+		}
+		
+		$result	= [];
+		$pairs	= \explode( '&', $query );
+		foreach ( $pairs as $pair ) {
+			if ( '' === $pair ) { continue; }
+			
+			[ $key, $value ] = 
+			\array_map( 
+				'Sanitize::surldecode', 
+				\explode( '=', $pair, 2 ) + [ 1 => '' ] 
+			);
+			
+			if ( '' === $key || null === $key ) { continue; }
+			
+			// Preserve duplicates
+			if ( isset( $result[$key] ) ) {
+				if ( \is_array( $result[$key] ) ) {
+					$result[$key][] = $value;
+				} else {
+					$result[$key] = [ $result[$key], $value ];
+				}
 			} else {
-				$result[$key] = [ $result[$key], $value ];
+				$result[$key] = $value;
 			}
-		} else {
-			$result[$key] = $value;
 		}
+		
+		$result_lower = \array_change_key_case( $result, \CASE_LOWER );
+		return $lower_keys ? $result_lower : $result;
 	}
 	
-	$result_lower = \array_change_key_case( $result, \CASE_LOWER );
-	return $lower_keys ? $result_lower : $result;
-}
-
-/**
- *  Check if given file name is reserved
- *  
- *  @param string	$name	Raw filename
- *  @return bool
- */
-function sanitize_is_reserved_name( string $name ) : bool {
-	static $reserved = [
-		'con', 'prn', 'aux', 'nul',
-		'com1','com2','com3','com4','com5','com6','com7','com8','com9',
-		'lpt1','lpt2','lpt3','lpt4','lpt5','lpt6','lpt7','lpt8','lpt9'
-	];
-	
-	$base	= \strtolower( \pathinfo( $name, \PATHINFO_FILENAME ) );
-	return '' !== $base && \in_array( $base, $reserved );
-}
-
-/**
- *  Clean filename to safe format
- *  
- *  @param string $name Raw filename
- *  @return string
- */
-function sanitize_filename( string $name ) : string|null {
-	$name	= sanitize_filter( $name ); 
-	
-	$name	= \preg_replace( '/[\/\\\?\*\:\|"<>\x00-\x1F]/u', '_', $name );
-	$name	= \preg_replace( '/\_+/', '_', $name );
-	$name	= \preg_replace( '/[[:space:]]+/', ' ', $name );
-	$name	= \trim( $name, ". \t\n\r\0\x0B" );
-	
-	if ( '' === $name ) { return null; }
-	
-	if ( sanitize_is_reserved_name( $name ) ) {
-		$ext	= \pathinfo( $name, \PATHINFO_EXTENSION );
-		$base	= \pathinfo( $name, \PATHINFO_FILENAME );
-		$name	= $base . '_' . ( $ext ? '.' . $ext : '' );
+	/**
+	 *  Check if given file name is reserved
+	 *  
+	 *  @param string	$name	Raw filename
+	 *  @return bool
+	 */
+	public static function is_reserved_name( string $name ) : bool {
+		static $reserved = [
+			'con', 'prn', 'aux', 'nul',
+			'com1','com2','com3','com4','com5','com6','com7','com8','com9',
+			'lpt1','lpt2','lpt3','lpt4','lpt5','lpt6','lpt7','lpt8','lpt9'
+		];
+		
+		$base	= \strtolower( \pathinfo( $name, \PATHINFO_FILENAME ) );
+		return '' !== $base && \in_array( $base, $reserved );
 	}
 	
-	return $name;
-}
-
-/**
- *  String basic password filtering (avoid removing special chars)
- *  
- *  @param string	$password	Raw sent password
- *  @return string
- */
-function sanitize_password( string $password ) : string {
-	return Util::utf8( \trim( $password ) );
-}
-
-/**
- *  Basic directory path filter
- *  
- *  @param string	$base_dir	Root directory
- *  @param string	$filename	Raw file name
- *  @param int		$max		Maximum file path with root included
- *  @return bool
- */
-function sanitize_is_valid_path( 
-	string	$base_dir, 
-	string	$filename, 
-	int	$max		= 255 
-) : bool {
-	$full_path	= $base_dir . \DIRECTORY_SEPARATOR . $filename;
-	return \strlen( $full_path ) <= $max;
-}
-
-/**
- *  Normalize file opening modes
- *  
- *  @param string	$mode	File open mode
- *  @return mixed
- */
-function sanitize_normalize_fmode( string $mode ) : ?string  {
-	if ( !\preg_match( '/^(r|w|a|x|c)(\+)?([bt]{0,2})$/i', $mode, $m ) ) {
-		return null;
+	/**
+	 *  Clean filename to safe format
+	 *  
+	 *  @param string $name Raw filename
+	 *  @return string
+	 */
+	public static function filename( string $name ) : string|null {
+		$name	= static::filter( $name ); 
+		
+		$name	= \preg_replace( '/[\/\\\?\*\:\|"<>\x00-\x1F]/u', '_', $name );
+		$name	= \preg_replace( '/\_+/', '_', $name );
+		$name	= \preg_replace( '/[[:space:]]+/', ' ', $name );
+		$name	= \trim( $name, ". \t\n\r\0\x0B" );
+		
+		if ( '' === $name ) { return null; }
+		
+		if ( static::is_reserved_name( $name ) ) {
+			$ext	= \pathinfo( $name, \PATHINFO_EXTENSION );
+			$base	= \pathinfo( $name, \PATHINFO_FILENAME );
+			$name	= $base . '_' . ( $ext ? '.' . $ext : '' );
+		}
+		
+		return $name;
 	}
 	
-	$flags	= \array_unique( \str_split( $m[3] ?? '' ) );
-	\sort( $flags );
-	return $m[1] . ( $m[2] ?? '' ) . \implode( '', $flags );
-}
-
-/**
- *  Convert all spaces to single character
- *  
- *  @param string	$text		Raw text containting mixed space types
- *  @param string	$rpl		Replacement space, defaults to ' '
- *  @param string	$br		Preserve line breaks
- *  @return string
- */
-function sanitize_spaces( 
-	string	$text, 
-	string	$rpl	= ' ', 
-	bool	$br	= false 
-) : string {
-	return $br 
-		? \preg_replace( '/[ \t\v\f]+/', $rpl, sanitize_filter( $text ) ) 
-		: \preg_replace( '/[[:space:]]+/', $rpl, sanitize_filter( $text ) );
-}
-
-/**
- *  Clean a directory or folder name
- *  
- *  @param string	$text		Viable folder name
- */
-function sanitize_dir( string $text ) : bool {
-	return ( bool ) \preg_match( '/^[A-Za-z0-9_-]+$/', $text );
-}
-
-/**
- *  Filter slug to appropriate format
- *  
- *  @param string	$text		Raw slug or title
- *  @param string	$prefix		Slug prefix if sanitizing failed
- *  @return string
- */
-function sanitize_slug( string $text, string $prefix = 'node-' ) : string {
-	$text	= \preg_replace( '/[^\pL\pN]+/u', '-', sanitize_filter( $text ) );
-	$text	= \preg_replace( '/-+/', '-', $text );
-	$text	= \mb_strtolower( $text, 'UTF-8' );
-	$text	= \trim( $text, '-' );
+	/**
+	 *  String basic password filtering (avoid removing special chars)
+	 *  
+	 *  @param string	$password	Raw sent password
+	 *  @return string
+	 */
+	public static function password( string $password ) : string {
+		return Util::utf8( \trim( $password ) );
+	}
 	
-	return empty( $text ) ? Util::gen_key( 16, $prefix ) : $text;
-}
-
-/**
- *  Make text completely bland by stripping punctuation, 
- *  spaces and diacritics (for further processing)
- *  
- *  @param string	$text		Raw input text
- *  @param bool		$nospecial	Remove special characters if true
- *  @return string
- */
-function sanitize_bland( string $text, bool $nospecial = false ) : string {
-	$text = \strip_tags( sanitize_spaces( $text ) );
+	/**
+	 *  Basic directory path filter
+	 *  
+	 *  @param string	$base_dir	Root directory
+	 *  @param string	$filename	Raw file name
+	 *  @param int		$max		Maximum file path with root included
+	 *  @return bool
+	 */
+	public static function is_valid_path( 
+		string	$base_dir, 
+		string	$filename, 
+		int	$max		= 255 
+	) : bool {
+		$full_path	= $base_dir . \DIRECTORY_SEPARATOR . $filename;
+		return \strlen( $full_path ) <= $max;
+	}
 	
-	if ( $nospecial ) {
-		return \preg_replace( 
-			'/[^\p{L}\p{N}\-\s_]+/', '', \trim( $text ) 
+	/**
+	 *  Normalize file opening modes
+	 *  
+	 *  @param string	$mode	File open mode
+	 *  @return mixed
+	 */
+	public static function normalize_fmode( string $mode ) : ?string  {
+		if ( !\preg_match( '/^(r|w|a|x|c)(\+)?([bt]{0,2})$/i', $mode, $m ) ) {
+			return null;
+		}
+		
+		$flags	= \array_unique( \str_split( $m[3] ?? '' ) );
+		\sort( $flags );
+		return $m[1] . ( $m[2] ?? '' ) . \implode( '', $flags );
+	}
+	
+	/**
+	 *  Convert all spaces to single character
+	 *  
+	 *  @param string	$text		Raw text containting mixed space types
+	 *  @param string	$rpl		Replacement space, defaults to ' '
+	 *  @param string	$br		Preserve line breaks
+	 *  @return string
+	 */
+	public static function spaces( 
+		string	$text, 
+		string	$rpl	= ' ', 
+		bool	$br	= false 
+	) : string {
+		return $br 
+			? \preg_replace( '/[ \t\v\f]+/', $rpl, static::filter( $text ) )
+			: \preg_replace( '/[[:space:]]+/', $rpl, static::filter( $text ) );
+	}
+	
+	/**
+	 *  Clean a directory or folder name
+	 *  
+	 *  @param string	$text		Viable folder name
+	 */
+	public static function sdir( string $text ) : bool {
+		return ( bool ) \preg_match( '/^[A-Za-z0-9_-]+$/', $text );
+	}
+	
+	/**
+	 *  Filter slug to appropriate format
+	 *  
+	 *  @param string	$text		Raw slug or title
+	 *  @param string	$prefix		Slug prefix if sanitizing failed
+	 *  @return string
+	 */
+	public static function slug( string $text, string $prefix = 'node-' ) : string {
+		$text	= \preg_replace( '/[^\pL\pN]+/u', '-', static::filter( $text ) );
+		$text	= \preg_replace( '/-+/', '-', $text );
+		$text	= \mb_strtolower( $text, 'UTF-8' );
+		$text	= \trim( $text, '-' );
+		
+		return empty( $text ) ? Util::gen_key( 16, $prefix ) : $text;
+	}
+	
+	/**
+	 *  Make text completely bland by stripping punctuation, 
+	 *  spaces and diacritics (for further processing)
+	 *  
+	 *  @param string	$text		Raw input text
+	 *  @param bool		$nospecial	Remove special characters if true
+	 *  @return string
+	 */
+	public static function bland( string $text, bool $nospecial = false ) : string {
+		$text = \strip_tags( static::spaces( $text ) );
+
+		return $nospecial 
+			? \preg_replace( '/[^\p{L}\p{N}\-\s_]+/', '', \trim( $text ) ) 
+			: \trim( $text );
+	}
+	
+	/**
+	 *  Filter XML string
+	 *  
+	 *  @param string	$text		Raw block
+	 *  @return string
+	 */
+	public static function xml( string $text ) : string {
+		$text	= static::filter( $text );
+		if ( '' === $text ) { return ''; }
+		
+		return 
+		\htmlspecialchars( 
+			string		: $text, 
+			flags		: ENT_XML1 | ENT_QUOTES | ENT_SUBSTITUTE, 
+			encoding	: 'UTF-8' 
 		);
 	}
-	return \trim( $text );
-}
-
-/**
- *  Filter XML string
- *  
- *  @param string	$text		Raw block
- *  @return string
- */
-function sanitize_xml( string $text ) : string {
-	$text	= sanitize_filter( $text );
-	if ( '' === $text ) { return ''; }
 	
-	return \htmlspecialchars( 
-		$text, 
-		ENT_XML1 | ENT_QUOTES | ENT_SUBSTITUTE, 
-		'UTF-8' 
-	);
-}
-
-/**
- *  Sanitize DOMNode
- *  
- *  @param DOMNode	$node	Element to filter 
- *  @param DOMNode	$parent	Parent element
- *  @return DOMNode
- */
-function sanitize_escape_node( $node, $parent ) : DOMNode {
-	$name		= \strtolower( $node->nodeName );
-	if ( !\preg_match( '/^[a-z][a-z0-9\-]*$/', $name ) ) {
-		$name = 'div';
+	public static function text( string $text ) : string {
+		return static::strip_xss( \strip_tags( static::filter( $text ) ) );
 	}
 	
-	$inner_html	= '';
-	foreach ( $node->childNodes as $child ) {
-		$inner_html .= $node->ownerDocument->saveHTML( $child );
+	public static function sint( string $text ) : int {
+		return ( int ) static::text( $text );
 	}
 	
-	$new_node	= $parent->ownerDocument->createElement( $name );
-	$new_node->appendChild( 
-		$parent->ownerDocument->createTextNode( sanitize_escape_text( $inner_html ) ) 
-	);
-	return $new_node;
-}
-
-function sanitize_text( string $text ) : string {
-	return sanitize_strip_xss( \strip_tags( sanitize_filter( $text ) ) );
-}
-
-function sanitize_int( string $text ) : int {
-	return ( int ) sanitize_text( $text );
-}
-
-function sanitize_bool( string $text ) : bool {
-	return ( bool ) sanitize_text( $text );
-}
-
-function sanitize_sizes( string $sizes ) : string {
-	static $rx_media	= 
-	'/^\(\s*(max|min)-width:\s*\d+(px|em|rem|%)\s*\)\s*\d+(vw|px)$/';
-	static $rx_size		= '/^\d+(vw|px)$/';
-	
-	$entries	= \explode( ',', $sizes );
-	$clean		= [];
-	
-	foreach ( $entries as $entry ) {
-		$entry = \trim( $entry );
-		
-		// Validate media condition
-		if ( \preg_match( $rx_media, $entry ) ) {
-			$clean[] = $entry;
-		
-		// Validate simple size-only values (E.G. '100vw')
-		} elseif ( \preg_match( $rx_size, $entry ) ) {
-			$clean[] = $entry;
-		}
+	public static function sbool( string $text ) : bool {
+		return ( bool ) static::text( $text );
 	}
 	
-	return implode( ', ', $clean );
-}
-
-function sanitize_srcset( string $srcset ) : string {
-	static $rx_fsize= '/^\d+(w|x)$/';
-	static $rx_file	= 
-	'/^\/[a-zA-Z0-9_\-\/]+\.(png|jpg|jpeg|gif|bmp|tif|tiff)$/';
-	
-	$entries	= \explode( ',', $srcset );
-	$clean		= [];
-	
-	foreach ( $entries as $entry ) {
-		// Splits URL and size descriptor
-		$entry			= \trim( \preg_replace( '/\s+/', ' ', $entry ) );
-		[ $url, $desc ]		= \preg_split( '/\s+/', $entry, 2 ) + [ '', '' ];
-		$desc			= \trim( $desc ?? '' );
-		$valid			= 
-			// Absolute URLs
-			( false !== \filter_var( $url, \FILTER_VALIDATE_URL ) ) || 
-			
-			// Relative paths limited to simple characters
-			( 1 === \preg_match( $rx_file, $url ) );
-		
-		// Skip invalid URL
-		if ( !$valid ) {
-			continue;
-		}
-		
-		// Validate size descriptor
-		$desc		= \preg_match( $rx_fsize, $desc ) ? $desc : '';
-		
-		// Store sanitized entry
-		$url		= sanitize_uri( $url ) ?: '';
-		$clean[]	= \trim( "{$url} {$desc}" );
-	}
-	
-	return \implode( ', ', $clean );
-}
-
-function sanitize_css_url( string $value ) : string {
-	if ( !\preg_match( '/url\(\s*([^\)]+)\s*\)/i', $value, $m ) ) {
-		return '';
-	}
-	
-	$clean	= sanitize_url( \trim( $m[1], "'\"" ) );
-	if ( '' === $clean ) { return ''; }
-	
-	return "url('$clean')";
-}
-
-function sanitize_style( string $text, ?array $allowed = null ) : string {
-	static	$css	= '/^[a-z0-9\s\(\)\#\.,%\-\[\]!:;\/]+$/i';
-	static	$urls	= [
-		'background', 'background-image', 
-			'list-style', 'list-style-image'
-	];
-	static	$default = [ 
-		'color', 'background-color', 'font-size', 'font-weight',
-			'text-align', 'border', 'margin','padding', 'display'
-	];
-	
-	// Fallback set
-	$allowed	??= $default;
-	
-	// Problematic patterns
-	$text		= sanitize_strip_xss( $text );
-	
-	// Split styles into individual rules
-	$rules		= 
-	\array_filter( \array_map( 'trim', \explode( ';', $text ) ) );
-	
-	$sanitized	= [];
-	
-	// Evaluate each property and value
-	foreach ( $rules as $rule ) {
-		[ $property, $value ]	= 
-		\array_map( 'trim', \explode( ':', $rule, 2 ) + [ '', '' ] );
-	
-		// Empty, not in whitelist, or questionable? Skip property
-		if ( 
-			'' === $property			|| 
-			'' === $value				|| 
-			!\in_array( $property, $allowed, true )	|| 
-			!\preg_match( $css, $value )
-			
-		) { continue; }
-		
-		// Is a URL and whitelisted?
-		if ( false !== \stripos( $value, 'url(' ) ) {
-			if ( !\in_array( $property, $urls, true ) ) {
-				continue;
+	public static function cast_to_string( mixed $value ) : string {
+		if ( \is_object( $value ) ) {
+			if ( \method_exists( $value, '__toString' ) ) {
+				return ( string ) $value;
 			}
+			return '';
+		}
+		return \is_array( $value ) ? '' : ( string ) $value;
+	}
+	
+	public static function cast_to_int( mixed $value ) : int {
+		return ( int ) static::cast_to_string( $value );
+	}
+	
+	/**
+	 *  Simple email address filter helper
+	 *  
+	 *  @param string	$email	Raw email (currently doesn't support Unicode domains)
+	 *  @return string
+	 */
+	public static function semail( string $email ) : string {
+		return \filter_var( $email, \FILTER_VALIDATE_EMAIL ) 
+			? $email : '';
+	}
+	
+	/**
+	 *  Prepend given prefix to URLs starting with '/'
+	 *  
+	 *  @param string	$url	Raw URL path
+	 *  @param string	$prefix	Prefix to prepend if $url starts with '/'
+	 *  @return string
+	 */
+	public static function prepend_path( string $v, string $prefix ) : string {
+		$v	= \trim( $v, '"\'' );
+		return \preg_match( '/^\//', $v ) 
+			? static::url( $prefix . $v ) 
+			: static::url( $v );
+	}
+	
+	/**
+	 *  Normalize unicode characters
+	 *  
+	 *  This depends on the Intl extension (usually comes with PHP), 
+	 *  but needs to be enabled in php.ini
+	 *  @link https://www.php.net/manual/en/intl.installation.php
+	 *  
+	 *  @param string	$text
+	 *  @return string 
+	 */
+	public static function normalize( string $text ) : string {
+		if ( Util::missing( 'normalizer_normalize' ) ) { return $text; }
+		
+		$normal = 
+		\normalizer_normalize( static::bland( $text ), \Normalizer::FORM_C );
+		
+		return ( false === $normal ) ? $text : $normal;
+	}
+	
+	/**
+	 *  Check if the requested path has a whitelisted extension
+	 *  
+	 *  @param string	$path		Requested URI
+	 *  @param array	$groups		Configuration groups
+	 *  @param string	$name		Specific type I.E. "images"
+	 *  @return bool
+	 */
+	public static function is_safe_ext( 
+		string	$path, 
+		array	$groups, 
+		?string	$name	= null 
+	) : bool {
+		static $safe	= [];
+		static $checked	= [];
+		$key		= $name . $path;
+		$name		??= 'all';
+		
+		if ( isset( $checked[$key] ) ) { return $checked[$key]; }
+		$safe[$name]	??= $groups;
+		
+		$ext		= 
+		\pathinfo( $path, \PATHINFO_EXTENSION ) ?? '';
+		
+		$checked[$key] = Util::value_exists_ci( $ext, $safe[$name] );
+		
+		return $checked[$key];
+	}
+	
+	public static function sizes( string $sizes ) : string {
+		static $rx_media	= 
+		'/^\(\s*(max|min)-width:\s*\d+(px|em|rem|%)\s*\)\s*\d+(vw|px)$/';
+		static $rx_size		= '/^\d+(vw|px)$/';
+		
+		$entries	= \explode( ',', $sizes );
+		$clean		= [];
+		
+		foreach ( $entries as $entry ) {
+			$entry = \trim( $entry );
 			
-			$value = sanitize_css_url( $value );
-			if ( '' === $value ) { continue; }
-		}
-		
-		// Clean property and value
-		$sanitized[] = "{$property}: {$value}";
-	}
-	
-	// Return to CSS style="" syntax
-	return implode( '; ', $sanitized );
-}
-
-function sanitize_attribute( 
-	\DOMElement	$node, 
-	\DOMElement	$new_node, 
-	string		$attr, 
-	array		$rule 
-) : void {
-	$value		= $node->getAttribute( $attr );
-	if ( !\preg_match( '/^[a-z][a-z0-9_\-]*$/i', $attr ) ) { return; }
-	
-	// Limited subset of allowed values
-	if ( isset( $rule['allowed'] ) ) {
-		if ( \is_array( $rule['allowed'] ) ) {
-			if ( Util::value_exists_ci( $value,  $rule['allowed'] ) ) {
-				$new_node->setAttribute( $attr, $value );
-			}
-			return;
-		
-		} else {
-			if ( 0 === \strcasecmp( ( string ) $rule['allowed'], $value ) ) {
-				$new_node->setAttribute( $attr, $value );
-			}
-			return;
-		}
-	}
-	
-	$sanitizer	= 
-	match( true ) {
-		isset( $rule['filter'] )	&& 
-		\defined( $rule['filter'] )	&& 
-		\is_int( \constant( $rule['filter'] ) )
-			=> function( $v ) use ( $rule ) {
-				$filter		= \constant( $rule['filter'] );
-				$options	= $rule['options'] ?? [];
-				$flags		= 0;
+			// Validate media condition
+			if ( \preg_match( $rx_media, $entry ) ) {
+				$clean[] = $entry;
 				
-				if ( 
-					!empty( $rule['flags'] )	&& 
-					\is_array( $rule['flags'] ) 
-				) {
-					foreach ( $rule['flags'] as $flag ) {
-						if ( \defined( $flag ) ) {
-							$flags |= \constant( $flag );
+				// Validate simple size-only values (E.G. '100vw')
+			} elseif ( \preg_match( $rx_size, $entry ) ) {
+				$clean[] = $entry;
+			}
+		}
+		
+		return implode( ', ', $clean );
+	}
+
+	public static function srcset( string $srcset ) : string {
+		static $rx_fsize= '/^\d+(w|x)$/';
+		static $rx_file	= 
+		'/^\/[a-zA-Z0-9_\-\/]+\.(png|jpg|jpeg|gif|bmp|tif|tiff)$/';
+		
+		$entries	= \explode( ',', $srcset );
+		$clean		= [];
+		
+		foreach ( $entries as $entry ) {
+			// Splits URL and size descriptor
+			$entry		= \trim( \preg_replace( '/\s+/', ' ', $entry ) );
+			[ $url, $desc ]	= \preg_split( '/\s+/', $entry, 2 ) + [ '', '' ];
+			$desc		= \trim( $desc ?? '' );
+			$valid		= 
+				// Absolute URLs
+				( false !== \filter_var( $url, \FILTER_VALIDATE_URL ) ) || 
+				
+				// Relative paths limited to simple characters
+				( 1 === \preg_match( $rx_file, $url ) );
+			
+			// Skip invalid URL
+			if ( !$valid ) { continue; }
+			
+			// Validate size descriptor
+			$desc		= \preg_match( $rx_fsize, $desc ) ? $desc : '';
+			
+			// Store sanitized entry
+			$url		= static::uri( $url ) ?: '';
+			$clean[]	= \trim( "{$url} {$desc}" );
+		}
+		
+		return \implode( ', ', $clean );
+	}
+	
+	public static function css_url( string $value ) : string {
+		if ( !\preg_match( '/url\(\s*([^\)]+)\s*\)/i', $value, $m ) ) {
+			return '';
+		}
+		
+		$clean	= static::url( \trim( $m[1], "'\"" ) );
+		return ( '' === $clean ) ? '' : "url('{$clean}')";
+	}
+	
+	public static function style( string $text, ?array $allowed = null ) : string {
+		static	$css	= '/^[a-z0-9\s\(\)\#\.,%\-\[\]!:;\/]+$/i';
+		static	$urls	= [
+			'background', 'background-image', 
+			'list-style', 'list-style-image'
+		];
+		static	$default = [ 
+			'color', 'background-color', 'font-size', 'font-weight',
+			'text-align', 'border', 'margin','padding', 'display'
+		];
+		
+		// Fallback set
+		$allowed	??= $default;
+		
+		// Problematic patterns
+		$text		= static::strip_xss( $text );
+		
+		// Split styles into individual rules
+		$rules		= 
+		\array_filter( \array_map( 'trim', \explode( ';', $text ) ) );
+		
+		$sanitized	= [];
+		
+		// Evaluate each property and value
+		foreach ( $rules as $rule ) {
+			[ $property, $value ]	= 
+			\array_map( 'trim', \explode( ':', $rule, 2 ) + [ '', '' ] );
+			
+			// Empty, not in whitelist, or questionable? Skip property
+			if ( 
+				'' === $property			|| 
+				'' === $value				|| 
+				!\in_array( $property, $allowed, true )	|| 
+				!\preg_match( $css, $value )	
+			) { continue; }
+				
+			// Is a URL and whitelisted?
+			if ( false !== \stripos( $value, 'url(' ) ) {
+				if ( !\in_array( $property, $urls, true ) ) { continue; }
+			
+				$value = static::css_url( $value );
+				if ( '' === $value ) { continue; }
+			}
+			
+			// Clean property and value
+			$sanitized[] = "{$property}: {$value}";
+		}
+		
+		// Return to CSS style="" syntax
+		return \implode( '; ', $sanitized );
+	}
+	
+	public static function attribute( 
+		\DOMElement	$node, 
+		\DOMElement	$new_node, 
+		string		$attr, 
+		array		$rule 
+	) : void {
+		$value		= $node->getAttribute( $attr );
+		if ( !\preg_match( '/^[a-z][a-z0-9_\-]*$/i', $attr ) ) { return; }
+		
+		// Limited subset of allowed values
+		if ( isset( $rule['allowed'] ) ) {
+			if ( \is_array( $rule['allowed'] ) ) {
+				if ( Util::value_exists_ci( $value,  $rule['allowed'] ) ) {
+					$new_node->setAttribute( $attr, $value );
+				}
+				return;
+			
+			} else {
+				if ( 0 === \strcasecmp( ( string ) $rule['allowed'], $value ) ) {
+					$new_node->setAttribute( $attr, $value );
+				}
+				return;
+			}
+		}
+		
+		$sanitizer	= 
+		match( true ) {
+			isset( $rule['filter'] )	&& 
+			\defined( $rule['filter'] )	&& 
+			\is_int( \constant( $rule['filter'] ) )
+				=> function( $v ) use ( $rule ) {
+					$filter		= \constant( $rule['filter'] );
+					$options	= $rule['options'] ?? [];
+					$flags		= 0;
+				
+					if ( 	
+						!empty( $rule['flags'] )	&& 
+						\is_array( $rule['flags'] ) 
+					) {
+						foreach ( $rule['flags'] as $flag ) {
+							if ( \defined( $flag ) ) {
+								$flags |= \constant( $flag );
+							}
 						}
 					}
+					
+					return
+					\filter_var( $v, $filter, [ 'flags' => $flags, 'options' => $options ] );
+				},
+			
+			isset( $rule['callback'] ) && \is_callable( $rule['callback'] ) 
+				=> fn( $v ) => \call_user_func( $rule['callback'], $v ),
+			
+			default	=> fn( $v ) => static::escape_text( $v, false, false )
+		};
+		
+		$sanitized = $sanitizer( $value );
+		if ( $sanitized !== false && $sanitized !== null ) {
+			$new_node->setAttribute( $attr, $sanitized );
+		}
+	}
+	
+	/**
+	 *  Sanitize DOMNode
+	 *  
+	 *  @param DOMNode	$node	Element to filter
+	 *  @param DOMNode	$parent	Parent element
+	 *  @return DOMNode
+	 */
+	public static function escape_node( \DOMNode $node, \DOMNode $parent ) : \DOMNode {
+		$name		= \strtolower( $node->nodeName );
+		if ( !\preg_match( '/^[a-z][a-z0-9\-]*$/', $name ) ) { $name = 'div'; }
+		
+		$inner_html	= '';
+		foreach ( $node->childNodes as $child ) {
+			$inner_html .= $node->ownerDocument->saveHTML( $child );
+		}
+		
+		$new_node	= $parent->ownerDocument->createElement( $name );
+		$new_node->appendChild( 
+			$parent->ownerDocument->createTextNode( static::escape_text( $inner_html ) ) 
+		);
+		return $new_node;
+	}
+
+	/**
+	 *  Convert text block to filtered HTML
+	 *  
+	 *  @param string	$html		Raw content
+	 *  @param array	$tag_map	Whitelisted tags and attributes
+	 *  @return string
+	 */
+	public static function html( string $html, array $tag_map ) : string {
+		static $ierr;
+		
+		$ierr	??= \libxml_use_internal_errors( true );
+		$doc	= new \DOMDocument();
+		
+		$doc->loadHTML(
+			'<meta http-equiv="Content-Type" content="text/html; charset=utf-8">'.
+				$html,
+			\LIBXML_HTML_NOIMPLIED	|
+			\LIBXML_HTML_NODEFDTD	|
+			\LIBXML_NOERROR		|
+			\LIBXML_NOWARNING	|
+			\LIBXML_NOXMLDECL	|
+			\LIBXML_COMPACT		|
+			\LIBXML_NOCDATA		|
+			\LIBXML_NONET
+		);
+		
+		\libxml_clear_errors();
+		
+		$cleaned	= new \DOMDocument();
+		$cleaned->formatOutput = true;
+		
+		$clean_node	= 
+		function( $node ) use ( $cleaned, $tag_map, &$clean_node ) {
+			if ( $node instanceof \DOMText) {
+				return $cleaned->createTextNode( $node->nodeValue );
+			}
+			
+			if ( !$node instanceof \DOMElement ) { return null; }
+			
+			$tag		= null; // Default
+			$original_tag	= $node->nodeName;
+			foreach ( $tag_map as $key => $rules ) {
+				if ( 0 === \strcasecmp( $key, $original_tag ) ) {
+					$tag = $key; // Assign if valid
+					break;
 				}
 				
-				return
-				\filter_var( $v, $filter, [ 'flags' => $flags, 'options' => $options ] );
-			},
-		
-		isset( $rule['callback'] ) && \is_callable( $rule['callback'] ) 
-			=> fn( $v ) => \call_user_func( $rule['callback'], $v ),
-		
-		default	=> fn( $v ) => sanitize_escape_text( $v, false, false )
-	};
-	
-	$sanitized = $sanitizer( $value );
-	if ( $sanitized !== false && $sanitized !== null ) {
-		$new_node->setAttribute( $attr, $sanitized );
-	}
-}
-
-function sanitize_html( $html, $tag_map ) {
-	static $ierr;
-	
-	$ierr	??= \libxml_use_internal_errors( true );
-	$doc	= new \DOMDocument();
-	
-	$doc->loadHTML(
-		'<meta http-equiv="Content-Type" content="text/html; charset=utf-8">'.
-			$html,
-		\LIBXML_HTML_NOIMPLIED	|
-		\LIBXML_HTML_NODEFDTD	|
-		\LIBXML_NOERROR		|
-		\LIBXML_NOWARNING	|
-		\LIBXML_NOXMLDECL	|
-		\LIBXML_COMPACT		|
-		\LIBXML_NOCDATA		|
-		\LIBXML_NONET
-	);
-	
-	\libxml_clear_errors();
-	
-	$cleaned	= new \DOMDocument();
-	$cleaned->formatOutput = true;
-	
-	$clean_node	= 
-	function( $node ) use ( $cleaned, $tag_map, &$clean_node ) {
-		if ( $node instanceof \DOMText) {
-			return $cleaned->createTextNode( $node->nodeValue );
-		}
-		
-		if ( !$node instanceof \DOMElement ) { return null; }
-		
-		$tag		= null; // Default
-		$original_tag	= $node->nodeName;
-		foreach ( $tag_map as $key => $rules ) {
-			if ( 0 === \strcasecmp( $key, $original_tag ) ) {
-				$tag = $key; // Assign if valid
-				break;
-			}
-			
-		 	$alias = $rules['alias'] ?? [];
-			if ( !\is_array( $alias ) ) { continue; }
-			
-			if ( Util::value_exists_ci( $original_tag, $alias ) ) {
-				$tag = $key;
-				break;
-			}
-		}
-
-		// Not found
-		if ( null === $tag ) { return null; }
-		
-		$new_tag	= 
-		\preg_match( '/^[a-z][a-z0-9_\-]*$/i', $tag ) 
-			? \strtolower( $tag )
-			: 'div';
-
-		// Special cases
-		if ( \in_array( $new_tag, [ 'code', 'pre', 'kbd' ], true ) ) {
-			return sanitize_escape_node( $node, $cleaned );
-		}
-		
-		$new_node	= $cleaned->createElement( $new_tag );
-		$attr_rules	= $tag_map[$tag]['attributes'] ?? [];
-		
-		foreach ( $attr_rules as $attr => $rule ) {
-			// Skip if not in whitelist at all
-			if ( !$node->hasAttribute( $attr ) ) {
-				continue;
-			}
-			
-			sanitize_attribute( $node, $new_node, $attr, $rule );
-		}
-		
-		if ( $node->hasChildNodes() ) {
-			foreach ( $node->childNodes as $child ) {
-				$clean_child = $clean_node( $child );
-				if ( $clean_child ) {
-					$new_node->appendChild( $clean_child );
+			 	$alias = $rules['alias'] ?? [];
+				if ( !\is_array( $alias ) ) { continue; }
+				
+				if ( Util::value_exists_ci( $original_tag, $alias ) ) {
+					$tag = $key;
+					break;
 				}
 			}
+		
+			// Not found
+			if ( null === $tag ) { return null; }
+			
+			$new_tag	= 
+			\preg_match( '/^[a-z][a-z0-9_\-]*$/i', $tag ) 
+				? \strtolower( $tag )
+				: 'div';
+				
+			// Special cases
+			if ( \in_array( $new_tag, [ 'code', 'pre', 'kbd' ], true ) ) {
+				return static::escape_node( $node, $cleaned );
+			}
+			
+			$new_node	= $cleaned->createElement( $new_tag );
+			$attr_rules	= $tag_map[$tag]['attributes'] ?? [];
+			
+			foreach ( $attr_rules as $attr => $rule ) {
+				// Skip if not in whitelist at all
+				if ( !$node->hasAttribute( $attr ) ) { continue; }
+				
+				static::attribute( $node, $new_node, $attr, $rule );
+			}
+			
+			if ( $node->hasChildNodes() ) {
+				foreach ( $node->childNodes as $child ) {
+					$clean_child = $clean_node( $child );
+					if ( $clean_child ) {
+						$new_node->appendChild( $clean_child );
+					}
+				}
+			}
+			
+			return $new_node;
+		};
+		
+		foreach ( $doc->childNodes as $child ) {
+			if ( !( $child instanceof \DOMNode ) ) { continue; }
+			
+			$sanitized = $clean_node( $child );
+			if ( !$sanitized ) { continue; }
+			
+			$cleaned->appendChild( $sanitized );
 		}
 		
-		return $new_node;
-	};
-	
-	foreach ( $doc->childNodes as $child ) {
-		if ( !( $child instanceof \DOMNode ) ) { continue; }
-		
-		$sanitized = $clean_node( $child );
-		if ( !$sanitized ) { continue; }
-		
-		$cleaned->appendChild( $sanitized );
+		return $cleaned->saveHTML();
 	}
-	
-	return $cleaned->saveHTML();
-}
-
-function sanitize_cast_to_string( mixed $value ) : string {
-	if ( \is_object( $value ) ) {
-		if ( \method_exists( $value, '__toString' ) ) {
-			return ( string ) $value;
-		}
-		return '';
-	}
-	return \is_array( $value ) ? '' : ( string ) $value;
-}
-
-function sanitize_cast_to_int( mixed $value ) : int {
-	return ( int ) sanitize_cast_to_string( $value );
-}
-
-/**
- *  Simple email address filter helper
- *  
- *  @param string	$email	Raw email (currently doesn't support Unicode domains)
- *  @return string
- */
-function sanitize_email( string $email ) : string {
-	return \filter_var( $email, \FILTER_VALIDATE_EMAIL ) 
-		? $email : '';
-}
-
-/**
- *  Prepend given prefix to URLs starting with '/'
- *  
- *  @param string	$url	Raw URL path
- *  @param string	$prefix	Prefix to prepend if $url starts with '/'
- *  @return string
- */
-function sanitize_prepend_path( string $v, string $prefix ) : string {
-	$v	= \trim( $v, '"\'' );
-	return \preg_match( '/^\//', $v ) 
-		? sanitize_url( $prefix . $v ) 
-		: sanitize_url( $v );
-}
-
-/**
- *  Normalize unicode characters
- *  
- *  This depends on the Intl extension (usually comes with PHP), 
- *  but needs to be enabled in php.ini
- *  @link https://www.php.net/manual/en/intl.installation.php
- *  
- *  @param string	$text
- *  @return string 
- */
-function sanitize_normalize( string $text ) : string {
-	if ( Util::missing( 'normalizer_normalize' ) ) { return $text; }
-	
-	$normal = 
-	\normalizer_normalize( \sanitize_bland( $text ), \Normalizer::FORM_C );
-	
-	return ( false === $normal ) ? $text : $normal;
-}
-
-/**
- *  Check if the requested path has a whitelisted extension
- *  
- *  @param string	$path		Requested URI
- *  @param array	$groups		Configuration groups
- *  @param string	$name		Specific type I.E. "images"
- */
-function sanitize_is_safe_ext( string $path, array $groups, ?string $name = null ) : bool {
-	static $safe	= [];
-	static $checked	= [];
-	$key		= $name . $path;
-	$name		??= 'all';
-	
-	if ( isset( $checked[$key] ) ) { return $checked[$key]; }
-	$safe[$name]	??= $groups;
-	
-	$ext		= 
-	\pathinfo( $path, \PATHINFO_EXTENSION ) ?? '';
-	
-	$checked[$key] = Util::value_exists_ci( $ext, $safe[$name] );
-	
-	return $checked[$key];
 }
 
 
@@ -2609,7 +2612,7 @@ function storage_filemime( string $fpath ) : string {
  *  @return resource
  */
 function storage_file_open( string $fpath, string $mode = 'rb' ) {
-	$mode		= sanitize_normalize_fmode( $mode );
+	$mode		= Sanitize::normalize_fmode( $mode );
 	if ( empty( $mode ) )  {
 		throw new 
 		\InvalidArgumentException( 'Invalid file open mode' );
@@ -3137,8 +3140,8 @@ function storage_write_file( string $path, string $data ) : bool {
  */
 function storage_dup_rename( string $path ) : string {
 	$info	= \pathinfo( $path );
-	$ext	= sanitize_filename( $info['extension'] ?? '' );
-	$name	= sanitize_filename( $info['filename'] );
+	$ext	= Sanitize::filename( $info['extension'] ?? '' );
+	$name	= Sanitize::filename( $info['filename'] );
 	$dir	= $info['dirname'];
 	$file	= $path;
 	$i	= 0;
@@ -3371,9 +3374,9 @@ function log_format( string $msg, string $level = 'INFO' ) : string {
 	$timestamp	= Util::timestamp();
 	
 	$script		= 
-	sanitize_spaces( \basename( $_SERVER['SCRIPT_NAME'] ?? 'unknown' ) );
+	Sanitize::spaces( \basename( $_SERVER['SCRIPT_NAME'] ?? 'unknown' ) );
 	
-	$msg		= sanitize_spaces( $msg );
+	$msg		= Sanitize::spaces( $msg );
 	return <<<MSG
 [{$timestamp}] [ID:{$id}] [{$script}] [{$level}]
 {$msg}
@@ -3610,7 +3613,7 @@ function request_canonical_forwarded() : array {
 		foreach ( $pairs as $pair ) {
 			[ $key, $val ]	= 
 			\array_map( 
-				fn( $v ) => sanitize_filter( $v ), 
+				fn( $v ) => Sanitize::filter( $v ), 
 				explode( '=', $pair, 2 ) + ['', ''] 
 			);
 			
@@ -3700,7 +3703,7 @@ function request_host( ?string $sent = null ) : string {
 	if ( isset( $cache[$sent] ) ) { return $cache[$sent]; }
 	
 	if ( 'default' !== $sent ) {
-		return $cache[$sent]	= sanitize_host( $sent );
+		return $cache[$sent]	= Sanitize::host( $sent );
 	}
 	
 	$fwd		= request_forwarded();
@@ -3710,18 +3713,18 @@ function request_host( ?string $sent = null ) : string {
 			? $fwd['host'][0] 
 			: $fwd['host'];
 		
-		$cache[$sent]	= sanitize_host( $host );
+		$cache[$sent]	= Sanitize::host( $host );
 		return $cache[$sent];
 	}
 	
 	$cache[$sent]	= 
 	match( true ) {
 		( !empty( $_SERVER['HTTP_HOST'] ) )
-			=> sanitize_host( $_SERVER['HTTP_HOST'] ),
+			=> Sanitize::host( $_SERVER['HTTP_HOST'] ),
 		( !empty( $_SERVER['SERVER_NAME'] ) )
-			=> sanitize_host( $_SERVER['SERVER_NAME'] ),
+			=> Sanitize::host( $_SERVER['SERVER_NAME'] ),
 		( !empty( $_SERVER['SERVER_ADDR'] ) )
-			=> sanitize_host( $_SERVER['SERVER_ADDR'] ),
+			=> Sanitize::host( $_SERVER['SERVER_ADDR'] ),
 		default	=> ''
 	};
 	
@@ -3807,7 +3810,7 @@ function request_uri( ?string $sent = null ) : string {
 		? ( $_SERVER['REQUEST_URI'] ?? '' )
 		: $sent;
 	
-	$uri[$sent]	= sanitize_uri( $raw ) ?? '';
+	$uri[$sent]	= Sanitize::uri( $raw ) ?? '';
 	return $uri[$sent];
 }
 
@@ -3870,7 +3873,7 @@ function request_ua() : string {
  */
 function request_query() : string {
 	static $qs;
-	$qs	??= sanitize_query( false ) ?? '';
+	$qs	??= Sanitize::query( false ) ?? '';
 	
 	return $qs;
 	
@@ -3883,7 +3886,7 @@ function request_query() : string {
  */
 function request_url() : string {
 	$uri	= \ltrim( request_uri(), '/' );
-	$query	= sanitize_query( true, true ) ?? '';
+	$query	= Sanitize::query( true, true ) ?? '';
 	$query	= 
 	\is_array( $query )
 		? Util::array_to_query( $query ) 
@@ -5039,7 +5042,7 @@ function config_parsed( ?array $new_settings = null ) : array {
 	
 	// Save changes at shutdown
 	\register_shutdown_function( function() use ( $settings ) {
-		$user	= sanitize_normalize( $_SERVER['REMOTE_USER'] ?? 'system' );
+		$user	= Sanitize::normalize( $_SERVER['REMOTE_USER'] ?? 'system' );
 		
 		config_backup();
 		config_save( $settings, $user );
@@ -5125,8 +5128,8 @@ function config_value_format( mixed $value, string $type, $filter = null ) : mix
 	}
 	
 	return match( \strtolower( $type ) ) {
-		'int', 'integer'	=> sanitize_int( ( string ) $value ),
-		'bool', 'boolean'	=> sanitize_bool( ( string ) $value ),
+		'int', 'integer'	=> Sanitize::sint( ( string ) $value ),
+		'bool', 'boolean'	=> Sanitize::sbool( ( string ) $value ),
 		'lines'			=> ( function() use ( $value, $filter ) {
 			$lines	= 
 			\preg_split( 
@@ -5145,7 +5148,7 @@ function config_value_format( mixed $value, string $type, $filter = null ) : mix
 				: Util::json_udecode( ( string ) $value );
 		} )(),
 		
-		default			=> sanitize_text( $value )
+		default			=> Sanitize::text( $value )
 	};
 }
 
@@ -6252,7 +6255,7 @@ function language_read_time( string $text, ?array $load = null ) : int {
 	}
 	
 	// Remove tags and trim
-	$text	= sanitize_bland( $text );
+	$text	= Sanitize::bland( $text );
 	if ( empty( $text ) ) {
 		return 1;
 	}
@@ -6345,7 +6348,7 @@ function format_paragraphs( $val, $skip_code = false ) {
 			
 			return 
 			\strtr( template( 'tpl_codeblock' ), [ 
-				'{code}' => sanitize_escape_text( \trim( $m[1] ), false, false )
+				'{code}' => Sanitize::escape_text( \trim( $m[1] ), false, false )
 			] );
 		}, $out );	
 	}
@@ -6387,7 +6390,7 @@ function format_paragraphs( $val, $skip_code = false ) {
 		function( $m ) {
 			return
 			\strtr( template( 'tpl_codeblock' ), [ 
-				'{code}' => sanitize_escape_text( \trim( $m[1] ), false, false )
+				'{code}' => Sanitize::escape_text( \trim( $m[1] ), false, false )
 			] );
 		}
 	];
@@ -6420,7 +6423,7 @@ function format_footnotes( string $html, array $footnotes ) : string {
 		
 		// Generate ID slug from part of footnote and its hash
 		$slug	= 
-		sanitize_slug( 
+		Sanitize::slug( 
 			Text::strim( \strip_tags( $v['footnote'] ), 20 ) 
 		) . '-' . \hash( 'crc32b', $v['footnote'] );
 		
@@ -6503,7 +6506,7 @@ function format_title( mixed $text, int $max = 255 ) : string {
 	
 	// Unify spaces, tabs, returns etc...
 	return 
-	Text::strim( sanitize_spaces( ( string ) $text ), $max );
+	Text::strim( Sanitize::spaces( ( string ) $text ), $max );
 }
 
 /**
@@ -6513,11 +6516,11 @@ function format_title( mixed $text, int $max = 255 ) : string {
  *  @return string
  */
 function format_label( string $text ) : string {
-	$text	= sanitize_spaces( $text, '_' );
+	$text	= Sanitize::spaces( $text, '_' );
 	
 	return 
 	Text::strim( \preg_replace( 
-		'/[^a-z0-9_\-\.]/i', '', sanitize_normalize( $text ) 
+		'/[^a-z0-9_\-\.]/i', '', Sanitize::normalize( $text ) 
 	), 50 );
 }
 
@@ -6626,11 +6629,11 @@ function format_extract_cc( string $cc, string $prefix = '' ) : string {
 		
 		// Prefix prepended source path
 		$src	= 
-		sanitize_prepend_path( $p['src'] ?? $p['source'] ?? '', $prefix );
+		Sanitize::prepend_path( $p['src'] ?? $p['source'] ?? '', $prefix );
 		
 		// Language name if specified
 		$lang	= 
-		sanitize_bland( $p['lang'] ?? $p['language'] ?? '--', true );
+		Sanitize::bland( $p['lang'] ?? $p['language'] ?? '--', true );
 		
 		// Is default?
 		$id	= empty( $p['default'] ) ? '' : 'default';
@@ -6643,7 +6646,7 @@ function format_extract_cc( string $cc, string $prefix = '' ) : string {
 		] ) : 
 		\strtr( template( 'tpl_cc_embed' ), [
 			'{label}'	=> 
-			sanitize_bland( 
+			Sanitize::bland( 
 				$p['label'] ?? $p['name'] ?? $lang, 
 				true
 			),
@@ -6683,21 +6686,21 @@ function format_embeds( string $html, string $prefix = '', ?array $custom = null
 			$p = \trim( $m['preview'] ?? '' );	// Thumbnail or preview
 			
 			// Use prefix for relative paths
-			$u = sanitize_prepend_path( \trim( $m['src'] ?? '' ), $prefix );
+			$u = Sanitize::prepend_path( \trim( $m['src'] ?? '' ), $prefix );
 			
 			// Parse caption definitions if any
 			$c = format_extract_cc( $m['captions'] ?? '', $prefix );
 			
 			switch( $i ) {
 				case 'audio':
-					return sanitize_is_safe_ext( $u, config_ext_groups( 'audio' ) ) ?
+					return Sanitize::is_safe_ext( $u, config_ext_groups( 'audio' ) ) ?
 					\strtr( 
 						template( 'tpl_audio_embed' ), 
 						[ '{src}' => $u ] 
 					) : '';
 				
 				case 'video':
-					if ( !sanitize_is_safe_ext( $u, config_ext_groups( 'video' ) ) ) {
+					if ( !Sanitize::is_safe_ext( $u, config_ext_groups( 'video' ) ) ) {
 						return '';
 					}
 					
@@ -6710,7 +6713,7 @@ function format_embeds( string $html, string $prefix = '', ?array $custom = null
 					
 					// With preview
 					\strtr( template( 'tpl_video_embed' ), [ 
-						'{preview}'	=> sanitize_prepend_path( $p, $prefix ),
+						'{preview}'	=> Sanitize::prepend_path( $p, $prefix ),
 						'{src}'		=> $u,
 						'{detail}'	=> $c
 					] );
@@ -6936,19 +6939,19 @@ function format_markdown(
 			$u = \trim( $m[3] );
 			
 			// Use prefix for relative paths
-			$u = sanitize_prepend_path( $u, $prefix );
+			$u = Sanitize::prepend_path( $u, $prefix );
 			
 			// If this is a plain link
 			if ( empty( $i ) ) {
 				return 
-				\sprintf( "<a href='%s'>%s</a>", $u, sanitize_escape_text( $t ) );
+				\sprintf( "<a href='%s'>%s</a>", $u, Sanitize::escape_text( $t ) );
 			}
 			
 			// This is an image
 			// Fix titles / alt text
-			$a = sanitize_escape_text( \strtr( $m[4] ?? $t, [ '\"' => '"' ] ), false, false );
+			$a = Sanitize::escape_text( \strtr( $m[4] ?? $t, [ '\"' => '"' ] ), false, false );
 			return
-			\sprintf( "<img src='%s' alt='%s' title='%s' />", $u, sanitize_escape_text( $t ), $a );
+			\sprintf( "<img src='%s' alt='%s' title='%s' />", $u, Sanitize::escape_text( $t ), $a );
 		},
 		
 		// Bold / Italic / Deleted / Quote text
@@ -7026,7 +7029,7 @@ function format_markdown(
 		function( $m ) {
 			return 
 			\strtr( template( 'tpl_codeinline' ), [ 
-				'{code}' => sanitize_escape_text( \trim( $m[1] ), false, false )
+				'{code}' => Sanitize::escape_text( \trim( $m[1] ), false, false )
 			] );
 		},
 		
@@ -7043,7 +7046,7 @@ function format_markdown(
 				// Create placeholder slug
 				$slug		= 
 				'{footnote_marker_' . $running_f . '-' . 
-				sanitize_slug( ( string ) $m['phrase'] ) . '}';
+				Sanitize::slug( ( string ) $m['phrase'] ) . '}';
 				
 				// Create list for this phrase
 				$fmarkers[$m['phrase']] ??= [];
@@ -7121,7 +7124,7 @@ function format_body(
 	$prefix		= \trim( $prefix, '/' );
 	
 	// Preliminary cleaning
-	$html		= sanitize_filter( $value, true );
+	$html		= Sanitize::filter( $value, true );
 	
 	// Nothing to format?
 	if ( empty( $html ) ) { return ''; }
@@ -7142,7 +7145,7 @@ function format_body(
 	// Clean up HTML
 	$clean		= 
 	format_paragraphs( 
-		sanitize_html( 
+		Sanitize::html( 
 			html	: format_paragraphs( $html, false ), // Line breaks and code
 			tag_map	: $tag_map ?: config( 'tag_map', '{}', 'json' ) 
 		),
@@ -7737,7 +7740,7 @@ function plugin_autoload() : array {
 		
 		foreach ( $attrs as $attr ) {
 			$meta	= $attr->newInstance();
-			$name	= sanitize_spaces( sanitize_escape_text( $meta->name ) );
+			$name	= Sanitize::spaces( Sanitize::escape_text( $meta->name ) );
 			
 			// Duplicate plugin name?
 			if ( isset( $plugins[$name] ) ) {
@@ -9549,8 +9552,8 @@ function page_security_policy_items( array $policy ) : string {
 	$separator	= page_security_policy_sep( $separator );
 	$joiner		= page_security_policy_sep( $joiner );
 	foreach( $items as $key => $value ) {
-		$key	= sanitize_bland( $key, true );
-		$value	= sanitize_bland( $value );
+		$key	= Sanitize::bland( $key, true );
+		$value	= Sanitize::bland( $value );
 		$policy	.= "{$key}{$joiner}{$value}{$separator}";
 	}
 	
@@ -9568,7 +9571,7 @@ function page_security_policy_terms( array $items, string $separator = '' ) : st
 	$separator	= page_security_policy_sep( $separator );
 		
 	foreach ( $items as $item ) {
-		$item	= sanitize_bland( $item );
+		$item	= Sanitize::bland( $item );
 		$policy .= "{$item}{$separator}";
 	}
 
@@ -9787,7 +9790,7 @@ function init_startup_log() : void {
 		'These required library(ies) may be missing or disabled: ' . 
 			implode( ', ', $miss['required'] );
 		
-		log_error( Text::truncate( sanitize_spaces( $msg ), 0, 2048 ), $log );
+		log_error( Text::truncate( Sanitize::spaces( $msg ), 0, 2048 ), $log );
 	}
 	
 	if ( !empty( $miss['optional'] ) ) {
@@ -9795,7 +9798,7 @@ function init_startup_log() : void {
 		'These recommended function(s) or library(ies) may be missing or disabled: ' . 
 			implode( ', ', $miss['optional'] );
 		
-		log_info( Text::truncate( sanitize_spaces( $msg ), 0, 2048 ), $log );
+		log_info( Text::truncate( Sanitize::spaces( $msg ), 0, 2048 ), $log );
 	}
 }
 
@@ -10108,7 +10111,7 @@ function logMessage(
  */
 function logError( string $err, bool $app = true ) : bool {
 	$file	= \CACHE . ( $app ? \ERROR : \ERROR_VISIT );
-	$err	= $app ? sanitize_spaces( $err ) : truncate( $err, 0, 2048 );
+	$err	= $app ? Sanitize::spaces( $err ) : truncate( $err, 0, 2048 );
 	
 	// Visitor errors have more header fields
 	$fields = $app ? 
@@ -10128,7 +10131,7 @@ function logNotice( string $msg ) : bool {
 	logMessage( 
 		\CACHE . \NOTICE, 
 		'date, time, s-comment',
-		truncate( sanitize_spaces( $msg ), 0, 2048 ) 
+		truncate( Sanitize::spaces( $msg ), 0, 2048 ) 
 	);
 }
 
@@ -10571,7 +10574,7 @@ function loadClasses() : array {
 	// Add new or appened classes while removing duplicates
 	foreach( $cls as $k => $v ) {
 		$cv['{' . $k . '}'] = 
-			\implode( ' ', Text::unique_terms( sanitize_bland( $v, true ) ) );
+			\implode( ' ', Text::unique_terms( Sanitize::bland( $v, true ) ) );
 	}
 	return $cv;
 }
@@ -10663,7 +10666,7 @@ function rsettings( string $area, array $modify = [] ) : array {
  */
 function getClasses( string $name ) : array {
 	$cls	= rsettings( 'classes' );
-	$n	= '{' . sanitize_bland( $name, true ) . '}';
+	$n	= '{' . Sanitize::bland( $name, true ) . '}';
 	$va	= [];
 	foreach( $cls as $k => $v ) {
 		if ( 0 != \strcmp( $n , $k ) ) {
@@ -10685,7 +10688,7 @@ function getClasses( string $name ) : array {
 function setClass( string $name, string $value ) {
 	rsettings( 
 		'classes', 
-		[ '{' . sanitize_bland( $name, true ) . '}' => sanitize_bland( $value, true ) ] 
+		[ '{' . Sanitize::bland( $name, true ) . '}' => Sanitize::bland( $value, true ) ] 
 	);
 }
 
@@ -11388,7 +11391,7 @@ function title( $text, int $max = 255 ) : string {
 	
 	// Unify spaces, tabs, returns etc...
 	return 
-	smartTrim( sanitize_spaces( ( string ) $text ), $max );
+	smartTrim( Sanitize::spaces( ( string ) $text ), $max );
 }
 
 /**
@@ -11419,7 +11422,7 @@ function normal( string $text ) : string {
  *  @return string
  */
 function labelName( string $text ) : string {
-	$text	= sanitize_spaces( $text, '_' );
+	$text	= Sanitize::spaces( $text, '_' );
 	
 	return 
 	smartTrim( \preg_replace( 
@@ -12637,7 +12640,7 @@ function fileRequest(
 	string		$path, 
 	bool		$dosend = true 
 ) : bool {
-	if ( 0 != \strcmp( 'get', $verb ) || !sanitize_is_safe_ext( $path ) ) {
+	if ( 0 != \strcmp( 'get', $verb ) || !Sanitize::is_safe_ext( $path ) ) {
 		return false;
 	}
 	
@@ -13060,7 +13063,7 @@ function extractFeature(
 	$p = $c - 1;
 	$i = 0;
 	while ( $i < $lines && $p > 0 ) {
-		$line = \trim( sanitize_spaces( $post[$p] ) );
+		$line = \trim( Sanitize::spaces( $post[$p] ) );
 		
 		// Nothing to find? Skip line
 		if ( empty( $line ) ) {
@@ -13119,7 +13122,7 @@ function extractTags( array $find ) : array {
 	$ptags	= [];
 	foreach( $tags as $t ) {
 		$ptags[] = [ 
-			'slug' => sanitize_slug( $t ),
+			'slug' => Sanitize::slug( $t ),
 			'term' => $t
 		];
 	}
@@ -13982,7 +13985,7 @@ function filterRequest( string $event, array $hook, array $params ) {
 			'options'	=> 
 			function( $v ) {
 				return \is_scalar( $v ) ? 
-					sanitize_spaces( ( string ) $v ) : '';
+					Sanitize::spaces( ( string ) $v ) : '';
 			}
 		],
 		'slug'	=> [
@@ -13995,7 +13998,7 @@ function filterRequest( string $event, array $hook, array $params ) {
 			'options'	=> 
 			function( $v ) {
 				return \is_scalar( $v ) ? 
-					sanitize_spaces( ( string ) $v ) : '';
+					Sanitize::spaces( ( string ) $v ) : '';
 			}
 		],
 		'tree'	=> [
@@ -14003,7 +14006,7 @@ function filterRequest( string $event, array $hook, array $params ) {
 			'options'	=> 
 			function( $v ) {
 				return \is_scalar( $v ) ? 
-					sanitize_url( ( string ) $v ) : '';
+					Sanitize::url( ( string ) $v ) : '';
 			}
 		],
 		'token'	=> [
@@ -14306,7 +14309,7 @@ function validateForm(
 	array	$fields	= [] 
 ) : bool {
 	$data	= 
-	sanitize_input_array( $itype, [
+	Sanitize::input_array( $itype, [
 		'token'	=> [
 			'filter'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
 			'flags'		=> \FILTER_REQUIRE_SCALAR
@@ -14342,7 +14345,7 @@ function validateForm(
  */
 function searchData( string $find ) : string {
 	// Remove tags and trim
-	$find	= sanitize_bland( $find );
+	$find	= Sanitize::bland( $find );
 	if ( empty( $find ) ) {
 		return '';
 	}
@@ -14992,7 +14995,7 @@ function showTag( string $event, array $hook, array $params ) {
 		sendNotFound();
 	}
 	
-	$tag	= sanitize_slug( $params['tag'] );
+	$tag	= Sanitize::slug( $params['tag'] );
 	$page	= ( int ) ( $params['page'] ?? 1 );
 	$prefix	= 
 	Text::slash_path( pageRoutePath( 'tagview', 'tags' ), true ) . $tag . '/';
@@ -15655,7 +15658,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 		'frame_whitelist'=> [
 			'filter'	=> \FILTER_CALLBACK,
 			'flags'		=> \FILTER_REQUIRE_ARRAY,
-			'options'	=> 'sanitize_url'
+			'options'	=> 'Sanitize::url'
 		], 
 		
 		// Templating settings
@@ -15709,7 +15712,7 @@ function checkConfig( string $event, array $hook, array $params ) {
 
  	if ( isset( $data['plugins_enabled'] ) ) {
 		$data['plugins_enabled'] = 
-			\array_filter( $data['plugins_enabled'], 'sanitize_dir' );
+			\array_filter( $data['plugins_enabled'], 'Sanitize::sdir' );
  	}
 	
 	return \array_merge( $hook, $data );
