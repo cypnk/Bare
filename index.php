@@ -1962,7 +1962,7 @@ final class Sanitize {
 	 *  @param string $name Raw filename
 	 *  @return string
 	 */
-	public static function filename( string $name ) : string|null {
+	public static function sfilename( string $name ) : string|null {
 		$name	= static::filter( $name ); 
 		
 		$name	= \preg_replace( '/[\/\\\?\*\:\|"<>\x00-\x1F]/u', '_', $name );
@@ -2510,672 +2510,674 @@ final class Sanitize {
 
 
 /**
- *  Storage, reading, and writing
+ *  @class Storage, reading, and writing
  */
-
-/**
- *  Storage configuration settings helper
- *  
- *  @param array $new_options Override presets
- *  @return array
- */
-function storage_options( ?array $new_options = null ) : array {
-	static $options	= [
-		'write_depth'	=> 10,
-		'tmp_ext'	=> '.tmp',
-		'bkp_ext'	=> '.bkp',
-		'lock_type'	=> 'file',
-		'lock_tries'	=> 3,
-		'lock_wait'	=> 10,
-		'lock_stale'	=> 600,
-		'temp_stale'	=> 3600,
-		'writable'	=> [ 'cache', 'data', 'storage', 'uploads', 'media' ]
-	];
+final class Storage {
 	
-	if( !empty( $new_options ) ) {
-		$options = \array_replace_recursive( $options, $new_options );
-	}
-	
-	return $options;
-}
-
-/**
- *  Generate unique write key
- *  
- *  @return string
- */
-function storage_get_id() : string {
-	return Util::get_id( 'storage', true );
-}
-
-/**
- *  File size helper
- *  
- *  @param string	$fpath	Location on disk
- *  @return int
- */
-function storage_filesize( string $fpath ) : int {
-	$fsize		= @\filesize( $fpath );
-	if ( false === $fsize ) { return 0; }
-	
-	return $fsize;
-}
-
-/**
- *  Last modified time helper
- *  
- *  @param string	$fpath	Location on disk
- *  @return int
- */
-function storage_filemtime( string $fpath ) : int {
-	return ( int )( @\filemtime( $fpath ) ?: 0 );
-}
-
-/**
- *  File mime-type detection helper
- *  
- *  @param string	$fpath	Fixed file path
- *  @return string
- */
-function storage_filemime( string $fpath ) : string {
-	static $finfo;
-	static $text_types = [
-		'txt'	=> 'text/plain',
-		'css'	=> 'text/css',
-		'js'	=> 'application/javascript',
-		'svg'	=> 'image/svg+xml',
-		'vtt'	=> 'text/vtt',
-		'json'	=> 'application/json',
-		'xml'	=> 'application/xml',
-		'html'	=> 'text/html',
-		'csv'	=> 'text/csv',
-		'md'	=> 'text/markdown'
-	];
-	
-	$ext	= \strtolower( \pathinfo( $fpath, \PATHINFO_EXTENSION ) );
-	
-	// Simpler text types
-	if ( isset( $text_types[$ext] ) ) {
-		return $text_types[$ext];
-	}
-	
-	$finfo	??= new \finfo( \FILEINFO_MIME_TYPE );
-	$mime	= $finfo->file( $fpath );
-	return $mime ?: 'application/octet-stream';
-}
-
-/**
- *  File opening helper
- *  
- *  @param string	$fpath	Location on disk
- *  @param string	$mode	File opening mode
- *  @return resource
- */
-function storage_file_open( string $fpath, string $mode = 'rb' ) {
-	$mode		= Sanitize::normalize_fmode( $mode );
-	if ( empty( $mode ) )  {
-		throw new 
-		\InvalidArgumentException( 'Invalid file open mode' );
-	}
+	/**
+	 *  Storage configuration settings helper
+	 *  
+	 *  @param array $new_options Override presets
+	 *  @return array
+	 */
+	public static function options( ?array $new_options = null ) : array {
+		static $options	= [
+			'write_depth'	=> 10,
+			'tmp_ext'	=> '.tmp',
+			'bkp_ext'	=> '.bkp',
+			'lock_type'	=> 'file',
+			'lock_tries'	=> 3,
+			'lock_wait'	=> 10,
+			'lock_stale'	=> 600,
+			'temp_stale'	=> 3600,
+			'writable'	=> [ 'cache', 'data', 'storage', 'uploads', 'media' ]
+		];
 		
-	$handle		= \fopen( $fpath, $mode );
-	if ( false === $handle ) {
-		\error_log( "Unable to open file '{$fpath}' with mode '{$mode}'" );
-		throw new 
-		\RuntimeException( 'Error obtaining file read handle' );
+		if( !empty( $new_options ) ) {
+			$options = \array_replace_recursive( $options, $new_options );
+		}
+		
+		return $options;
 	}
-	return $handle;
-}
-
-/**
- *  Generate an in-memory file hash
- *  
- *  @param string $fpath	Location on disk
- *  @return mixed		String hash on success or false
- */
-function storage_file_hash( string $fpath ) : string|false {
-	if ( !\is_readable( $fpath ) ) { return false; }
 	
-	$handle	= @\fopen( $fpath, 'rb' );
-	if ( !$handle ) { return false; }
+	/**
+	 *  Generate unique write key
+	 *  
+	 *  @return string
+	 */
+	function get_id() : string {
+		return Util::get_id( 'storage', true );
+	}
 	
-	$out	= '';
-	try {
-		$ctx	= \hash_init( 'sha256' );
-		while( true ) {
-			$chunk = \fread( $handle, 8192 );
-			if ( false === $chunk ) {
-				throw new 
-				\RuntimeException( "Error reading file during hashing" );
+	/**
+	 *  File size helper
+	 *  
+	 *  @param string	$fpath	Location on disk
+	 *  @return int
+	 */
+	public static function file_size( string $fpath ) : int {
+		$fsize		= @\filesize( $fpath );
+		if ( false === $fsize ) { return 0; }
+		
+		return $fsize;
+	}
+	
+	/**
+	 *  Last modified time helper
+	 *  
+	 *  @param string	$fpath	Location on disk
+	 *  @return int
+	 */
+	public static function file_time( string $fpath ) : int {
+		return ( int )( @\filemtime( $fpath ) ?: 0 );
+	}
+	
+	/**
+	 *  File mime-type detection helper
+	 *  
+	 *  @param string	$fpath	Fixed file path
+	 *  @return string
+	 */
+	public static function file_mime( string $fpath ) : string {
+		static $finfo;
+		static $text_types = [
+			'txt'	=> 'text/plain',
+			'css'	=> 'text/css',
+			'js'	=> 'application/javascript',
+			'svg'	=> 'image/svg+xml',
+			'vtt'	=> 'text/vtt',
+			'json'	=> 'application/json',
+			'xml'	=> 'application/xml',
+			'html'	=> 'text/html',
+			'csv'	=> 'text/csv',
+			'md'	=> 'text/markdown'
+		];
+		
+		$ext	= \strtolower( \pathinfo( $fpath, \PATHINFO_EXTENSION ) );
+		
+		// Simpler text types
+		if ( isset( $text_types[$ext] ) ) {
+			return $text_types[$ext];
+		}
+		
+		$finfo	??= new \finfo( \FILEINFO_MIME_TYPE );
+		$mime	= $finfo->file( $fpath );
+		return $mime ?: 'application/octet-stream';
+	}
+	
+	/**
+	 *  File opening helper
+	 *  
+	 *  @param string	$fpath	Location on disk
+	 *  @param string	$mode	File opening mode
+	 *  @return resource
+	 */
+	public static function file_open( string $fpath, string $mode = 'rb' ) : \resource {
+		$mode		= Sanitize::normalize_fmode( $mode );
+		if ( empty( $mode ) )  {
+			throw new 
+			\InvalidArgumentException( 'Invalid file open mode' );
+		}
+		
+		$handle		= \fopen( $fpath, $mode );
+		if ( false === $handle ) {
+			\error_log( "Unable to open file '{$fpath}' with mode '{$mode}'" );
+			
+			throw new 
+			\RuntimeException( 'Error obtaining file read handle' );
+		}
+		return $handle;
+	}
+	
+	/**
+	 *  Generate an in-memory file hash
+	 *  
+	 *  @param string $fpath	Location on disk
+	 *  @return mixed		String hash on success or false
+	 */
+	public static function file_hash( string $fpath ) : string|false {
+		if ( !\is_readable( $fpath ) ) { return false; }
+		
+		$handle	= @\fopen( $fpath, 'rb' );
+		if ( !$handle ) { return false; }
+		
+		$out	= '';
+		try {
+			$ctx	= \hash_init( 'sha256' );
+			while( true ) {
+				$chunk = \fread( $handle, 8192 );
+				if ( false === $chunk ) {
+					throw new 
+					\RuntimeException( "Error reading file during hashing" );
+				}
+				
+				if ( '' === $chunk ) { break; }
+				\hash_update( $ctx, $chunk );
 			}
 			
-			if ( '' === $chunk ) { break; }
-			\hash_update( $ctx, $chunk );
-		}
-		
-		$out = \hash_final( $ctx );
-		
-	} finally {
-		if ( 'stream' === \get_resource_type( $handle ) ) {
-			\fclose( $handle );
-		}
-	}
-	return $out;
-}
-
-/**
- *  Obtains directory type exclusive lock with retry
- *  
- *  @param string	$lock_file	File location for lock
- *  @param int		$tries		Number tries before abandoning lock
- *  @return bool
- */
-function storage_dirtype_lock( string $lock_file, int $tries = 3 ) : bool {
-	$lock_dir	= $lock_file . '.lockdir';
-	$start		= time();
-	
-	while ( $tries > 0 ) {
-		// Try to acquire lock atomically
-		if ( !\mkdir( $lock_dir ) && !\is_dir( $lock_dir ) ) {
-			$tries--;
-			$t = 0; // Silence IDE "positive int" error
-			\time_nanosleep( $t, 100000 );
-			continue;
-		}
-		
-		\register_shutdown_function( function() use ( $lock_dir ) {
-			@\rmdir( $lock_dir );
-		} );
-		return true;
-	}
-	
-	return false;
-}
-
-/**
- *  Obtains an exclusive file lock with retry
- *  
- *  @param mixed	$handle		File handle
- *  @param int		$tries		Number of attempts
- *  @return bool			True on success
- */
-function storage_filetype_lock( &$handle, int $tries = 3 ) : bool {
-	$locked	= false;
-	for ( $i = 0; $i < $tries; $i++ ) {
-		if ( \flock( $handle, \LOCK_EX | \LOCK_NB ) ) {
-			$locked = true;
-			break;
-		}
-		$t = 0;
-		\time_nanosleep( $t, 100000 );
-	}
-	
-	return $locked;
-}
-
-/**
- *  Remove stale locks that are no longer needed
- *  
- *  @param string	$lock_file	Original file location for lock
- *  @param string	$type		File or directory lock selector
- *  @param int		$max_age	Maximum age before lock is considered stale
- */
-function storage_clean_stale_lock(
-	string		$lock_file, 
-	string		$type, 
-	int		$max_age 
-) : void {
-	$check = 
-	( 0 === \strcasecmp( 'file', $type ) ) 
-		? $lock_file 
-		: $lock_file . '.lockdir';
-	
-	$mtime = @\filemtime( $check );
-	if ( $mtime !== false && $mtime < time() - $max_age ) {
-		if ( \is_dir( $check ) ) {
-			@\rmdir( $check );
-		} else {
-			if ( \is_file( $check ) ) {
-				@\unlink( $check );
+			$out = \hash_final( $ctx );
+			
+		} finally {
+			if ( 'stream' === \get_resource_type( $handle ) ) {
+				\fclose( $handle );
 			}
 		}
-		\error_log( "Stale lock for '{$lock_file}' removed" );
-	}
-}
-
-/**
- *  Remove directory of filetype lock
- *  
- *  @param mixed	$handle		File handle
- *  @param string	$lock_file	File lock path
- */
-function storage_release_lock( &$handle, string $lock_file ) : void {
-	$ltype	= storage_options()['lock_type'];
-	if ( 0 === \strcasecmp( 'file', $ltype ) ) {
-		if ( null === $handle ) { return; }
-		if ( $handle instanceof \SplFileObject ) {
-			@$handle->flock( \LOCK_UN );
-			$handle = null;
-		} elseif ( \is_resource( $handle ) ) {
-			@\flock( $handle, \LOCK_UN );
-			@\fclose( $handle );
-		}
-		return;
+		return $out;
 	}
 	
-	$lock_dir	= $lock_file . '.lockdir';
-	
-	if ( \is_dir( $lock_dir ) ) { @\rmdir( $lock_dir ); }
-}
-
-/**
- *  Close any given open file streams
- *  
- *  @param array	$files		List of file resources
- */
-function storage_close_files( array $files ) : void {
-	foreach( $files as &$item ) {
-		if ( $item instanceof \SplFileObject ) { $item = null; }
-		if (  \is_resource( $item ) && 'stream' === \get_resource_type( $item ) ) {
-			\fclose( $item );
+	/**
+	 *  Obtains directory type exclusive lock with retry
+	 *  
+	 *  @param string	$lock_file	File location for lock
+	 *  @param int		$tries		Number tries before abandoning lock
+	 *  @return bool
+	 */
+	public static function dirtype_lock( string $lock_file, int $tries = 3 ) : bool {
+		$lock_dir	= $lock_file . '.lockdir';
+		$start		= time();
+		
+		while ( $tries > 0 ) {
+			// Try to acquire lock atomically
+			if ( !\mkdir( $lock_dir ) && !\is_dir( $lock_dir ) ) {
+				$tries--;
+				$t = 0; // Silence IDE "positive int" error
+				\time_nanosleep( $t, 100000 );
+				continue;
+			}
+			
+			\register_shutdown_function( function() use ( $lock_dir ) {
+				@\rmdir( $lock_dir );
+			} );
+			return true;
 		}
-	}
-}
-
-/**
- *  Check wait time before lock timeout
- *  
- *  @param string	$lock_file	File lock path
- *  @param int		$start Time	start in seconds
- *  @param int		$max_wait	Maximum wait time in seconds before timing out
- *  @return bool
- */
-function storage_check_wait( string $lock_file, int $start, int $max_wait ) : bool {
-	if ( time() - $start > $max_wait ) {
-		\error_log( "Timeout while waiting for lock: {$lock_file}" );
+		
 		return false;
 	}
 	
-	$t = 0;
-	\time_nanosleep( $t, 100000 );
-	return true;		
-}
-
-/**
- *  Obtain file lock (directory of filetype) with a given access mode
- *  
- *  @param string 	$lock_file	File lock path
- *  @param string	$mode		File open mode
- *  @return mixed
- */
-function storage_lock_file( string $lock_file, string $mode ) : false|\resource {
-	$options	= storage_options();
-	$tries		= $options['lock_tries'];
-	$type		= $options['lock_type'];
-	
-	$max_wait	= $options['lock_wait'];
-	$max_age	= $options['lock_stale'];
-	$start		= time();
-	
-	$handle		= null;
-	
-	// Clean any previous locks
-	storage_clean_stale_lock( $lock_file, $type, $max_age );
-	
-	$get_lock	= 
-	function() use ( &$handle, $tries, $type, $lock_file ) {
-		return ( 0 === \strcasecmp( 'file', $type ) )
-			? storage_filetype_lock( $handle, $tries )
-			: storage_dirtype_lock( $lock_file, $tries );
-	};
-	
-	// Attempt lock
-	while ( true ) {
-		$handle = \fopen( $lock_file, $mode );
-		if ( $handle && $get_lock() ) {
-			return $handle;
+	/**
+	 *  Obtains an exclusive file lock with retry
+	 *  
+	 *  @param mixed	$handle		File handle
+	 *  @param int		$tries		Number of attempts
+	 *  @return bool			True on success
+	 */
+	public static function filetype_lock( &$handle, int $tries = 3 ) : bool {
+		$locked	= false;
+		for ( $i = 0; $i < $tries; $i++ ) {
+			if ( \flock( $handle, \LOCK_EX | \LOCK_NB ) ) {
+				$locked = true;
+				break;
+			}
+			$t = 0;
+			\time_nanosleep( $t, 100000 );
 		}
 		
-		if ( !storage_check_wait( $lock_file, $start, $max_wait ) ) {
-			storage_release_lock( $handle, $lock_file );
-			return false; 
+		return $locked;
+	}
+	
+	/**
+	 *  Remove stale locks that are no longer needed
+	 *  
+	 *  @param string	$lock_file	Original file location for lock
+	 *  @param string	$type		File or directory lock selector
+	 *  @param int		$max_age	Maximum age before lock is considered stale
+	 */
+	public static function clean_stale_lock(
+		string		$lock_file, 
+		string		$type, 
+		int		$max_age 
+	) : void {
+			$check = 
+			( 0 === \strcasecmp( 'file', $type ) ) 
+				? $lock_file 
+				: $lock_file . '.lockdir';
+			
+		$mtime = @\filemtime( $check );
+		if ( $mtime !== false && $mtime < time() - $max_age ) {
+			if ( \is_dir( $check ) ) {
+				@\rmdir( $check );
+			} else {
+				if ( \is_file( $check ) ) {
+					@\unlink( $check );
+				}
+			}
+			\error_log( "Stale lock for '{$lock_file}' removed" );
+		}
+	}
+	
+	/**
+	 *  Remove directory of filetype lock
+	 *  
+	 *  @param mixed	$handle		File handle
+	 *  @param string	$lock_file	File lock path
+	 */
+	public static function release_lock( &$handle, string $lock_file ) : void {
+		$ltype	= static::options()['lock_type'];
+		if ( 0 === \strcasecmp( 'file', $ltype ) ) {
+			if ( null === $handle ) { return; }
+			if ( $handle instanceof \SplFileObject ) {
+				@$handle->flock( \LOCK_UN );
+				$handle = null;
+			} elseif ( \is_resource( $handle ) ) {
+				@\flock( $handle, \LOCK_UN );
+				@\fclose( $handle );
+			}
+			return;
+		}
+		
+		$lock_dir	= $lock_file . '.lockdir';
+		
+		if ( \is_dir( $lock_dir ) ) { @\rmdir( $lock_dir ); }
+	}
+	
+	/**
+	 *  Close any given open file streams
+	 *  
+	 *  @param array	$files		List of file resources
+	 */
+	public static function close_files( array $files ) : void {
+		foreach( $files as &$item ) {
+			if ( $item instanceof \SplFileObject ) { $item = null; }
+			if (  \is_resource( $item ) && 'stream' === \get_resource_type( $item ) ) {
+				\fclose( $item );
+			}
+		}
+	}
+	
+	/**
+	 *  Check wait time before lock timeout
+	 *  
+	 *  @param string	$lock_file	File lock path
+	 *  @param int		$start Time	start in seconds
+	 *  @param int		$max_wait	Maximum wait time in seconds before timing out
+	 *  @return bool
+	 */
+	public static function check_wait( string $lock_file, int $start, int $max_wait ) : bool {
+		if ( time() - $start > $max_wait ) {
+			\error_log( "Timeout while waiting for lock: {$lock_file}" );
+			return false;
 		}
 		
 		$t = 0;
 		\time_nanosleep( $t, 100000 );
+		return true;		
 	}
-}
-
-/**
- *  Traverse upward from starting path to obtain a writable directory
- *  
- *  @param string	$start		Starting path. Stops if this is already writable
- *  @param string|array	$target		List of directory names
- *  @param int		$max_depth	Maximum traversal depth
- *  @return string|null			Found writable or defaults to system temp dir
- */
-function storage_find_writable(
-	string		$start, 
-	string|array	$target, 
-	int		$max_depth	= 10 
-) : ?string {
-	if ( empty( $target ) ) { return null; }
 	
-	$names = 
-	\array_filter(
-		\is_array( $target ) ? $target : [ $target ],
-		fn( $name ) => \is_string( $name ) && '' !== $name
-	);
-	
-	if ( empty( $names ) ) { return null; }
-	
-	$depth	= $max_depth;
-	$dir	= \realpath( $start );
-	while ( 
-		false !== $dir			&& 
-		$dir !== \dirname( $dir )	&& 
-		$depth > 0
-	) {
-		foreach ( $names as $check ) {
-			$child = $dir . \DIRECTORY_SEPARATOR . $check;
-			if ( \is_dir( $child ) && \is_writable( $child ) && \is_readable( $child ) ) {
-				return $child;
+	/**
+	 *  Obtain file lock (directory of filetype) with a given access mode
+	 *  
+	 *  @param string 	$lock_file	File lock path
+	 *  @param string	$mode		File open mode
+	 *  @return mixed
+	 */
+	public static function lock_file( string $lock_file, string $mode ) : false|\resource {
+		$options	= static::options();
+		$tries		= $options['lock_tries'];
+		$type		= $options['lock_type'];
+		
+		$max_wait	= $options['lock_wait'];
+		$max_age	= $options['lock_stale'];
+		$start		= time();
+		
+		$handle		= null;
+		
+		// Clean any previous locks
+		static::clean_stale_lock( $lock_file, $type, $max_age );
+		
+		$get_lock	= 
+		function() use ( &$handle, $tries, $type, $lock_file ) {
+			return ( 0 === \strcasecmp( 'file', $type ) )
+				? static::filetype_lock( $handle, $tries )
+				: static::dirtype_lock( $lock_file, $tries );
+		};
+		
+		// Attempt lock
+		while ( true ) {
+			$handle = \fopen( $lock_file, $mode );
+			if ( $handle && $get_lock() ) {
+				return $handle;
 			}
+			
+			if ( !static::check_wait( $lock_file, $start, $max_wait ) ) {
+				static::release_lock( $handle, $lock_file );
+				return false; 
+			}
+			
+			$t = 0;
+			\time_nanosleep( $t, 100000 );
+		}
+	}
+	
+	/**
+	 *  Traverse upward from starting path to obtain a writable directory
+	 *  
+	 *  @param string	$start		Starting path. Stops if this is already writable
+	 *  @param string|array	$target		List of directory names
+	 *  @param int		$max_depth	Maximum traversal depth
+	 *  @return string|null			Found writable or defaults to system temp dir
+	 */
+	public static function find_writable(
+		string		$start, 
+		string|array	$target, 
+		int		$max_depth	= 10 
+	) : ?string {
+		if ( empty( $target ) ) { return null; }
+		
+		$names = 
+		\array_filter(
+			\is_array( $target ) ? $target : [ $target ],
+			fn( $name ) => \is_string( $name ) && '' !== $name
+		);
+		
+		if ( empty( $names ) ) { return null; }
+		
+		$depth	= $max_depth;
+		$dir	= \realpath( $start );
+		while ( 
+			false !== $dir			&& 
+			$dir !== \dirname( $dir )	&& 
+			$depth > 0
+		) {
+			foreach ( $names as $check ) {
+				$child = $dir . \DIRECTORY_SEPARATOR . $check;
+				if ( 
+					\is_dir( $child )	&& 
+					\is_writable( $child )	&& 
+					\is_readable( $child ) 
+				) { return $child; }
+			}
+			
+			$parent = \dirname( $dir );
+			
+			// Reached root?
+			if ( $parent === $dir ) { break; }
+			
+			$dir = $parent;
+			$depth--;
 		}
 		
-		$parent = \dirname( $dir );
-		
-		// Reached root?
-		if ( $parent === $dir ) { break; }
-		
-		$dir = $parent;
-		$depth--;
+		return \sys_get_temp_dir();
 	}
 	
-	return \sys_get_temp_dir();
-}
-
-/**
- *  Main writable directory
- *  
- *  @return string
- */
-function storage_base() : string {
-	$options	= storage_options();
-	$dirs		= 
-	$options['writable'] ?? [ 'cache', 'data', 'storage', 'uploads', 'media' ];
-	
-	if ( isset( $options['storage_dir'] ) ) {
-		return $options['storage_dir'];
-	}
-	
-	if ( \defined( 'STORAGE_DIR' ) ) { 
-		$sdir		= \constant( 'STORAGE_DIR' );
-		$storage_dir	= \rtrim( $sdir, '\\/' ) . \DIRECTORY_SEPARATOR; 
+	/**
+	 *  Main writable directory
+	 *  
+	 *  @return string
+	 */
+	public static function base() : string {
+		$options	= static::options();
+		$dirs		= 
+		$options['writable'] ?? [ 'cache', 'data', 'storage', 'uploads', 'media' ];
 		
-		storage_options( [ 'storage_dir' => $storage_dir ] );
+		if ( isset( $options['storage_dir'] ) ) {
+			return $options['storage_dir'];
+		}
+		
+		if ( \defined( 'STORAGE_DIR' ) ) { 
+			$sdir		= \constant( 'STORAGE_DIR' );
+			$storage_dir	= \rtrim( $sdir, '\\/' ) . \DIRECTORY_SEPARATOR; 
+			
+			static::options( [ 'storage_dir' => $storage_dir ] );
+			return $storage_dir;
+		}
+		
+		$env_storage	= \getenv( 'STORAGE_DIR' );
+		$storage	= ( $env_storage && \is_writable( $env_storage ) )
+			? $env_storage
+			: static::find_writable( __DIR__, $dirs );
+		
+		if ( empty( $storage ) ) {
+			$dlist	= \implode( ', ', $dirs );
+			$msg	= 
+			"Storage directory not defined. " . 
+			"Set STORAGE_DIR constant or create writable folder named one of: {$dlist}";
+			
+			\error_log( $msg );
+			throw new
+			\RuntimeException( 'Unable to discover storage directory' );
+		}
+		
+		$storage_dir	= \rtrim( $storage, '\\/' ) . \DIRECTORY_SEPARATOR;
+		static::options( [ 'storage_dir' => $storage_dir ] );
 		return $storage_dir;
 	}
 	
-	$env_storage	= \getenv( 'STORAGE_DIR' );
-	$storage	= ( $env_storage && \is_writable( $env_storage ) )
-		? $env_storage
-		: storage_find_writable( __DIR__, $dirs );
-	
-	if ( empty( $storage ) ) {
-		$dlist	= \implode( ', ', $dirs );
-		$msg	= 
-		"Storage directory not defined. " . 
-		"Set STORAGE_DIR constant or create writable folder named one of: {$dlist}";
+	/**
+	 *  Create a backup file name of given file
+	 *  
+	 *  @param string	$name	Target file name
+	 *  @return string		Backup file path
+	 */
+	public static function backup_path( string $name ) : string {
+		$ext	= static::options()['bkp_ext'] ?? '.bkp';
+		$base	= \basename( $name );
+		do {
+			$bkp = static::base()
+				. $base . '.'
+				. Util::timestamp( 'Y-m-d_H-i-s_' )
+				. \uniqid( '', true ) . $ext;
+		} while ( \file_exists( $bkp ) );
 		
-		\error_log( $msg );
-		throw new
-		\RuntimeException( 'Unable to discover storage directory' );
+		return $bkp;
 	}
 	
-	$storage_dir	= \rtrim( $storage, '\\/' ) . \DIRECTORY_SEPARATOR;
-	storage_options( [ 'storage_dir' => $storage_dir ] );
-	return $storage_dir;
-}
-
-/**
- *  Create a backup file name of given file
- *  
- *  @param string	$name	Target file name
- *  @return string		Backup file path
- */
-function storage_backup_path( string $name ) : string {
-	$ext	= storage_options()['bkp_ext'] ?? '.bkp';
-	$base	= \basename( $name );
-	do {
-		$bkp = storage_base() 
-			. $base . '.'
-			. Util::timestamp( 'Y-m-d_H-i-s_' )
-			. \uniqid( '', true ) . $ext;
-	} while ( \file_exists( $bkp ) );
-	
-	return $bkp;
-}
-
-/**
- *  Clean any temporary files in storage location
- *  
- *  @param string	$path	Sub path in base storage location
- */
-function storage_temp_cleanup( string $path ) : void {
-	static $cleanup	= [];
-	if ( isset( $cleanup[$path] ) ) { return; }
-	
-	$options	= storage_options();
-	$stale		= $options['temp_stale'];
-	$cleanup[$path]	= true;
-	$pattern	= $path . '.*' . ( $options['tmp_ext'] ?? '.tmp' );
-	
-	\register_shutdown_function( function() use( $pattern, $stale ) {
-		$check = time() - $stale;
-		try {
-			foreach ( \glob( $pattern, \GLOB_NOSORT ) as $file ) {
-				$mtime = \filemtime( $file );
-				if ( false !== $mtime && $mtime < $check ) { 
-					@\unlink( $file );
+	/**
+	 *  Clean any temporary files in storage location
+	 *  
+	 *  @param string	$path	Sub path in base storage location
+	 */
+	public static function temp_cleanup( string $path ) : void {
+		static $cleanup	= [];
+		if ( isset( $cleanup[$path] ) ) { return; }
+		
+		$options	= static::options();
+		$stale		= $options['temp_stale'];
+		$cleanup[$path]	= true;
+		$pattern	= $path . '.*' . ( $options['tmp_ext'] ?? '.tmp' );
+		
+		\register_shutdown_function( function() use( $pattern, $stale ) {
+			$check = time() - $stale;
+			try {
+				foreach ( \glob( $pattern, \GLOB_NOSORT ) as $file ) {
+					$mtime = \filemtime( $file );
+					if ( false !== $mtime && $mtime < $check ) { 
+						@\unlink( $file );
+					}
 				}
+			} catch( \Throwable $e ) {
+				\error_log( 
+					"Error deleting temp {$pattern}: {$e->getMessage()}" 
+				);
 			}
-		} catch( \Throwable $e ) {
-			\error_log( 
-				"Error deleting temp {$pattern}: {$e->getMessage()}" 
-			);
-		}
-	} );
-}
-
-/**
- *  Append data to given file with optional lock
- *  
- *  @param string	$path	Writable file location
- *  @param string	$data	New data to append
- *  @param string	$block	Obtain lock, if true
- *  @return bool		True on success
- */
-function storage_append( string $path, string $data, bool $block = false ) : bool {
-	$id	= storage_get_id();
-	$handle	= @\fopen( $path, 'a' );
-	if ( !$handle || !\is_resource( $handle ) ) {
-		\error_log( "Unable to open log file '{$path}' by {$id}" );
-		return false;
+		} );
 	}
 	
-	$mode	= $block ? \LOCK_EX : \LOCK_EX | \LOCK_NB;
-	if ( !@\flock( $handle, $mode ) ) {
+	/**
+	 *  Append data to given file with optional lock
+	 *  
+	 *  @param string	$path	Writable file location
+	 *  @param string	$data	New data to append
+	 *  @param string	$block	Obtain lock, if true
+	 *  @return bool		True on success
+	 */
+	public static function append( string $path, string $data, bool $block = false ) : bool {
+		$id	= static::get_id();
+		$handle	= @\fopen( $path, 'a' );
+		if ( !$handle || !\is_resource( $handle ) ) {
+			\error_log( "Unable to open log file '{$path}' by {$id}" );
+			return false;
+		}
+		
+		$mode	= $block ? \LOCK_EX : \LOCK_EX | \LOCK_NB;
+		if ( !@\flock( $handle, $mode ) ) {
+			if ( \is_resource( $handle ) ) { \fclose( $handle ); }
+			\error_log( "Unable to acquire lock on log file '{$path}' by {$id}" );
+			return false;
+		}
+		
+		$result	= @\fwrite( $handle, $data . \PHP_EOL );
+		if ( false === $result ) {
+			\error_log( "Write failed for '{$path}' by {$id}" );
+		}
+		
 		if ( \is_resource( $handle ) ) {
+			\flock( $handle, \LOCK_UN );
 			\fclose( $handle );
 		}
-		\error_log( "Unable to acquire lock on log file '{$path}' by {$id}" );
-		return false;
-	}
-	
-	$result	= @\fwrite( $handle, $data . \PHP_EOL );
-	if ( false === $result ) {
-		\error_log( "Write failed for '{$path}' by {$id}" );
-	}
-	
-	if ( \is_resource( $handle ) ) {
-		\flock( $handle, \LOCK_UN );
-		\fclose( $handle );
-	}
-	
-	return false !== $result;
-}
-
-/**
- *  Write new data to file with lock
- *  
- *  @param string	$path	Writable file location
- *  @param string	$data	New data to write
- *  @return bool		True on success
- */
-function storage_write_file( string $path, string $data ) : bool {
-	
-	// Unique lock signature
-	$id		= storage_get_id();
-	
-	// Check if able to overwrite
-	if ( \file_exists( $path ) && !\is_writable( $path ) ) {
-		$msg	= "Target file exists, but is not writable";
-		\error_log( $msg . ": path '{$path}' by {$id}" );
 		
-		throw new 
-		\RuntimeException( $msg );
+		return false !== $result;
 	}
 	
-	$options	= storage_options();
-	$lock_file	= $path . '.lock';
-	$ext		= $options['tmp_ext'] ?? '.tmp';
-	$tmp_handle	= null;
-	$lock_handle	= false;
-	$tmp_file	= $path . '.' . $id . '.' . \bin2hex( \random_bytes( 4 ) ) . $ext;
-	
-	try {
-		$lock_handle	= storage_lock_file( $lock_file, 'c+' );
-	} catch( \Throwable $e ) {
-		$msg		= "Unable to acquire lock";
-		\error_log( $msg . " for '{$lock_file}' by {$id}: {$e->getMessage()}" );
+	/**
+	 *  Write new data to file with lock
+	 *  
+	 *  @param string	$path	Writable file location
+	 *  @param string	$data	New data to write
+	 *  @return bool		True on success
+	 */
+	public static function write_file( string $path, string $data ) : bool {
+		// Unique lock signature
+		$id		= static::get_id();
 		
-		throw new 
-		\RuntimeException( $msg );
-	}
-	
-	if ( !$lock_handle ) { // Usually shouldn't come this far if there was an error
-		$msg		= "Unable to acquire lock";
-		\error_log( $msg . " for '{$lock_file}' by {$id}" );
-		
-		throw new 
-		\RuntimeException( $msg );
-	}
-	
-	try {
-		$tmp_handle	= \fopen( $tmp_file, 'c' );
-	} catch( \Throwable $e ) {
-		$msg		= "Unable to create temp file";
-		\error_log( $msg . " '{$tmp_file}' by {$id}: {$e->getMessage()}" );
-		
-		throw new 
-		\RuntimeException( $msg );
-	}
-	
-	if ( !$tmp_handle ) { // Above catch failed for some reason
-		$msg		= "Unable to create temp file";
-		storage_release_lock( $lock_handle, $lock_file );
-		\error_log( $msg . " '{$tmp_file}' by {$id}" );
-		
-		throw new 
-		\RuntimeException( $msg );
-	}
-	
-	// Write and finish
-	$state = \fwrite( $tmp_handle, $data );
-	if ( false === $state || $state < \strlen( $data ) ) {
-		$msg		= "Failed to write temp file";
-		@\fclose( $tmp_handle );
-		storage_release_lock( $lock_handle, $lock_file );
-		\error_log( $msg . " {$tmp_file} by {$id}" );
-		
-		throw new 
-		\RuntimeException( $msg );
-	}
-
-	// Done write, prepare to move
-	@\fclose( $tmp_handle );
-	
-	// Cleanup
-	if ( \file_exists( $path ) && !\is_writable( $path ) ) {
-		$msg	= "Target file is not writable";
-		storage_release_lock( $lock_handle, $lock_file );
-		\error_log( $msg . ": path '{$path}' by {$id}" );
-		
-		throw new 
-		\RuntimeException( $msg );
-	}
-	
-	// Move temp to permanent location
-	if ( !\rename( $tmp_file, $path ) ) {
-		if ( !\copy( $tmp_file, $path ) || !\unlink( $tmp_file ) ) {
-			$msg	= "Failed to replace file";
-			storage_release_lock( $lock_handle, $lock_file );
-			\error_log( $msg . ": path'{$path}' with '{$tmp_file}' by {$id}" );
+		// Check if able to overwrite
+		if ( \file_exists( $path ) && !\is_writable( $path ) ) {
+			$msg	= "Target file exists, but is not writable";
+			\error_log( $msg . ": path '{$path}' by {$id}" );
 			
 			throw new 
 			\RuntimeException( $msg );
 		}
+		
+		$options	= static::options();
+		$lock_file	= $path . '.lock';
+		$ext		= $options['tmp_ext'] ?? '.tmp';
+		$tmp_handle	= null;
+		$lock_handle	= false;
+		$tmp_file	= $path . '.' . $id . '.' . \bin2hex( \random_bytes( 4 ) ) . $ext;
+		
+		try {
+			$lock_handle	= static::lock_file( $lock_file, 'c+' );
+		} catch( \Throwable $e ) {
+			$msg		= "Unable to acquire lock";
+			\error_log( $msg . " for '{$lock_file}' by {$id}: {$e->getMessage()}" );
+			
+			throw new 
+			\RuntimeException( $msg );
+		}
+		
+		if ( !$lock_handle ) { // Usually shouldn't come this far if there was an error
+			$msg		= "Unable to acquire lock";
+			\error_log( $msg . " for '{$lock_file}' by {$id}" );
+			
+			throw new 
+			\RuntimeException( $msg );
+		}
+		
+		try {
+			$tmp_handle	= \fopen( $tmp_file, 'c' );
+		} catch( \Throwable $e ) {
+			$msg		= "Unable to create temp file";
+			\error_log( $msg . " '{$tmp_file}' by {$id}: {$e->getMessage()}" );
+			
+			throw new 
+			\RuntimeException( $msg );
+		}
+		
+		if ( !$tmp_handle ) { // Above catch failed for some reason
+			$msg		= "Unable to create temp file";
+			static::release_lock( $lock_handle, $lock_file );
+			\error_log( $msg . " '{$tmp_file}' by {$id}" );
+			
+			throw new 
+			\RuntimeException( $msg );
+		}
+		
+		// Write and finish
+		$state = \fwrite( $tmp_handle, $data );
+		if ( false === $state || $state < \strlen( $data ) ) {
+			$msg		= "Failed to write temp file";
+			@\fclose( $tmp_handle );
+			static::release_lock( $lock_handle, $lock_file );
+			\error_log( $msg . " {$tmp_file} by {$id}" );
+			
+			throw new 
+			\RuntimeException( $msg );
+		}
+		
+		// Done write, prepare to move
+		@\fclose( $tmp_handle );
+		
+		// Cleanup
+		if ( \file_exists( $path ) && !\is_writable( $path ) ) {
+			$msg	= "Target file is not writable";
+			static::release_lock( $lock_handle, $lock_file );
+			\error_log( $msg . ": path '{$path}' by {$id}" );
+			
+			throw new 
+			\RuntimeException( $msg );
+		}
+		
+		// Move temp to permanent location
+		if ( !\rename( $tmp_file, $path ) ) {
+			if ( !\copy( $tmp_file, $path ) || !\unlink( $tmp_file ) ) {
+				$msg	= "Failed to replace file";
+				static::release_lock( $lock_handle, $lock_file );
+				\error_log( $msg . ": path'{$path}' with '{$tmp_file}' by {$id}" );
+				
+				throw new 
+				\RuntimeException( $msg );
+			}
+		}
+		
+		static::release_lock( $lock_handle, $lock_file );
+		static::temp_cleanup( $path );
+		return true;
 	}
 	
-	storage_release_lock( $lock_handle, $lock_file );
-	storage_temp_cleanup( $path );
-	return true;
-}
-
-/**
- *  Rename if a file by that name already exists in destination
- *  
- *  @param string	$path	Original file name
- */
-function storage_dup_rename( string $path ) : string {
-	$info	= \pathinfo( $path );
-	$ext	= Sanitize::filename( $info['extension'] ?? '' );
-	$name	= Sanitize::filename( $info['filename'] );
-	$dir	= $info['dirname'];
-	$file	= $path;
-	$i	= 0;
-	
-	while ( \file_exists( $file ) ) {
-		$file = Text::slash_path( $dir, true ) . 
-			$name . '_' . $i++ . 
-			\rtrim( '.' . $ext, '.' );
+	/**
+	 *  Rename if a file by that name already exists in destination
+	 *  
+	 *  @param string	$path	Original file name
+	 */
+	public static function dup_rename( string $path ) : string {
+		$info	= \pathinfo( $path );
+		$ext	= Sanitize::sfilename( $info['extension'] ?? '' );
+		$name	= Sanitize::sfilename( $info['filename'] );
+		$dir	= $info['dirname'];
+		$file	= $path;
+		$i	= 0;
+		
+		while ( \file_exists( $file ) ) {
+			$file = Text::slash_path( $dir, true ) . 
+				$name . '_' . $i++ . 
+				\rtrim( '.' . $ext, '.' );
+		}
+		
+		return $file;
 	}
 	
-	return $file;
-}
-
-/**
- *  Given a compelete file path, prefix a term to the filename and 
- *  return a unique file name path
- *  
- *  @param string	$path		Original file path
- *  @param string	$prefix		Path prepend fragment
- *  @param bool		$overwrite	Prevent duplicates by overwriting file path
- *  @return string
- */
-function storage_prefix_path(
-	string	$path, 
-	string	$prefix, 
-	bool	$overwrite	= false 
-) : string {
-	$fname	= 
-	\rtrim( \dirname( $path ), \DIRECTORY_SEPARATOR ) . 
-		\DIRECTORY_SEPARATOR . 
-		$prefix . \basename( $path );
-	
-	// Avoid duplicates?
-	return $overwrite ? $fname : storage_dup_rename( $fname );
+	/**
+	 *  Given a compelete file path, prefix a term to the filename and 
+	 *  return a unique file name path
+	 *  
+	 *  @param string	$path		Original file path
+	 *  @param string	$prefix		Path prepend fragment
+	 *  @param bool		$overwrite	Prevent duplicates by overwriting file path
+	 *  @return string
+	 */
+	public static function prefix_path(
+		string	$path, 
+		string	$prefix, 
+		bool	$overwrite	= false 
+	) : string {
+		$fname	= 
+		\rtrim( \dirname( $path ), \DIRECTORY_SEPARATOR ) . 
+			\DIRECTORY_SEPARATOR . 
+			$prefix . \basename( $path );
+		
+		// Avoid duplicates?
+		return $overwrite ? $fname : static::dup_rename( $fname );
+	}	
 }
 
 
@@ -3230,7 +3232,7 @@ function log_check_level( string $level ) : ?string {
 function log_file( string $fname = 'messages.log' ) : string {
 	static $file;
 	$file	??= 
-		storage_base() . 
+		Storage::base() . 
 		\defined( 'LOG_FILE' ) 
 			? \constant( 'LOG_FILE' ) 
 			: $fname;
@@ -3246,7 +3248,7 @@ function log_file( string $fname = 'messages.log' ) : string {
 function log_file_valid( string $path ) : bool {
 	static $root;
 	
-	$root		??= \realpath( storage_base() );
+	$root		??= \realpath( Storage::base() );
 	$rpath		= @\realpath( $path );
 	
 	return ( false !== $rpath ) && ( 0 === \strpos( $rpath, $root ) );
@@ -3346,7 +3348,7 @@ function log_message_write( ?array $pair = null ) : void {
 		$grouped[$file][] = $entry;
 	}
 	
-	$base		= storage_base();
+	$base		= Storage::base();
 	foreach ( $grouped as $file => $entries ) {
 		if ( !log_file_valid( $file ) ) {
 			\error_log( "Log file {$file} is not within storage {$base}" );
@@ -3356,7 +3358,7 @@ function log_message_write( ?array $pair = null ) : void {
 		log_rotate( $file );
 		$data	= \implode( \PHP_EOL, $entries ) . \PHP_EOL;
 		
-		if ( !storage_append( $file, $data, true ) ) {
+		if ( !Storage::append( $file, $data, true ) ) {
 			\error_log( "Failed to append batched messages to {$file} in {$base}" );
 		}
 	}
@@ -4287,7 +4289,7 @@ function response_check_not_modified(
 function response_meta_cache_path( string $fpath ) : string {
 	static $tmp;
 	
-	$tmp	??= storage_base() . "/tmp/";
+	$tmp	??= Storage::base() . "/tmp/";
 	if ( !\is_dir( $tmp ) && !\mkdir( $tmp, 0777, true ) ) {
 		throw new 
 		\RuntimeException( "Failed to create cache directory: {$tmp}" );
@@ -4328,7 +4330,7 @@ function response_get_meta_cache( string $fpath ) : array|null {
 		}
 	
 		$curr_mtime	= storage_filemtime( $fpath );
-		$curr_size	= storage_filesize( $fpath );
+		$curr_size	= Storage::file_size( $fpath );
 		
 	} catch ( \Throwable $e ) {
 		log_error( "Meta cache error: {$e->getMessage()}" );
@@ -4408,9 +4410,9 @@ function response_file_metadata( string $path, bool $is_cached = false ) : array
 		\RuntimeException( "File to be cached not found" );
 	}
 	
-	$fsize	= storage_filesize( $fpath );
+	$fsize	= Storage::file_size( $fpath );
 	$mtime	= storage_filemtime( $fpath );
-	$mime	= storage_filemime( $fpath );
+	$mime	= Storage::file_mime( $fpath );
 	
 	$etag	= response_generate_etag( $fsize, $mtime );
 	$lmod	= \gmdate( 'D, d M Y H:i:s', $mtime ) . ' GMT';
@@ -4602,7 +4604,7 @@ function response_file(
 	}
 	
 	try {
-		$handle = storage_file_open( $fpath );
+		$handle = Storage::file_open( $fpath );
 		if ( $ranges ) {
 			response_file_range( $meta, $handle, $fpath, $ranges );
 		} else {
@@ -4810,7 +4812,7 @@ function config_core_path(
 	$path	= 
 	\defined( $constant ) 
 		? \constant( $constant ) 
-		: storage_base() . $name;
+		: Storage::base() . $name;
 	
 	return $is_dir 
 		? \rtrim( $path, '\\/' ) . \DIRECTORY_SEPARATOR 
@@ -4849,7 +4851,7 @@ function config_message_file() : string {
  */
 function config_store_valid( string $path ) : bool {
 	static $root;
-	$root	??= \realpath( storage_base() );
+	$root	??= \realpath( Storage::base() );
 	$path	= \realpath( $path );
 	
 	return ( false !== $path ) && ( 0 === \strpos( $path, $root ) );
@@ -4956,7 +4958,7 @@ function config_load_json( string $file ) : array {
  *  @return string
  */
 function config_backup_name() : string {
-	return storage_backup_path( config_file() );
+	return Storage::backup_path( config_file() );
 }
 
 /**
@@ -4984,7 +4986,7 @@ function config_backup() : bool {
  *  @return bool			True on success
  */
 function config_write( string $json ) : bool {
-	return storage_write_file( config_file(), $json );
+	return Storage::write_file( config_file(), $json );
 }
 
 /**
@@ -8566,7 +8568,7 @@ function db_migrate( \PDO $dbh, string $profile ) : void {
 		->query( "SELECT version FROM schema_meta ORDER BY created_at DESC LIMIT 1" )
 		->fetchColumn() ?? '0.0.0';
 	
-	$mi_dir		= storage_base() . '/migrations/' . $profile;
+	$mi_dir		= Storage::base() . '/migrations/' . $profile;
 	$migrations	= [];
 	foreach ( db_get_migrations( $mi_dir ) as $m ) {
 		if ( \version_compare( $m['version'], $curr_ver ) <= 0 ) {
@@ -9745,7 +9747,7 @@ function page_not_found( bool $no_body = false ) : void {
  *  Application initizlization log
  */
 function init_startup_log() : void {
-	$log = storage_base() . \STARTUP;
+	$log = Storage::base() . \STARTUP;
 	
 	if ( \file_exists( $log ) ) { return; }
 	
@@ -12661,7 +12663,7 @@ function fileRequest(
 	$ranged	= request_is_ranged();
 	
 	// Static file path
-	$fpath	= config( 'file_dir', storage_base() ) . $path;
+	$fpath	= config( 'file_dir', Storage::base() ) . $path;
 	
 	if ( \file_exists( $fpath ) ) {
 		$frange = request_range_header( \filesize( $fpath ) );
@@ -12725,7 +12727,7 @@ function getPosts( string $root = '' ) : array {
 		return $st[$key];
 	}
 	
-	$pd	= config( 'post_dir', storage_base() ) . $root;
+	$pd	= config( 'post_dir', Storage::base() ) . $root;
 	if ( !\is_dir( $pd ) ) {
 		$st[$key] = [];
 		return $st[$key];
@@ -12879,7 +12881,7 @@ function loadPost(
 	$type	= '';
 	$rtime	= 0;
 	$ext	= empty( $custom ) ? '.md' : '.' . $custom;
-	$ppath	= config( 'post_dir', storage_base() ) . $path . $ext;
+	$ppath	= config( 'post_dir', Storage::base() ) . $path . $ext;
 	
 	$data	= loadText( $ppath );
 	
@@ -13365,7 +13367,7 @@ function loadPosts(
 	$about	= '/' . eventRoutePrefix( 'aboutview', 'about' ) . '/';
 	
 	// Find home path to skip
-	$pdir	= config( 'post_dir', storage_base() );
+	$pdir	= config( 'post_dir', Storage::base() );
 	$home	= $pdir . 'home.md';
 	$pbc	= false;
 	
@@ -14454,7 +14456,7 @@ function previewLink(
 	string		$mode	= '', 
 	bool		$nr	= false 
 ) {
-	$ppath	= config( 'post_dir', storage_base() ) . $path. '.md';
+	$ppath	= config( 'post_dir', Storage::base() ) . $path. '.md';
 	$data	= loadText( $ppath );
 	if ( empty( $data ) ) {
 		return '';
@@ -14856,7 +14858,7 @@ function staticPage(
  *  @return array
  */
 function loadStaticPage( string	$page ) : array {
-	$pdir	= config( 'post_dir', storage_base() );
+	$pdir	= config( 'post_dir', Storage::base() );
 	$path	= Text::slash_path( $page );
 	
 	return loadText( $pdir . $path );
