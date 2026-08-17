@@ -1750,6 +1750,7 @@ final class Sanitize {
 	 *  @return string
 	 */
 	public static function path_traversal( string $path ) : string {
+		$pre		= \str_starts_with( $path, '/' ) ? '/' : '';
 		$segments	= 
 		\array_filter( 
 			\explode( '/', \preg_replace( '/\\\\/', '/', $path )  ),
@@ -1761,7 +1762,7 @@ final class Sanitize {
 			}
 		);
 		
-		return \trim( \implode( '/', $segments ), '/' );
+		return $pre . \trim( \implode( '/', $segments ), '/' );
 	}
 	
 	/**
@@ -1834,7 +1835,7 @@ final class Sanitize {
 	 *  @return string
 	 */
 	public static function uri( string $raw, ?string $base = null ) : string|null {
-		$path	= \preg_replace( '/\\\\/', '/', $path ) ;
+		$path	= \preg_replace( '/\\\\/', '/', $raw ) ;
 		$path	= \trim( \parse_url( $path, \PHP_URL_PATH ) ?? '', '/' );
 		$depth	= 0;
 		$max_d	= 10;
@@ -3334,7 +3335,8 @@ final class Log {
 		$root		??= \realpath( Storage::base() );
 		$path		= Sanitize::path_traversal( $path );
 		
-		return ( 0 === \strpos( $path, $root ) );
+		if ( empty( $path ) ) { return false; }
+		return \str_starts_with( $path, $root );
 	}
 	
 	/**
@@ -3529,7 +3531,7 @@ final Class Request {
 		public readonly string		$url,
 		public readonly string		$query,
 		public readonly array		$params,
-		public readonly array		$protocol,
+		public readonly string		$protocol,
 		public readonly bool		$is_tls
 	) {
 		$this->id		= ( string ) ( $_SERVER['REQUEST_TIME'] ?? time() ) . '_' . 
@@ -3555,13 +3557,13 @@ final Class Request {
 		$method			??= static::_method();
 		$effective_method	??= static::_effective_method();
 		$forwarded		??= static::_forwarded();
+		$headers		??= static::_headers();
 		$host			??= static::_host();
 		$origin			??= static::_origin();
 		$uri			??= static::_uri();
 		$url			??= static::_url();
 		$query			??= Sanitize::query( false ) ?? '';
 		$params			??= Sanitize::query( true, false ) ?? [];
-		$headers		??= static::_headers();
 		$protocol		??= static::_protocol();
 		$is_tls			??= static::_is_tls();
 		
@@ -3569,17 +3571,15 @@ final Class Request {
 			$method,
 			$effective_method,
 			$forwarded,
+			$headers,
 			$host,
 			$origin,
 			$uri,
 			$url,
 			$query,
 			$params,
-			$headers,
 			$protocol,
-			$is_tls,
-			$params,
-			$body
+			$is_tls
 		);
 	}
 	
