@@ -1386,6 +1386,36 @@ final class Util {
 	}
 	
 	/**
+	 *  Accept field sorter by 'q=' priority
+	 *  
+	 *  @param string	$header	Server header label
+	 *  @return array
+	 */
+	public static function accept_sort( string $header ) : array {
+		$accept = \trim( $header );
+		if ( $accept === '' ) { return []; }
+		
+		$parsed = [];
+		foreach ( explode( ',', $accept ) as $part ) {
+			[ $term, $params ] = 
+			\array_pad( explode( ';', \trim( $part ), 2 ), 2, '' );
+			
+			if ( '' === $term ) { continue; }
+			
+			$quality	= 1.0;
+			if ( \preg_match('/q=([0-9.]+)/i', $params, $match ) ) {
+				$quality = ( float ) $match[1];
+			}
+			
+			$parsed[]	= [ 'term' => $term, 'q' => $quality ];
+		}
+		
+		\usort( $parsed, fn( $a, $b ) => $b['q'] <=> $a['q'] );
+		
+		return \array_column( $parsed, 'term' );
+	}
+	
+	/**
 	 *  Convert timestamp to int if it's not in integer format
 	 *  
 	 *  @return int
@@ -2545,7 +2575,7 @@ final class Storage {
 	 *  
 	 *  @return string
 	 */
-	function get_id() : string {
+	public static function get_id() : string {
 		return Util::get_id( 'storage', true );
 	}
 	
@@ -3470,632 +3500,632 @@ final class Log {
 
 
 /**
- *  Request and query
+ *  @class Request and query
  */
+final Class Request {
+	/**
+	 *  @var string		$id		Unique sortable identifier
+	 */
+	public readonly string	$id;
+	
+	/**
+	 *  @var string		$tiemstamp	ISO 8601 format timestamp
+	 */
+	public readonly string	$timestamp;
 
-/**
- *  Time based unique request token generator
- *  
- *  @return string
- */
-function request_id() : string {
-	static $id;
+	/**
+	 *  @var string		$canonical_ip	Core IP data from forwarded headers
+	 */
+	private string		$canonical_ip;
 	
-	$id	??= 
-	( string ) ( $_SERVER['REQUEST_TIME'] ?? time() ) . '_' . 
-		\bin2hex( \random_bytes( 32 ) );
-	
-	return $id;
-}
-
-/**
- *  Generic timer
- *  
- *  @return string
- */
-function request_timestamp() : string {
-	static $stamp;
-	
-	$stamp ??= date( 'c' ); // ISO 8601 format
-	return $stamp;
-}
-
-/**
- *  Get or guess current server protocol
- *  
- *  @param string	$assume		Default protocol to assume if not given
- *  @return string
- */
-function request_protocol( string $assume = 'HTTP/1.1' ) : string {
-	static $pr;
-	$pr ??= $_SERVER['SERVER_PROTOCOL'] ?? $assume;
-	
-	return $pr;
-}
-
-/**
- *  Guess if current request is secure
- *  
- *  @return bool
- */
-function request_is_tls() : bool {
-	static $tls;
-	
-	$tls	??= 
-	match( true ) {
-		// Secure header
-		( 
-			!empty( $_SERVER['HTTPS'] )
-			&& 0 !== \strcasecmp( $_SERVER['HTTPS'], 'off' ) 
-		),
+	public function __construct(
+		public readonly string		$method,
+		public readonly string		$effective_method,
+		public readonly array		$forwarded,
+		public readonly array		$headers,
+		public readonly string		$host,
+		public readonly string		$origin,
+		public readonly string		$uri,
+		public readonly string		$url,
+		public readonly string		$query,
+		public readonly array		$params,
+		public readonly array		$protocol,
+		public readonly bool		$is_tls
+	) {
+		$this->id		= ( string ) ( $_SERVER['REQUEST_TIME'] ?? time() ) . '_' . 
+			\bin2hex( \random_bytes( 32 ) );
 		
-		// Proxy/forwarded headers
-		( 
-			!empty( $_SERVER['HTTP_X_FORWARDED_PROTO'] )
-			&& 0 === \strcasecmp( $_SERVER['HTTP_X_FORWARDED_PROTO'], 'https' ) 
-		),
-		( 
-			!empty( $_SERVER['HTTP_X_FORWARDED_PROTOCOL'] )
-			&& 0 === \strcasecmp( $_SERVER['HTTP_X_FORWARDED_PROTOCOL'], 'https' ) 
-		),
-		( 
-			!empty( $_SERVER['HTTP_X_FORWARDED_SSL'] )
-			&& 0 === \strcasecmp( $_SERVER['HTTP_X_FORWARDED_SSL'], 'on' ) 
-		),
-		( 
-			!empty( $_SERVER['HTTP_X_URL_SCHEME'] )
-			&& 0 === \strcasecmp( $_SERVER['HTTP_X_URL_SCHEME'], 'https' ) 
-		),
+		$this->timestamp	= date( 'c' );
+	}
+	
+	public static function create(
+		?string		$method			= null,
+		?string		$effective_method	= null,
+		?array		$forwarded		= null,
+		?array		$headers		= null,
+		?string		$host			= null,
+		?string		$origin			= null,
+		?string		$uri			= null,
+		?string		$url			= null,
+		?string		$query			= null,
+		?array		$params			= null,
+		?string		$protocol		= null,
+		?bool		$is_tls			= null
+	) : self {
+		$method			??= static::_method();
+		$effective_method	??= static::_effective_method();
+		$forwarded		??= static::_forwarded();
+		$host			??= static::_host();
+		$origin			??= static::_origin();
+		$uri			??= static::_uri();
+		$url			??= static::_url();
+		$query			??= Sanitize::query( false ) ?? '';
+		$params			??= Sanitize::query( true, false ) ?? [];
+		$headers		??= static::_headers();
+		$protocol		??= static::_protocol();
+		$is_tls			??= static::_is_tls();
 		
-		// Fallback
-		( 
-			!empty( $_SERVER['SERVER_PORT'] ) 
-			&& 443 === ( int ) $_SERVER['SERVER_PORT']
-		)	=> true,
+		return new self(
+			$method,
+			$effective_method,
+			$forwarded,
+			$host,
+			$origin,
+			$uri,
+			$url,
+			$query,
+			$params,
+			$headers,
+			$protocol,
+			$is_tls,
+			$params,
+			$body
+		);
+	}
+	
+	public static function instance() : self {
+		static $_single; 
+		$_single ??= static::create();
 		
-		default	=> false
-	};
+		return $_single;
+	}
 	
-	return $tls;
-}
-
-/**
- *  Current client request method
- *  
- *  @return string
- */
-function request_method() : string {
-	static $method;
+	/**
+	 *  Browser User Agent
+	 *  
+	 *  @return string
+	 */
+	public function ua() : string {
+		static $ua;
+		$ua	??= \trim( $this->headers['HTTP_USER_AGENT'] ?? '' );
+		
+		return $ua;
+	}
 	
-	if ( isset( $method ) ) { return $method; }
+	/**
+	 *  Check for current ETag in request
+	 *  
+	 *  @return string
+	 */
+	public function none_match() : string {
+		static $etag;
+		
+		$etag	??= $this->headers['HTTP_IF_NONE_MATCH'] ?? '';
+		return $etag;
+	}
 	
-	$supported	= 
-	[ 'get', 'post', 'put', 'delete', 'patch', 'options', 'head' ];
+	/**
+	 *  Check If-None-Match header against given ETag
+	 *  
+	 *  @return true if header not set or if ETag doesn't match
+	 */
+	public function modified( string $etag ) : bool {
+		$check	= $this->none_match();
+		if ( empty( $check ) ) { return true; }
+		
+		return ( 0 !== \strcmp( $etag, $check ) );
+	}
 	
-	$temp		= \trim( $_SERVER['REQUEST_METHOD'] ?? '' );
-	if ( empty( $temp ) ) { return 'unsupported'; } // Normally, this shouldn't happen
+	/**
+	 *  Time since request modified
+	 *  
+	 *  @return mixed
+	 */
+	public function modified_since() : ?int {
+		static $init	= false;
+		static $since	= null;
+		
+		if ( $init ) { return $since; }
+		$init		= true;
+		
+		$header		= $this->headers['HTTP_IF_MODIFIED_SINCE'] ?? null;
+		if ( !$header ) { return null; }
+		
+		$since		= \strtotime( $header ) ?: null;
+		return $since;
+	}
 	
-	$method		= 
-	Util::value_exists_ci( $temp, $supported ) 
-		? \strtolower( $temp ) 
-		: 'unsupported';
+	/**
+	 *  Visitor's preferred languages based on Accept-Language header
+	 *  
+	 *  @return array
+	 */
+	public function language() : array {
+		static $cache;
+		if ( isset( $cache ) ) { return $cache; }
+		
+		$terms	= Util::accept_sort( $this->headers['HTTP_ACCEPT_LANGUAGE'] ?? '' );
+		if ( empty( $terms ) ) { return $cache = []; }
+		
+		$result	= [];
+		foreach ( $terms as $term ) {
+			if ( \preg_match( '/^([a-z]{2,8})(?:-([a-z0-9]{2,8}))?$/i', $term, $m ) ) {
+				$result[] = [
+					'lang'		=> \strtolower( $m[1] ),
+					'locale'	=> 
+					isset( $m[2] ) ? \strtoupper( $m[2] ) : ''
+				];
+			}
+		}
+		
+		return $cache = $result;
+	}
 	
-	return $method;
-}
-
-/**
- *  App-level override of request method
- *  
- *  @return string
- */
-function request_effective_method() : string {
-	static $override;
+	/**
+	 *  Small helper to check if this is a ranged request
+	 *  
+	 *  @return bool
+	 */
+	public function is_ranged() : bool {
+		$range	= \trim( $this->headers['HTTP_RANGE'] ?? '' );
+		return $range !== '';
+	}
 	
-	if ( isset( $override ) ) { return $override; }
+	/**
+	 *  Validate and process requested ranges for a given file size
+	 *  
+	 *  @param int $fsize Requested file size in bytes
+	 *  @return array
+	 */
+	public function range_header( int $fsize ) : array {
+		$range	= \trim( $this->headers['HTTP_RANGE'] ?? '' );
+		if ( empty( $range ) ) { return []; }
+		
+		$ranges	= [];
+		if ( !\preg_match( '/^bytes=/', $range ) ) { return $ranges; }
+		
+		[ $prefix, $value ] = 
+		\array_map( 'trim', \explode( '=', $range, 2 ) + [ '', '' ] );
+		
+		foreach ( \explode( ',', $value ) as $segment ) {
+			$segment = trim( $segment );
+			if ( empty( $segment ) ) { continue; }
+			
+			[ $start, $end ] = 
+			\array_map( 'trim', \explode( '-', $segment, 2 ) + [ '', '' ] );
+			
+			// Handle open-ended ranges
+			if ( $start === '' && \ctype_digit( $end ) ) {
+				$suffix	= min( $fsize, ( int ) $end );
+				$start	= $fsize - $suffix;
+				$end	= $fsize - 1;
+			} else {
+				$start	= $start === '' ? 0 : $start;
+				$end	= $end === '' ? $fsize - 1 : $end;
+			}
+			
+			if ( 
+				!\ctype_digit( ( string ) $start ) || 
+				!\ctype_digit( ( string ) $end ) 
+			) { continue; }
+			
+			$start		= ( int ) $start;
+			$end		= ( int ) $end;
+			
+			// Validate and normalize
+			if ( $start > $end || $start >= $fsize ) { continue; }
+			
+			$end		= \min( $end, $fsize - 1 );
+			$ranges[]	= [ $start, $end ];
+		}
+		
+		return Util::merge_ranges( $ranges );
+	}
 	
-	$method	= request_method();
-	if ( 'post' !== $method ) { 
+	/**
+	 *  Get client IP address from forwarded data
+	 *  
+	 *  @return array
+	 */
+	public function canonical_ip() : array {
+		if ( isset( $this->canonical_ip ) ) {
+			return $this->canonical_ip;
+		}
+		$fwd	= $this->forwarded;
+		$raw	= $fwd['coarse_last']['for'] ?? '';
+		
+		// Prefer last 'for' value from Forwarded header
+		if ( !empty( $raw ) ) {
+			if ( \preg_match( '/^\[?([a-fA-F0-9:.]+)\]?(:\d+)?$/', $raw, $match ) ) {
+				$ip	= $match[1];
+			} elseif ( 'unknown' === \strtolower( $raw ) ) {
+				$ip	= 'unknown';
+			} else {
+				$ip	= $raw;
+			}
+			$data	= [
+				'ip'		=> $ip,
+				'source'	=> 'forwarded'
+			];
+		} else {
+			// Fallback to REMOTE_ADDR
+			$data	= [
+				'ip'		=> $_SERVER['REMOTE_ADDR'] ?? 'unknown',
+				'source'	=> 'remote_addr'
+			];
+		}
+		$this->canonical_ip = $data;
+		return $data;
+	}
+	
+	/**
+	 *  Get IP address (best guess)
+	 *  
+	 *  @param bool		$skip	Skip private range checking
+	 *  @return string
+	 */
+	public function ip( bool $skip = false ) : string {
+		$info		= $this->canonical_ip();
+		$candidate	= $info['ip'] ?? '';
+		return $skip 
+			? ( \filter_var( $candidate, \FILTER_VALIDATE_IP ) ?: '' )
+			: ( \filter_var(
+				$candidate,
+				\FILTER_VALIDATE_IP,
+				\FILTER_FLAG_NO_PRIV_RANGE | \FILTER_FLAG_NO_RES_RANGE
+			) ?: '' );
+	}
+	
+	/**
+	 *  Current client request method
+	 *  
+	 *  @return string
+	 */
+	private static function _method() : string {
+		static $method;
+		if ( isset( $method ) ) { return $method; }
+		$supported	= 
+		[ 'get', 'post', 'put', 'delete', 'patch', 'options', 'head' ];
+		
+		$temp		= \trim( $_SERVER['REQUEST_METHOD'] ?? '' );
+		if ( empty( $temp ) ) { return 'unsupported'; }
+		
+		$method		= 
+		Util::value_exists_ci( $temp, $supported ) 
+			? \strtolower( $temp ) 
+			: 'unsupported';
+		
+		return $method;
+	}
+	
+	/**
+	 *  App-level override of request method
+	 *  
+	 *  @return string
+	 */
+	private static function _effective_method() : string {
+		static $override;
+		
+		if ( isset( $override ) ) { return $override; }
+		
+		$method	= static::_method();
+		if ( 'post' !== $method ) { 
+			$override	= $method;
+			return $method;
+		}
+		
+		$find	= 
+		\strtolower( \trim( 
+			$_SERVER['X-HTTP-Method-Override']	?? 
+			( $_POST['_method'] ?? '' )		?? '' 
+		) );
+		
+		if ( !$find ) { 
+			$override	= $method; 
+			return $method;
+		}
+		
+		if ( \in_array( $find, [ 'put', 'delete', 'patch' ], true ) ) {
+			$override	= $find;
+			return $find;
+		}
+		
 		$override	= $method;
 		return $method;
 	}
 	
-	$find	= 
-	\strtolower( \trim( 
-		$_SERVER['X-HTTP-Method-Override']	?? 
-		( $_POST['_method'] ?? '' )		?? '' 
-	) );
-	
-	if ( !$find ) { 
-		$override	= $method; 
-		return $method;
+	/**
+	 *  Get or guess current server protocol
+	 *  
+	 *  @param string	$assume		Default protocol to assume if not given
+	 *  @return string
+	 */
+	private static function _protocol( string $assume = 'HTTP/1.1' ) : string {
+		$pr = $_SERVER['SERVER_PROTOCOL'] ?? $assume;
+		return match( $pr ) {
+			'HTTP/1.0'	=> '1.0',
+			'HTTP/1.1'	=> '1.1',
+			'HTTP/2.0'	=> '2.0',
+			default		=> '1.1'	// assume
+		};
 	}
 	
-	if ( \in_array( $find, [ 'put', 'delete', 'patch' ], true ) ) {
-		$override	= $find;
-		return $find;
-	}
-	
-	$override	= $method;
-	return $method;
-}
-
-/**
- *  Forwarded HTTP header chain from load balancer
- *  
- *  @return array
- */
-function request_canonical_forwarded() : array {
-	static $data;
-	
-	if ( isset( $data ) ) { return $data; }
-
-	$raw	= 
-		$_SERVER['HTTP_FORWARDED'] ??
-		$_SERVER['FORWARDED'] ?? 
-		$_SERVER['HTTP_X_FORWARDED'] ?? '';
+	/**
+	 *  Guess if current request is secure
+	 *  
+	 *  @return bool
+	 */
+	private static function _is_tls() : bool {
+		static $tls;
 		
-	if ( empty( $raw ) ) { return []; }
+		$tls	??= 
+		match( true ) {
+			// Secure header
+			( 
+				!empty( $_SERVER['HTTPS'] )
+				&& 0 !== \strcasecmp( $_SERVER['HTTPS'], 'off' ) 
+			),
+			
+			// Proxy/forwarded headers
+			( 
+				!empty( $_SERVER['HTTP_X_FORWARDED_PROTO'] )
+				&& 0 === \strcasecmp( $_SERVER['HTTP_X_FORWARDED_PROTO'], 'https' ) 
+			),
+			( 
+				!empty( $_SERVER['HTTP_X_FORWARDED_PROTOCOL'] )
+				&& 0 === \strcasecmp( $_SERVER['HTTP_X_FORWARDED_PROTOCOL'], 'https' ) 
+			),
+			( 
+				!empty( $_SERVER['HTTP_X_FORWARDED_SSL'] )
+				&& 0 === \strcasecmp( $_SERVER['HTTP_X_FORWARDED_SSL'], 'on' ) 
+			),
+			( 
+				!empty( $_SERVER['HTTP_X_URL_SCHEME'] )
+				&& 0 === \strcasecmp( $_SERVER['HTTP_X_URL_SCHEME'], 'https' ) 
+			),
+			
+			// Fallback
+			( 
+				!empty( $_SERVER['SERVER_PORT'] ) 
+				&& 443 === ( int ) $_SERVER['SERVER_PORT']
+			)	=> true,
+			
+			default	=> false
+		};
+		
+		return $tls;
+	}
 	
-	$parsed	= [];
-	
-	// Split by comma: each element is a proxy hop
-	$hops	= Util::trimmed_list( $raw, false, ',' );
-	
-	// Gather forwarded values
-	foreach ( $hops as $hop ) {
-		$entry	= [];
-		$pairs	= Util::trimmed_list( $hop, true, ';' );
-
-		foreach ( $pairs as $pair ) {
-			[ $key, $val ]	= 
-			\array_map( 
-				fn( $v ) => Sanitize::filter( $v ), 
-				explode( '=', $pair, 2 ) + ['', ''] 
-			);
+	private static function _headers() : array {
+		$headers	= [];
+		foreach ( $_SERVER as $key => $value ) {
+			$name	= 
+			match( true ) {
+				\str_starts_with( $key, 'HTTP_' ),
+				\str_starts_with( $key, 'CONTENT_' )	=> $key,
+				default					=> ''
+			};
 			
-			
-			if ( '' === $key || '' === $val ) { continue; }
-			
-			$val	= \trim( $val, "\"" ); // remove optional quotes
-			
-			// Fresh value?
-			if ( !isset( $entry[$key] ) ) {
-				$entry[$key] = $val;
-			
-			// Existing array? Append
-			} elseif ( \is_array( $entry[$key] ) ) {
-				$entry[$key][] = $val;
-			
-			// Multiple values? 
-			// Convert to array and then append new
-			} else {
-				$tmp		= $entry[$key];
-				$entry[$key]	= [];
-				$entry[$key][]	= $tmp;
-				$entry[$key][]	= $val;
-			}
+			if ( empty( $name ) ) { continue; }
+			$headers[$name] = $value;
 		}
 		
-		if ( !empty( $entry ) ) {
-			$parsed[] = $entry;
-		}
+		return $headers;
 	}
 	
-	$parsed		= \array_map( 'Util::array_normalize_keys', $parsed );
-	$coarse_last	= [];
-	foreach ( $parsed as $entry ) {
-		foreach ( $entry as $k => $v ) {
-			if ( \is_array( $v ) ) {
-				if ( count( $v ) > 0 ) {
-					$coarse_last[$k] = end( $v );
+	/**
+	 *  Forwarded HTTP header chain from load balancer
+	 *  
+	 *  @return array
+	 */
+	private static function _canonical_forwarded() : array {
+		static $data;
+		
+		if ( isset( $data ) ) { return $data; }
+		
+		$raw	= 
+			$_SERVER['HTTP_FORWARDED'] ??
+			$_SERVER['FORWARDED'] ?? 
+			$_SERVER['HTTP_X_FORWARDED'] ?? '';
+			
+		if ( empty( $raw ) ) { 
+			$data = []; 
+			return $data; 
+		}
+		$parsed	= [];
+		
+		// Split by comma: each element is a proxy hop
+		$hops	= Util::trimmed_list( $raw, false, ',' );
+			
+		// Gather forwarded values
+		foreach ( $hops as $hop ) {
+			$entry	= [];
+			$pairs	= Util::trimmed_list( $hop, true, ';' );
+			
+			foreach ( $pairs as $pair ) {
+				[ $key, $val ]	= 
+				\array_map( 
+					fn( $v ) => Sanitize::filter( $v ), 
+					explode( '=', $pair, 2 ) + ['', ''] 
+				);
+				
+				if ( '' === $key || '' === $val ) { continue; }
+				
+				$val	= \trim( $val, "\"" ); // remove optional quotes
+				
+				// Fresh value?
+				if ( !isset( $entry[$key] ) ) {
+					$entry[$key] = $val;
+				
+				// Existing array? Append
+				} elseif ( \is_array( $entry[$key] ) ) {
+					$entry[$key][] = $val;
+					
+					// Multiple values? 
+					// Convert to array and then append new
+				} else {
+					$tmp		= $entry[$key];
+					$entry[$key]	= [];
+					$entry[$key][]	= $tmp;
+					$entry[$key][]	= $val;
 				}
-			} else {
-				$coarse_last[$k] = $v;
 			}
+			
+			if ( !empty( $entry ) ) { $parsed[] = $entry; }
 		}
-	}
-	
-	$coarse_first	= [];
-	foreach ( $parsed as $entry ) {
-		foreach ( $entry as $k => $v ) {
-			if ( !isset( $coarse_first[$k] ) ) {
-				$coarse_first[$k] = 
-				\is_array( $v ) ? current( $v ) : $v;
-			}
-		}
-	}
-	
-	$data		= [
-		'detail'	=> $parsed,
-		'coarse_first'	=> $coarse_first,
-		'coarse_last'	=> $coarse_last,
-		'summary'	=> \array_merge_recursive( ...$parsed )
-	];
-	return $data;
-}
-
-/**
- *  Forwarded summary helper
- *  
- *  @return array
- */
-function request_forwarded() : array {
-	static $all;
-	$all ??= request_canonical_forwarded()['all'] ?? [];
-	
-	return $all;
-}
-
-/**
- *  Current request host
- *  
- *  @param string	$sent	Checked host key
- *  @return string
- */
-function request_host( ?string $sent = null ) : string {
-	static $cache	= [];
-	$sent		??= 'default';
-	
-	if ( isset( $cache[$sent] ) ) { return $cache[$sent]; }
-	
-	if ( 'default' !== $sent ) {
-		return $cache[$sent]	= Sanitize::host( $sent );
-	}
-	
-	$fwd		= request_forwarded();
-	if ( isset( $fwd['host'] ) && '' !== $fwd['host'] ) {
-		$host		= 
-		\is_array( $fwd['host'] ) 
-			? $fwd['host'][0] 
-			: $fwd['host'];
 		
-		$cache[$sent]	= Sanitize::host( $host );
-		return $cache[$sent];
-	}
-	
-	$cache[$sent]	= 
-	match( true ) {
-		( !empty( $_SERVER['HTTP_HOST'] ) )
-			=> Sanitize::host( $_SERVER['HTTP_HOST'] ),
-		( !empty( $_SERVER['SERVER_NAME'] ) )
-			=> Sanitize::host( $_SERVER['SERVER_NAME'] ),
-		( !empty( $_SERVER['SERVER_ADDR'] ) )
-			=> Sanitize::host( $_SERVER['SERVER_ADDR'] ),
-		default	=> ''
-	};
-	
-	return $cache[$sent];
-}
-
-/**
- *  Get client IP address from forwarded data
- *  
- *  @return array
- */
-function request_canonical_ip() : array {
-	static $data;
-	if ( isset( $data ) ) { return $data; }
-	
-	$fwd	= request_canonical_forwarded();
-	$raw	= $fwd['coarse_last']['for'] ?? '';
-	
-	// Prefer last 'for' value from Forwarded header
-	if ( !empty( $raw ) ) {
-		if ( \preg_match( '/^\[?([a-fA-F0-9:.]+)\]?(:\d+)?$/', $raw, $match ) ) {
-			$ip	= $match[1];
-		} elseif ( 'unknown' === \strtolower( $raw ) ) {
-			$ip	= 'unknown';
-		} else {
-			$ip	= $raw;
+		$parsed		= \array_map( 'Util::array_normalize_keys', $parsed );
+		$coarse_last	= [];
+		foreach ( $parsed as $entry ) {
+			foreach ( $entry as $k => $v ) {
+				if ( \is_array( $v ) ) {
+					if ( count( $v ) > 0 ) {
+						$coarse_last[$k] = end( $v );
+					}
+				} else {
+					$coarse_last[$k] = $v;
+				}
+			}
 		}
-		$data	= [
-			'ip'		=> $ip,
-			'source'	=> 'forwarded'
+		
+		$coarse_first	= [];
+		foreach ( $parsed as $entry ) {
+			foreach ( $entry as $k => $v ) {
+				if ( !isset( $coarse_first[$k] ) ) {
+					$coarse_first[$k] = 
+					\is_array( $v ) ? current( $v ) : $v;
+				}
+			}
+		}
+		
+		$data		= [
+			'detail'	=> $parsed,
+			'coarse_first'	=> $coarse_first,
+			'coarse_last'	=> $coarse_last,
+			'summary'	=> \array_merge_recursive( ...$parsed )
 		];
 		return $data;
 	}
 	
-	// Fallback to REMOTE_ADDR
-	$data	= [
-		'ip'		=> $_SERVER['REMOTE_ADDR'] ?? 'unknown',
-		'source'	=> 'remote_addr'
-	];
-	return $data;
-}
-
-/**
- *  Get IP address (best guess)
- *  
- *  @param bool		$skip	Skip private range checking
- *  @return string
- */
-function request_ip( bool $skip = false ) : string {
-	static $ip;
-	static $ip_unf;
-	
-	if ( $skip && isset( $ip_unf ) ) { return $ip_unf; }
-	if ( !$skip && isset( $ip ) ) { return $ip; }
-	
-	$info		= request_canonical_ip();
-	$candidate	= $info['ip'] ?? '';
-	
-	$ip_unf		= \filter_var( $candidate, \FILTER_VALIDATE_IP ) ?: '';
-	$ip		= 
-	\filter_var(
-		$candidate,
-		\FILTER_VALIDATE_IP,
-		\FILTER_FLAG_NO_PRIV_RANGE | \FILTER_FLAG_NO_RES_RANGE
-	) ?: '';
-	
-	return $skip ? $ip_unf : $ip;
-}
-
-/**
- *  Get full request URI
- *  
- *  @return string
- */
-function request_uri( ?string $sent = null ) : string {
-	static $uri	= [];
-	$sent		??= 'default';
-	
-	if ( isset( $uri[$sent] ) ) { return $uri[$sent]; }
-	
-	$raw		= 
-	$sent === 'default' 
-		? ( $_SERVER['REQUEST_URI'] ?? '' )
-		: $sent;
-	
-	$uri[$sent]	= Sanitize::uri( $raw ) ?? '';
-	return $uri[$sent];
-}
-
-/**
- *  Get current request path
- *  
- *  @return string
- */
-function request_path() : string {
-	static $path;
-	$path ??= '/' . \ltrim( request_uri(), '/' );
-	
-	return $path;
-}
-
-/**
- *  Select between 'https' and 'http' for current request
- *  
- *  @return string
- */
-function request_scheme() : string {
-	static $scheme;
-	$scheme ??= ( request_is_tls() ? 'https' : 'http' );
-	
-	return $scheme;
-}
-
-/**
- *  Currently requested web realm
- *  
- *  @return string
- */
-function request_origin() : string {
-	static $web;
-	if ( isset( $web ) ) { return $web; }
-	
-	$web	= request_scheme() . '://' . request_host();
-	$port	= $_SERVER['SERVER_PORT'] ?? null;
-	
-	if ( $port && !\in_array( $port, [ 80, 443 ] ) ) {
-		$web .= ':' . $port;
+	/**
+	 *  Forwarded summary helper
+	 *  
+	 *  @return array
+	 */
+	public static function _forwarded() : array {
+		static $all;
+		$all ??= static::_canonical_forwarded()['all'] ?? [];
+		
+		return $all;
 	}
-	return $web;
-}
-
-/**
- *  Browser User Agent
- *  
- *  @return string
- */
-function request_ua() : string {
-	static $ua;
-	$ua	??= \trim( $_SERVER['HTTP_USER_AGENT'] ?? '' );
 	
-	return $ua;
-}
-
-/**
- *  Get unparsed request query
- */
-function request_query() : string {
-	static $qs;
-	$qs	??= Sanitize::query( false ) ?? '';
-	
-	return $qs;
-	
-}
-
-/**
- *  Complete request including host, path, and query
- *  
- *  @return string
- */
-function request_url() : string {
-	$uri	= \ltrim( request_uri(), '/' );
-	$query	= Sanitize::query( true, true ) ?? '';
-	$query	= 
-	\is_array( $query )
-		? Util::array_to_query( $query ) 
-		: ( string ) $query;
-	
-	return request_origin() . '/' . 
-		$uri .  ( '' === $query ? '' : "?{$query}" );
-}
-
-/**
- *  Check for current ETag in request
- *  
- *  @return string
- */
-function request_none_match() : string {
-	static $etag;
-
-	$etag	??= $_SERVER['HTTP_IF_NONE_MATCH'] ?? '';
-	return $etag;
-}
-
-/**
- *  Check If-None-Match header against given ETag
- *  
- *  @return true if header not set or if ETag doesn't match
- */
-function request_modified( string $etag ) : bool {
-	$check	= request_none_match();
-	if ( empty( $check ) ) { return true; }
-	
-	return ( 0 !== \strcmp( $etag, $check ) );
-}
-
-/**
- *  Time since request modified
- *  
- *  @return mixed
- */
-function request_modified_since() : ?int {
-	static $init	= false;
-	static $since	= null;
-	
-	if ( $init ) { return $since; }
-	$init		= true;
-	
-	$header		= $_SERVER['HTTP_IF_MODIFIED_SINCE'] ?? null;
-	if ( !$header ) { return null; }
-	
-	$since		= \strtotime( $header ) ?: null;
-	return $since;
-}
-
-/**
- *  Accept-* Header field sorter
- *  
- *  @param string	$header	Server header label
- *  @return array
- */
-function request_accept_header( string $header ) : array {
-	$accept	= trim( $_SERVER[$header] ?? '' );
-	if ( $accept === '' ) { return []; }
-	
-	$parsed = [];
-	foreach ( explode( ',', $accept ) as $part ) {
-		[ $term, $params ] = 
-		\array_pad( explode( ';', \trim( $part ), 2 ), 2, '' );
+	/**
+	 *  Current request host
+	 *  
+	 *  @param string	$sent	Checked host key
+	 *  @return string
+	 */
+	public static function _host( ?string $sent = null ) : string {
+		static $cache	= [];
+		$sent		??= 'default';
 		
-		if ( '' === $term ) { continue; }
+		if ( isset( $cache[$sent] ) ) { return $cache[$sent]; }
 		
-		$quality	= 1.0;
-		if ( \preg_match('/q=([0-9.]+)/i', $params, $match ) ) {
-			$quality = ( float ) $match[1];
+		if ( 'default' !== $sent ) {
+			return $cache[$sent]	= Sanitize::host( $sent );
 		}
 		
-		$parsed[]	= [ 'term' => $term, 'q' => $quality ];
-	}
-	
-	\usort( $parsed, fn( $a, $b ) => $b['q'] <=> $a['q'] );
-	
-	return \array_column( $parsed, 'term' );
-}
-
-/**
- *  Visitor's preferred languages based on Accept-Language header
- *  
- *  @return array
- */
-function request_lang() : array {
-	static $cache;
-	if ( isset( $cache ) ) { return $cache; }
-	
-	$terms	= request_accept_header( 'HTTP_ACCEPT_LANGUAGE' );
-	if ( empty( $terms ) ) {
-		return $cache = [];
-	}
-
-	$result	= [];
-	foreach ( $terms as $term ) {
-		if ( \preg_match( 
-			'/^([a-z]{2,8})(?:-([a-z0-9]{2,8}))?$/i', $term, $m 
-		) ) {
-			$result[] = [
-				'lang'		=> \strtolower( $m[1] ),
-				'locale'	=> 
-				isset( $m[2] ) 
-					? \strtoupper( $m[2] ) 
-					: ''
-			];
-		}
-	}
-	
-	return $cache = $result;
-}
-
-/**
- *  Small helper to check if this is a ranged request
- *  
- *  @return bool
- */
-function request_is_ranged() : bool {
-	$range	= \trim( $_SERVER['HTTP_RANGE'] ?? '' );
-	return $range !== '';
-}
-
-/**
- *  Validate and process requested ranges for a given file size
- *  
- *  @param int $fsize Requested file size in bytes
- *  @return array
- */
-function request_range_header( int $fsize ) : array {
-	$range	= \trim( $_SERVER['HTTP_RANGE'] ?? '' );
-	if ( empty( $range ) ) { return []; }
-	
-	$ranges	= [];
-	if ( !\preg_match( '/^bytes=/', $range ) ) { return $ranges; }
-	
-	[ $prefix, $value ] = 
-	\array_map( 'trim', \explode( '=', $range, 2 ) + [ '', '' ] );
-	
-	foreach ( \explode( ',', $value ) as $segment ) {
-		$segment = trim( $segment );
-		if ( empty( $segment ) ) { continue; }
-		
-		[ $start, $end ] = 
-		\array_map( 'trim', \explode( '-', $segment, 2 ) + [ '', '' ] );
-		
-		// Handle open-ended ranges
-		if ( $start === '' && \ctype_digit( $end ) ) {
-			$suffix	= min( $fsize, ( int ) $end );
-			$start	= $fsize - $suffix;
-			$end	= $fsize - 1;
-		} else {
-			$start	= $start === '' ? 0 : $start;
-			$end	= $end === '' ? $fsize - 1 : $end;
+		$fwd		= static::_forwarded();
+		if ( isset( $fwd['host'] ) && '' !== $fwd['host'] ) {
+			$host		= 
+			\is_array( $fwd['host'] ) 
+				? $fwd['host'][0] 
+				: $fwd['host'];
+				
+				$cache[$sent]	= Sanitize::host( $host );
+				return $cache[$sent];
 		}
 		
-		if ( 
-			!\ctype_digit( ( string ) $start ) || 
-			!\ctype_digit( ( string ) $end ) 
-		) { continue; }
+		$cache[$sent]	= 
+		match( true ) {
+			( !empty( $_SERVER['HTTP_HOST'] ) )
+				=> Sanitize::host( $_SERVER['HTTP_HOST'] ),
+			( !empty( $_SERVER['SERVER_NAME'] ) )
+				=> Sanitize::host( $_SERVER['SERVER_NAME'] ),
+			( !empty( $_SERVER['SERVER_ADDR'] ) )
+				=> Sanitize::host( $_SERVER['SERVER_ADDR'] ),
+			default	=> ''
+		};
 		
-		$start		= ( int ) $start;
-		$end		= ( int ) $end;
-		
-		// Validate and normalize
-		if ( $start > $end || $start >= $fsize ) { continue; }
-		
-		$end		= \min( $end, $fsize - 1 );
-		$ranges[]	= [ $start, $end ];
+		return $cache[$sent];
 	}
 	
-	return Util::merge_ranges( $ranges );
+	/**
+	 *  Get full request URI
+	 *  
+	 *  @return string
+	 */
+	private static function _uri() : string {
+		static $uri;
+		$uri		??= 
+		'/' . \ltrim( Sanitize::uri( $_SERVER['REQUEST_URI'] ?? '' ), '/' );
+		
+		return $uri; 
+	}
+	
+	/**
+	 *  Select between 'https' and 'http' for current request
+	 *  
+	 *  @return string
+	 */
+	private static function _scheme() : string {
+		return static::_is_tls() ? 'https' : 'http';
+	}
+	
+	/**
+	 *  Currently requested web realm
+	 *  
+	 *  @return string
+	 */
+	private static function _origin() : string {
+		static $web;
+		if ( isset( $web ) ) { return $web; }
+		
+		$web	= static::_scheme() . '://' . static::_host();
+		$port	= $_SERVER['SERVER_PORT'] ?? null;
+		
+		if ( $port && !\in_array( $port, [ 80, 443 ] ) ) {
+			$web .= ':' . $port;
+		}
+		return $web;
+	}
+	
+	/**
+	 *  Complete request including host, path, and query
+	 *  
+	 *  @return string
+	 */
+	private static function _url() : string {
+		$uri	= \ltrim( static::_uri(), '/' );
+		$query	= Sanitize::query( true, true ) ?? '';
+		$query	= 
+		\is_array( $query )
+			? Util::array_to_query( $query ) 
+			: ( string ) $query;
+			
+		return static::_origin() . '/' . 
+			$uri .  ( '' === $query ? '' : "?{$query}" );
+	}
 }
 
 
@@ -4145,9 +4175,9 @@ function response_status( int $code, ?array $allow = null ) : void {
 	
 	// Special cases
 	if ( isset( $custom[$code] ) ) {
-		$prot	= request_protocol();
+		$prot	= Request::instance()->protocol;
 		$msg	= $custom[$code];
-		\header( "$prot $code $msg", true, $code );
+		\header( "HTTP/{$prot} {$code} {$msg}", true, $code );
 		return;
 	}
 	
@@ -4204,7 +4234,7 @@ function response_headers( array $headers, &$ct_sent, &$lo_sent ) : void {
  *  @return array
  */
 function response_xmlrpc_headers( ?string $origin = null ) : array {
-	$origin ??= request_origin();
+	$origin ??= Request::instance()->origin;
 	
 	return [
 		'Access-Control-Allow-Origin'		=> $origin,
@@ -4363,7 +4393,7 @@ function response_get_meta_cache( string $fpath ) : array|null {
 			return null;
 		}
 	
-		$curr_mtime	= storage_filemtime( $fpath );
+		$curr_mtime	= Storage::file_time( $fpath );
 		$curr_size	= Storage::file_size( $fpath );
 		
 	} catch ( \Throwable $e ) {
@@ -4445,7 +4475,7 @@ function response_file_metadata( string $path, bool $is_cached = false ) : array
 	}
 	
 	$fsize	= Storage::file_size( $fpath );
-	$mtime	= storage_filemtime( $fpath );
+	$mtime	= Storage::file_time( $fpath );
 	$mime	= Storage::file_mime( $fpath );
 	
 	$etag	= response_generate_etag( $fsize, $mtime );
@@ -4745,7 +4775,7 @@ function response_text( string $text, int $status = 200, array $headers = [] ) :
  *  OPTIONS header response helper
  */
 function response_options( array $headers = [] ) : void {
-	$method	= request_method();
+	$method	= Request::instance()->method;
 	if ( 0 === \strcasecmp( 'options', $method ) ) {
 		response( 204, $headers );
 		exit();
@@ -5115,7 +5145,7 @@ function config_realm() : array {
 	}
 	
 	// Detect current host
-	$host	= \strtolower( request_host() );
+	$host	= \strtolower( Request::instance()->host );
 	$realm	= [];
 	
 	// Match realm first
@@ -9008,11 +9038,11 @@ function sess_write( $session_id, $data ) {
 		);
 		
 		$host	= 
-		\idn_to_ascii( request_host(), \IDNA_DEFAULT, \INTL_IDNA_VARIANT_UTS46 );
+		\idn_to_ascii( Request::instance()->host, \IDNA_DEFAULT, \INTL_IDNA_VARIANT_UTS46 );
 		return $stmt->execute( [
 			':basename'	=> \strtolower( $host ),
 			':id'		=> $session_id,
-			':ip'		=> request_ip( true ),
+			':ip'		=> Request::instance()->ip( true ),
 			':data'		=> $data
 		] );
 	} );
@@ -9094,7 +9124,7 @@ function sess_init() : void {
 	$params	??= 
 	\session_set_cookie_params( [
 		'httponly'	=> true, 
-		'secure'	=> request_is_tls(), 
+		'secure'	=> Request::instance()->is_tls, 
 		'samesite'	=> 'Strict', 
 		'path'		=> config( 'cookie_path', '/' ), 
 	] );
@@ -9864,7 +9894,8 @@ function startup() : void {
 	hook_autoload();
 	
 	$routes	= route_resolve();
-	route( $routes, request_uri(), request_method() );
+	$request = Request::instance();
+	route( $routes, $request->uri, $request->method );
 }
 
 /**
@@ -10178,13 +10209,13 @@ function logNotice( string $msg ) : bool {
  *  @return bool
  */
 function visitorError( int $code = 0, string $msg = '-' ) {
-	$mt	= request_method();
+	$mt	= Request::instance()->method;
 	
 	$ua	= logStr( $_SERVER['HTTP_USER_AGENT'] ?? '-' );
 	$me	= logStr( empty( $mt ) ? 'unknown' : $mt );
 	$uri	= logStr( $_SERVER['REQUEST_URI'] ?? '' );
 	
-	$err	= $code . ' ' . request_ip( true ) . ' ' . $me . ' ' . $msg . ' ' . 
+	$err	= $code . ' ' . Request::instance()->ip( true ) . ' ' . $me . ' ' . $msg . ' ' . 
 			$ua . ' ' . $uri;
 	
 	shutdown( 'logError', [ $err, false ] );
@@ -11106,7 +11137,7 @@ function sameSiteCookie() : string {
 		return 'Strict';
 	}
 	
-	return request_is_tls() ? 'None' : 'Lax';
+	return Request::instance()->is_tls ? 'None' : 'Lax';
 }
 
 /**
@@ -11121,11 +11152,12 @@ function cookiePrefix() : string {
 	}
 	
 	$cpath	= config( 'cookie_path', '/' );
+	$tls	= Request::instance()->is_tls;
 	
 	// Enable locking if connection is secure and path is '/'
 	$prefix	= 
-	( 0 === \strcmp( $cpath, '/' ) && request_is_tls() ) ? 
-		'__Host-' : ( request_is_tls() ? '__Secure-' : '' );
+	( 0 === \strcmp( $cpath, '/' ) && $tls) ? 
+		'__Host-' : ( $tls ? '__Secure-' : '' );
 	
 	return $prefix;
 }
@@ -11137,7 +11169,7 @@ function cookiePrefix() : string {
  */
 function appKey() : string {
 	return 
-	cookiePrefix() . \hash( 'tiger160,4', getHost() . request_protocol() );
+	cookiePrefix() . \hash( 'tiger160,4', getHost() . Request::instance()->protocol );
 }
 
 /**
@@ -11160,7 +11192,7 @@ function defaultCookieOptions( array $options = [] ) : array {
 			( int ) ( $options['expires'] ?? time() + $cexp ),
 		'path'		=> $cpath,
 		'samesite'	=> sameSiteCookie(),
-		'secure'	=> request_is_tls() ? true : false,
+		'secure'	=> Request::instance()->is_tls,
 		'httponly'	=> true
 	];
 	
@@ -11824,7 +11856,7 @@ function sendAllowHeader() {
  *  @param string	$msg		Header message
  */
 function protocolHeader( int $code, string $msg ) {
-	$prot = request_protocol();
+	$prot = Request::instance()->protocol;
 	\header( "$prot $code $msg", true );
 }
 
@@ -11933,7 +11965,7 @@ function getHost() : string {
 	
 	$sk	= getSitesEnabled();
 	$sw	= Util::trimmed_list( implode( ',', array_keys( $sk ) ), true );
-	$raw	= request_host();
+	$raw	= Request::instance()->host;
 
 	$host	= isset( $sw[$raw] ) ? lowercase( $raw ) : '';
 	
@@ -12379,7 +12411,7 @@ function handleOptions() {
  *  @param string	$path	Current request path
  */
 function handleCache( string $path ) {
-	$cache	= getCache( request_url() );
+	$cache	= getCache( Request::instance()->url );
 	
 	if ( empty( $cache ) ) {
 		return;
@@ -12484,8 +12516,9 @@ function request( string $event, array $hook, array $params ) : array {
 	}
 	
 	// Sanity checks
-	$path	= request_uri();
-	$verb	= request_method();
+	$req	= Request::instance();
+	$path	= $req->uri;
+	$verb	= $req->method;
 	$safe	= getAllowedMethods( true );
 	
 	// Unrecognized method?
@@ -12693,19 +12726,20 @@ function fileRequest(
 	}
 	
 	// Check if ranged request
-	$ranged	= request_is_ranged();
+	$req	= Request::instance();
+	$ranged	= $req->is_ranged();
 	
 	// Static file path
 	$fpath	= config( 'file_dir', Storage::base() ) . $path;
 	
 	if ( \file_exists( $fpath ) ) {
-		$frange = request_range_header( \filesize( $fpath ) );
+		$frange = $req->range_header( \filesize( $fpath ) );
 		if ( $ranged && empty( $frange ) ) {
 			sendRangeError();
 		}
 
-		$etag	= request_none_match();
-		$mtime	= storage_filemtime( $fpath );
+		$etag	= $req->none_match();
+		$mtime	= Storage::file_time( $fpath );
 		response_file( $fpath, false, $etag, $mtime );
 	}
 	
@@ -13837,7 +13871,7 @@ function formatMeta(
 		'read_time'	=> hook_string( 'formatreadtime', $read ),
 		'tags'		=> formatTags( $tags, $index ),
 		'permalink'	=> 
-		request_origin() . dateSlug( \basename( $path ), $pub )
+		Request::instance()->origin . dateSlug( \basename( $path ), $pub )
 	];
 }
 
@@ -15165,12 +15199,12 @@ function showFeed( string $event, array $hook, array $params ) {
 	
 	// Send result if hook returned content
 	sendOverride( 'feedrender', true );
-	
+	$req	= Request::instance();
 	$tpl	= [
 		'page_title'	=> $ptitle,
 		'tagline'	=> $psub,
-		'home'		=> request_origin(),
-		'path'		=> request_url(),
+		'home'		=> $req->origin,
+		'path'		=> $req->url,
 		'date_gen'	=> Util::rfc_date(),
 		'body'		=> \implode( '', $posts )
 	];
