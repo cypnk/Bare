@@ -2727,10 +2727,10 @@ final class Storage {
 		string		$type, 
 		int		$max_age 
 	) : void {
-			$check = 
-			( 0 === \strcasecmp( 'file', $type ) ) 
-				? $lock_file 
-				: $lock_file . '.lockdir';
+		$check = 
+		( 0 === \strcasecmp( 'file', $type ) ) 
+			? $lock_file 
+			: $lock_file . '.lockdir';
 			
 		$mtime = @\filemtime( $check );
 		if ( $mtime !== false && $mtime < time() - $max_age ) {
@@ -3182,256 +3182,290 @@ final class Storage {
 
 
 /**
- *  Logging and message handling
+ *  @class Logging and message handling
  */
-
-/**
- *  Generate a unique log ID
- *  
- *  @return string
- */
-function log_get_id() : string {
-	return Util::get_id( 'log', false );
-}
-
-/**
- *  Set or get default logging level threshold for detail
- *  
- *  @param string	$level	Logging level
- *  @return mixed
- */
-function log_check_level( string $level ) : ?string {
-	static $priority	= [ 
-		'DEBUG'		=> 0, 
-		'INFO'		=> 1, 
-		'NOTICE'	=> 2, 
-		'WARN'		=> 3, 
-		'ERROR'		=> 4 
+final class Log {
+	
+	/**
+	 *  @var array	$cache{file:string, message:string}	Message and file pairs
+	 */
+	private array $cache	= [];
+	
+	/**
+	 *  @var array	$priority[]				Log level proiority
+	 */
+	private array $priority	= [ 
+			'DEBUG'		=> 0, 
+			'INFO'		=> 1, 
+			'NOTICE'	=> 2, 
+			'WARN'		=> 3, 
+			'ERROR'		=> 4 
 	];
 	
-	// Changed from debug
-	if( !\defined( 'LOG_LEVEL' ) ) {
-		define( 'LOG_LEVEL', 'INFO' );
-	}
+	/**
+	 *  Log constructor
+	 *  
+	 *  @param int		$max_retention	Days to retain archived logs
+	 *  @param int		$max_size	Maximum file size before rollover
+	 *  @param string	$default_level	Default logging level, 'INFO' fallback
+	 *  @param string	$default_log	Base log file name, defaults to 'messages.log'
+	 */
+	public function __construct( 
+		public readonly int	$max_retention, 
+		public readonly int	$max_size, 
+		public readonly string	$default_level,
+		public readonly string	$default_log
+	) {}
 	
-	$level		= \strtoupper( $level );
-	if ( !\array_key_exists( $level, $priority ) ) {
-		$level = 'INFO';
-	}
-	
-	$threshold	= $priority[LOG_LEVEL] ?? 1;
-	return $priority[$level] >= $threshold ? $level : null;
-}
-
-/**
- *  Full log file storage location
- *  
- *  @param string	$fname		Fallback log file name
- *  @return string
- */
-function log_file( string $fname = 'messages.log' ) : string {
-	static $file;
-	$file	??= 
-		Storage::base() . 
+	public static function instance(
+		?int	$max_retention	= null,
+		?int	$max_size	= null,
+		?string	$default_level	= null,
+		?string	$default_log	= null
+	) : self {
+		static $_single		= []; 
+		
+		$max_retention		??= 
+		\defined( 'LOG_MAX_RETENTION' ) 
+			? ( int ) \constant( 'LOG_MAX_RETENTION' ) 
+			: 7;
+		
+		$max_size		??= 
+		\defined( 'LOG_MAX_SIZE' ) 
+			? ( int ) \constant( 'LOG_MAX_SIZE' )
+			: 5242880;
+		
+		$default_level		??= 
+		\defined( 'LOG_LEVEL' )
+			? \constant( 'LOG_LEVEL' )
+			: 'INFO';
+		
+		$default_log		??= 
 		\defined( 'LOG_FILE' ) 
-			? \constant( 'LOG_FILE' ) 
-			: $fname;
-	return $file;
-}
-
-/**
- *  Check if custom log file location is valid. I.E. Within the storage folder
- *  
- *  @param string	$path		Storage path on disk
- *  @return bool
- */
-function log_file_valid( string $path ) : bool {
-	static $root;
-	
-	$root		??= \realpath( Storage::base() );
-	$rpath		= @\realpath( $path );
-	
-	return ( false !== $rpath ) && ( 0 === \strpos( $rpath, $root ) );
-}
-
-/**
- *  Remove stale log files rotated into archives
- *  
- *  @param string	$log_file	Base log file, rotated
- */
-function log_cleanup( string $log_file ) : void {
-	static $ret;
-	
-	$ret	??= 
-	\defined( 'LOG_MAX_RETENTION' ) 
-		? \constant( 'LOG_MAX_RETENTION' ) 
-		: 7;
-	
-	$files		= \glob( $log_file . '.*.log' );
-	if ( !$files ) { return; }
-	
-	$threshold	= time() - ( $ret * 86400 );
-	foreach ( $files as $old ) {
-		if ( !\is_file( $old ) || !\is_writable( $old ) ) { continue; }
+			? \constant( 'LOG_FILE' )
+			: 'messages.log';
 		
-		$mtime = \filemtime( $old );
-		if ( !$mtime ) { continue; }
+		$params	= [ 
+			$max_retention,
+			$max_size,
+			$default_level,
+			$default_log
+		];
 		
-		if ( $mtime < $threshold ) {
-			if ( !@\unlink( $old ) ) {
-				\error_log( "Failed to delete old log file: {$old}" );
+		// Avoid creating a new instance with same params
+		$key		= \hash( 'sha256', \print_r( $params, true ) );
+		$_single[$key]	??= new static( ...$params );
+		
+		return $_single[$key];
+	}
+	
+	/**
+	 *  Generate a unique log ID
+	 *  
+	 *  @return string
+	 */
+	public static function get_id() : string {
+		return Util::get_id( 'log', false );
+	}
+	
+	/**
+	 *  Set or get default logging level threshold for detail
+	 *  
+	 *  @param string	$level	Logging level
+	 *  @return mixed
+	 */
+	private function check_level( string $level ) : ?string {
+		$level		= \strtoupper( $level );
+		$check		= $this->priority[$this->default_level] ?? 1;
+		$threshold	= $this->priority[$level] ?? 1;
+		return $check >= $threshold ? $level : null;
+	}
+	
+	/**
+	 *  Full log file storage location
+	 *  
+	 *  @param string	$fname		Fallback log file name
+	 *  @return string
+	 */
+	private function file_log( ?string $fname = null ) : string {
+		$fname ??= $this->default_log;
+		return Storage::base() . $fname;
+	}
+	
+	/**
+	 *  Check if custom log file location is valid. I.E. Within the storage folder
+	 *  
+	 *  @param string	$path		Storage path on disk
+	 *  @return bool
+	 */
+	private function file_valid( string $path ) : bool {
+		static $root;
+		
+		$root		??= \realpath( Storage::base() );
+		$path		= Sanitize::path_traversal( $path );
+		
+		return ( 0 === \strpos( $path, $root ) );
+	}
+	
+	/**
+	 *  Remove stale log files rotated into archives
+	 *  
+	 *  @param string	$log_file	Base log file, rotated
+	 */
+	private function cleanup( string $log_file ) : void {
+		$files		= \glob( $log_file . '.*.log' );
+		if ( !$files ) { return; }
+		
+		$threshold	= time() - ( $this->max_retention * 86400 );
+		foreach ( $files as $old ) {
+			if ( !\is_file( $old ) || !\is_writable( $old ) ) { continue; }
+			
+			$mtime = \filemtime( $old );
+			if ( !$mtime ) { continue; }
+			
+			if ( $mtime < $threshold ) {
+				if ( !@\unlink( $old ) ) {
+					\error_log( "Failed to delete old log file: {$old}" );
+				}
 			}
 		}
 	}
-}
-
-/**
- *  Rotate given log file
- *  
- *  @param string $log_file Target log file location on disk
- */
-function log_rotate( string $log_file ) : void {
-	static $max_size;
 	
-	$max_size	??= 
-	\defined( 'LOG_MAX_SIZE' ) 
-		? \constant( 'LOG_MAX_SIZE' )
-		: 5242880;
+	/**
+	 *  Rotate given log file
+	 *  
+	 *  @param string $log_file Target log file location on disk
+	 */
+	private function rotate( string $log_file ) : void {
+		
+		if ( !\is_readable( $log_file ) ) { return; }
+		
+		$fsize		= \filesize( $log_file );
+		if ( !$fsize ) { return; }
+		
+		if ( $fsize > $this->max_size ) {
+			$stamp		= \date( 'Ymd_His' );
+			$archive	= "{$log_file}.{$stamp}.log";
+			if ( !\rename( $log_file, $archive ) ) {
+				\error_log( "Failed to archive log: {$log_file}" );
+				return;
+			}
+		}
+		
+		// Retention cleanup
+		$this->cleanup( $log_file );
+	}
 	
-	if ( !\is_readable( $log_file ) ) { return; }
+	/**
+	 *  Core log writer
+	 *  
+	 *  @param array	$pair		Log file location and message combination
+	 */
+	public function write( ?array $pair = null ) : void {
+		static $reg	= false;
+		
+		if ( !$reg ) {
+			$reg	= true;
+			\register_shutdown_function( [ $this, 'write' ] );
+		}
 	
-	$fsize		= \filesize( $log_file );
-	if ( !$fsize ) { return; }
-	
-	if ( $fsize > $max_size ) {
-		$stamp		= \date( 'Ymd_His' );
-		$archive	= "{$log_file}.{$stamp}.log";
-		if ( !\rename( $log_file, $archive ) ) {
-			\error_log( "Failed to archive log: {$log_file}" );
+		// New message added to queue
+		if ( null !== $pair ) {
+			[ $msg_file, $entry ] = $pair;
+			
+			if ( empty( $entry ) || empty( $msg_file ) ) { return; }
+			if ( !\is_string( $entry ) || !\is_string( $msg_file ) ) { return; }
+			
+			$this->cache[] = [ $msg_file, $entry ];
 			return;
 		}
-	}
-	
-	// Retention cleanup
-	log_cleanup( $log_file );
-}
-
-/**
- *  Core log writer
- *  
- *  @param array	$pair		Log file loaction and message combination
- */
-function log_message_write( ?array $pair = null ) : void {
-	static $reg	= false;
-	static $cache	= [];
-	
-	if ( !$reg ) {
-		$reg	= true;
-		\register_shutdown_function( 'log_message_write' );
-	}
-
-	// New message added to queue
-	if ( null !== $pair ) {
-		[ $msg_file, $entry ] = $pair;
 		
-		if ( empty( $entry ) || empty( $msg_file ) ) { return; }
-		if ( !\is_string( $entry ) || !\is_string( $msg_file ) ) { return; }
-		
-		$cache[] = [ $msg_file, $entry ];
-		return;
-	}
-	
-	// Shutdown action
-	$grouped	= [];
-	foreach ( $cache as $set ) {
-		list( $file, $entry ) = $set;
-		$grouped[$file][] = $entry;
-	}
-	
-	$base		= Storage::base();
-	foreach ( $grouped as $file => $entries ) {
-		if ( !log_file_valid( $file ) ) {
-			\error_log( "Log file {$file} is not within storage {$base}" );
-			continue; 
+		// Shutdown action
+		$grouped	= [];
+		foreach ( $this->cache as $set ) {
+			list( $file, $entry ) = $set;
+			$grouped[$file][] = $entry;
 		}
 		
-		log_rotate( $file );
-		$data	= \implode( \PHP_EOL, $entries ) . \PHP_EOL;
-		
-		if ( !Storage::append( $file, $data, true ) ) {
-			\error_log( "Failed to append batched messages to {$file} in {$base}" );
+		$base		= Storage::base();
+		foreach ( $grouped as $file => $entries ) {
+			if ( !$this->file_valid( $file ) ) {
+				\error_log( "Log file {$file} is not within storage {$base}" );
+				continue; 
+			}
+			
+			$this->rotate( $file );
+			$data	= \implode( \PHP_EOL, $entries ) . \PHP_EOL;
+			
+			if ( !Storage::append( $file, $data, true ) ) {
+				\error_log( "Failed to append batched messages to {$file} in {$base}" );
+			}
 		}
 	}
-}
-
-/**
- *  Format log entry into useful and consistent format
- *  
- *  @param string	$msg		Base log message
- *  @param string	$level		Priority level
- *  @return string
- */
-function log_format( string $msg, string $level = 'INFO' ) : string {
-	$id		= log_get_id();
-	$timestamp	= Util::timestamp();
 	
-	$script		= 
-	Sanitize::spaces( \basename( $_SERVER['SCRIPT_NAME'] ?? 'unknown' ) );
-	
-	$msg		= Sanitize::spaces( $msg );
-	return <<<MSG
-[{$timestamp}] [ID:{$id}] [{$script}] [{$level}]
-{$msg}
-
----
-
-MSG;
-}
-
-/**
- *  Main log message handler
- *  
- *  @param array|string		$context	Logging context detail
- *  @param string		$level		Logging level
- *  @param string		$file		Optional log file location, defaults to log_file()
- */
-function log_msg(
-	string|array	$context,
-	string		$level		= 'INFO',
-	?string		$file		= null
-) : void {
-	if ( empty( log_check_level( $level ) ) ) { return; }
-	
-	if ( \is_array( $context ) ) {
-		$msg	= Util::json_uencode( $context );
+	/**
+	 *  Format log entry into useful and consistent format
+	 *  
+	 *  @param string	$msg		Base log message
+	 *  @param string	$level		Priority level
+	 *  @return string
+	 */
+	private function format( string $msg, string $level = 'INFO' ) : string {
+		$id		= static::get_id();
+		$timestamp	= Util::timestamp();
+		$script		= 
+		Sanitize::spaces( \basename( $_SERVER['SCRIPT_NAME'] ?? 'unknown' ) );
 		
-		// Since PHP 8.3
-		if ( !\json_validate( $msg ) ) {
-			\error_log( "Invalid JSON generated for log context" );
-			return;
-		}
-	} else {
-		$msg = $context;
+		$msg		= Sanitize::spaces( $msg );
+		return "[{$timestamp}] [ID:{$id}] [{$script}] [{$level}]\n" .
+			"{$msg}\n\n---\n\n";
 	}
 	
-	$entry	= log_format( $msg, $level );
-	log_message_write( [ $file ?? log_file(), $entry ] );
-}
+	/**
+	 *  Main log message handler
+	 *  
+	 *  @param array|string		$context	Logging context detail
+	 *  @param string		$level		Logging level
+	 *  @param string		$file		Optional log file location, defaults to log_file()
+	 */
+	private function message(
+		string|array	$context,
+		string		$level		= 'INFO',
+		?string		$file		= null
+	) : void {
+		if ( empty( $this->check_level( $level ) ) ) { return; }
+		
+		if ( \is_array( $context ) ) {
+			$msg	= Util::json_uencode( $context );
+			
+			// Since PHP 8.3
+			if ( !\json_validate( $msg ) ) {
+				\error_log( "Invalid JSON generated for log context" );
+				return;
+			}
+		} else {
+			$msg = $context;
+		}
+		
+		$entry	= $this->format( $msg, $level );
+		$this->write( [ $this->file_log( $file ), $entry ] );
+	}
+	
+	public function info( string|array $context, ?string $file = null ) : void {
+		$this->message( $context, 'INFO', $file );
+	}
+	
+	public function warn( string|array $context, ?string $file = null ) : void {
+		$this->message( $context, 'WARN', $file );
+	}
+	
+	public function error( string|array $context, ?string $file = null ) : void {
+		$this->message( $context, 'ERROR', $file );
+	}
 
-function log_info( string|array $context, ?string $file = null ) : void {
-	log_msg( $context, 'INFO', $file );
-}
-
-function log_warn( string|array $context, ?string $file = null ) : void {
-	log_msg( $context, 'WARN', $file );
-}
-
-function log_error( string|array $context, ?string $file = null ) : void {
-	log_msg( $context, 'ERROR', $file );
-}
-
-function log_debug( string|array $context, ?string $file = null ) : void {
-	log_msg( $context, 'DEBUG', $file );
+	public function debug( string|array $context, ?string $file = null ) : void {
+		$this->message( $context, 'DEBUG', $file );
+	}
 }
 
 
@@ -4333,7 +4367,7 @@ function response_get_meta_cache( string $fpath ) : array|null {
 		$curr_size	= Storage::file_size( $fpath );
 		
 	} catch ( \Throwable $e ) {
-		log_error( "Meta cache error: {$e->getMessage()}" );
+		Log::instance()->error( "Meta cache error: {$e->getMessage()}" );
 		return null;
 	}
 	
@@ -4377,7 +4411,7 @@ function response_save_meta_cache( string $fpath, array $meta ) : void {
 			\RuntimeException( "Failed to replace cache file" );
 		}
 	} catch ( \Throwable $e ) {
-		log_error( "Meta cache error: {$e->getMessage()}" );
+		Log::instance()->error( "Meta cache error: {$e->getMessage()}" );
 	}
 }
 
@@ -4612,7 +4646,7 @@ function response_file(
 		}
 	} catch( \Throwable $e ) {
 		$msg	= "File response error";
-		log_error( $msg . ": {$e->getMessage()}" );
+		Log::instance()->error( $msg . ": {$e->getMessage()}" );
 		response_status( 500 );
 		echo $msg;
 	} finally {
@@ -4870,7 +4904,7 @@ function config_message(
 	string	$label		= 'INFO', 
 	?string	$msg_file	= null
 ) : void {
-	log_msg( $msg, $label, config_message_file() );
+	Log::instance()->info( $msg, $label, config_message_file() );
 }
 
 /**
@@ -5667,7 +5701,7 @@ function template_load(
 	\strtolower( \pathinfo( $path, \PATHINFO_EXTENSION ) ?: 'na' );
 	
 	if ( !\in_array( $ext, $allowed, true ) ) {
-		log_error( "Disallowed template extension: {$ext}" );
+		Log::instance()->error( "Disallowed template extension: {$ext}" );
 		
 		throw new 
 		\RuntimeException( "Invalid template type" );
@@ -5688,7 +5722,7 @@ function template_load(
 	$base		= \realpath( $dir . $vdir );
 	
 	if ( !$base ) {
-		log_error( "Invalid base path: {$base}" );
+		Log::instance()->error( "Invalid base path: {$base}" );
 		
 		throw new 
 		\RuntimeException( "Template base path not found" );
@@ -5699,7 +5733,7 @@ function template_load(
 	$relative	= \preg_replace( '#/+#', '/', $relative ); // Duplicate slash fix
 	
 	if ( \str_contains( $relative, '..' ) ) { // No traversal
-		log_error( "Suspicious template path: {$path}" );
+		Log::instance()->error( "Suspicious template path: {$path}" );
 		
 		throw new 
 		\RuntimeException( "Invalid template path" );
@@ -5707,14 +5741,14 @@ function template_load(
 
 	$full	= \realpath( $base . '/' . $relative );
 	if ( !$full || 0 !== \stripos( $full, $base ) ) {
-		log_error( "Template path traversal attempt: {$path}" );
+		Log::instance()->error( "Template path traversal attempt: {$path}" );
 		
 		throw new 
 		\RuntimeException( "Invalid template path" );
 	}
 
 	if ( !\is_readable( $full ) ) {
-		log_error( "Template not found: {$path}" );
+		Log::instance()->error( "Template not found: {$path}" );
 		
 		throw new 
 		\RuntimeException( "Template not readable" );
@@ -5722,13 +5756,13 @@ function template_load(
 
 	$info	= $cache[$full] ??= \file_get_contents( $full );
 	if ( false === $info ) {
-		log_error( "Failed to read template: {$path}" );
+		Log::instance()->error( "Failed to read template: {$path}" );
 		
 		throw new 
 		\RuntimeException( "Failed to read template" );
 	}
 
-	log_debug( "Loaded template: {$full}" );
+	Log::instance()->debug( "Loaded template: {$full}" );
 	return $info;
 }
 
@@ -5749,7 +5783,7 @@ function template_partials(
 ) : string {
 	$max_depth	= 5;
 	if ( $depth > $max_depth ) {
-		log_warn( "Max template include depth exceeded" );
+		Log::instance()->warn( "Max template include depth exceeded" );
 		return $template;
 	}
 	
@@ -5764,7 +5798,7 @@ function template_partials(
 	$partials	= [];
 	foreach ( $includes as $key ) {
 		if ( \in_array( $key, $seen, true ) ) {
-			log_warn( "Circular include detected {$key}" );
+			Log::instance()->warn( "Circular include detected {$key}" );
 			continue;
 		}
 		
@@ -5781,7 +5815,7 @@ function template_partials(
 			);
 			
 		} catch ( \Throwable $e ) {
-			log_warn( "Partial not loaded: {$key}: {$e->getMessage()}" );
+			Log::instance()->warn( "Partial not loaded: {$key}: {$e->getMessage()}" );
 			$partials["{include:{$key}}"]	= '';
 		}
 	}
@@ -5862,7 +5896,7 @@ function template_resolve_nodes(
 		$params['context'] = $context;
 		
 		if ( !$resolver ) {
-			log_warn( "No resolver found for node type: {$type}" );
+			Log::instance()->warn( "No resolver found for node type: {$type}" );
 			
 			// Swap placeholder with error message
 			$content	= 
@@ -5878,11 +5912,11 @@ function template_resolve_nodes(
 				] );
 				
 				if ( null === $content ) {
-					log_warn( "Resolver output failed for type: {$type}" );
+					Log::instance()->warn( "Resolver output failed for type: {$type}" );
 					$content = "<!-- Unknown node type: {$type} -->";
 				}
 			} catch ( \Throwable $e ) {
-				log_warn( "Node resolver error for '{$type}': {$e->getMessage()}" );
+				Log::instance()->warn( "Node resolver error for '{$type}': {$e->getMessage()}" );
 				$content	= 
 				"<!-- Error rendering node: {$type} -->";	
 			}
@@ -6015,11 +6049,11 @@ function template_parse(
 			if ( \is_callable( $loader ) ) {
 				$resolvers	= $loader();
 			} else {
-				log_warn( "Template resolver_loader is not a callable" );
+				Log::instance()->warn( "Template resolver_loader is not a callable" );
 			}
 		}
 	} catch( \Throwable $e ) {
-		log_error( "Error loading resolver: {$e->getMessage()}" );
+		Log::instance()->error( "Error loading resolver: {$e->getMessage()}" );
 	}
 	
 	if ( !empty( $resolvers ) ) {
@@ -7113,7 +7147,7 @@ function format_body(
 	if ( !isset( $sanity ) ) {
 		if ( Util::missing( 'libxml_clear_errors' ) ) {
 			$sanity	= false;
-			log_error( 'Bare requires the libxml extension.' );
+			Log::instance()->error( 'Bare requires the libxml extension.' );
 			return '';
 		}
 		
@@ -7205,7 +7239,7 @@ function view_include( string $file, array $data ) : string {
 		} catch ( \Throwable $e ) {
 			response_end_buffers( true );
 			
-			log_msg( "Error in view {$file}: {$e->getMessage()}", 'ERROR' );
+			Log::instance()->error( "Error in view {$file}: {$e->getMessage()}" );
 			return '';
 		}
 	} )();
@@ -7313,7 +7347,7 @@ function view_render( string $layout, array $vars = [] ) : string {
 	static $stack	= [];
 	
 	if ( Util::value_exists_ci( $layout, $stack ) ) {
-		log_msg( "Recursive view detected: {$layout}", 'ERROR' );
+		Log::instance()->error( "Recursive view detected: {$layout}" );
 		
 		throw new 
 		\RuntimeException( "Recursive view detected" );
@@ -7324,7 +7358,7 @@ function view_render( string $layout, array $vars = [] ) : string {
 		$paths		= view_paths();
 		$file		= view_resolve_path( $paths, $layout );
 		if ( !\is_readable( $file ) ) {
-			log_msg( "View not found: {$layout}", 'ERROR' );
+			Log::instance()->error( "View not found: {$layout}" );
 			
 			throw new 
 			\RuntimeException( "View not found" );
@@ -7336,7 +7370,7 @@ function view_render( string $layout, array $vars = [] ) : string {
 	try {
 		return view_include( $cache[$layout], $vars );
 	} catch( \Throwable $e ) {
-		log_msg( "Error including view {$layout}: {$e->getMessage()}" );
+		Log::instance()->error( "Error including view {$layout}: {$e->getMessage()}" );
 		
 		throw new 
 		\RuntimeException( "Error rendering view" );
@@ -7746,7 +7780,7 @@ function plugin_autoload() : array {
 			
 			// Duplicate plugin name?
 			if ( isset( $plugins[$name] ) ) {
-				log_error( "Plugin {$name} already exists" );
+				Log::instance()->error( "Plugin {$name} already exists" );
 				continue;
 			}
 			
@@ -7790,7 +7824,7 @@ function plugin_init( bool $run = true ) : void {
 			} else { $fn(); }
 			
 		} catch( \Throwable $e ) {
-			log_error(
+			Log::instance()->error(
 				"Plugin {$meta->name} failed initialization: " .
 				$e->getMessage()
 			);
@@ -8182,7 +8216,7 @@ function db_stmt( ?\PDO $dbh, string $sql ) {
 		return $stmt;
 		
 	} catch ( \PDOException $e ) {
-		log_error( "Failed to prepare statement with {$sql}: {$e->getMessage()}" );
+		Log::instance()->error( "Failed to prepare statement with {$sql}: {$e->getMessage()}" );
 		
 		throw new 
 		\RuntimeException( "Database statement preparation failed" );
@@ -8204,7 +8238,7 @@ function db_exec( \PDOStatement $stmt, array $params, string $context ) : bool {
 			? $stmt->execute( $params ) 
 			: $stmt->execute();
 		
-		log_debug( $context );
+		Log::instance()->debug( $context );
 		return $result;
 		
 	} catch( \Throwable $e ) {
@@ -8212,7 +8246,7 @@ function db_exec( \PDOStatement $stmt, array $params, string $context ) : bool {
 		$func	= $trace[1]['function']		?? 'global scope';
 		$file	= $trace[1]['file']		?? 'unknown file';
 		$line	= $trace[1]['line']		?? 'unknown line';
-		log_error(
+		Log::instance()->error(
 			"Error in db_exec: {$context} — {$e->getMessage()} " .
 			"called by {$func} on line {$line} in {$file}"
 		);
@@ -8234,7 +8268,7 @@ function db_exec( \PDOStatement $stmt, array $params, string $context ) : bool {
  */
 function db_exec_batch( \PDO $dbh, string $sql, string $context = 'Batch SQL' ) : bool {
 	if ( empty( trim( $sql ) ) ) {
-		log_msg( "Empty SQL passed to db_exec_batch", 'WARN' );
+		Log::instance()->warn( "Empty SQL passed to db_exec_batch" );
 		return false;
 	}
 	
@@ -8242,13 +8276,13 @@ function db_exec_batch( \PDO $dbh, string $sql, string $context = 'Batch SQL' ) 
 		$dbh->beginTransaction();
 		$dbh->exec( $sql );
 		$dbh->commit();
-		log_msg( $context, 'DEBUG' );
+		Log::instance()->debug( $context );
 		return true;
 
 	} catch ( \PDOException $e ) {
 		$dbh->rollback();
 		
-		log_error( 
+		Log::instance()->error( 
 			"Batch execution failed for SQL " . 
 				\mb_substr( $sql, 0, 100 ) . 
 				": {$e->getMessage()}"
@@ -8275,7 +8309,7 @@ function db_get_property( \PDO $dbh, int $attribute, $default = null ) : mixed {
 		return ( false !== $value && null !== $value ) ? $value : $default;
 		
 	} catch ( \PDOException $e ) {
-		log_warn( "Failed to get PDO attribute {$attribute}: {$e->getMessage()}" );
+		Log::instance()->warn( "Failed to get PDO attribute {$attribute}: {$e->getMessage()}" );
 		return $default;
 	}
 }
@@ -8291,12 +8325,12 @@ function db_get_driver( \PDO $dbh ) : string {
 	
 	$driver = db_get_property( $dbh, \PDO::ATTR_DRIVER_NAME );
 	if ( null === $driver ) {
-		log_warn( "Unable to determine DB driver" );
+		Log::instance()->warn( "Unable to determine DB driver" );
 		return 'unknown';
 	}
 	
 	if ( !\in_array( $driver, $supported, true ) ) {
-		log_warn( "Unsupported DB driver: {$driver}" );
+		Log::instance()->warn( "Unsupported DB driver: {$driver}" );
 	}
 	
 	return \strtolower( $driver );
@@ -8365,7 +8399,7 @@ function db_profile_info( \PDO $dbh, string $profile = 'main' ) : array {
 	$cache ??= config( 'db_profiles', [], 'json' );
 	$config = $cache[$profile] ?? null;
 	if ( !$config ) {
-		log_msg( "Unknown DB profile: {$profile}", 'ERROR' );
+		Log::instance()->error( "Unknown DB profile: {$profile}" );
 		
 		throw new 
 		\InvalidArgumentException( "Unknown DB profile" );
@@ -8456,7 +8490,7 @@ function db_batch_schema(
 	$sql_file	= \realpath( $sql_file );
 	
 	if ( !$sql_file || !\is_readable( $sql_file ) ) {
-		log_error(
+		Log::instance()->error(
 			"Invalid schema file: {$sql_file} for database: {$schema}"
 		);
 		
@@ -8471,7 +8505,7 @@ function db_batch_schema(
 			if ( false !== $found ) { break; }
 			
 		} catch ( \Throwable $e ) {
-			log_error(
+			Log::instance()->error(
 				"Error getting SQL data from {$sql_file}. Retrying"
 			);
 			
@@ -8482,7 +8516,7 @@ function db_batch_schema(
 
 	// No schema file found
 	if ( false === $found ) {
-		log_error( "Failed to read schema file: {$sql_file}" );
+		Log::instance()->error( "Failed to read schema file: {$sql_file}" );
 		
 		throw new
 		\RuntimeException( "Unable to load schema file" );
@@ -8490,7 +8524,7 @@ function db_batch_schema(
 
 	// Nothing in schema file
 	if ( empty( trim( $found ) ) ) {
-		log_error( "Schema file is empty: {$sql_file}" );
+		Log::instance()->error( "Schema file is empty: {$sql_file}" );
 		
 		throw new 
 		\RuntimeException( "Schema file is empty" );
@@ -8512,7 +8546,7 @@ function db_batch_schema(
 		
 	} catch( \Throwable $e ) {
 		$dbh->rollback();
-		log_error(
+		Log::instance()->error(
 			"Error loading database schema file: {$sql_file} " .
 			$e->getMessage() 
 		);
@@ -8531,14 +8565,14 @@ function db_batch_schema(
 function db_get_migrations( string $mi_dir ) : iterable {
 	// No migrations set
 	if ( !\is_dir( $mi_dir ) ) {
-		log_debug( "Called db_migrate() with no migrations" );
+		Log::instance()->debug( "Called db_migrate() with no migrations" );
 		return [];
 	}
 	
 	// Get all .sql files
 	$files = \glob( $mi_dir . '/*.sql' );
 	if ( !$files ) {
-		log_debug( "No migration files found in {$mi_dir}" );
+		Log::instance()->debug( "No migration files found in {$mi_dir}" );
 		return [];
 	}
 	
@@ -8550,7 +8584,7 @@ function db_get_migrations( string $mi_dir ) : iterable {
 		) ) {
 			yield [ 'file' => $file, 'version' => $match[1] ];
 		} else {
-			log_debug(
+			Log::instance()->debug(
 				"Skipping file with no valid version: {$file} in {$mi_dir}"
 			);
 		}
@@ -8572,7 +8606,7 @@ function db_migrate( \PDO $dbh, string $profile ) : void {
 	$migrations	= [];
 	foreach ( db_get_migrations( $mi_dir ) as $m ) {
 		if ( \version_compare( $m['version'], $curr_ver ) <= 0 ) {
-			log_debug(
+			Log::instance()->debug(
 				"Skipping migration {$m['version']} (current version is newer)"
 			);
 			continue;
@@ -8587,10 +8621,10 @@ function db_migrate( \PDO $dbh, string $profile ) : void {
 	foreach ( $migrations as $m ) {
 		try {
 			db_batch_schema( $dbh, $m['file'], $m['version'], "Applied migration from {$m['file']}" );
-			log_info( "Migration {$m['version']} applied successfully" );
+			Log::instance()->info( "Migration {$m['version']} applied successfully" );
 			
 		} catch ( \Throwable $e ) {
-			log_error( "Migration {$m['version']} from {$m['file']} failed: {$e->getMessage()}" );
+			Log::instance()->error( "Migration {$m['version']} from {$m['file']} failed: {$e->getMessage()}" );
 			
 			throw new 
 			\RuntimeException( "Migration failed: {$m['version']}" );
@@ -8619,19 +8653,19 @@ function db_maintenance( \PDO $dbh, array $config ) : void {
 	$settings	= $dbh->query( $sql )->fetchColumn();
 	
 	if ( false === $settings ) {
-		log_info( "No database maintenance settings found" );
+		Log::instance()->info( "No database maintenance settings found" );
 		$settings	= '{ "last_maintenance" : 0 }'; // Fallback
 	}
 	
 	// Since PHP 8.3
 	if ( !\json_validate( $settings ) ) {
-		log_error( "Error decoding maintenance settings" );
+		Log::instance()->error( "Error decoding maintenance settings" );
 		return;
 	}
 	
 	$info	= \json_decode( $settings, true );
 	if ( false === $info || !\is_array( $info ) ) {
-		log_error( "Invalid JSON in maintenance settings" );
+		Log::instance()->error( "Invalid JSON in maintenance settings" );
 		return;
 	}
 	
@@ -8640,22 +8674,22 @@ function db_maintenance( \PDO $dbh, array $config ) : void {
 	
 	// Skip if not needed
 	if ( ( $now - $last_maint ) < $maint ) {
-		log_debug( "Maintenance not required yet" );
+		Log::instance()->debug( "Maintenance not required yet" );
 		return;
 	}
 	
 	$commands	= $config['maint_exec'] ?? [];
 	if ( !\is_array( $commands ) || empty( $commands ) ) {
-		log_warn( "No maintenance commands configured" );
+		Log::instance()->warn( "No maintenance commands configured" );
 		return;
 	}
 	
 	foreach ( $commands as $cmd ) {
 		try {
 			$dbh->exec( $cmd );
-			log_info( "Executed maintenance command: {$cmd}" );
+			Log::instance()->info( "Executed maintenance command: {$cmd}" );
 		} catch ( \PDOException $e ) {
-			log_error( "Maintenance command failed: {$cmd} — {$e->getMessage()}" );
+			Log::instance()->error( "Maintenance command failed: {$cmd} — {$e->getMessage()}" );
 		}
 	}
 	
@@ -8668,7 +8702,7 @@ function db_maintenance( \PDO $dbh, array $config ) : void {
 		':settings' => $new_settings
 	], "Initiating database maintenance" );
 	
-	log_info( "Database maintenance completed" );
+	Log::instance()->info( "Database maintenance completed" );
 }
 
 /**
@@ -8691,7 +8725,7 @@ function db_with_transaction( \PDO $dbh, callable $fn ) : mixed {
 			$dbh->rollBack();
 		}
 		
-		log_error( "Error completing transaction via callable" );
+		Log::instance()->error( "Error completing transaction via callable" );
 		return false;
 	}
 }
@@ -8761,7 +8795,7 @@ function db_get( string $profile = 'main', ?array $new_profiles = null ) : \PDO 
 		
 	} catch ( \PDOException $e ) {
 		// Handle connection errors gracefully
-		log_error( "Database connection failed: {$e->getMessage()}" );
+		Log::instance()->error( "Database connection failed: {$e->getMessage()}" );
 		die( 'Unable to connect to database' );
 	}
 	
@@ -9080,9 +9114,8 @@ function sess_init() : void {
 	
 	if ( \session_status() === \PHP_SESSION_NONE ) {
 		if ( \headers_sent( $file, $line ) ) {
-			log_msg( 
-				"Cannot start session: headers already sent by {$file} on line {$line}",
-				'ERROR' 
+			Log::instance()->error( 
+				"Cannot start session: headers already sent by {$file} on line {$line}"
 			);
 			
 			throw new 
@@ -9091,16 +9124,16 @@ function sess_init() : void {
 		
 		try {
 			if ( !\session_start() ) { // Something else went wrong
-				log_error( "Session failed to start" );
+				Log::instance()->error( "Session failed to start" );
 				
 				throw new 
 				\RuntimeException( "Session start failed" );
 			}
 			
-			log_debug( "Session started: " . \session_id() );
+			Log::instance()->debug( "Session started: " . \session_id() );
 		} catch ( \Throwable $e ) {
 			
-			log_error( "Session error: {$e->getMessage()}" );
+			Log::instance()->error( "Session error: {$e->getMessage()}" );
 			error_page();
 		}
 	}
@@ -9792,7 +9825,7 @@ function init_startup_log() : void {
 		'These required library(ies) may be missing or disabled: ' . 
 			implode( ', ', $miss['required'] );
 		
-		log_error( Text::truncate( Sanitize::spaces( $msg ), 0, 2048 ), $log );
+		Log::instance()->error( Text::truncate( Sanitize::spaces( $msg ), 0, 2048 ), $log );
 	}
 	
 	if ( !empty( $miss['optional'] ) ) {
@@ -9800,7 +9833,7 @@ function init_startup_log() : void {
 		'These recommended function(s) or library(ies) may be missing or disabled: ' . 
 			implode( ', ', $miss['optional'] );
 		
-		log_info( Text::truncate( Sanitize::spaces( $msg ), 0, 2048 ), $log );
+		Log::instance()->info( Text::truncate( Sanitize::spaces( $msg ), 0, 2048 ), $log );
 	}
 }
 
