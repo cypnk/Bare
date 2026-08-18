@@ -753,6 +753,21 @@ function error_handle( \Throwable $e ) : void {
  */
 final class Util {
 	
+	protected static array $timezone_cache;
+	
+	protected static array $extensions;
+	
+	/**
+	 *  Currently running extensions
+	 *  
+	 *  @return array
+	 */
+	public static function extensions() : array {
+		// Currently running extensions
+		static::$extensions	??= \get_loaded_extensions();
+		return static::$extensions;
+	}
+	
 	/**
 	 *  Check if a specific library or if PHP is the given version or above
 	 *  
@@ -775,7 +790,7 @@ final class Util {
 		}
 		
 		// Currently running extensions
-		$ext	??= \get_loaded_extensions();
+		$ext	??= static::extensions();
 		
 		foreach ( $ext as $e ) {
 			if ( \str_starts_with( $e, $lib ) ) {
@@ -865,6 +880,40 @@ final class Util {
 	}
 	
 	/**
+	 *  Attempt to detect text encoding
+	 *  
+	 *  @param string	$text		Searching block
+	 *  @param array	$encodings	List of possible encodings
+	 *  @return string
+	 */
+	public static function detect_encoding( string $text, array $encodings ) : string {
+		foreach ( $encodings as $enc ) {
+			if ( \mb_check_encoding( $text, $enc ) ) {
+				return $enc;
+			}
+		}
+		
+		return \mb_detect_encoding( $text, \mb_detect_order(), true ) ?: 'ISO-8859-1';
+	}
+	
+	/**
+	 *  Attempt to convert text to UTF-8
+	 *  
+	 *  @param string	$text Converting block
+	 *  @return string
+	 */
+	public static function utf8( string $text, string $default = 'ISO-8859-1' ) : string {
+		static $pool	= 
+		[ 'UTF-8', 'ISO-8859-15', 'Windows-1252', 'Shift_JIS', 'EUC-JP', 
+			'GB2312', 'GBK', 'Big5', 'ASCII', 'MacRoman', 'KOI8-R', 
+			'UTF-16', 'UTF-32', 'ISO-8859-1' ];
+		
+		$enc		= static::detect_encoding( $text, $pool ) ?? $default;
+		$out		= \mb_convert_encoding( $text, 'UTF-8', $enc );
+		return ( false === $out ) ? '' : $out;
+	}
+	
+	/**
 	 *  Generate a unique, sortable timestamp based on set label
 	 *  
 	 *  @param string	$label		Stamp descriptor for categories etc...
@@ -879,12 +928,96 @@ final class Util {
 		
 		return "{$stamp}{$label}_{$id}";
 	}
+		
+	/**
+	 *  Filter number within min and max range, inclusive
+	 *  
+	 *  @param mixed	$val		Given default value
+	 *  @param int		$min		Minimum, returned if less than this
+	 *  @param int		$max		Maximum, returned if greater than this
+	 *  @return int
+	 */
+	public static function int_range( $val, int $min, int $max ) : int {
+		$out = ( int ) $val;
+		
+		return ( $out > $max ) ? $max : ( ( $out < $min ) ? $min : $out );
+	}
+	
+	/**
+	 *  Generate a random string ID based on given random bytes
+	 *  
+	 *  @param int		$bytes		Size of random bytes
+	 *  @param string	$prefix 	Random ID prefix
+	 *  @return string
+	 */
+	public static function gen_key( int $len = 16, ?string $prefix = null ) : string {
+		$len	= static::int_range( $len, 1, 64 );
+		$prefix ??= '';
+		return $prefix . \bin2hex( \random_bytes( \intdiv( $len, 2 ) ) );
+	}
+	
+	/**
+	 *  Generate an alphanumeric string with 32 bytes of random data
+	 *  
+	 *  @return string
+	 */
+	public static function gen_alphanum() : string {
+		return 
+		\preg_replace( 
+			'/[^[:alnum:]]/u', 
+			'', 
+			\base64_encode( \random_bytes( 32 ) ) 
+		);
+	}
+	
+	/**
+	 *  Generate globally unique identifier
+	 *  
+	 *  @param string	$mode	UUID mode, defaults to  v4
+	 *  @return string
+	 */
+	public static function gen_uuid( ?string $mode = null ) : string {
+		$mode	??= 'v4';
+		
+		if ( 0 === \strcasecmp( 'v4', $mode ) ) {
+			$data	= \random_bytes( 16 );
+			$data[6]= \chr( ( \ord( $data[6] ) & 0x0f ) | 0x40 );
+			$data[8]= \chr( ( \ord( $data[8] ) & 0x3f ) | 0x80 );
+			
+			$out	= \str_split( \bin2hex( $data ), 4 );
+		} else {
+			$now	= ( int ) ( \microtime( true ) * 1000 );
+			$sub	= ( int ) ( \hrtime()[1] / 1_000_000 );
+			$stamp	= ( $now << 12 ) | ( $sub & 0x0FFF );
+			
+			$hex	= \str_pad( \dechex( $stamp ), 15, '0', \STR_PAD_LEFT );
+			$hex[12]= '7';
+			
+			$data	= \random_bytes( 8 );
+			$rdata	= \bin2hex( $data );
+			$pfx	= \substr( $rdata, 0, 4 );
+			$pfx[0]	= \dechex( ( \hexdec( $pfx[0] ) & 0x3 ) | 0x8 );
+			
+			$out	= \str_split( $hex . $pfx . \substr( $rdata, 4 ), 4 );
+		}
+		
+		return \vsprintf( '%s-%s-%s-%s-%s', $out );
+	}
+	
+	/**
+	 *  Random UUID shortcut
+	 *  
+	 *  @return string
+	 */
+	public static function gen_guid() : string {
+		return static::gen_uuid( 'v4' );
+	}
 	
 	/**
 	 *  Case insensitive array value search
 	 *  
 	 *  @param string	$value	Array value needle
-	 *  @param array $items	Searching haystack
+	 *  @param array	$items	Searching haystack
 	 *  @return bool
 	 */
 	public static function value_exists_ci( string $value, array $items ) : bool {
@@ -920,6 +1053,74 @@ final class Util {
 			if ( 0 === \strcasecmp( $k, $key ) ) { return $v; }
 		}
 		return null;
+	}
+	
+	/**
+	 *  Safely encode array to JSON
+	 *  
+	 *  @param array	$data		Content to be encoded
+	 *  @return string
+	 */
+	public static function json_uencode( array $data = [] ) : string {
+		if ( empty( $data ) ) {  return ''; }
+		
+		$out = 
+		\json_encode( 
+			$data, 
+			\JSON_HEX_TAG | \JSON_HEX_APOS | \JSON_HEX_QUOT | 
+			\JSON_HEX_AMP | \JSON_UNESCAPED_UNICODE | 
+			\JSON_PRETTY_PRINT 
+		);
+		return ( false === $out ) ? '' : $out;
+	}
+	
+	/**
+	 *  Safely decode JSON to array
+	 *  
+	 *  @param string|array		$data	Content to encode
+	 *  @param int			$depth	Optional maximum encode depth
+	 *  @return array
+	 */
+	public static function json_udecode( array|string $data, int $depth = 10 ) : array {
+		if ( empty( $data ) ) { return []; }	
+		if ( \is_array( $data ) ) { return $data; }
+		
+		// Since PHP 8.3+
+		if ( !\json_validate( $data ) ) { return []; }
+		
+		$depth	= static::int_range( $depth, 1, 50 );
+		$out	= 
+		\json_decode( 
+			static::utf8( $data ), true, $depth, 
+			\JSON_BIGINT_AS_STRING
+		);
+		
+		if ( \json_last_error() !== \JSON_ERROR_NONE ) { return []; }
+		if ( empty( $out ) || false === $out ) { return []; }
+		return $out;
+	}
+	
+	/**
+	 *  Ensure JSON content is valid
+	 *  
+	 *  @param array|string	$json	Raw field data
+	 *  @param bool		$values	Return values only when true
+	 *  @param int		$depth	Maximum decode depth, if parsing string
+	 *  @return array
+	 */
+	public static function json_uarray( 
+		array|string	$json,
+		bool		$values	= false, 
+		int		$depth	= 10 
+	) : array {
+		if ( \is_array( $json ) ) {
+			return $values 
+				? \array_values( $json ) 
+				: $json;
+		}
+		
+		$data	= static::json_udecode( $json, $depth );
+		return $values ? \array_values( $data ) : $data;
 	}
 	
 	/**
@@ -960,6 +1161,29 @@ final class Util {
 		}
 		
 		return $normal;
+	}
+	
+	/**
+	 *  Convert dot value keys to merged result
+	 *  
+	 *  @param array	$items	Raw map (parsed JSON)
+	 *  @param string	$prefix	Dot prefix
+	 */
+	public static function flatten_keys( array $items, string $prefix = '' ) : array {
+		$result = [];
+		foreach ( $items as $key => $value ) {
+			$full_key = $prefix ? "{$prefix}.{$key}" : $key;
+			if ( \is_array( $value ) ) {
+				$result = 
+				\array_merge( 
+					$result, 
+					static::flatten_keys( $value, $full_key ) 
+				);
+			} else {
+				$result[$full_key] = $value;
+			}
+		}
+		return $result;
 	}
 	
 	/**
@@ -1034,288 +1258,6 @@ final class Util {
 		}
 		
 		return \strtr( $content, $rpl );
-	}
-		
-	/**
-	 *  Filter number within min and max range, inclusive
-	 *  
-	 *  @param mixed	$val		Given default value
-	 *  @param int		$min		Minimum, returned if less than this
-	 *  @param int		$max		Maximum, returned if greater than this
-	 *  @return int
-	 */
-	public static function int_range( $val, int $min, int $max ) : int {
-		$out = ( int ) $val;
-		
-		return ( $out > $max ) ? $max : ( ( $out < $min ) ? $min : $out );
-	}
-	
-	/**
-	 *  Attempt to detect text encoding
-	 *  
-	 *  @param string	$text		Searching block
-	 *  @param array	$encodings	List of possible encodings
-	 *  @return string
-	 */
-	public static function detect_encoding( string $text, array $encodings ) : string {
-		foreach ( $encodings as $enc ) {
-			if ( \mb_check_encoding( $text, $enc ) ) {
-				return $enc;
-			}
-		}
-		
-		return \mb_detect_encoding( $text, \mb_detect_order(), true ) ?: 'ISO-8859-1';
-	}
-	
-	/**
-	 *  Attempt to convert text to UTF-8
-	 *  
-	 *  @param string	$text Converting block
-	 *  @return string
-	 */
-	public static function utf8( string $text, string $default = 'ISO-8859-1' ) : string {
-		static $pool	= 
-		[ 'UTF-8', 'ISO-8859-15', 'Windows-1252', 'Shift_JIS', 'EUC-JP', 
-			'GB2312', 'GBK', 'Big5', 'ASCII', 'MacRoman', 'KOI8-R', 
-			'UTF-16', 'UTF-32', 'ISO-8859-1'];
-		
-		$enc		= static::detect_encoding( $text, $pool ) ?? $default;
-		$out		= \mb_convert_encoding( $text, 'UTF-8', $enc );
-		return ( false === $out ) ? '' : $out;
-	}
-	
-	/**
-	 *  Safely encode array to JSON
-	 *  
-	 *  @param array	$data		Content to be encoded
-	 *  @return string
-	 */
-	public static function json_uencode( array $data = [] ) : string {
-		if ( empty( $data ) ) {  return ''; }
-		
-		$out = 
-		\json_encode( 
-			$data, 
-			\JSON_HEX_TAG | \JSON_HEX_APOS | \JSON_HEX_QUOT | 
-			\JSON_HEX_AMP | \JSON_UNESCAPED_UNICODE | 
-			\JSON_PRETTY_PRINT 
-		);
-		return ( false === $out ) ? '' : $out;
-	}
-	
-	/**
-	 *  Safely decode JSON to array
-	 *  
-	 *  @param string|array		$data	Content to encode
-	 *  @param int			$depth	Optional maximum encode depth
-	 *  @return array
-	 */
-	public static function json_udecode( array|string $data, int $depth = 10 ) : array {
-		if ( empty( $data ) ) { return []; }	
-		if ( \is_array( $data ) ) { return $data; }
-		
-		// Since PHP 8.3+
-		if ( !\json_validate( $data ) ) { return []; }
-		
-		$depth	= static::int_range( $depth, 1, 50 );
-		$out	= 
-		\json_decode( 
-			static::utf8( $data ), true, $depth, 
-			\JSON_BIGINT_AS_STRING
-		);
-		
-		if ( \json_last_error() !== \JSON_ERROR_NONE ) { return []; }
-		if ( empty( $out ) || false === $out ) { return []; }
-		return $out;
-	}
-	
-	/**
-	 *  Ensure JSON content is valid
-	 *  
-	 *  @param array|string	$json	Raw field data
-	 *  @param bool		$values	Return values only when true
-	 *  @param int		$depth	Maximum decode depth, if parsing string
-	 *  @return array
-	 */
-	public static function json_uarray( 
-		array|string	$json,
-		bool		$values	= false, 
-		int		$depth	= 10 
-	) : array {
-		if ( \is_array( $json ) ) {
-			return $values 
-				? \array_values( $json ) 
-				: $json;
-		}
-			
-		$data	= static::json_udecode( $json, $depth );
-		return $values ? \array_values( $data ) : $data;
-	}
-	
-	/**
-	 *  Generate a random string ID based on given random bytes
-	 *  
-	 *  @param int		$bytes		Size of random bytes
-	 *  @param string	$prefix 	Random ID prefix
-	 *  @return string
-	 */
-	public static function gen_key( int $len = 16, ?string $prefix = null ) : string {
-		$len	= static::int_range( $len, 1, 64 );
-		$prefix ??= '';
-		return $prefix . \bin2hex( \random_bytes( \intdiv( $len, 2 ) ) );
-	}
-	
-	/**
-	 *  Generate an alphanumeric string with 32 bytes of random data
-	 *  
-	 *  @return string
-	 */
-	public static function gen_alphanum() : string {
-		return 
-		\preg_replace( 
-			'/[^[:alnum:]]/u', 
-			'', 
-			\base64_encode( \random_bytes( 32 ) ) 
-		);
-	}
-	
-	/**
-	 *  Generate globally unique identifier
-	 *  
-	 *  @param string	$mode	UUID mode, defaults to  v4
-	 *  @return string
-	 */
-	public static function gen_uuid( ?string $mode = null ) : string {
-		$mode	??= 'v4';
-		
-		if ( 0 === \strcasecmp( 'v4', $mode ) ) {
-			$data	= \random_bytes( 16 );
-			$data[6]= \chr( ( \ord( $data[6] ) & 0x0f ) | 0x40 );
-			$data[8]= \chr( ( \ord( $data[8] ) & 0x3f ) | 0x80 );
-			
-			$out	= \str_split( \bin2hex( $data ), 4 );
-		} else {
-			$now	= ( int ) ( \microtime( true ) * 1000 );
-			$sub	= ( int ) ( \hrtime()[1] / 1_000_000 );
-			$stamp	= ( $now << 12 ) | ( $sub & 0x0FFF );
-			
-			$hex	= \str_pad( \dechex( $stamp ), 15, '0', \STR_PAD_LEFT );
-			$hex[12]= '7';
-			
-			$data	= \random_bytes( 8 );
-			$rdata	= \bin2hex( $data );
-			$pfx	= \substr( $rdata, 0, 4 );
-			$pfx[0]	= \dechex( ( \hexdec( $pfx[0] ) & 0x3 ) | 0x8 );
-			
-			$out	= \str_split( $hex . $pfx . \substr( $rdata, 4 ), 4 );
-		}
-		
-		return \vsprintf( '%s-%s-%s-%s-%s', $out );
-	}
-	
-	/**
-	 *  Random UUID shortcut
-	 *  
-	 *  @return string
-	 */
-	public static function gen_guid() : string {
-		return static::gen_uuid( 'v4' );
-	}
-	
-	/**
-	 *  Cached timezone list helper
-	 *  
-	 *  @return array
-	 */
-	public static function timezone_list() : array {
-		static $cache	= null;
-		$cache		??= \timezone_identifiers_list();
-		
-		return $cache;
-	}
-	
-	/**
-	 *  Check if given timezone is valid
-	 *  
-	 *  @param string	$tz	Raw timezone
-	 *  @return bool
-	 */
-	public static function timezone_valid( string $tz ) : bool {
-		return \in_array( $tz, static::timezone_list(), true );
-	}
-	
-	/**
-	 *  Check if given date is in the future
-	 *  
-	 *  @param DateTime	$start	Sent stamp
-	 *  @return bool
-	 */
-	public static function date_is_future( \DateTime $start ) : bool {
-		static $now	= null;
-		$now		??= new \DateTime();
-		
-		return $start > $now;
-	}
-	
-	/**
-	 *  Format request date format to archive limit range
-	 *  
-	 *  @param array	$params		Raw URL param
-	 *  @param bool		$limit_now	Limit to current date, if true
-	 *  @return array
-	 */
-	public static function date_range( array $params, bool $limit_now = false ) : array {
-		static $now	= null;
-		
-		$now		??= new \DateTime();
-		$year		= $params['year']	?? null;
-		$month		= $params['month']	?? null;
-		$day		= $params['day']	?? null;
-		$page		= ( int ) ( $params['page'] ?? 1 );
-		
-		if ( null === $year ) { return []; }
-		
-		if ( !\ctype_digit( ( string ) $year ) || $year < 1 ) {
-			return [];
-		}
-		
-		if ( null !== $month && ( $month < 1 || $month > 12 ) ) {
-			return [];
-		}
-		
-		if ( null !== $day ) {
-			if ( null === $month || null === $year ) { return []; }
-			if ( !\checkdate( ( int ) $month, ( int ) $day, ( int ) $year ) ) {
-				return [];
-			}
-		}
-		
-		$start	= 
-		match( true ) {
-			( $year && $month && $day )	=> 
-			new \DateTime( "{$year}-{$month}-{$day} 00:00:00" ),
-				
-			( $year && $month )		=>
-			new \DateTime( "{$year}-{$month}-01 00:00:00" ),
-			
-			default				=> 
-			new \DateTime( "{$year}-01-01 00:00:00" )
-		};
-		
-		$limit	= 
-		match( true ) {
-			( $year && $month && $day )	=> 
-			( clone $start )->modify( '+1 day' ),
-			
-			( $year && $month )		=>
-			( clone $start )->modify( '+1 month' ),
-			
-			default				=> 
-			( clone $start )->modify( '+1 year' )
-		};
-		
-		$end	= ( $limit_now && $limit > $now ) ? $now : $limit;
-		return [ $start, $end, $page ];
 	}
 	
 	/**
@@ -1416,8 +1358,103 @@ final class Util {
 	}
 	
 	/**
+	 *  Cached timezone list helper
+	 *  
+	 *  @return array
+	 */
+	public static function timezone_list() : array {
+		static::$timezone_cache ??= \timezone_identifiers_list();
+		return static::$timezone_cache;
+	}
+	
+	/**
+	 *  Check if given timezone is valid
+	 *  
+	 *  @param string	$tz	Raw timezone
+	 *  @return bool
+	 */
+	public static function timezone_valid( string $tz ) : bool {
+		return \in_array( $tz, static::timezone_list(), true );
+	}
+	
+	/**
+	 *  Check if given date is in the future
+	 *  
+	 *  @param DateTime	$start	Sent stamp
+	 *  @return bool
+	 */
+	public static function date_is_future( \DateTime $start ) : bool {
+		static $now	= null;
+		$now		??= new \DateTime();
+		
+		return $start > $now;
+	}
+	
+	/**
+	 *  Format request date format to archive limit range
+	 *  
+	 *  @param array	$params		Raw URL param
+	 *  @param bool		$limit_now	Limit to current date, if true
+	 *  @return array
+	 */
+	public static function date_range( array $params, bool $limit_now = false ) : array {
+		static $now	= null;
+		
+		$now		??= new \DateTime();
+		$year		= $params['year']	?? null;
+		$month		= $params['month']	?? null;
+		$day		= $params['day']	?? null;
+		$page		= ( int ) ( $params['page'] ?? 1 );
+		
+		if ( null === $year ) { return []; }
+		
+		if ( !\ctype_digit( ( string ) $year ) || $year < 1 ) {
+			return [];
+		}
+		
+		if ( null !== $month && ( $month < 1 || $month > 12 ) ) {
+			return [];
+		}
+		
+		if ( null !== $day ) {
+			if ( null === $month || null === $year ) { return []; }
+			if ( !\checkdate( ( int ) $month, ( int ) $day, ( int ) $year ) ) {
+				return [];
+			}
+		}
+		
+		$start	= 
+		match( true ) {
+			( $year && $month && $day )	=> 
+			new \DateTime( "{$year}-{$month}-{$day} 00:00:00" ),
+				
+			( $year && $month )		=>
+			new \DateTime( "{$year}-{$month}-01 00:00:00" ),
+			
+			default				=> 
+			new \DateTime( "{$year}-01-01 00:00:00" )
+		};
+		
+		$limit	= 
+		match( true ) {
+			( $year && $month && $day )	=> 
+			( clone $start )->modify( '+1 day' ),
+			
+			( $year && $month )		=>
+			( clone $start )->modify( '+1 month' ),
+			
+			default				=> 
+			( clone $start )->modify( '+1 year' )
+		};
+		
+		$end	= ( $limit_now && $limit > $now ) ? $now : $limit;
+		return [ $start, $end, $page ];
+	}
+	
+	/**
 	 *  Convert timestamp to int if it's not in integer format
 	 *  
+	 *  @param mixed	$stamp		Raw text stamp
 	 *  @return int
 	 */
 	public static function time_string_int( $stamp = null ) : ?int {
