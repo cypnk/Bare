@@ -679,72 +679,167 @@ HTML
  **********************************************************************/
 
 /**
- *  Errors and messaging
+ *  @class Errors and messaging
  */
-
-/**
- *  Debugging trace formatter
- *  
- *  @param string	$message	Context message
- *  @param array	$context	Trace path or message detail
- */
-function trace( string $message, array $context = [] ) : void {
-	$ctx	= 
-	empty( $context ) 
-		? ''
-		: ' ' . ( \json_encode( $context, \JSON_UNESCAPED_SLASHES ) ?: '{}' );
+final class Errors {
 	
-	\error_log( \sprintf(
-		"[TRACE] %s %s%s\n",
-		\date( 'Y-m-d H:i:s' ),
-		$message,
-		$ctx
-	) );
-}
-
-/**
- *  Generic user-facing error
- */
-function error_page() : void {
-	\http_response_code( 500 );
-	echo "An unexpected error occurred. Please try again later.";
-	exit( 1 );
-}
-
-/**
- *  Centralized exception handler
- *  
- *  @param Throwable	$e	Generic capture
- */
-function error_handle( \Throwable $e ) : void {
-	static $handling	= false;
-	$class			= \get_class( $e );
+	public function __construct() {}
 	
-	if ( $handling ) {
-		\error_log( 
-			"[FATAL] Recursive exception ( {$class} ): " . 
-			$e->getMessage()
-		);
+	public static function instance() : self {
+		static $_single; 
+		$_single ??= new static();
+		
+		return $_single;
+	}
+	
+	/**
+	 *  @param array $data	Raw context $data
+	 *  @return string
+	 */
+	public static function encode( array $data ) : string {
+		return \json_encode( 
+			data, 
+			\JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES 
+		) ?: '{}';
+	}
+	
+	/**
+	 *  Callable context information helper
+	 *  
+	 *  @param mixed	$val	Callable detail
+	 */
+	public static function describe_callable( mixed $val ) : string {
+		if ( \is_string( $val ) ) {
+			return "[Function: {$val}]";
+		}
+		
+		if ( \is_array( $val ) ) {
+			[ $subject, $method ] = $val;
+			$class = 
+			\is_object( $subject ) 
+				? \get_class( $subject )
+				: ( string ) $subject;
+			return "[Method: {$class}::{$method}]";
+		}
+		if ( $val instanceof Closure ) { return '[Closure]'; }
+		
+		// Something else?
+		return '[Callable]';
+	}
+	
+	/** 
+	 *  Execution debug detail formatting helper
+	 *  
+	 *  @param array	$context	Callable detail
+	 *  @return string
+	 */
+	public static function debug_summary( mixed $context ) : string {
+		$mapped		= 
+		\array_map( static function( $val ) {
+			if ( \is_callable( $val ) ) { 
+				return static::describe_callable( $val );
+			}
+			
+			if ( \is_object( $val ) ) { 
+				return '[Object: ' . \get_class( $val ) . ']'; 
+			}	
+			if ( \is_resource( $val ) ) { 
+				return '[Resource: ' . \get_resource_type( $val ) . ']'; 
+			}
+			
+			return $val;
+		}, $context );
+		return static::encode( $mapped );
+	}
+	
+	public function start_scope() : array {
+		$prev_report	= \error_reporting();
+		\error_reporting( \E_ALL );
+		
+		$prev_handler	= 
+		\set_error_handler( function( $severity, $message, $file, $line ) {
+			throw new 
+			\ErrorException( $message, 0, $severity, $file, $line );
+		} );
+		return [ $prev_report, $prev_handler ];
+	}
+	
+	public function end_scope( array $scope ) : void {
+		[ $prev_report, $prev_handler ]	= $scope;
+		\error_reporting( $prev_report );
+		
+		if ( \is_callable( $prev_handler ) ) {
+			\set_error_handler( $prev_handler );
+			return;
+		}
+		
+		\restore_error_handler();
+	}
+	
+	/**
+	 *  Debugging trace formatter
+	 *  
+	 *  @param string	$message	Context message
+	 *  @param array	$context	Trace path or message detail
+	 */
+	public function trace( string $message, array $context = [] ) : void {
+		$ctx	= 
+		empty( $context ) 
+			? ''
+			: ' ' . static::encode( $context );
+			
+		\error_log( \sprintf(
+			"[TRACE] %s %s%s\n",
+			\date( 'Y-m-d H:i:s' ),
+			$message,
+			$ctx
+		) );
+	}
+	
+	/**
+	 *  Generic user-facing error page
+	 */
+	public static function show_page() : never {
+		\http_response_code( 500 );
+		echo "An unexpected error occurred. Please try again later.";
 		exit( 1 );
 	}
 	
-	$handling		= true;
-	$log			= 
-	\sprintf(
-		"[ERROR] %s %s: %s in %s on line %d\nStack trace:\n%s\n",
-		\date( 'Y-m-d H:i:s' ),
-		$class,
-		$e->getMessage(),
-		$e->getFile(),
-		$e->getLine(),
-		$e->getTraceAsString()
-	);
-	$log	.= 
-	"Request: " . ( $_SERVER['REQUEST_METHOD'] ?? 'CLI' ) . " " .
-	\htmlspecialchars( $_SERVER['REQUEST_URI'] ?? '' ) . "\n";
-	
-	\error_log( $log );
-	error_page();
+	/**
+	 *  Centralized exception handler
+	 *  
+	 *  @param Throwable	$e	Generic capture
+	 */
+	public function handler( \Throwable $e ) : never {
+		static $handling	= false;
+		$class			= \get_class( $e );
+		
+		if ( $handling ) {
+			\error_log( 
+				"[FATAL] Recursive exception ( {$class} ): " . 
+				$e->getMessage()
+			);
+			exit( 1 );
+		}
+		
+		$handling		= true;
+		$log			= 
+		\sprintf(
+			"[ERROR] %s %s: %s in %s on line %d\nStack trace:\n%s\n",
+			\date( 'Y-m-d H:i:s' ),
+			$class,
+			$e->getMessage(),
+			$e->getFile(),
+			$e->getLine(),
+			$e->getTraceAsString()
+		);
+		$log	.= 
+		"Request: " . ( $_SERVER['REQUEST_METHOD'] ?? 'CLI' ) . " " .
+		\htmlspecialchars( $_SERVER['REQUEST_URI'] ?? '' ) . "\n";
+		
+		\error_log( $log );
+		static::show_page();
+	}
 }
 
 
@@ -9907,15 +10002,19 @@ function init_startup_log() : void {
 function startup() : void {
 	static $initialized	= false;
 	
+	$errors	= Errors::instance();
 	if ( !$initialized ) {
 		\date_default_timezone_set( 'UTC' );
 		\ignore_user_abort( true );
 		
-		\set_exception_handler( 'error_handle' );
-		\set_error_handler( function ( $severity, $message, $file, $line ) {
-			throw new
-			\ErrorException( $message, 0, $severity, $file, $line );
-		} );
+		\set_exception_handler( [ $errors, 'handle' ] );
+		
+		if ( defined( 'DEBUG_MODE' ) ) {
+			$errors->trace( 'Request started', [
+				'method'	=> $_SERVER['REQUEST_METHOD'],
+				'uri'		=> $_SERVER['REQUEST_URI']
+			] );
+		}
 		
 		init_startup_log();
 		
@@ -9926,13 +10025,18 @@ function startup() : void {
 		$initialized = true;
 	}
 	
-	$functions	= Util::functions_list( true );
-	plugin_init();
-	hook_autoload();
-	
-	$routes	= route_resolve();
-	$request = Request::instance();
-	route( $routes, $request->uri, $request->method );
+	$scope	= $errors->start_scope();
+	try {
+		$functions	= Util::functions_list( true );
+		plugin_init();
+		hook_autoload();
+		
+		$routes	= route_resolve();
+		$request = Request::instance();
+		route( $routes, $request->uri, $request->method );
+	} finally {
+		$errors->end_scope( $scope );
+	}
 }
 
 /**
