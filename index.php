@@ -844,6 +844,265 @@ final class Errors {
 
 
 /**
+ *  @class Dependency injection helper
+ */
+final class Container {
+	
+	/**
+	 *  @var array<string, mixed>		Instantiated objects and callables
+	 */
+	private array $stack		= [];
+	
+	/**
+	 *  @var array<string, callable-string>	Parsed definitions
+	 */
+	private array $defs		= [];
+	
+	/**
+	 *  @var array<string, bool>		Circular reference/dependency check
+	 */
+	private array $processing	= [];
+	
+	public function __construct() {}
+	
+	public static function instance() : self {
+		static $_single; 
+		$_single ??= new static();
+		
+		return $_single;
+	}
+	
+	/**
+	 *  Error message formatting helper
+	 *  
+	 *  @param string	$msg		Formatted error message 
+	 */
+	private function referror( string $msg ) : never {
+		$path	= 
+		\implode( \array_keys( $this->processing ), '->' ) ?: 'Empty';
+		
+		throw new
+		\RuntimeException( $msg . " | Processing path: {$path}" );
+	}
+	
+	/**
+	 *  Bind named abstract interface to single instance concrete implementation
+	 *  
+	 *  @param string	$abstract	Interface name
+	 *  @param string	$concrete	Class implementation
+	 */
+	public function bind( string $abstract, string $concrete ) : void {
+		$err	= [];
+		if ( !\interface_exists( $abstract ) ) {
+			$err[] = "Interface {$abstract} not found";
+		}
+		
+		if ( !\class_exists( $concrete ) ) {
+			$err[] = "Unable to bind {$abstract} to non-existent class {$concrete}";
+		}
+		
+		if ( !empty( $err ) ) {
+			$this->referror( \implode( $err, '. ' ) );
+		}
+		
+		$this->defs[$abstract]	= [
+			'type'	=> 'singleton',
+			'value'	=> $concrete
+		];
+	}
+	
+	/**
+	 *  Extract interfaces from class and bind to implementations
+	 *  
+	 *  @param string	$class		Class name to process (must exist)
+	 */
+	public function autobind( string $class ) : void {
+		if ( !\class_exists( $class ) ) {
+			$this->referror( 
+				"Unable to autobind non-existent class {$class}" 
+			);
+		}
+		
+		$ref	= new \ReflectionClass( $class );
+		foreach( $ref->getInterfaceNames() as $iface ) {
+			$this->bind( $iface, $class );
+		}
+	}
+	
+	/**
+	 *  Set single instance definition for a given dependency
+	 *  
+	 *  @param string	$id		Dependency name and/or type
+	 *  @param mixed	$dep		Singleton class or callable definition
+	 */
+	public function set( string $id, callable|string|null $dep = null ) : void {
+		$this->defs[$id] = [
+			'type'	=> 'singleton',
+			'value'	=> $dep ?? $id
+		];
+	}
+	
+	/**
+	 *  Set as factory definition (won't be stored in stack)
+	 *  
+	 *  @param string	$id		Dependency name and/or type
+	 *  @param mixed	$dep		Factory dependency
+	 */
+	public function factory( string $id, callable|string $dep ) : void {
+		$this->defs[$id]	= [
+			'type'	=> 'factory',
+			'value'	=> $dep
+		];
+	}
+
+	/**
+	 *  Checks if current stack or definitions list contains a given id
+	 * 
+	 *  @param string	$id		Dependency name and/or type
+	 *  @return bool
+	 */
+	public function has( string $id ) : bool {
+		return \array_key_exists( $id, $this->stack ) || 
+			\array_key_exists( $id, $this->defs );
+	}
+	
+	/**
+	 *  Gets a resolved dependency or already stacked item
+	 *  
+	 *  @param string	$id		Dependency name and/or type
+	 *  @return mixed
+	 */
+	public function get( string $id ) : mixed {
+		if ( \array_key_exists( $id, $this->stack ) ) {
+			return $this->stack[$id];
+		}
+		
+		// Populate definition
+		if ( !\array_key_exists( $id, $this->defs ) ) {
+			// Loading failed?
+			if ( !\class_exists( $id ) ) {
+				$this->referror( "No definition found for {$id}" );
+			}
+			
+			$this->defs[$id] = [
+				'type'	=> 'singleton',
+				'value'	=> $id
+			];
+		}
+		
+		return $this->resolve( $id );
+	}
+	
+	/**
+	 *  Argument dependency resolution helper
+	 *  
+	 *  @param ReflectionNamedType	$ptype		Parameter type
+	 *  @param ReflectionParameter	$param		Constructor parameter
+	 *  @return mixed
+	 */
+	private function argdep( 
+		\ReflectionNamedType	$ptype, 
+		\ReflectionParameter	$param 
+	) : mixed {
+		$dep	= $ptype->getName();
+		
+		// Try to get from existing functionality
+		if ( $param->isDefaultValueAvailable() ) {
+			return $this->has( $dep )
+				? $this->get( $dep )
+				: $param->getDefaultValue();
+		}
+
+		// Or apply null, if allowed 
+		if ( $ptype->allowsNull() ) {
+			return $this->has( $dep )
+				? $this->get( $dep ) 
+				: null;
+		}
+		
+		// Fallback
+		return $this->get( $dep );
+	}
+	
+	private function autoload( string $class ) : ?object {
+		$ref	= new \ReflectionClass( $class );
+		
+		if ( !$ref->isInstantiable() ) {
+			$this->referror( "Unable to instantiate {$class}" );
+		}
+		
+		$cstor	= $ref->getConstructor();
+		
+		// No constructor = no arguments, return as-is
+		if ( null === $cstor ) { return new $class(); }
+		
+		// Constructor arguments
+		$args	= [];
+		$params	= $cstor->getParameters();
+		
+		foreach ( $params as $param ) {
+			$ptype = $param->getType();
+			if ( !$ptype instanceof \ReflectionNamedType ) {
+				$this->referror( 
+					"Unsupported parameter type for {$class} constructor" 
+				);
+			}
+			
+			// Try defaults for builtins
+			if ( $ptype->isBuiltin() ) { 
+				if ( $param->isDefaultValueAvailable() ) {
+					$args[] = $param->getDefaultValue();
+					continue;
+				}
+				
+				// Well, I tried
+				$this->referror(
+					"Cannot autoload builtin parameter " . 
+					"\${$param->getName()} in {$class}"
+				);
+			}
+			
+			$args[] = $this->argdep( $ptype, $param );
+		}
+		
+		return $ref->newInstanceArgs( $args );
+	}
+	
+	private function resolve( string $id ) : mixed {
+		if ( \array_key_exists( $id, $this->processing ) ) {
+			$this->referror( "Circular reference {$id} found" );
+		}
+		
+		$this->processing[$id]	= true;
+		$def			= $this->defs[$id];
+		$dtype			= $def['type'];
+		$value			= $def['value'];
+		
+		$obj			= 
+		match( true ) {
+			\is_callable( $value )	=> $value( $this ),
+			
+			\is_string( $value ) && \class_exists( $value )
+						=> $this->autoload( $value ),
+			
+			default			=> null
+		};
+		
+		if ( null === $obj ) {
+			$this->referror( "Invalid definition for {$id}" );
+		}
+		
+		unset( $this->processing[$id] );
+		if ( 'singleton' === $dtype ) {
+			$this->stack[$id]	= $obj;
+		}
+		
+		return $obj; 
+	}
+}
+
+
+/**
  *  @class General utilities
  */
 final class Util {
@@ -3340,7 +3599,35 @@ final class Storage {
 		
 		// Avoid duplicates?
 		return $overwrite ? $fname : static::dup_rename( $fname );
-	}	
+	}
+	
+	/**
+	 *  Get iterator to a list of files from given base diretory 
+	 * 
+	 *  @param string	$base		Root path to files
+	 *  @return mixed
+	 */
+	public static function files_as_iterator( string $base ) : \RecursiveIteratorIterator|null {
+		$base		= \rtrim( $base,  '/\\' );
+		if ( @!\is_dir( $base ) || @!\is_readable( $base ) ) { 
+			return null;
+		}
+		
+		$dir		= 
+		new \RecursiveDirectoryIterator( 
+			$base, 
+			\FilesystemIterator::FOLLOW_SYMLINKS	| 
+			\FilesystemIterator::KEY_AS_FILENAME	| 
+			\FilesystemIterator::SKIP_DOTS
+		);
+		
+		return 
+		new \RecursiveIteratorIterator( 
+			$dir, 
+			\RecursiveIteratorIterator::LEAVES_ONLY,
+			\RecursiveIteratorIterator::CATCH_GET_CHILD
+		);
+	}
 }
 
 
