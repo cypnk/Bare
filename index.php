@@ -679,18 +679,34 @@ HTML
  **********************************************************************/
 
 /**
- *  @class Errors and messaging
+ *  @class Single instance helper
  */
-final class Errors {
+abstract class Instance {
 	
-	public function __construct() {}
-	
-	public static function instance() : self {
+	public static function instance( ?array $params = null ) : self {
 		static $_single; 
-		$_single ??= new static();
+		
+		if ( isset( $_single ) ) { return $_single; }
+		
+		$class		= static::class;
+		$_single	= 
+		\method_exists( $class, 'create' ) 
+			? ( empty( $params ) 
+				? \call_user_func( [ $class, 'create' ] )
+				: \call_user_func_array( [ $class, 'create' ], $params )
+			)
+			: ( empty( $params ) ? new $class() : new $class( ...$params ) );
 		
 		return $_single;
 	}
+}
+
+/**
+ *  @class Errors and messaging
+ */
+final class Errors extends Instance {
+	
+	public function __construct() {}
 	
 	/**
 	 *  @param array $data	Raw context $data
@@ -846,7 +862,7 @@ final class Errors {
 /**
  *  @class Dependency injection helper
  */
-final class Container {
+final class Container extends Instance {
 	
 	/**
 	 *  @var array<string, mixed>		Instantiated objects and callables
@@ -864,13 +880,6 @@ final class Container {
 	private array $processing	= [];
 	
 	public function __construct() {}
-	
-	public static function instance() : self {
-		static $_single; 
-		$_single ??= new static();
-		
-		return $_single;
-	}
 	
 	/**
 	 *  Error message formatting helper
@@ -3923,7 +3932,7 @@ final class Log {
 /**
  *  @class Request and query
  */
-final Class Request {
+final class Request extends Instance {
 	/**
 	 *  @var string		$id		Unique sortable identifier
 	 */
@@ -4000,13 +4009,6 @@ final Class Request {
 			$protocol,
 			$is_tls
 		);
-	}
-	
-	public static function instance() : self {
-		static $_single; 
-		$_single ??= static::create();
-		
-		return $_single;
 	}
 	
 	/**
@@ -4548,730 +4550,972 @@ final Class Request {
 }
 
 
-/**
- *  Response and output handling
- */
+
+
 
 /**
- *  Helper to generate header with protocol and message
- *  
- *  @param int		$code		HTTP Status code
- *  @param array	$allow		Optional allow header values
+ *  @class Response and output handling
  */
-function response_status( int $code, ?array $allow = null ) : void {
-	static $green	= [
-		200, 201, 202, 204, 205, 206, 
-		300, 301, 302, 303, 304,
-		400, 401, 403, 404, 405, 406, 407, 409, 410, 411, 412, 
-			413, 414, 415,
-		500, 501
-	];
+class Response extends Instance {
 	
-	static	$custom	= [
-		416	=> 'Range Not Satisfiable',
-		422	=> 'Unprocessable Entity',
-		425	=> 'Too Early',
-		429	=> 'Too Many Requests',
-		431	=> 'Request Header Fields Too Large',
-		503	=> 'Service Unavailable',
-	];
+	/**
+	 *  Core response class
+	 *  
+	 *  @param Request	$request	Original client request
+	 *  @param int		$code		HTTP Status code
+	 */
+	public function __construct( 
+		public readonly Request $request,
+		public int	$code		= 200,
+		public array	$headers	= [],
+		public mixed	$body		= null
+	) {}
 	
-	if ( \headers_sent() ) { return; }
-	
-	if ( \in_array( $code, $green, true ) ) {
-		\http_response_code( $code );
-		if ( $code == 405 ) {
-			$allow	??= [ 'OPTIONS', 'GET', 'HEAD', 'POST' ];
-			$vals	= 
-			\implode( ', ', \array_unique( 
-				\array_map( 'strtoupper', $allow ) 
-			) );
-			\header( "Allow: {$vals}" );
-		}
+	public static function create(
+		?Request	$request	= null,
+		?int		$code		= null,
+		?array		$headers	= [],
+				$body		= null
+	) : self {
+		$request ??= Request::instance();
 		
-		return;
-	} 
-	
-	// Special cases
-	if ( isset( $custom[$code] ) ) {
-		$prot	= Request::instance()->protocol;
-		$msg	= $custom[$code];
-		\header( "HTTP/{$prot} {$code} {$msg}", true, $code );
-		return;
+		return new static( $request, $code, $headers, $body );
 	}
 	
-	throw new 
-	\InvalidArgumentException( "Code {$code} unsupported" );
-}
-
-/**
- *  Quick exit response
- */
-function response_exit( int $code ) : void {
-	if ( $code > 204 ) { exit(); }
-}
-
-/**
- *  Set ignore user abort for large output streams
- */
-function response_ignore_user_abort() : void {
-	static $ignore	= false;
-	if ( $ignore ) { return; }
-	
-	if ( !\ignore_user_abort() ) {
-		\ignore_user_abort( true );
+	/**
+	 *  Helper to generate header with protocol and message
+	 *  
+	 *  @param array	$allow		Optional allow header values
+	 */
+	public function status( ?array $allow = null ) : void {
+		static $green	= [
+			200, 201, 202, 204, 205, 206, 
+			300, 301, 302, 303, 304,
+			400, 401, 403, 404, 405, 406, 407, 409, 410, 411, 412, 
+				413, 414, 415,
+				500, 501
+		];
+		
+		static	$custom	= [
+			416	=> 'Range Not Satisfiable',
+			422	=> 'Unprocessable Entity',
+			425	=> 'Too Early',
+			429	=> 'Too Many Requests',
+			431	=> 'Request Header Fields Too Large',
+			503	=> 'Service Unavailable',
+		];
+		
+		if ( \in_array( $this->code, $green, true ) ) {
+			if ( $this->code == 405 ) {
+				$allow	??= [ 'OPTIONS', 'GET', 'HEAD', 'POST' ];
+				$vals	= 
+				\implode( ', ', \array_unique( 
+					\array_map( 'strtoupper', $allow ) 
+				) );
+				$this->headers['Allow'] = $vals;
+			}
+			
+			return;
+		}
+		
+		// Special cases
+		if ( isset( $custom[$this->code] ) ) {
+			$prot	= $this->request->protocol;
+			$msg	= $custom[$this->code];
+			$this->headers['Status'] = "HTTP/{$prot} {$this->code} {$msg}";
+			return;
+		}
+		
+		throw new 
+		\InvalidArgumentException( "Code {$this->code} unsupported" );
 	}
-	$ignore		= true;
-}
-
-/**
- *  Output response header helper
- *  
- *  @param array	$headers	Set headers
- *  @param bool		$ct_sent	Flag true if output is set via 'Content-Type'
- *  @param bool		$lo_sent	Flag true if 'Location' is set
- */
-function response_headers( array $headers, &$ct_sent, &$lo_sent ) : void {
-	foreach ( $headers as $key => $value ) {
-		if ( 0 === \strcasecmp( $key, 'content-type' ) ) {
-			$ct_sent = true;
-		}
-		if ( 0 === \strcasecmp( $key, 'location' ) ) {
-			$lo_sent = true;
-		}
-		
-		$key	= \str_replace( ["\r", "\n"], '', $key );
-		$value	= \str_replace( ["\r", "\n"], '', $value );
-		\header( "{$key}: {$value}" );
+	
+	/**
+	 *  Quick exit response
+	 */
+	public function check_finish() : void {
+		if ( $this->code > 204 ) { exit(); }
 	}
-}
-
-/**
- *  XML-RPC response-specific header list
- *  
- *  @param string	$origin		Request origin realm
- *  @return array
- */
-function response_xmlrpc_headers( ?string $origin = null ) : array {
-	$origin ??= Request::instance()->origin;
 	
-	return [
-		'Access-Control-Allow-Origin'		=> $origin,
-		'Access-Control-Allow-Methods'		=> 'POST',
-		'Access-Control-Allow-Headers'		=> 
-		'Content-Type, Authorization, X-Requested-With',
-		
-		'Access-Control-Allow-Credentials'	=> 'true',
-		'Content-Security-Policy'		=> 
-		"default-src 'self'; frame-ancestors 'none';",
-		
-		'X-Frame-Options'			=> 'DENY',
-		'X-Content-Type-Options'		=> 'nosniff',
-		'Referrer-Policy'			=> 'same-origin',
-		'Strict-Transport-Security'		=> 
-		'max-age=31536000; includeSubDomains; preload'
-	];
-}
-
-/**
- *  Header sending helper
- */
-function response_send_headers(
-	array	$headers, 
-		&$ct_sent	= false, 
-		&$lo_sent	= false 
-) : void {
-	response_headers( $headers, $ct_sent, $lo_sent );
-}
-
-/**
- *  Create a file etag
- *  
- *  @param int		$size	File size in bytes
- *  @param int		$mtime	Last modified date in seconds
- *  @return string
- */
-function response_generate_etag( int $size, int $mtime ) : string {
-	$raw = \sprintf( '%x-%x', $mtime, $size );
-	return "\"{$raw}\"";
-}
-
-/**
- *  Generate string content etag header
- *  
- *  @param string	$content	Client output content
- *  @param bool		$wetag		Set weak etag if true
- */
-function response_content_etag( string $content, bool $wetag = true ) : void {
-	$prefix	= $wetag ? 'W/' : '';
-	$tag	= \hash( 'sha256', $content );
-	\header( "ETag: {$prefix}\"{$tag}\"", true );
-}
-
-/**
- *  Check sent etag data against current file information for staleness
- *  
- *  @param string	$etag		Current file etag
- *  @param int		$mtime		File last modified time in seconds
- *  @param string	$client_etag	Client sent etag(s)
- *  @param int		$client_mtime	File last modified time sent by client
- *  @return bool
- */
-function response_check_not_modified(
-	string		$etag,
-	int		$mtime,
-	?string		$client_etag	= null,
-	?int		$client_mtime	= null
-) : bool {
-	$etag		= \trim( $etag, " \t\n\r\0\x0B\"'" );
-	$etag_clean	= \trim( \ltrim( $etag, 'W/' ), "\"" );
+	/**
+	 *  Output response header builder
+	 *  
+	 *  @param array	$headers	Set headers
+	 *  @param bool		$ct_sent	Flag true if output is set via 'Content-Type'
+	 *  @param bool		$lo_sent	Flag true if 'Location' is set
+	 */
+	public function build_headers( array $headers, &$ct_sent, &$lo_sent ) : void {
+		foreach ( $headers as $key => $value ) {
+			if ( 0 === \strcasecmp( $key, 'content-type' ) ) {
+				$ct_sent = true;
+			}
+			if ( 0 === \strcasecmp( $key, 'location' ) ) {
+				$lo_sent = true;
+			}
+			
+			$key	= \str_replace( ["\r", "\n"], '', $key );
+			$value	= \str_replace( ["\r", "\n"], '', $value );
+			$this->headers[$key]	= $value;
+		}
+	}
 	
-	if ( null !== $client_etag && '' !== $client_etag ) {
-		$tags	= 
-		\array_map(
-			static function ( $tag ) {
-				$tag	= \trim( $tag, " \t\n\r\0\x0B\"'" );
-				if ( \str_starts_with( $tag, 'W/' ) ) {
-					$tag = \substr( $tag, 2 );
-				}
-				return $tag;
-			}, 
-			\explode( ',', $client_etag ) 
-		);
+	/**
+	 *  Generate string content etag header
+	 *  
+	 *  @param string	$content	Client output content
+	 *  @param bool		$wetag		Set weak etag if true
+	 */
+	public function content_etag( string $content, bool $wetag = true ) : void {
+		$prefix	= $wetag ? 'W/' : '';
+		$tag	= \hash( 'sha256', $content );
 		
-		if ( 1 === count( $tags ) && '*' === $tags[0] ) {
-			response_status( 304 );
-			return true;
+		$this->headers['Etag'] = "{$prefix}\"{$tag}\"";
+	}
+	
+	/**
+	 *  Check sent etag data against current file information for staleness
+	 *  
+	 *  @param string	$etag		Current file etag
+	 *  @param int		$mtime		File last modified time in seconds
+	 *  @param string	$client_etag	Client sent etag(s)
+	 *  @param int		$client_mtime	File last modified time sent by client
+	 *  @return bool
+	 */
+	public function check_not_modified(
+		string		$etag,
+		int		$mtime,
+		?string		$client_etag	= null,
+		?int		$client_mtime	= null
+	) : bool {
+		$etag		= \trim( $etag, " \t\n\r\0\x0B\"'" );
+		$etag_clean	= \trim( \ltrim( $etag, 'W/' ), "\"" );
+		
+		if ( null !== $client_etag && '' !== $client_etag ) {
+			$tags	= 
+			\array_map(
+				static function ( $tag ) {
+					$tag	= \trim( $tag, " \t\n\r\0\x0B\"'" );
+					if ( \str_starts_with( $tag, 'W/' ) ) {
+						$tag = \substr( $tag, 2 );
+					}
+					return $tag;
+				}, 
+				\explode( ',', $client_etag ) 
+			);
+			
+			if ( 1 === count( $tags ) && '*' === $tags[0] ) {
+				$this->code = 304;
+				return true;
+			}
+			
+			if ( \in_array( $etag_clean, $tags, true ) ) {
+				$this->code = 304;
+				return true;
+			}
+			
+			// Didn't match If-None-Match
+			return false;
 		}
 		
-		if ( \in_array( $etag_clean, $tags, true ) ) {
-			response_status( 304 );
-			return true;
+		// Try If-Modified-Since
+		if ( null !== $client_mtime && $client_mtime > 0 ) {
+			if ( $mtime <= $client_mtime ) {
+				$this->code = 304;
+				return true;
+			}
 		}
-		
-		// Didn't match If-None-Match
 		return false;
 	}
 	
-	// Try If-Modified-Since
-	if ( null !== $client_mtime && $client_mtime > 0 ) {
-		if ( $mtime <= $client_mtime ) {
-			response_status( 304 );
-			return true;
+	/**
+	 *  Clean the output buffer without flushing
+	 *  
+	 *  @param bool		$ebuf		End buffers
+	 */
+	public function end_buffers( bool $ebuf = false ) : void {
+		if ( $ebuf ) {
+			while ( \ob_get_level() > 0 ) { \ob_end_clean(); }
+			return;
+		}
+		
+		while ( \ob_get_level() && \ob_get_length() > 0 ) { \ob_clean(); }
+	}
+	
+	/**
+	 *  Flush and optionally end output buffers
+	 *  
+	 *  @param bool		$ebuf		End buffers
+	 */
+	public function flush_buffers( bool $ebuf = false ) : void {
+		if ( $ebuf ) {
+			while ( \ob_get_level() > 0 ) { \ob_end_flush(); }
+		} else {
+			while ( \ob_get_level() > 0 ) { \ob_flush(); }
+		}
+		\flush();
+	}
+	
+	/**
+	 *  Remove previously set headers, output
+	 */
+	public function scrub() : void {
+		// Scrub output buffer
+		$this->end_buffers();
+		\header_remove( 'Pragma' );
+		
+		// This is best done in php.ini : expose_php = Off
+		\header_remove( 'X-Powered-By' );
+	}
+	
+	/**
+	 *  Output response header helper
+	 */
+	public function emit_headers( ?array $allow = null ) : void {
+		$this->scrub();
+		if ( \headers_sent() ) { return; }
+		
+		$this->status( $allow );
+		foreach ( $this->headers as $key => $value ) {
+			\header( "{$key}: {$value}" );
 		}
 	}
-	return false;
+	
+	/**
+	 *  Set ignore user abort for large output streams
+	 */
+	public function ignore_abort() : void {
+		static $ignore	= false;
+		if ( $ignore ) { return; }
+		
+		if ( !\ignore_user_abort() ) {
+			\ignore_user_abort( true );
+		}
+		$ignore		= true;
+	}
 }
 
+
 /**
- *  Static file metadata cache path
- *  
- *  @param string	$fpath File location on disk
- *  @return string
+ *  @class File streaming and output
  */
-function response_meta_cache_path( string $fpath ) : string {
-	static $tmp;
+final class FileResponse extends Response {
 	
-	$tmp	??= Storage::base() . "/tmp/";
-	if ( !\is_dir( $tmp ) && !\mkdir( $tmp, 0777, true ) ) {
-		throw new 
-		\RuntimeException( "Failed to create cache directory: {$tmp}" );
+	/**
+	 *  Create a file etag
+	 *  
+	 *  @param int		$size	File size in bytes
+	 *  @param int		$mtime	Last modified date in seconds
+	 *  @return string
+	 */
+	public function generate_etag( int $size, int $mtime ) : string {
+		$raw = \sprintf( '%x-%x', $mtime, $size );
+		return "\"{$raw}\"";
 	}
 	
-	$hash	= \hash( 'sha256', $fpath );
-	return "{$tmp}/meta_{$hash}.cache.tmp";
-}
-
-/**
- *  Get any cached metadata for a given file path
- *  
- *  @param string	$fpath	Location of file on disk
- *  @return mixed
- */
-function response_get_meta_cache( string $fpath ) : array|null {
-	$fcache	= response_meta_cache_path( $fpath );
-	if ( !\is_readable( $fcache ) ) { return null; }
+	/**
+	 *  Static file metadata cache path
+	 *  
+	 *  @param string	$fpath File location on disk
+	 *  @return string
+	 */
+	private function meta_cache_path( string $fpath ) : string {
+		static $tmp;
+		
+		$tmp	??= Storage::base() . "/tmp/";
+		if ( !\is_dir( $tmp ) && !\mkdir( $tmp, 0777, true ) ) {
+			throw new 
+			\RuntimeException( "Failed to create cache directory: {$tmp}" );
+		}
+		
+		$hash	= \hash( 'sha256', $fpath );
+		return "{$tmp}/meta_{$hash}.cache.tmp";
+	}
 	
-	try {
-		$data		= \file_get_contents( $fcache );
-		if ( false === $data ) { return null; }
+	/**
+	 *  Get any cached metadata for a given file path
+	 *  
+	 *  @param string	$fpath	Location of file on disk
+	 *  @return mixed
+	 */
+	public function get_meta_cache( string $fpath ) : array|null {
+		$fcache	= $this->meta_cache_path( $fpath );
+		if ( !\is_readable( $fcache ) ) { return null; }
 		
-		$meta		=
-		\json_decode(
-			json		: $data, 
-			associative	: true, 
-			depth		: 2, 
-			flags		: 
-				\JSON_INVALID_UTF8_IGNORE	| 
-				\JSON_THROW_ON_ERROR
-		);
-		
-		if ( !\is_array( $meta ) ) { return null; }
-		
-		if ( !isset( $meta['mtime'], $meta['content_length'] ) ) {
+		try {
+			$data		= \file_get_contents( $fcache );
+			if ( false === $data ) { return null; }
+			
+			$meta		=
+			\json_decode(
+				json		: $data, 
+				associative	: true, 
+				depth		: 2, 
+				flags		: 
+					\JSON_INVALID_UTF8_IGNORE	| 
+					\JSON_THROW_ON_ERROR
+			);
+			
+			if ( !\is_array( $meta ) ) { return null; }
+			
+			if ( !isset( $meta['mtime'], $meta['content_length'] ) ) {
+				return null;
+			}
+			
+			$curr_mtime	= Storage::file_time( $fpath );
+			$curr_size	= Storage::file_size( $fpath );
+			
+		} catch ( \Throwable $e ) {
+			Log::instance()->error( "Meta cache error: {$e->getMessage()}" );
 			return null;
 		}
-	
-		$curr_mtime	= Storage::file_time( $fpath );
-		$curr_size	= Storage::file_size( $fpath );
 		
-	} catch ( \Throwable $e ) {
-		Log::instance()->error( "Meta cache error: {$e->getMessage()}" );
+		if (
+			$meta['mtime']		=== $curr_mtime && 
+			$meta['content_length']	=== $curr_size
+		) {
+			return $meta;
+		}
 		return null;
 	}
 	
-	if (
-		$meta['mtime']		=== $curr_mtime && 
-		$meta['content_length']	=== $curr_size
-	) {
+	/**
+	 *  Cache static file metadata
+	 *  
+	 *  @param string	$fpath	Location on disk
+	 *  @param array	$meta	File metadata
+	 */
+	public function save_meta_cache( string $fpath, array $meta ) : void {
+		$fcache	= $this->meta_cache_path( $fpath );
+		$tmp	= $fcache . '.' . \bin2hex( \random_bytes( 4 ) );
+		
+		try {
+			$data	= 
+			\json_encode( 
+				value	: $meta,
+				flags	: 
+					\JSON_UNESCAPED_SLASHES | 
+					\JSON_UNESCAPED_UNICODE | 
+					\JSON_THROW_ON_ERROR 
+			);
+			
+			// TODO: Move to storage_* functions
+			if ( false === \file_put_contents( $tmp, $data, \LOCK_EX ) ) {
+				throw new 
+				\RuntimeException( "Failed to write temp cache file" );
+			}
+			
+			if ( !\rename( $tmp, $fcache ) ) {
+				throw new 
+				\RuntimeException( "Failed to replace cache file" );
+			}
+		} catch ( \Throwable $e ) {
+			Log::instance()->error( "Meta cache error: {$e->getMessage()}" );
+		}
+	}
+	
+	/**
+	 *  Generate static file metadata
+	 *  
+	 *  @param string	$path		Location on disk
+	 *  @param bool		$is_cached	Enable metadata caching and retreival
+	 *  @return array
+	 */
+	public function file_metadata( string $path, bool $is_cached = false ) : array {
+		static $cached = [];
+		$fpath	= @\realpath( $path ) ?: $path;
+		
+		if ( !@\is_file( $fpath ) ) {
+			throw new 
+			\RuntimeException( "File to be cached not found" );
+		}
+		
+		// File cache?
+		if ( $is_cached ) {
+			if ( isset( $cached[$fpath] ) ) {
+				return $cached[$fpath];
+			}
+			
+			$fcache	= $this->get_meta_cache( $fpath );
+			if ( \is_array( $fcache ) ) {
+				$cached[$fpath]	= $fcache;
+				return $fcache;
+			}
+		}
+		
+		$fsize	= Storage::file_size( $fpath );
+		$mtime	= Storage::file_time( $fpath );
+		$mime	= Storage::file_mime( $fpath );
+		
+		$etag	= $this->generate_etag( $fsize, $mtime );
+		$lmod	= \gmdate( 'D, d M Y H:i:s', $mtime ) . ' GMT';
+		
+		$meta	= [
+			'etag'			=> $etag,
+			'last_modified'		=> $lmod,
+			'content_type'		=> $mime,
+			'content_length'	=> $fsize,
+			'mtime'			=> $mtime
+		];
+		
+		if ( $is_cached ) {
+			$this->save_meta_cache( $fpath, $meta );
+			$cached[$fpath] = $meta;
+		}
 		return $meta;
 	}
-	return null;
-}
-
-/**
- *  Cache static file metadata
- *  
- *  @param string	$fpath	Location on disk
- *  @param array	$meta	File metadata
- */
-function response_save_meta_cache( string $fpath, array $meta ) : void {
-	$fcache	= response_meta_cache_path( $fpath );
-	$tmp	= $fcache . '.' . \bin2hex( \random_bytes( 4 ) );
 	
-	try {
-		$data	= 
-		\json_encode( 
-			value	: $meta,
-			flags	: 
-				\JSON_UNESCAPED_SLASHES | 
-				\JSON_UNESCAPED_UNICODE | 
-				\JSON_THROW_ON_ERROR 
+	/**
+	 *  Generate file response headers
+	 *  
+	 *  @param string	$fpath		Location on disk
+	 *  @param bool		$wetag		Create weak prefix for etag
+	 *  @param bool		$size		Include file size
+	 *  @param bool		$stype		Include sending 'Content-Type'
+	 *  @return array
+	 */
+	public function file_headers(
+		string	$fpath,
+		bool	$wetag	= false,
+		bool	$size	= true,
+		bool	$stype	= true
+	) : array {
+		$meta		= $this->file_metadata( $fpath );
+		$prefix		= $wetag ? 'W/' : '';
+		$headers	= [
+			"ETag"		=> "{$prefix}{$meta['etag']}",
+			"Last-Modified"	=> $meta['last_modified']
+		];
+		
+		if ( $size ) {
+			$headers["Content-Length"]	= $meta['content_length'];
+		}
+		if ( $stype ) {
+			$headers["Content-Type"]	= $meta['content_type'];
+		}
+		
+		return $headers;
+	}
+	
+	/**
+	 *  Direct stream or otherwise output file
+	 *  
+	 *  @param array	$meta		File metadata
+	 *  @param resource	$handle		Opened file resource
+	 *  @param string	$fpath		Location on disk
+	 *  @param bool		$download	Force download if true
+	 */
+	public function file_stream(
+		array	$meta,
+			&$handle,
+		string	$fpath,
+		bool	$download	= false
+	) : void {
+		$headers	= [ "Accept-Ranges" => "bytes" ];
+		
+		if ( $download ) {
+			$headers["Content-Disposition"] = 
+			"attachment; filename=\"" . \basename( $fpath ) . "\"";
+		}
+		
+		$headers	= 
+		\array_merge(
+			$headers, 
+			$this->file_headers( $fpath, false, true, true ) 
 		);
-
-		// TODO: Move to storage_* functions
-		if ( false === \file_put_contents( $tmp, $data, \LOCK_EX ) ) {
-			throw new 
-			\RuntimeException( "Failed to write temp cache file" );
-		}
+		$this->headers = \array_merge( $this->headers, $headers );
 		
-		if ( !\rename( $tmp, $fcache ) ) {
-			throw new 
-			\RuntimeException( "Failed to replace cache file" );
-		}
-	} catch ( \Throwable $e ) {
-		Log::instance()->error( "Meta cache error: {$e->getMessage()}" );
-	}
-}
-
-/**
- *  Generate static file metadata
- *  
- *  @param string	$path		Location on disk
- *  @param bool		$is_cached	Enable metadata caching and retreival
- *  @return array
- */
-function response_file_metadata( string $path, bool $is_cached = false ) : array {
-	static $cached = [];
-	$fpath	= \realpath( $path ) ?: $path;
-	
-	// File cache?
-	if ( $is_cached ) {
-		if ( isset( $cached[$fpath] ) ) {
-			return $cached[$fpath];
-		}
+		$this->code = 200;
+		$this->status();
+		$this->emit_headers();
+		$this->flush_buffers( true );
 		
-		$fcache	= response_get_meta_cache( $fpath );
-		if ( \is_array( $fcache ) ) {
-			$cached[$fpath]	= $fcache;
-			return $fcache;
-		}
-	}
-	
-	if ( !\is_file( $fpath ) ) {
-		throw new 
-		\RuntimeException( "File to be cached not found" );
-	}
-	
-	$fsize	= Storage::file_size( $fpath );
-	$mtime	= Storage::file_time( $fpath );
-	$mime	= Storage::file_mime( $fpath );
-	
-	$etag	= response_generate_etag( $fsize, $mtime );
-	$lmod	= \gmdate( 'D, d M Y H:i:s', $mtime ) . ' GMT';
-	
-	$meta	= [
-		'etag'			=> $etag,
-		'last_modified'		=> $lmod,
-		'content_type'		=> $mime,
-		'content_length'	=> $fsize,
-		'mtime'			=> $mtime
-	];
-
-	if ( $is_cached ) {
-		response_save_meta_cache( $fpath, $meta );
-		$cached[$fpath] = $meta;
-	}
-	return $meta;
-}
-
-/**
- *  Generate file response headers
- *  
- *  @param string	$fpath		Location on disk
- *  @param bool		$wetag		Create weak prefix for etag
- *  @param bool		$size		Include file size
- *  @param bool		$stype		Include sending 'Content-Type'
- *  @return array
- */
-function response_file_headers(
-	string	$fpath,
-	bool	$wetag	= false,
-	bool	$size	= true,
-	bool	$stype	= true
-) : array {
-	$meta		= response_file_metadata( $fpath );
-	$prefix		= $wetag ? 'W/' : '';
-	$headers	= [
-		"ETag"		=> "{$prefix}{$meta['etag']}",
-		"Last-Modified"	=> $meta['last_modified']
-	];
-	
-	if ( $size ) {
-		$headers["Content-Length"]	= $meta['content_length'];
-	}
-	if ( $stype ) {
-		$headers["Content-Type"]	= $meta['content_type'];
-	}
-	
-	return $headers;
-}
-
-/**
- *  Direct stream or otherwise output file
- *  
- *  @param array	$meta		File metadata
- *  @param resource	$handle		Opened file resource
- *  @param string	$fpath		Location on disk
- *  @param bool		$download	Force download if true
- */
-function response_file_stream(
-	array	$meta,
-		&$handle,
-	string	$fpath,
-	bool	$download	= false
-) : void {
-	$headers	= [ "Accept-Ranges" => "bytes" ];
-	
-	if ( $download ) {
-		$headers["Content-Disposition"] = 
-		"attachment; filename=\"" . \basename( $fpath ) . "\"";
-	}
-	
-	$headers	= 
-	\array_merge(
-		$headers, 
-		response_file_headers( $fpath, false, true, true ) 
-	);
-	
-	response_status( 200 );
-	response_send_headers( $headers );
-	
-	// Dump binary as-is, if minimum streaming size is not met
-	if ( $meta['content_length'] <= 65536 ) {
-		if ( \is_resource( $handle ) ) {
-			\fpassthru( $handle );
+		// Dump binary as-is, if minimum streaming size is not met
+		if ( $meta['content_length'] <= 65536 ) {
+			if ( \is_resource( $handle ) ) { \fpassthru( $handle ); } 
+			else { \readfile( $fpath ); }
 		} else {
-			\readfile( $fpath );
-		}
-	} else {
-		while ( !\feof( $handle ) ) {
-			if ( \connection_aborted() ) { break; }
-			
-			echo \fread( $handle, 8192 );
-			\flush();
+			while ( !\feof( $handle ) ) {
+				if ( \connection_aborted() ) { break; }
+				
+				echo \fread( $handle, 8192 );
+				\flush();
+			}
 		}
 	}
-}
-
-/**
- *  Output requested range stream
- *  
- *  @param array	$meta		File metadata
- *  @param resource	$handle		Opened file resource
- *  @param string	$fpath		Location on disk
- *  @param array	$ranges		List of streaming ranges in [ start, end ] format
- */
-function response_file_range(
-	array	$meta,
-		&$handle,
-	string	$fpath,
-	array	$ranges
-) : void {
-	$boundary	= \bin2hex( \random_bytes( 6 ) );
-	$headers	= 
-	\array_merge( [
-		"Content-Type"	=> "multipart/byteranges; boundary={$boundary}",
-		"Accept-Ranges"	=> "bytes"
-	], response_file_headers( $fpath, true, false, false ) );
 	
-	response_status( 206 );
-	response_send_headers( $headers );
-	
-	foreach ( $ranges as [ $start, $end ] ) {
+	/**
+	 *  Output requested range stream
+	 *  
+	 *  @param array	$meta		File metadata
+	 *  @param resource	$handle		Opened file resource
+	 *  @param string	$fpath		Location on disk
+	 *  @param array	$ranges		List of streaming ranges in [ start, end ] format
+	 */
+	public function file_range(
+		array	$meta,
+			&$handle,
+		string	$fpath,
+		array	$ranges
+	) : void {
+		$boundary	= \bin2hex( \random_bytes( 6 ) );
+		$this->headers	= 
+		\array_merge( [
+				"Content-Type"	=> "multipart/byteranges; boundary={$boundary}",
+				"Accept-Ranges"	=> "bytes"
+			], $this->file_headers( $fpath, true, false, false ) 
+		);
+		$this->code = 206;
+		$this->emit_headers();
+		$this->flush_buffers( true );
 		
-		if ( \connection_aborted() ) { break; }
-		
-		$start	= \max( 0, $start );
-		$end	= \min( $meta['content_length'] - 1, $end );
-		if ( $start > $end || $start >= $meta['content_length'] ) {
-			continue;
-		}
-		
-		$length	= $end - $start + 1;
-		$chunk	= $length;
-		
-		$header	= 
-		"--{$boundary}\r\n" . 
-		"Content-Type: {$meta['content_type']}\r\n" . 
-		"Content-Length: {$length}\r\n" . 
-		"Content-Range: bytes {$start}-{$end}/{$meta['content_length']}\r\n\r\n";
-		
-		\fseek( $handle, $start );
-		
-		echo $header;
-		\flush();
-		
-		while( $chunk > 0 && !\feof( $handle ) ) {
+		foreach ( $ranges as [ $start, $end ] ) {
+			
 			if ( \connection_aborted() ) { break; }
 			
-			$rsize	= \min( 8192, $chunk );
-			echo \fread( $handle, $rsize );
+			$start	= \max( 0, $start );
+			$end	= \min( $meta['content_length'] - 1, $end );
+			if ( $start > $end || $start >= $meta['content_length'] ) {
+				continue;
+			}
+			
+			$length	= $end - $start + 1;
+			$chunk	= $length;
+			
+			$header	= 
+			"--{$boundary}\r\n" . 
+			"Content-Type: {$meta['content_type']}\r\n" . 
+			"Content-Length: {$length}\r\n" . 
+			"Content-Range: bytes {$start}-{$end}/{$meta['content_length']}\r\n\r\n";
+			
+			\fseek( $handle, $start );
+			
+			echo $header;
 			\flush();
 			
-			$chunk	-= $rsize;
+			while( $chunk > 0 && !\feof( $handle ) ) {
+				if ( \connection_aborted() ) { break; }
+				
+				$rsize	= \min( 8192, $chunk );
+				echo \fread( $handle, $rsize );
+				\flush();
+				
+				$chunk	-= $rsize;
+			}
+			echo "\r\n";
 		}
-		echo "\r\n";
+		
+		echo "--{$boundary}--\r\n";
 	}
 	
-	echo "--{$boundary}--\r\n";
-}
-
-/**
- *  Main file response output
- *  
- *  @param string	$fpath		Location on disk
- *  @param bool		$download	Force download if true
- *  @param string	$client_etag	Client sent etag(s)
- *  @param int		$client_mtime	File last modified time sent by client
- *  @param array	$ranges		Requested ranges
- */
-function response_file(
-	string	$fpath, 
-	bool	$download	= false, 
-	?string	$client_etag	= null,
-	?int	$client_mtime	= null,
-	?array	$ranges		= null
-) : void {
-	response_end_buffers();
-	response_ignore_user_abort();
-	
-	$meta		= response_file_metadata( $fpath );
-	$etag		= $meta['etag'];
-	$mtime		= $meta['mtime'];
-	$handle		= null;
-	if ( response_check_not_modified( 
-		$etag, $mtime, $client_etag, $client_mtime 
-	) ) {
+	/**
+	 *  Main file response output
+	 *  
+	 *  @param string	$fpath		Location on disk
+	 *  @param bool		$download	Force download if true
+	 *  @param string	$client_etag	Client sent etag(s)
+	 *  @param int		$client_mtime	File last modified time sent by client
+	 *  @param array	$ranges		Requested ranges
+	 */
+	public function send_file(
+		string	$fpath, 
+		bool	$download	= false, 
+		?string	$client_etag	= null,
+		?int	$client_mtime	= null,
+		?array	$ranges		= null
+	) : void {
+		$this->end_buffers();
+		$this->ignore_abort();
+		
+		$meta		= $this->file_metadata( $fpath );
+		$etag		= $meta['etag'];
+		$mtime		= $meta['mtime'];
+		$handle		= null;
+		
+		if ( $this->check_not_modified(
+			etag		: $etag, 
+			mtime		: $mtime, 
+			client_etag	: $client_etag, 
+			client_mtime	: $client_mtime 
+		) ) { exit(); }
+		
+		try {
+			$handle = Storage::file_open( $fpath );
+			if ( $ranges ) {
+				$this->file_range( $meta, $handle, $fpath, $ranges );
+			} else {
+				$this->file_stream( $meta, $handle, $fpath, $download );
+			}
+			Storage::close_files( [ $handle ]);
+			
+		} catch( \Throwable $e ) {
+			$msg	= "File response error";
+			Log::instance()->error( $msg . ": {$e->getMessage()}" );
+			
+			$this->code = 500;
+			$this->status();
+			echo $msg;
+		} finally {
+			if ( \is_resource( $handle ) ) { \fclose( $handle ); }
+		}
+		
 		exit();
 	}
-	
-	try {
-		$handle = Storage::file_open( $fpath );
-		if ( $ranges ) {
-			response_file_range( $meta, $handle, $fpath, $ranges );
-		} else {
-			response_file_stream( $meta, $handle, $fpath, $download );
-		}
-	} catch( \Throwable $e ) {
-		$msg	= "File response error";
-		Log::instance()->error( $msg . ": {$e->getMessage()}" );
-		response_status( 500 );
-		echo $msg;
-	} finally {
-		if ( \is_resource( $handle ) ) { \fclose( $handle ); }
-	}
-	
-	exit();
 }
 
 /**
- *  Response output content type header helper
- *  
- *  @param string	$body		Output content
- *  @param bool		$ct_sent	Send 'Content-Type' if false
+ *  @class Page handling
  */
-function response_body( mixed $body, bool $ct_sent ) : void {
-	if ( null === $body ) { return; }
+class PageResponse extends Response {
 	
-	$is_json	= ( \is_array( $body ) || \is_object( $body ) );
-	$is_html	= !$is_json && \preg_match( '/<[^>]+>/', ( string ) $body );
-	
-	if ( !$ct_sent ) {
-		$header	= 
-		match( true ) {
-			$is_json	=> 'Content-Type: application/json; charset=utf-8',
-			$is_html	=> 'Content-Type: text/html; charset=utf-8',
-			default		=> 'Content-Type: text/plain; charset=utf-8'
+	/**
+	 *  Response output content type header helper
+	 *  
+	 *  @param string	$body		Output content
+	 *  @param bool		$ct_sent	Send 'Content-Type' if false
+	 */
+	public function body( mixed $body, bool $ct_sent ) : void {
+		if ( null === $body ) { return; }
+		
+		$is_json	= ( \is_array( $body ) || \is_object( $body ) );
+		$is_html	= !$is_json && \preg_match( '/<[^>]+>/', ( string ) $body );
+		
+		if ( !$ct_sent ) {
+			$header	= 
+			match( true ) {
+				$is_json	=> 'Content-Type: application/json; charset=utf-8',
+				$is_html	=> 'Content-Type: text/html; charset=utf-8',
+				default		=> 'Content-Type: text/plain; charset=utf-8'
+			};
+			
+			\header( $header, true );
+		}
+		
+		echo match( true ) {
+			$is_json	=> Util::json_uencode( $body ),
+			default		=> $body
 		};
 		
-		\header( $header, true );
+		$this->flush_buffers();
 	}
 	
-	echo match( true ) {
-		$is_json	=> Util::json_uencode( $body ),
-		default		=> $body
-	};
-}
-
-/**
- *  Main content response handler
- *  
- *  @param int		$code		HTTP status code
- *  @param array	$headers	Content headers
- *  @param mixed	$body		Content body
- */
-function response( int $code, array $headers = [], $body = null ) : void {
-	if ( $code < 100 || $code > 599 ) {
-		throw new 
-		\InvalidArgumentException( "Invalid HTTP status code: {$code}" );
+	/** 
+	 *  Security policy term separator filter
+	 *  
+	 *  @param string	$frag		Fragment separator
+	 *  @return string
+	 */
+	private function security_policy_sep( string $frag = '' ) : string {
+		return empty( $frag ) 
+			? '' 
+			: ( \in_array( \trim( $frag ) , [ '', ',', ':', ';', '=' ] ) 
+				? $frag
+				: ''
+			);
 	}
 	
-	$ct_sent	= false;
-	$lo_sent	= false;
-	$is_redir	= ( $code >= 300 && $code < 400 );
-	
-	if ( $code === 204 || $code === 304 ) {
-		$body = null;
+	/**
+	 *  Security policy header value formatter
+	 *  
+	 *  @param array	$policy		Security policy items
+	 *  @return string
+	 */
+	private function security_policy_items( array $policy ) : string {
+		$separator	= $policy['separator']	?? ', ';
+		$joiner		= $policy['joiner']	?? '=';
+		$items		= $policy['items']	?? [];
+		$policy		= '';
+		
+		$separator	= $this->security_policy_sep( $separator );
+		$joiner		= $this->security_policy_sep( $joiner );
+		foreach( $items as $key => $value ) {
+			$key	= Sanitize::bland( $key, true );
+			$value	= Sanitize::bland( $value );
+			$policy	.= "{$key}{$joiner}{$value}{$separator}";
+		}
+		
+		return \trim( $policy, $separator );
 	}
 	
-	response_status( $code );
-	response_headers( $headers, $ct_sent, $lo_sent );
+	/**
+	 *  Security policy term formatter
+	 *  
+	 *  @param array	$items		Line-by-line items
+	 *  @return string
+	 */
+	public function security_policy_terms( array $items, string $separator = '' ) : string {
+		$policy		= '';
+		$separator	= $this->security_policy_sep( $separator );
+			
+		foreach ( $items as $item ) {
+			$item	= Sanitize::bland( $item );
+			$policy .= "{$item}{$separator}";
+		}
 	
-	if ( null !== $body && !$is_redir ) {
-		response_body( $body, $ct_sent );
+		return \trim( $policy, $separator );
 	}
 	
-	if ( $is_redir ) {
-		if ( !$lo_sent ) {
+	/**
+	 *  Page security configuration parser
+	 *  
+	 *  @param string	$term		Poliey key search
+	 *  @param array	$policy		Full security headers to search
+	 *  @return string
+	 */
+	public function security_policy( string $term, array $policy ) : string {
+		if ( empty( $policy ) ) { return ''; }
+		$term	= \strtolower( $term );
+		
+		return match( $term ) {
+			'permissions', 'permissions-policy'
+				=> $this->security_policy_items( $policy['Permissions-Policy'] ?? [] ),
+			
+			'content', 'content-security-policy'
+				=> $this->security_policy_items( $policy['Content-Security-Policy'] ?? [] ),
+			
+			'referer', 'referrer', 'referer-policy'
+				=> $this->security_policy_terms( $policy['Referer-Policy'] ?? [], ',' ),
+			
+			'transport', 'strict-transport-security', 'transport-security'
+				=> $this->security_policy_terms( $policy['Strict-Transport-Security'] ?? [], '; ' ),
+			
+			'xss', 'x-xss', 'x-xss-protection'
+				=> $this->security_policy_terms( $policy['X-XSS-Protection'] ?? [], '; ' ),
+			
+			'content-type', 'x-content-type-options'
+				=> $this->security_policy_terms( $policy['X-Content-Type-Options'] ?? [] ),
+	
+			'frames', 'x-frame', 'x-frame-options', 
+				=> $this->security_policy_terms( $policy['X-Frame-Options'] ?? [] ),
+				
+			default	=> ''
+		};
+	}
+	
+	/**
+	 *  XML-RPC response-specific header list
+	 *  
+	 *  @param string	$origin		Request origin realm
+	 *  @return array
+	 */
+	private function xmlrpc_headers( ?string $origin = null ) : array {
+		$origin ??= $this->request->origin;
+		
+		return [
+			'Access-Control-Allow-Origin'		=> $origin,
+			'Access-Control-Allow-Methods'		=> 'POST',
+			'Access-Control-Allow-Headers'		=> 
+			'Content-Type, Authorization, X-Requested-With',
+			
+			'Access-Control-Allow-Credentials'	=> 'true',
+			'Content-Security-Policy'		=> 
+			"default-src 'self'; frame-ancestors 'none';",
+			
+			'X-Frame-Options'			=> 'DENY',
+			'X-Content-Type-Options'		=> 'nosniff',
+			'Referrer-Policy'			=> 'same-origin',
+			'Strict-Transport-Security'		=> 
+			'max-age=31536000; includeSubDomains; preload'
+		];
+	}
+	
+	/**
+	 *  Main content response handler
+	 *  
+	 *  @param int		$code		HTTP status code
+	 *  @param array	$headers	Content headers
+	 *  @param mixed	$body		Content body
+	 */
+	public function send( int $code, array $headers = [], $body = null ) : void {
+		if ( $code < 100 || $code > 599 ) {
 			throw new 
-			\RuntimeException( "Redirect requires a Location header" );
+			\InvalidArgumentException( "Invalid HTTP status code: {$code}" );
 		}
-		\flush();
+		
+		$this->code	= $code;
+		$ct_sent	= false;
+		$lo_sent	= false;
+		$is_redir	= ( $code >= 300 && $code < 400 );
+		
+		// No body for these codes
+		if ( $code === 204 || $code === 304 ) {
+			$body = null;
+		}
+		
+		$this->build_headers( $headers, $ct_sent, $lo_sent );
+		$this->status();
+		
+		if ( null !== $body && !$is_redir ) {
+			$this->body( $body, $ct_sent );
+		}
+		
+		if ( $is_redir ) {
+			if ( !$lo_sent ) {
+				throw new 
+				\RuntimeException( "Redirect requires a Location header" );
+			}
+			
+			$this->flush_buffers( true );
+			exit();
+		}
+	}
+	
+	/**
+	 *  OPTIONS header response helper
+	 */
+	public function options( array $headers = [] ) : void {
+		$method	= Request::instance()->method;
+		if ( 0 === \strcasecmp( 'options', $method ) ) {
+			$this->send( 204, $headers );
+			exit();
+		}
+	}
+	
+	public function html( string $html, int $status = 200, array $headers = [] ) : void {
+		$headers['Content-Type'] ??= 'text/html; charset=UTF-8';
+		$this->send( $status, $headers, $html );
 		exit();
 	}
-}
-
-function response_html( string $html, int $status = 200, array $headers = [] ) : void {
-	$headers['Content-Type'] ??= 'text/html; charset=UTF-8';
-	response( $status, $headers, $html );
-	exit();
-}
-
-function response_json( array $data, int $status = 200, array $headers = [] ) : void {
-	$headers['Content-Type'] ??= 'application/json; charset=UTF-8';
-	response( $status, $headers, $data );
-	exit();
-}
-
-function response_text( string $text, int $status = 200, array $headers = [] ) : void {
-	$headers['Content-Type'] ??= 'text/plain; charset=UTF-8';
-	response( $status, $headers, $text );
-	exit();
-}
-
-/**
- *  OPTIONS header response helper
- */
-function response_options( array $headers = [] ) : void {
-	$method	= Request::instance()->method;
-	if ( 0 === \strcasecmp( 'options', $method ) ) {
-		response( 204, $headers );
+	
+	public function json( array $data, int $status = 200, array $headers = [] ) : void {
+		$headers['Content-Type'] ??= 'application/json; charset=UTF-8';
+		$this->send( $status, $headers, $data );
 		exit();
 	}
-}
-
-/**
- *  XML Output response helper
- *  
- *  @param string	$xml		Raw XML content
- *  @param int		$status		HTTP status code
- *  @param string	$type		Content MIME type
- *  @param array	$headers	Additional headers 
- */
-function response_xml(
-	string	$xml,
-	int	$status		= 200,
-	string	$type		= 'application/xml',
-	array	$headers	= []
-) : void {
-	$headers = \array_replace_recursive( $headers, response_xmlrpc_headers() );
-	$headers['Content-Type'] ??= "{$type}; charset=UTF-8";
 	
-	// Handle CORS preflight request E.G. XML-RPC request
-	response_options( $headers );
-	
-	response( $status, $headers, $xml );
-	exit();
-}
-
-/**
- *  Clean the output buffer without flushing
- *  
- *  @param bool		$ebuf		End buffers
- */
-function response_end_buffers( bool $ebuf = false ) : void {
-	if ( $ebuf ) {
-		while ( \ob_get_level() > 0 ) {
-			\ob_end_clean();
-		}
-		return;
+	public function text( string $text, int $status = 200, array $headers = [] ) : void {
+		$headers['Content-Type'] ??= 'text/plain; charset=UTF-8';
+		$this->send( $status, $headers, $text );
+		exit();
 	}
 	
-	while ( \ob_get_level() && \ob_get_length() > 0 ) {
-		\ob_clean();
+	/**
+	 *  XML Output response helper
+	 *  
+	 *  @param string	$xml		Raw XML content
+	 *  @param int		$status		HTTP status code
+	 *  @param string	$type		Content MIME type
+	 *  @param array	$headers	Additional headers 
+	 */
+	public function xml(
+		string	$xml,
+		int	$status		= 200,
+		string	$type		= 'application/xml',
+		array	$headers	= []
+	) : void {
+		$headers = \array_replace_recursive( $headers, $this->xmlrpc_headers() );
+		$headers['Content-Type'] ??= "{$type}; charset=UTF-8";
+		
+		// Handle CORS preflight request E.G. XML-RPC request
+		$this->options( $headers );
+		$this->send( $status, $headers, $xml );
+		exit();
 	}
-}
-
-/**
- *  Remove previously set headers, output
- */
-function response_scrub() : void {
-	// Scrub output buffer
-	response_end_buffers();
-	\header_remove( 'Pragma' );
-
-	// This is best done in php.ini : expose_php = Off
-	\header( 'X-Powered-By: nil', true );
-	\header_remove( 'X-Powered-By' );
-}
-
-/**
- *  Flush and optionally end output buffers
- *  
- *  @param bool		$ebuf		End buffers
- */
-function response_flush( bool $ebuf = false ) : void {
-	if ( $ebuf ) {
-		while ( \ob_get_level() > 0 ) {
-			\ob_end_flush();
+	
+	/**
+	 *  Page security policy shared header builder
+	 *  
+	 *  @param bool		$send_csp	Include content security policy, if true
+	 *  @param bool		$send_type	Include content mime type, if true
+	 *  @return array
+	 */
+	private function preamble( bool $send_csp = true, bool $send_type = true ) : array {
+		static $policy;
+		$policy	??= Container::instance()->get( 'Config' )->setting( 'headers', [], 'json' );
+	
+		if ( empty( $policy ) ) { return []; }
+		
+		$headers = [];
+		
+		// Core policies
+		if ( $send_csp ) {
+			if ( !empty( $header = $this->security_policy( 'content', $policy ) ) ) {
+				$headers['Content-Security-Policy']	= $header;
+			}
 		}
-	} else {
-		while ( \ob_get_level() > 0 ) {
-			\ob_flush();	
+		
+		if ( $send_type ) {
+			if ( !empty( $header = $this->security_policy( 'content-type', $policy ) ) ) {
+				$headers['X-Content-Type-Options']	= $header;
+			}
 		}
+		
+		// Other headers
+		if ( !empty( $header = $this->security_policy( 'permissions', $policy ) ) ) {
+			$headers['Permissions-Policy']			= $header;
+		}
+		
+		if ( !empty( $header = $this->security_policy( 'transport', $policy ) ) ) {
+			$headers['Strict-Transport-Security']		= $header;
+		}
+		
+		if ( !empty( $header = $this->security_policy( 'frames', $policy ) ) ) {
+			$headers['X-Frame-Options']			= $header;
+		}
+		
+		if ( !empty( $header = $this->security_policy( 'xss', $policy ) ) ) {
+			$headers['X-XSS-Protection']			= $header;
+		}
+	
+		if ( !empty( $header = $this->security_policy( 'referer', $policy ) ) ) {
+			$headers['X-XSS-Protection']			= $header;
+		}
+		
+		return $headers;
 	}
-	\flush();
+	
+	/**
+	 *  Print headers, content, and end execution
+	 *  TODO: Cache output
+	 *  
+	 *  @param int		$code		HTTP Status code
+	 *  @param string	$content	Page data to send to client
+	 *  @param bool		$is_cached	Cache page data if true
+	 *  @param bool		$is_feed	Set content to be XML
+	 */
+	public function page(
+		int	$code,
+		?string	$content	= null,
+		bool	$is_cached	= false,
+		bool	$is_feed	= false
+	) : void {
+		static $zlib;
+		$zlib		??= \extension_loaded( 'zlib' );
+		
+		$is_error	= ( $code >= 400 );
+		$is_html	= ( $code >= 200 && $code < 204 );
+		$has_body	= ( null !== $content ) || $is_html;
+		$headers 	= [];
+		
+		if ( $is_error && !$has_body ) {
+			$headers = $this->preamble( false, false );
+			$headers['Content-Security-Policy'] = "default-src: 'self'";
+		} elseif ( $is_error && $has_body ) {
+			$headers = $this->preamble( false, true );
+		} else {
+			if ( $is_feed ) {
+				$headers	= $this->preamble( true, false );
+				$headers['Content-Disposition'] = 'inline';
+			} else {
+				$headers	= $this->preamble();
+			}
+		}
+		
+		// Finish and send here if there's no body
+		if ( !$has_body ) { $this->send( $code, $headers ); }
+		
+		// Check gzip prerequisites
+		if ( $code != 304 && $zlib ) { \ob_start( 'ob_gzhandler' ); }
+		if ( $is_feed ) {
+			$this->xml( 
+				xml	: $content ?? '', 
+				status	: $code, 
+				headers : $headers
+			);
+			
+			return;
+		}
+		$this->html( $content ?? '', $code, $headers );
+	}
 }
 
 
@@ -7686,8 +7930,7 @@ function view_include( string $file, array $data ) : string {
 			include $file;
 			return \ob_get_clean();
 		} catch ( \Throwable $e ) {
-			response_end_buffers( true );
-			
+			\ob_end_flush();
 			Log::instance()->error( "Error in view {$file}: {$e->getMessage()}" );
 			return '';
 		}
@@ -9999,222 +10242,6 @@ function entry_index( string $dir, int $page, int $limit ) : array {
 		'total_entries'	=> $total,
 		'total_pages'	=> $pcount,
 	];
-}
-
-
-/**
- *  Page handling
- */
-
-/** 
- *  Security policy term separator filter
- *  
- *  @param string	$frag		Fragment separator
- *  @return string
- */
-function page_security_policy_sep( string $frag = '' ) : string {
-	return empty( $frag ) 
-		? '' 
-		: ( \in_array( \trim( $frag ) , [ '', ',', ':', ';', '=' ] ) 
-			? $frag
-			: ''
-		);
-}
-
-/**
- *  Security policy header value formatter
- *  
- *  @param array	$policy		Security policy items
- *  @return string
- */
-function page_security_policy_items( array $policy ) : string {
-	$separator	= $policy['separator']	?? ', ';
-	$joiner		= $policy['joiner']	?? '=';
-	$items		= $policy['items']	?? [];
-	$policy		= '';
-	
-	$separator	= page_security_policy_sep( $separator );
-	$joiner		= page_security_policy_sep( $joiner );
-	foreach( $items as $key => $value ) {
-		$key	= Sanitize::bland( $key, true );
-		$value	= Sanitize::bland( $value );
-		$policy	.= "{$key}{$joiner}{$value}{$separator}";
-	}
-	
-	return \trim( $policy, $separator );
-}
-
-/**
- *  Security policy term formatter
- *  
- *  @param array	$items		Line-by-line items
- *  @return string
- */
-function page_security_policy_terms( array $items, string $separator = '' ) : string {
-	$policy		= '';
-	$separator	= page_security_policy_sep( $separator );
-		
-	foreach ( $items as $item ) {
-		$item	= Sanitize::bland( $item );
-		$policy .= "{$item}{$separator}";
-	}
-
-	return \trim( $policy, $separator );
-}
-
-/**
- *  Page security configuration parser
- *  
- *  @param string	$term		Poliey key search
- *  @param array	$policy		Full security headers to search
- *  @return string
- */
-function page_security_policy( string $term, array $policy ) : string {
-	if ( empty( $policy ) ) { return ''; }
-	$term	= \strtolower( $term );
-	
-	return match( $term ) {
-		'permissions', 'permissions-policy'
-			=> page_security_policy_items( $policy['Permissions-Policy'] ?? [] ),
-		
-		'content', 'content-security-policy'
-			=> page_security_policy_items( $policy['Content-Security-Policy'] ?? [] ),
-		
-		'referer', 'referrer', 'referer-policy'
-			=> page_security_policy_terms( $policy['Referer-Policy'] ?? [], ',' ),
-		
-		'transport', 'strict-transport-security', 'transport-security'
-			=> page_security_policy_terms( $policy['Strict-Transport-Security'] ?? [], '; ' ),
-		
-		'xss', 'x-xss', 'x-xss-protection'
-			=> page_security_policy_terms( $policy['X-XSS-Protection'] ?? [], '; ' ),
-		
-		'content-type', 'x-content-type-options'
-			=> page_security_policy_terms( $policy['X-Content-Type-Options'] ?? [] ),
-
-		'frames', 'x-frame', 'x-frame-options', 
-			=> page_security_policy_terms( $policy['X-Frame-Options'] ?? [] ),
-			
-		default	=> ''
-	};
-}
-
-/**
- *  Page security policy shared header builder
- *  
- *  @param bool		$send_csp	Include content security policy, if true
- *  @param bool		$send_type	Include content mime type, if true
- *  @return array
- */
-function page_preamble( bool $send_csp = true, bool $send_type = true ) : array {
-	static $policy;
-	$policy	??= config( 'headers', [] );
-
-	if ( empty( $policy ) ) { return []; }
-	
-	$headers = [];
-	
-	// Core policies
-	if ( $send_csp ) {
-		if ( !empty( $header = page_security_policy( 'content', $policy ) ) ) {
-			$headers['Content-Security-Policy']	= $header;
-		}
-	}
-	
-	if ( $send_type ) {
-		if ( !empty( $header = page_security_policy( 'content-type', $policy ) ) ) {
-			$headers['X-Content-Type-Options']	= $header;
-		}
-	}
-	
-	// Other headers
-	if ( !empty( $header = page_security_policy( 'permissions', $policy ) ) ) {
-		$headers['Permissions-Policy']			= $header;
-	}
-	
-	if ( !empty( $header = page_security_policy( 'transport', $policy ) ) ) {
-		$headers['Strict-Transport-Security']		= $header;
-	}
-	
-	if ( !empty( $header = page_security_policy( 'frames', $policy ) ) ) {
-		$headers['X-Frame-Options']			= $header;
-	}
-	
-	if ( !empty( $header = page_security_policy( 'xss', $policy ) ) ) {
-		$headers['X-XSS-Protection']			= $header;
-	}
-
-	if ( !empty( $header = page_security_policy( 'referer', $policy ) ) ) {
-		$headers['X-XSS-Protection']			= $header;
-	}
-	
-	return $headers;
-}
-
-/**
- *  Print headers, content, and end execution
- *  TODO: Cache output
- *  
- *  @param int		$code		HTTP Status code
- *  @param string	$content	Page data to send to client
- *  @param bool		$is_cached	Cache page data if true
- *  @param bool		$is_feed	Set content to be XML
- */
-function page_send(
-	int	$code,
-	?string	$content	= null,
-	bool	$is_cached	= false,
-	bool	$is_feed	= false
-) : void {
-	static $zlib;
-	$zlib		??= \extension_loaded( 'zlib' );
-	
-	$is_error	= ( $code >= 400 );
-	$is_html	= ( $code >= 200 && $code < 204 );
-	$has_body	= ( null !== $content ) || $is_html;
-	$headers 	= [];
-	
-	if ( $is_error && !$has_body ) {
-		$headers = page_preamble( false, false );
-		$headers['Content-Security-Policy'] = "default-src: 'self'";
-	} elseif ( $is_error && $has_body ) {
-		$headers = page_preamble( false, true );
-	} else {
-		if ( $is_feed ) {
-			$headers	= page_preamble( true, false );
-			$headers['Content-Disposition'] = 'inline';
-		} else {
-			$headers	= page_preamble();
-		}
-	}
-	
-	if ( !$has_body ) { response( $code, $headers ); }
-	
-	// Schedule flush
-	shutdown( 'response_flush', [ true ] );
-	
-	// Check gzip prerequisites
-	if ( $code != 304 && $zlib ) { \ob_start( 'ob_gzhandler' ); }
-	
-	if ( $is_feed ) {
-		response_xml( 
-			xml	: $content ?? '', 
-			status	: $code, 
-			headers : $headers
-		);
-		return;
-	}
-	response_html( $content ?? '', $code, $headers );
-}
-
-function page_not_found( bool $no_body = false ) : void {
-	if ( $no_body ) { 
-		page_send( 404, null );
-		return;
-	}
-	
-	$tpl	= template( 'tpl_error_notfound' ) ?: MSG_NOTFOUND;
-	page_send( 404, language_parse( $tpl ) );
 }
 
 
