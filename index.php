@@ -5518,6 +5518,226 @@ class PageResponse extends Response {
 	}
 }
 
+/**
+ *  @class Metadata attribute for plugins, templates, custom hooks etc...
+ */
+#[Attribute( Attribute::TARGET_CLASS | Attribute::IS_REPEATABLE )]
+class Info {
+	/**
+	 *  Most all of this is optional, but recommended
+	 *  
+	 *  @param string	$name		Usually, the plugin or theme name
+	 *  @param string	$author		Creator information or copyright
+	 *  @param string	$version	Notation compatible with PHP's version_compare()
+	 *  @param string	$description	Detailed information on what this does
+	 *  @param string	$licence	MIT, BSD, ISC, GPL etc...
+	 *  @param string	$category	What type of 'thing' this is: plugins, modules, themes etc...
+	 *  @param string	$website	Author homepage
+	 *  @param string	$update_url	Auto-update checking URL (future use)
+	 *  @param array	$fields		Custom information E.G. asset_dir, data_dir etc...
+	 */
+	public function __construct(
+		public readonly	?string	$name		= null,
+		public readonly	?string	$author		= null,
+		public readonly	?string	$version	= null,
+		public readonly	?string	$description	= null,
+		public readonly	?string	$license	= null,
+		public readonly	?string	$category	= null,
+		public readonly	?string	$website	= null,
+		public readonly	?string	$update_url	= null,
+		public readonly	?array	$fields		= []
+	) {}
+}
+
+/**
+ *  @class Third party class and information file finder
+ */
+final class Finder {
+	/**
+	 *  @var array<string,mixed> Running directory cache
+	 */
+	private static array $cache	= [];
+	
+	/**
+	 *  Relative path checking to ensure starting with PATH
+	 *  
+	 *  @param string	$path		Sent folder path
+	 *  @return bool
+	 */
+	private static function base_valid( string $path ) : bool {
+		static $root;
+		$root	??= @\realpath( PATH );
+		
+		$path	= Sanitize::path_traversal( $path );
+		
+		if ( empty( $path ) ) { return false; }
+		return \str_starts_with( $path, $root );
+	}
+	
+	/**
+	 *  Special file metadata field helper
+	 *  
+	 *  @param string	$fname		File name
+	 *  @return array|null
+	 */
+	private static function metatype( string $fname ) : ?array {
+		return match( \strtolower( $fname ) ) {
+			'plugin.info'	=> [
+				'plugin'	=> 'Plugin',
+				'author'	=> 'Author',
+				'version'	=> 'Version',
+				'description'	=> 'Description',
+				'license'	=> 'License',
+				'website'	=> 'Website',
+				'requires'	=> 'Requires',
+				'category'	=> 'Category'
+			],
+			'theme.info'	=> [
+				'theme'		=> 'Theme',
+				'author'	=> 'Author',
+				'version'	=> 'Version',
+				'description'	=> 'Description',
+				'license'	=> 'License',
+				'website'	=> 'Website',
+				'colors'	=> 'Colors',
+				'layout'	=> 'Layout'
+			],
+			// TODO:
+			/*
+			'module.info'	=> [
+				'module'	=> 'Module',
+				'author'	=> 'Author',
+				'version'	=> 'Version',
+				'description'	=> 'Description',
+				'license'	=> 'License',
+				'website'	=> 'Website',
+				'requires'	=> 'Requires',
+				'provides'	=> 'Provides',
+				'priority'	=> 'Priority'
+			],
+			 */
+			// Everything else
+			default		=> [
+				'author'	=> 'Author',
+				'version'	=> 'Version',
+				'description'	=> 'Description',
+				'license'	=> 'License',
+				'website'	=> 'Website'
+			]
+		};
+	}
+	
+	/**
+	 *  Process metadata fields from information file
+	 *  
+	 *  @param string	$src		File source
+	 *  @param array	$fields		Relevant field keys and their labels
+	 */
+	private static function metafields( string $src, ?array $fields = null ) : array {
+		if ( empty( $fields ) ) { return []; } // Nothing to search
+		
+		$meta = [];
+		if ( \preg_match( '/\/\*([\s\S]*?)\*\//', $src, $block ) ) {
+			$header = $block[1];
+			
+			foreach ( $fields as $field => $label ) {
+				// TODO: Better field searching regex
+				$pattern = '/^' . \preg_quote( $label, '/' ) . ':\s*(.+)$/mi';
+				if ( \preg_match( $pattern, $header, $m ) ) {
+					$meta[$field] = \trim( $m[1] );
+				}
+			}
+		}
+		return $meta;
+	}
+	
+	/**
+	 *  Reflection based detail load
+	 *  
+	 *  @param string	$file		Path on disk
+	 *  @return string|null
+	 */
+	private static function autoload( string $file ) : ?string {
+		$src	= @\file_get_contents( $file );
+		if ( empty( $src ) ) { return null; }
+		
+		$class	= null;
+		$fields	= null;
+		
+		// Try to start with a fully qualified namespace
+		if ( \preg_match( '/namespace\s+(.+?);/', $src, $ns ) ) { 
+			if ( \preg_match( '/class\s+(\w+)/', $src, $cls ) ) { 
+				$class = $ns[1] . '\\' . $cls[1];
+				if ( \class_exists( $class ) ) { 
+					$ref	= new \ReflectionClass( $class );
+					$attr	= $ref->getAttributes( Info::class );
+					
+					if ( $attr ) {
+						$fields	= ( array ) $attr[0]->newInstance();
+					}
+				
+				} else { $class	= null; }
+			}
+		}
+		
+		$meta	= 
+		( null === $class ) // Not a class? Try from custom info file
+			? static::metafields( $src, static::metatype( \basename( $file ) ) )
+			: $fields;
+		
+		return [ 'class' => $class, 'meta' => $meta ?? [] ];
+	}
+	
+	/**
+	 *  Main class finder
+	 *  
+	 *  @param string	$base		Item search directory
+	 *  @param string	$fname		Optional, specific, information file
+	 *  @return array
+	 */
+	public static function in( string $base, ?string $fname = null ) : array {
+		if ( !static::base_valid( $base ) ) {
+			throw new 
+			\RuntimeException( "Invalid base directory for Finder {$base}" );
+		}
+		
+		// Try from cache
+		if ( !defined( 'DEBUG_MODE' ) && isset( static::$cache[$base] ) ) { 
+			return static::$cache[$base]; 
+		}
+		
+		$iterator	= Storage::files_as_iterator( $base );
+		if ( null === $iterator ) { 
+			static::$cache[$base] = [];
+			return []; 
+		}
+		
+		$filter		= 
+		new \CallbackFilterIterator(
+			$iterator,
+			fn( $finfo ) => 
+				$finfo->isFile()	&& 
+				$finfo->getSize() > 0	&& 
+				( ( null === $fname ) // Any PHP or from specific file match
+					? 0 === \strcasecmp( 'php', $finfo->getExtension() )
+					: 0 === \strcasecmp( $fname, $finfo->getFilename() )
+				)
+		);
+		
+		$files		= [];
+		
+		foreach ( $filter as $file ) {
+			$info	= static::autoload( $file->getRealPath() );
+			if ( null === $info ) { continue; }
+			
+			$files[] = $info;
+		}
+		
+		static::$cache[$base] = $files;
+		return $files;
+	}
+}
+
 
 /**
  *  Configuration settings and options
