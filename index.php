@@ -5938,7 +5938,8 @@ class HookRegistry {
 class HookLoader {
 	public function __construct(
 		private HookRegistry	$registry,
-		private array		$classes	= []
+		private array		$classes	= [],
+		private array		$skipped	= []
 	) {}
 	
 	/**
@@ -5947,12 +5948,22 @@ class HookLoader {
 	 *  @param string	$class		Instance name (static::class)
 	 */
 	private function parse( string $class ) : void {
-		if ( isset( $this->classes[$class] ) ) { return; }
+		if ( 
+			isset( $this->classes[$class] ) || 
+			isset( $this->skipped[$class] )
+		) { return; }
 		
 		$ref			= new \ReflectionClass( $class );
 		
-		if ( $ref->isAbstract() ) { return; }
-		if ( !$ref->getAttributes( HookContainer::class ) ) { return; }
+		if ( $ref->isAbstract() || $ref->isInternal() ) { 
+			$this->skipped[$class] = true;
+			return; 
+		}
+		
+		if ( !$ref->getAttributes( HookContainer::class ) ) { 
+			$this->skipped[$class] = true;
+			return; 
+		}
 		
 		$this->classes[$class]	= true;
 		$instance		= Container::instance()->get( $class );
@@ -6014,8 +6025,7 @@ class HookLoader {
  */
 class HookPipeline {
 	public function __construct( 
-		private HookRegistry	$registry,
-		private Template	$template
+		private HookRegistry	$registry
 	) {}
 
 	/**
@@ -6105,6 +6115,884 @@ class HookShutdown {
 				default			=> $task()
 			};
 		}
+	}
+}
+
+
+/**
+ *  @class Templates and rendering
+ */
+class Template {
+	
+	private array $cache;
+	private array $patterns;
+	
+	public function __construct( private HookRegistry $registry, array $extend = [] ) {
+		$this->patterns = array_merge( $this->default_patterns(), $extend );
+	}
+	
+	private function default_patterns() : array {
+		return [
+			'loop'		=> 
+			'/\{loop:(?P<label>\w+)(?:\s+as\s+(?P<alias>\w+))?\}'
+			. '(?P<content>.*?)\{endloop\}/si',
+			
+			'ifelse'	=> 
+			'/\{if:(?P<condition>.*?)\}(?P<if_content>.*?)'
+				. '(?:\{elseif:(?P<elseif_condition>.*?)\}(?P<elseif_content>.*?))?'
+				. '(?:\{else\}(?P<else_content>.*?))?\{endif\}/si',
+			
+			'logic'		=> 
+			'/(?P<variable>[\w\.\-]+)\s*(?P<operator>===|!==|==|!=|>=|<=|>|<|in|contains)'
+				. '\s*(?P<value>"[^"]*"|\'[^\']*\'|\S+)/i',
+			
+			'block'		=> '/\{\{#(\w+)\}\}(.*?)\{\{\/\1\}\}/si',
+			
+			'args'		=> 
+			'/\s*([\w\-]+)\s*=\s*("([^"]*)"|\'([^\']*)\'|([^,\s]+))\s*/',
+			
+			'incexists'	=> '/\{include:(?<key>[\w\-.\/]+)(?:\|[^}]+)?\}/i',
+			'include'	=> 
+			'/\{include:(?<inc_file>(?:\./)?(?:[\w\-]+\/)*[\w\-.]+)' 
+				. '(?:\|(?<params>[^}]+))?\}/i',
+			
+			'hook'		=> '/\{hook:(?<name>[\w\.\-]+)(?:\((?<args>[^}]*)\))?\}/i',
+			'hookblock'	=> '/\{hook:(?<name>[\w\.\-]+)\}(?<content>.*?)\{endhook\}/si',
+
+		];
+	}
+	
+	/**
+	 *  Core template processing expressions
+	 *  
+	 *  @param string	$key		Match pattern key
+	 *  @param array	$extend		Optional extended patterns
+	 *  @return mixed
+	 */
+	private function patterns( ?string $key = null, ?array $extend = null ) : string|array {
+		if ( !empty( $extend ) ) {
+			$this->patterns = \array_merge( $this->patterns, $extend );
+		}
+		
+		return ( null === $key ) 
+			? $this->patterns 
+			: ( $this->patterns[$key] ?? '' );
+	}
+	
+	/**
+	 *  Parse template tag optional arguments
+	 *  
+	 *  @param string	$str	Target phrase
+	 *  @return array
+	 */
+	private function parse_tag_args( string $str ) : array {
+		$args = [];
+		
+		\preg_match_all( $this->patterns( 'args' ) , $str, $m, \PREG_SET_ORDER );
+		foreach ( $m as $row ) {
+			$key		= trim( $row[1] );
+			$value		= 
+			$row[3] !== '' 
+				? $row[3] 
+				: ( $row[4] !== '' ? $row[4] : $row[5] );
+			
+			$args[$key] = \trim( $value, "\"'"  );
+		}
+		return $args;
+	}
+	
+	/**
+	 *  Scan a template for nodes of type and parse parameters
+	 *  
+	 *  @param string	$template	Loaded template to scan
+	 *  @return array			Parsed type parameters
+	 *  
+	 *  @example {{node_type.blog(is_featured=true,limit=4)}}
+	 *  {{node_type.topic(is_featured=true,limit=4,sort=created_at,direction=DESC)}}
+	 *  {{node_type.post(is_hero=true,limit=1)}}
+	 */
+	private function node_tags( string $template ) : array {
+		\preg_match_all(
+			'/{node_type\.(\w+)\(([^}]*)\)}/', 
+			$template, $matches, \PREG_SET_ORDER 
+		);
+		$tags = [];
+		
+		foreach ( $matches as $match ) {
+			$tags[] = [
+				'full'		=> $match[0],
+				'type'		=> $match[1],
+				'params'	=> $this->parse_tag_args( $match[2] )
+			];
+		}
+		
+		return $tags;
+	}
+	
+	/**
+	 *  Template resolving handler helper
+	 *  
+	 *  @param string	$type		Resolver type label
+	 *  @param array	$resolvers	List of type-keyed registered resolvers
+	 *  @return mixed			Resolved callable or null
+	 */
+	public function resolver( string $type, array $resolvers ) : ?callable {
+		if ( \is_callable( $resolvers[$type] ?? null ) ) {
+			return $resolvers[$type];
+		}
+		
+		if ( \is_callable( $resolvers['default'] ?? null ) ) {
+			return $resolvers['default'];
+		}
+		
+		return null;
+	}
+	
+	/**
+	 *  Match node type to registered resolver
+	 *  
+	 *  @params string	$template 	Raw template data
+	 *  @param array	$resolvers	List of type-keyed registered resolvers
+	 *  @return string
+	 */
+	public function resolve_nodes( 
+		string	$template, 
+		array	$resolvers, 
+		array	$context	= [] 
+	) : string {
+		
+		$tags	= $this->node_tags( $template );
+		foreach ( $tags as $tag ) {
+			$type		= $tag['type'];
+			$params		= $tag['params'];
+			$full		= $tag['full'];
+			
+			$resolver	= $this->resolver( $type, $resolvers );
+			$params['context'] = $context;
+			
+			if ( !$resolver ) {
+				Log::instance()->warn( "No resolver found for node type: {$type}" );
+				
+				// Swap placeholder with error message
+				$content	= 
+				"<!-- Unknown node type: {$type} -->";
+				
+			} else {
+				try {
+					$content	= 
+					$resolver( [ 
+						'type'		=> $type, 
+						'params'	=> $params, 
+						'full'		=> $full 
+					] );
+					
+					if ( null === $content ) {
+						Log::instance()->warn( "Resolver output failed for type: {$type}" );
+						$content = "<!-- Unknown node type: {$type} -->";
+					}
+				} catch ( \Throwable $e ) {
+					Log::instance()->warn( "Node resolver error for '{$type}': {$e->getMessage()}" );
+					$content	= 
+					"<!-- Error rendering node: {$type} -->";	
+				}
+			}
+			
+			$template = \str_replace( $full, $content, $template );
+		}
+		
+		return $template;
+	}
+	
+	/**
+	 *  Block {template} detection
+	 *  
+	 *  @param string	$template	Raw template data
+	 *  @param array	$context	Processing format data context
+	 *  @return string
+	 */
+	private function blocks( string $template, array $context ) : string {
+		\preg_match_all( 
+			$this->patterns( 'block' ), $template, $matches, 
+			\PREG_SET_ORDER 
+		);
+		
+		foreach ( $matches as $match ) {
+			$key		= $match[1];
+			$content	= $match[2];
+			$valid		= 
+			\array_key_exists( $key, $context ) && ( null !== $context[$key] );
+			
+			$template	= 
+			\str_replace( $match[0], $valid ? $content : '', $template );
+		}
+	
+		return $template;
+	}
+	
+	/**
+	 *  Convert dot notation phrase 
+	 *  
+	 *  @param string	$template	Template name
+	 *  @param array	$vars		Placeholder value replacements
+	 *  @return string			Translated phrase
+	 *  
+	 *  @example 
+	 *  $template	= 
+	 *  "Hello {{user.name}}, you have {{notifications.count}} messages.";
+	 *  
+	 *  $vars	= [
+	 *  	'user'		=> [ 'name'	=> 'cypnk' ],
+	 *  	'notifications'	=> [ 'count'	=> 3 ]
+	 *  ];
+	 *  echo template_interpolate( $template, $vars );
+	 *  
+	 *  Output: Hello cypnk, you have 3 new messages.
+	 */
+	private function interpolate( string $template, array $vars ) : string {
+		$normal			= $vars;
+		\ksort( $normal );
+		
+		$key			= 
+		\hash( 'sha1', $template . \json_encode( $normal, \JSON_UNESCAPED_UNICODE ) );
+		
+		$this->cache[$key]	??= 
+		\preg_replace_callback(
+			'/\{\{\s*([\w\.]+)(?:\s*\|\s*([^\}]+))?\s*\}\}/',
+			function ( $matches ) use ( $vars ) {
+				$keys	= explode( '.', $matches[1] );
+				$value	= $vars;
+				
+				foreach( $keys as $key ) {
+					if ( \is_array( $value ) && \array_key_exists( $key, $value ) ) {
+						$value	= $value[$key];
+					} elseif( \is_object( $value ) && isset( $value->$key ) ) {
+						$value	= $value->$key;
+					} else {
+						return isset( $matches[2] ) 
+							? $matches[2]
+							: $matches[0];
+					}
+				}
+				
+				if ( \is_scalar( $value ) ) { return ( string ) $value; }
+				if ( \is_object( $value ) && \method_exists( $value, '__toString' ) ) {
+					return ( string ) $value;
+				}
+				
+				return $matches[0];
+			}, $template
+		);
+		
+		return $this->cache[$key];
+	}
+	
+	/**
+	 *  Variable strictness logic comparison helper
+	 *  
+	 *  @param mixed	$chk		Check target
+	 *  @param mixed	$val		Source data
+	 *  @param bool		$case_flag	Case sensitive comparison, if true
+	 *  @return bool
+	 */
+	private function compare_var( mixed $chk, mixed $val, bool $case_flag ) : bool {
+		if ( \is_bool( $chk ) || \is_bool( $val )) {
+			return $chk === $val;
+		}
+		
+		if ( \is_numeric( $chk ) && \is_numeric( $val ) ) {
+			return ( float ) $chk === ( float ) $val;
+		}
+		
+		$chk_cmp = ( string ) $chk;
+		$val_cmp = ( string ) $val;
+		
+		return $case_flag ?
+			\strcmp( $chk_cmp, $val_cmp ) === 0 : 
+			\strcasecmp( $chk_cmp, $val_cmp ) === 0;
+	}
+	
+	/**
+	 *  Match template {{placholder}} terms with array keys
+	 *  
+	 *  @param array	$vars	Context source data
+	 *  @return array
+	 */
+	private function placeholders( array $vars ) : array {
+		if ( empty( $vars ) ) { return []; }
+		
+		$flat = Util::flatten_array( $vars );
+		return \array_combine(
+			\array_map( fn( $key ) => '{{' . $key . '}}', \array_keys( $flat ) ),
+			\array_map( fn( $val ) => \is_scalar( $val ) ? ( string ) $val : '', $flat )
+		);
+	}
+	
+	/**
+	 *  Find any included templates files
+	 *  
+	 *  @param string	$template	Raw template data
+	 *  @return array
+	 */
+	private function includes( string $template ) : array {
+		\preg_match_all( 
+			$this->patterns( 'incexists' ), 
+			$template, 
+			$matches, 
+			\PREG_UNMATCHED_AS_NULL
+		);
+		
+		return \array_unique( $matches['key'] ?? [] ); // Only keys
+	}
+	
+	/**
+	 *  Extract comparison flags
+	 *  
+	 *  @param string	$raw		Raw template data
+	 *  @param bool		$default_case	Fallback case sensitivity, defaults to false (insensitive)
+	 *  @return array
+	 */
+	private function extract_flags( string $raw, bool $default_case = false ) : array {
+		static $conv	= [ 'int', 'float', 'bool', 'json' ];
+		$parts		= explode( '|', $raw );
+		$val		= \trim( \array_shift( $parts ) );
+		$case_flag	= $default_case;
+		
+		$coerced	= false;
+		foreach ( $parts as $flag ) {
+			$flag = \strtolower( \trim( $flag ) );
+			
+			if ( !$coerced && \in_array( $flag, $conv ) ) {
+				match ( $flag ) {
+					'int'	=> $val = ( int ) $val,
+					'float'	=> $val = ( float ) $val,
+					'bool'	=> $val = \filter_var( 
+						$val, \FILTER_VALIDATE_BOOLEAN 
+					),
+					'json' => \json_validate( $val ) 
+							? \json_decode( $val, true ) 
+							: $val,
+					default	=> null
+				};
+				
+				$coerced = true;
+				continue;
+			}
+			
+			match ( $flag ) {
+				'ci'	=> $case_flag = true,
+				'cs'	=> $case_flag = false,
+				default	=> null
+			};
+		}
+		
+		$rval	= \is_string( $val ) ? \trim( $val ) : $val;
+		return [ $rval, $case_flag ];
+	}
+	
+	/**
+	 *  Template logic processing helper
+	 *  
+	 *  @param string	$expr		Logic expression
+	 *  @param array	$context	Processed data context
+	 *  @param bool		$case_flag	Case sensitivity, true for sensitive match
+	 *  @return bool
+	 */
+	private function logic( string $expr, array $context, bool $case_flag = false ) : bool {
+		$patterns	= $this->patterns();
+		if ( !\preg_match( $patterns['logic'], $expr, $m ) ) {
+			return false;
+		}
+		
+		$operator	= \strtolower( $m['operator'] );
+		$var		= ( string ) ( $context[$m['variable']] ?? '' );
+		$raw		= \trim( $m['value'], "\"'" );
+		
+		[ $val, $case_flag ] = $this->extract_flags( $raw, $case_flag );
+		
+		return match ( $operator ) {
+			'==='		=> $var === $val,
+			'!=='		=> $var !== $val,
+			'=='		=> $this->compare_var( $var, $val, $case_flag ),
+			'!='		=> !$this->compare_var( $var, $val, $case_flag ),
+			'>'		=> \is_numeric( $var ) && ( float ) $var > ( float ) $val,
+			'<'		=> \is_numeric( $var ) && ( float ) $var < ( float ) $val,
+			'>='		=> \is_numeric( $var ) && ( float ) $var >= ( float ) $val,
+			'<='		=> \is_numeric( $var ) && ( float ) $var <= ( float ) $val,
+			
+			'in'		=> ( function() use ( $var, $val ) {
+				$items = \is_array( $val ) ? $val : \array_map( 'trim', \explode( ',', ( string ) $val ) );
+				return \in_array( ( string ) $var, \array_map( 'strval', $items ), true );
+			} )(), 
+			
+			'contains'	=> (
+				\is_string( $var ) &&
+				( \is_string( $val ) || \is_numeric( $val ) ) &&
+				( $case_flag
+					? false !== \stripos( $var, ( string ) $val ) 
+					: false !== \strpos( $var, ( string ) $val )
+				)
+			),
+			
+			default		=> false
+		};
+	}
+	
+	/**
+	 *  And/Or logic match group
+	 *  
+	 *  @param string	$condition	Matched logic phrase
+	 *  @param array	$context	Processed data context
+	 *  @param bool		$case_flag	Case sensitivity, false for insensitive match
+	 *  @return bool
+	 */
+	private function logic_group( 
+		string	$condition, 
+		array	$context, 
+		bool	$case_flag	= false 
+	) : bool {
+		foreach ( \explode( '||', $condition ) as $or_group ) {
+			$is_valid = true;
+			
+			foreach ( \explode( '&&', \trim( $or_group ) ) as $and_group ) {
+				$and_group = trim( $and_group );
+				
+				if ( !$this->logic( $and_group, $context, $case_flag ) ) {
+					$is_valid = false;
+					break; // Short circuit AND group
+				}
+			}
+			
+			if ( $is_valid ) { return true; } // Short circuit OR group
+		}
+		
+		return false;
+	}
+	
+	/**
+	 *  Load template file
+	 *  
+	 *  @param string	$path	Relative path for loading template
+	 *  @param string	$theme	Optional theme directory, relative to '/themes/'
+	 *  @param string	$root	Optional template root,
+	 *  				defaults to '/views/' relative to TEMPLATE_DIR or __DIR__
+	 *  @return string
+	 */
+	private function load( 
+		string		$path, 
+		?string		$theme	= null, 
+		?string		$root	= null 
+	) : string {
+		static $allowed	= [ 'html', 'htm', 'tpl', 'txt' ];
+		static $cache	= [];
+		static $dir;
+		
+		$ext	= 
+		\strtolower( \pathinfo( $path, \PATHINFO_EXTENSION ) ?: 'na' );
+		
+		if ( !\in_array( $ext, $allowed, true ) ) {
+			Log::instance()->error( "Disallowed template extension: {$ext}" );
+			
+			throw new 
+			\RuntimeException( "Invalid template type" );
+		}
+	
+		// Custom template file directory
+		$dir		??= 
+		\defined( 'TEMPLATE_DIR' ) 
+			? \constant( 'TEMPLATE_DIR' )
+			: __DIR__;
+		
+		// Custom view directory
+		$vdir		= 
+		( null === $root ) 
+			? '/views/' 
+			: '/' . \trim( $root, '/' );
+		
+		$vdir		= Sanitize::path_traversal( $vdir ) ?: '';
+		$base		= @\realpath( $dir . $vdir );
+		
+		if ( !$base ) {
+			Log::instance()->error( "Invalid base path: {$base}" );
+			
+			throw new 
+			\RuntimeException( "Template base path not found" );
+		}
+		
+		$theme_path	= null === $theme ? '' : "/themes/{$theme}/";
+		$relative	= $theme_path . '/' . \ltrim( $path, '/' );
+		$relative	= \preg_replace( '#/+#', '/', $relative ); // Duplicate slash fix
+		
+		if ( \str_contains( $relative, '..' ) ) { // No traversal
+			Log::instance()->error( "Suspicious template path: {$path}" );
+			
+			throw new 
+			\RuntimeException( "Invalid template path" );
+		}
+		
+		$relative	= Sanitize::path_traversal( $relative ) ?: '';
+		$full		= @\realpath( $base . '/' . $relative );
+		if ( !$full || 0 !== \stripos( $full, $base ) ) {
+			Log::instance()->error( "Template path traversal attempt: {$path}" );
+			
+			throw new 
+			\RuntimeException( "Invalid template path" );
+		}
+	
+		if ( !\is_readable( $full ) ) {
+			Log::instance()->error( "Template not found: {$path}" );
+			
+			throw new 
+			\RuntimeException( "Template not readable" );
+		}
+	
+		$info	= $cache[$full] ??= \file_get_contents( $full );
+		if ( false === $info ) {
+			Log::instance()->error( "Failed to read template: {$path}" );
+			
+			throw new 
+			\RuntimeException( "Failed to read template" );
+		}
+	
+		Log::instance()->debug( "Loaded template: {$full}" );
+		return $info;
+	}
+	
+	/**
+	 *  Load predefined static template from constant
+	 *  
+	 *  @return array
+	 */
+	public function load_static() : array {
+		$raw		= 
+		\defined( 'TEMPLATES' ) && \is_string( TEMPLATES )
+			? \constant( 'TEMPLATES' ) 
+			: '';
+		
+		// Try to get a default loaded template if nothing defined
+		if ( empty( $raw ) ) {
+			$fraw	= 
+			\defined( 'TEMPLATE_FILE' ) && \is_string( TEMPLATE_FILE )
+				? \constant( 'TEMPLATE_FILE' )
+				: '';
+			
+			if ( empty( $fraw ) || !\is_readable( $fraw ) )  { return []; }
+			
+			$file	= $this->load( $fraw );
+			if ( empty( $file ) ) { return []; }
+			
+			$flines	= \explode( "\n", $file );
+		} else { $flines = \explode( "\n", $raw ); }
+		
+		if ( !\is_array( $flines ) ) { return []; }
+		
+		$current	= null;
+		$templates	= [];
+		$buffer		= [];
+		$phrase		= '/^\s*-{3,}\s*(tpl_[A-Za-z0-9_]+)\s*-{3,}\s*$/';
+		
+		foreach ( $flines as $line ) {
+			// Match template
+			if ( \preg_match( $phrase, $line, $m ) ) {
+				if ( null !== $current ) {
+					$templates[$current] = 
+					\rtrim( \implode( "\n", $buffer ) );
+				}
+				
+				$current = $m[1];
+				$buffer  = [];
+				continue;
+			}
+			
+			// Skip comments
+			if ( \preg_match( '/^\s*(##|;;|%%)/', trim( $line ) ) ) {
+				continue;
+			}
+			
+			if ( null !== $current ) { $buffer[] = $line; }
+		}
+		
+		if ( null !== $current ) {
+			$templates[$current]	= \rtrim( \implode("\n", $buffer ) );
+		}
+		
+		return $templates;
+	}
+	
+	/**
+	 *  Partial/Fragment template loading helper
+	 *  
+	 *  @param string	$template 	Raw template data
+	 *  @param array	$vars		Content data
+	 *  @param int		$depth		Maximum include depth, defaults to 5
+	 *  @param array	$seen		Current list of templates already processing
+	 *  @return string
+	 */
+	private function partials(
+		string	$template,
+		array	$vars		= [],
+		int	$depth		= 0,
+		array	$seen		= []
+	) : string {
+		$max_depth	= 5;
+		if ( $depth > $max_depth ) {
+			Log::instance()->warn( "Max template include depth exceeded" );
+			return $template;
+		}
+		
+		$includes	=  $this->includes( $template );
+		if ( empty( $includes ) ) {
+			return $this->interpolate(
+				$template,
+				$this->placeholders( $vars )
+			);
+		}
+		
+		$partials	= [];
+		foreach ( $includes as $key ) {
+			if ( \in_array( $key, $seen, true ) ) {
+				Log::instance()->warn( "Circular include detected {$key}" );
+				continue;
+			}
+			
+			try {
+				$partial_tpl			= 
+				$this->load( "partials/{$key}.html" );
+				
+				$partials["{include:{$key}}"]	= 
+				$this->partials(
+					$partial_tpl,
+					$vars,
+					$depth + 1,
+					[...$seen, $key]
+				);
+				
+			} catch ( \Throwable $e ) {
+				Log::instance()->warn( "Partial not loaded: {$key}: {$e->getMessage()}" );
+				$partials["{include:{$key}}"]	= '';
+			}
+		}
+		
+		// Merge partials with user-defined placeholders
+		$merged = \array_merge( $this->placeholders( $vars ), $partials );
+		return $this->interpolate( $template, $merged );
+	}
+	
+	/**
+	 *  On-template logic parser
+	 *  
+	 *  @params string	$template 	Raw template data
+	 *  @param array	$context	Processed data context
+	 *  @param bool		$case_flag	Case sensitivity flag, defaults to false (insensitive)
+	 *  @return string
+	 */
+	private function conditionals(
+		string	$template,
+		array	$context,
+		bool	$case_flag	= false
+	) : string {
+		$patterns = $this->patterns();
+		\preg_match_all(
+			$patterns['ifelse'], $template, $matches, \PREG_SET_ORDER
+		);
+		
+		foreach ( $matches as $match ) {
+			$condition		= \trim( $match['condition'] );
+			$if_content		= $match['if_content']		?? '';
+			$elseif_condition	= $match['elseif_condition']	?? null;
+			$elseif_content		= $match['elseif_content']	?? '';
+			$else_content		= $match['else_content']	?? '';
+			
+			$replacement		= '';
+			
+			if ( $this->logic_group( $condition, $context, $case_flag ) ) {
+				$replacement	= 
+				$this->parse( $if_content, $context, $case_flag );
+			} elseif (
+				$elseif_condition && $this->logic_group(
+					$elseif_condition, $context, $case_flag
+				)
+			) {
+				$replacement	= 
+				$this->parse( $elseif_content, $context, $case_flag );
+			} elseif ( !empty( $else_content ) ) {
+				$replacement	= 
+				$this->parse(
+					$else_content, $context, $case_flag
+				);
+			}
+			
+			$template	= \str_replace( $match[0], $replacement, $template );
+		}
+		
+		return $template;
+	}
+	
+	/**
+	 *  Parse on-template rendering loops
+	 *  
+	 *  @params string	$template 	Raw template data
+	 *  @param array	$context	Processed data context
+	 *  @param bool		$case_flag	Case sensitivity flag, defaults to false (insensitive)
+	 *  @return string
+	 */
+	private function loops(
+		string	$template, 
+		array	$context, 
+		bool	$case_flag	= false 
+	) : string {
+		$patterns	= $this->patterns();
+		\preg_match_all( $patterns['loop'], $template, $matches, \PREG_SET_ORDER );
+		
+		foreach ( $matches as $match ) {
+			$label		= \trim( $match['label'] );
+			$alias		= $match['alias'] ?? 'value';
+			$content	= $match['content'];
+			
+			// Ensure label exists and is an array
+			if ( !isset( $context[$label] ) || !\is_array( $context[$label] ) ) {
+				$template	= \str_replace( $match[0], '', $template );
+				continue;
+			}
+			
+			$rendered	= '';
+			foreach ( $context[$label] as $item ) {
+				$vars		= $context;
+				$vars[$alias]	= $item;
+				$rendered	.= $this->parse( $content, $vars, $case_flag );
+			}
+			
+			$template	= \str_replace( $match[0], $rendered, $template );
+		}
+		
+		return $template;
+	}
+	
+	private function hooks( string $template, array $context ) : string {
+		// Block hooks
+		$template = 
+		\preg_replace_callback(
+			$this->patterns('hookblock'),
+			function ( $m ) use ( $context ) {
+				$name		= $m['name'];
+				$content	= $m['content'];
+				$result		= 
+				$this->registry->run( $name, [
+					'context'	=> $context,
+					'content'	=> $content
+				] );
+				
+				return $result->html ?? $content;
+			},
+			$template
+		);
+		
+		// Inline hooks
+		$template	= 
+		\preg_replace_callback(
+			$this->patterns('hook'),
+			function ( $m ) use ( $context ) {
+				$name	= $m['name'];
+				$args	= $this->parse_tag_args($m['args'] ?? '');
+				
+				$result = 
+				$this->registry->run( $name, [
+					'context'	=> $context,
+					'args'		=> $args
+				] );
+				
+				return $result->html ?? '';
+			},
+			$template
+		);
+		
+		return $template;
+	}
+	
+	/**
+	 *  Template parsing entry point
+	 *  
+	 *  @params string	$template 	Raw template data
+	 *  @param array	$context	Processed data context
+	 *  @param bool		$case_flag	Case sensitivity flag, defaults to false (insensitive)
+	 *  @return string			Fully parsed template
+	 */
+	public function parse( 
+		string	$template, 
+		array	$context,
+		bool	$case_flag	= false 
+	) : string {
+		if ( empty( $template ) ) { return ''; }
+		
+		if ( \preg_match( $this->patterns()['incexists'], $template ) ) {
+			$template = $this->partials( $template, $context, 0, [] );
+		}
+		
+		$template	= $this->loops( $template, $context, $case_flag );
+		$template	= $this->conditionals( $template, $context, $case_flag );
+		$template	= $this->blocks( $template, $context );
+		$template	= $this->interpolate( $template, $context );
+		
+		$resolvers	= [];
+		try {
+			if ( isset( $context['resolvers'] ) ) {
+				$resolvers	= $context['resolvers'];
+			} elseif ( isset( $context['resolver_loader'] ) ) {
+				$loader		= $context['resolver_loader'];
+				if ( \is_callable( $loader ) ) {
+					$resolvers	= $loader();
+				} else {
+					Log::instance()->warn( "Template resolver_loader is not a callable" );
+				}
+			}
+		} catch( \Throwable $e ) {
+			Log::instance()->error( "Error loading resolver: {$e->getMessage()}" );
+		}
+		
+		if ( !empty( $resolvers ) ) {
+			$template = $this->resolve_nodes( $template, $resolvers, $context );
+		}
+		
+		return $this->hooks( $template, $context );
+	}
+	
+	/**
+	 *  Store and send rendering templates
+	 *  
+	 *  @param string	$lable		Template name to send back
+	 *  @param array	$reg		New templates to initiaize registry or override existing templates
+	 *  @return string
+	 */
+	public function get( string $label, array $reg = [] ) : string {
+		static $tpl	= [];
+		
+		// Preload static templates
+		if ( empty( $tpl ) ) {
+			$tpl = $this->load_static();
+		}
+		
+		// New templates? Append to current store
+		if ( !empty( $reg ) ) {
+			$tpl = \array_merge( $tpl, $reg );
+		}
+		
+		return $tpl[$label] ?? '';
+	}
+	
+	/**
+	 *  Core template renderer with data context
+	 *  
+	 *  @param string	$label		Root base template
+	 *  @param array	$context	Data payload context(s)
+	 *  @param bool		$case_flag	Case sensitivity flag
+	 *  @return string
+	 */
+	public function render(
+		string	$label, 
+		array	$context	= [], 
+		bool	$case_flag	= false 
+	) : string {
+		$tpl	= $this->get( $label );
+		return $this->parse( $tpl, $context, $case_flag );
 	}
 }
 
@@ -6622,826 +7510,6 @@ function config(
 	return empty( $filter ) 
 		? $value 
 		: config_value_format( $value, $type, $filter );
-}
-
-
-/**
- *  Templates and rendering
- */
-
-/**
- *  Core template processing expressions
- *  
- *  @param string	$key		Match pattern key
- *  @param array	$extend		Optional extended patterns
- *  @return mixed
- */
-function template_patterns( ?string $key = null, ?array $extend = null ) : string|array {
-	static $patterns = [
-		'loop'		=> 
-			'/\{loop:(?P<label>\w+)(?:\s+as\s+(?P<alias>\w+))?\}'
-			. '(?P<content>.*?)\{endloop\}/si',
-		'ifelse'	=> 
-			'/\{if:(?P<condition>.*?)\}(?P<if_content>.*?)'
-			. '(?:\{elseif:(?P<elseif_condition>.*?)\}(?P<elseif_content>.*?))?'
-			. '(?:\{else\}(?P<else_content>.*?))?\{endif\}/si',
-		'logic'		=> 
-			'/(?P<variable>[\w\.\-]+)\s*(?P<operator>===|!==|==|!=|>=|<=|>|<|in|contains)'
-			. '\s*(?P<value>"[^"]*"|\'[^\']*\'|\S+)/i',
-		
-		'block'		=> '/\{\{#(\w+)\}\}(.*?)\{\{\/\1\}\}/si',
-		
-		'args'		=> 
-		'/\s*([\w\-]+)\s*=\s*("([^"]*)"|\'([^\']*)\'|([^,\s]+))\s*/',
-		
-		'incexists'	=> '/\{include:(?<key>[\w\-.\/]+)(?:\|[^}]+)?\}/i',
-		'include'	=> 
-			'/\{include:(?<inc_file>(?:\./)?(?:[\w\-]+\/)*[\w\-.]+)' 
-			. '(?:\|(?<params>[^}]+))?\}/i'
-	];
-	
-	if ( !empty( $extend ) ) {
-		$patterns = \array_merge( $patterns, $extend );
-	}
-	
-	return ( null === $key ) 
-		? $patterns 
-		: ( $patterns[$key] ?? '' );
-}
-
-/**
- *  Parse template tag optional arguments
- *  
- *  @param string	$str	Target phrase
- *  @return array
- */
-function template_parse_tag_args( string $str ) : array {
-	$args = [];
-	
-	\preg_match_all( template_patterns( 'args' ) , $str, $m, \PREG_SET_ORDER );
-	foreach ( $m as $row ) {
-		$key		= trim( $row[1] );
-		$value		= 
-		$row[3] !== '' 
-			? $row[3] 
-			: ( $row[4] !== '' ? $row[4] : $row[5] );
-		
-		$args[$key] = \trim( $value, "\"'"  );
-	}
-	return $args;
-}
-
-/**
- *  Block {template} detection
- *  
- *  @param string	$template	Raw template data
- *  @param array	$context	Processing format data context
- *  @return string
- */
-function template_blocks( string $template, array $context ) : string {
-	\preg_match_all( 
-		template_patterns( 'block' ), $template, $matches, 
-		\PREG_SET_ORDER 
-	);
-	
-	foreach ( $matches as $match ) {
-		$key		= $match[1];
-		$content	= $match[2];
-		$valid		= 
-		\array_key_exists( $key, $context ) && ( null !== $context[$key] );
-		
-		$template	= 
-		\str_replace( $match[0], $valid ? $content : '', $template );
-	}
-
-	return $template;
-}
-
-/**
- *  Convert dot notation phrase 
- *  
- *  @param string	$template	Template name
- *  @param array	$vars		Placeholder value replacements
- *  @return string			Translated phrase
- *  
- *  @example 
- *  $template	= 
- *  "Hello {{user.name}}, you have {{notifications.count}} messages.";
- *  
- *  $vars	= [
- *  	'user'		=> [ 'name'	=> 'cypnk' ],
- *  	'notifications'	=> [ 'count'	=> 3 ]
- *  ];
- *  echo template_interpolate( $template, $vars );
- *  
- *  Output: Hello cypnk, you have 3 new messages.
- */
-function template_interpolate( string $template, array $vars ) : string {
-	static $cache	= [];
-	
-	$normal		= $vars;
-	\ksort( $normal );
-	
-	$key		= 
-	\hash( 
-		'sha1', 
-		$template . \json_encode( $normal, \JSON_UNESCAPED_UNICODE ) 
-	);
-	
-	if ( isset( $cache[$key] ) ) { return $cache[$key]; }
-
-	$cache[$key]	= 
-	\preg_replace_callback(
-		'/\{\{\s*([\w\.]+)(?:\s*\|\s*([^\}]+))?\s*\}\}/',
-		function ( $matches ) use ( $vars ) {
-			$keys	= explode( '.', $matches[1] );
-			$value	= $vars;
-			
-			foreach( $keys as $key ) {
-				if ( \is_array( $value ) && \array_key_exists( $key, $value ) ) {
-					$value	= $value[$key];
-				} elseif( \is_object( $value ) && isset( $value->$key ) ) {
-					$value	= $value->$key;
-				} else {
-					return isset( $matches[2] ) 
-						? $matches[2]
-						: $matches[0];
-				}
-			}
-			
-			if ( \is_scalar( $value ) ) { return ( string ) $value; }
-			if ( \is_object( $value ) && \method_exists( $value, '__toString' ) ) {
-				return ( string ) $value;
-			}
-			
-			return $matches[0];
-		}, $template
-	);
-	
-	return $cache[$key];
-}
-
-/**
- *  Variable strictness logic comparison helper
- *  
- *  @param mixed	$chk		Check target
- *  @param mixed	$val		Source data
- *  @param bool		$case_flag	Case sensitive comparison, if true
- *  @return bool
- */
-function template_compare_var( mixed $chk, mixed $val, bool $case_flag ) : bool {
-	if ( \is_bool( $chk ) || \is_bool( $val )) {
-		return $chk === $val;
-	}
-	
-	if ( \is_numeric( $chk ) && \is_numeric( $val ) ) {
-		return ( float ) $chk === ( float ) $val;
-	}
-	
-	$chk_cmp = ( string ) $chk;
-	$val_cmp = ( string ) $val;
-	
-	return $case_flag ?
-		\strcmp( $chk_cmp, $val_cmp ) === 0 : 
-		\strcasecmp( $chk_cmp, $val_cmp ) === 0;
-}
-
-/**
- *  Match template {{placholder}} terms with array keys
- *  
- *  @param array	$vars	Context source data
- *  @return array
- */
-function template_get_placeholders( array $vars ) : array {
-	if ( empty( $vars ) ) { return []; }
-	
-	$flat = Util::flatten_array( $vars );
-	return \array_combine(
-		\array_map( fn( $key ) => '{{' . $key . '}}', \array_keys( $flat ) ),
-		\array_map( fn($val) => \is_scalar( $val ) ? ( string ) $val : '', $flat )
-	);
-}
-
-/**
- *  Find any included templates files
- *  
- *  @param string	$template	Raw template data
- *  @return array
- */
-function template_get_includes( string $template ) : array {
-	\preg_match_all( 
-		template_patterns( 'incexists' ), 
-		$template, 
-		$matches, 
-		\PREG_UNMATCHED_AS_NULL
-	);
-	return \array_unique( $matches['key'] ?? [] ); // Only keys
-}
-
-/**
- *  Extract comparison flags
- *  
- *  @param string	$raw		Raw template data
- *  @param bool		$default_case	Fallback case sensitivity, defaults to false (insensitive)
- *  @return array
- */
-function template_extract_flags( string $raw, bool $default_case = false ) : array {
-	static $conv	= [ 'int', 'float', 'bool', 'json' ];
-	$parts		= explode( '|', $raw );
-	$val		= \trim( \array_shift( $parts ) );
-	$case_flag	= $default_case;
-	
-	$coerced	= false;
-	foreach ( $parts as $flag ) {
-		$flag = \strtolower( \trim( $flag ) );
-		
-		if ( !$coerced && \in_array( $flag, $conv ) ) {
-			match ( $flag ) {
-				'int'	=> $val = ( int ) $val,
-				'float'	=> $val = ( float ) $val,
-				'bool'	=> $val = \filter_var( 
-					$val, \FILTER_VALIDATE_BOOLEAN 
-				),
-				'json' => \json_validate( $val ) 
-						? \json_decode( $val, true ) 
-						: $val,
-				default	=> null
-			};
-			
-			$coerced = true;
-			continue;
-		}
-		
-		match ( $flag ) {
-			'ci'	=> $case_flag = true,
-			'cs'	=> $case_flag = false,
-			default	=> null
-		};
-	}
-	
-	$rval	= \is_string( $val ) ? \trim( $val ) : $val;
-	return [ $rval, $case_flag ];
-}
-
-/**
- *  Template logic processing helper
- *  
- *  @param string	$expr		Logic expression
- *  @param array	$context	Processed data context
- *  @param bool		$case_flag	Case sensitivity, true for sensitive match
- *  @return bool
- */
-function template_logic( string $expr, array $context, bool $case_flag = false ) : bool {
-	$patterns	= template_patterns();
-	if ( !\preg_match( $patterns['logic'], $expr, $m ) ) {
-		return false;
-	}
-	
-	$operator	= \strtolower( $m['operator'] );
-	$var		= ( string ) ( $context[$m['variable']] ?? '' );
-	$raw		= \trim( $m['value'], "\"'" );
-	
-	[ $val, $case_flag ] = template_extract_flags( $raw, $case_flag );
-	
-	return match ( $operator ) {
-		'==='		=> $var === $val,
-		'!=='		=> $var !== $val,
-		'=='		=> \template_compare_var( $var, $val, $case_flag ),
-		'!='		=> !\template_compare_var( $var, $val, $case_flag ),
-		'>'		=> \is_numeric( $var ) && ( float ) $var > ( float ) $val,
-		'<'		=> \is_numeric( $var ) && ( float ) $var < ( float ) $val,
-		'>='		=> \is_numeric( $var ) && ( float ) $var >= ( float ) $val,
-		'<='		=> \is_numeric( $var ) && ( float ) $var <= ( float ) $val,
-		
-		'in'		=> ( function() use ( $var, $val ) {
-			$items = \is_array( $val ) ? $val : \array_map( 'trim', \explode( ',', ( string ) $val ) );
-			return \in_array( ( string ) $var, \array_map( 'strval', $items ), true );
-		} )(), 
-		
-		'contains'	=> (
-			\is_string( $var ) &&
-			( \is_string( $val ) || \is_numeric( $val ) ) &&
-			( $case_flag
-				? false !== \stripos( $var, ( string ) $val ) 
-				: false !== \strpos( $var, ( string ) $val )
-			)
-		),
-		
-		default		=> false
-	};
-}
-
-/**
- *  And/Or logic match group
- *  
- *  @param string	$condition	Matched logic phrase
- *  @param array	$context	Processed data context
- *  @param bool		$case_flag	Case sensitivity, false for insensitive match
- *  @return bool
- */
-function template_logic_group( 
-	string	$condition, 
-	array	$context, 
-	bool	$case_flag	= false 
-) : bool {
-	foreach ( \explode( '||', $condition ) as $or_group ) {
-		$is_valid = true;
-		
-		foreach ( \explode( '&&', \trim( $or_group ) ) as $and_group ) {
-			$and_group = trim( $and_group );
-			
-			if ( !template_logic( $and_group, $context, $case_flag ) ) {
-				$is_valid = false;
-				break; // Short-circuit AND group
-			}
-		}
-		
-		if ( $is_valid ) { return true; } // Short-circuit OR group
-	}
-	
-	return false;
-}
-
-/**
- *  Load template file
- *  
- *  @param string	$path	Relative path for loading template
- *  @param string	$theme	Optional theme directory, relative to '/themes/'
- *  @param string	$root	Optional template root,
- *  				defaults to '/views/' relative to TEMPLATE_DIR or __DIR__
- *  @return string
- */
-function template_load( 
-	string		$path, 
-	?string		$theme	= null, 
-	?string		$root	= null 
-) : string {
-	static $allowed	= [ 'html', 'htm', 'tpl', 'txt' ];
-	static $cache	= [];
-	static $dir;
-	
-	$ext	= 
-	\strtolower( \pathinfo( $path, \PATHINFO_EXTENSION ) ?: 'na' );
-	
-	if ( !\in_array( $ext, $allowed, true ) ) {
-		Log::instance()->error( "Disallowed template extension: {$ext}" );
-		
-		throw new 
-		\RuntimeException( "Invalid template type" );
-	}
-
-	// Custom template file directory
-	$dir		??= 
-	\defined( 'TEMPLATE_DIR' ) 
-		? \constant( 'TEMPLATE_DIR' )
-		: config( 'template_dir', __DIR__ );
-	
-	// Custom view directory
-	$vdir		= 
-	( null === $root ) 
-		? '/views/' 
-		: '/' . \trim( $root, '/' );
-	
-	$base		= \realpath( $dir . $vdir );
-	
-	if ( !$base ) {
-		Log::instance()->error( "Invalid base path: {$base}" );
-		
-		throw new 
-		\RuntimeException( "Template base path not found" );
-	}
-	
-	$theme_path	= null === $theme ? '' : "/themes/{$theme}/";
-	$relative	= $theme_path . '/' . \ltrim( $path, '/' );
-	$relative	= \preg_replace( '#/+#', '/', $relative ); // Duplicate slash fix
-	
-	if ( \str_contains( $relative, '..' ) ) { // No traversal
-		Log::instance()->error( "Suspicious template path: {$path}" );
-		
-		throw new 
-		\RuntimeException( "Invalid template path" );
-	}
-
-	$full	= \realpath( $base . '/' . $relative );
-	if ( !$full || 0 !== \stripos( $full, $base ) ) {
-		Log::instance()->error( "Template path traversal attempt: {$path}" );
-		
-		throw new 
-		\RuntimeException( "Invalid template path" );
-	}
-
-	if ( !\is_readable( $full ) ) {
-		Log::instance()->error( "Template not found: {$path}" );
-		
-		throw new 
-		\RuntimeException( "Template not readable" );
-	}
-
-	$info	= $cache[$full] ??= \file_get_contents( $full );
-	if ( false === $info ) {
-		Log::instance()->error( "Failed to read template: {$path}" );
-		
-		throw new 
-		\RuntimeException( "Failed to read template" );
-	}
-
-	Log::instance()->debug( "Loaded template: {$full}" );
-	return $info;
-}
-
-/**
- *  Partial/Fragment template loading helper
- *  
- *  @param string	$template 	Raw template data
- *  @param array	$vars		Content data
- *  @param int		$depth		Maximum include depth, defaults to 5
- *  @param array	$seen		Current list of templates already processing
- *  @return string
- */
-function template_partials(
-	string	$template,
-	array	$vars		= [],
-	int	$depth		= 0,
-	array	$seen		= []
-) : string {
-	$max_depth	= 5;
-	if ( $depth > $max_depth ) {
-		Log::instance()->warn( "Max template include depth exceeded" );
-		return $template;
-	}
-	
-	$includes	=  template_get_includes( $template );
-	if ( empty( $includes ) ) {
-		return template_interpolate(
-			$template,
-			template_get_placeholders( $vars )
-		);
-	}
-	
-	$partials	= [];
-	foreach ( $includes as $key ) {
-		if ( \in_array( $key, $seen, true ) ) {
-			Log::instance()->warn( "Circular include detected {$key}" );
-			continue;
-		}
-		
-		try {
-			$partial_tpl			= 
-			template_load( "partials/{$key}.html" );
-			
-			$partials["{include:{$key}}"]	= 
-			template_partials(
-				$partial_tpl,
-				$vars,
-				$depth + 1,
-				[...$seen, $key]
-			);
-			
-		} catch ( \Throwable $e ) {
-			Log::instance()->warn( "Partial not loaded: {$key}: {$e->getMessage()}" );
-			$partials["{include:{$key}}"]	= '';
-		}
-	}
-	
-	// Merge partials with user-defined placeholders
-	$merged		= 
-	\array_merge( template_get_placeholders( $vars ), $partials );
-	return template_interpolate( $template, $merged );
-}
-
-/**
- *  Scan a template for nodes of type and parse parameters
- *  
- *  @param string	$template	Loaded template to scan
- *  @return array			Parsed type parameters
- *  
- *  @example {{node_type.blog(is_featured=true,limit=4)}}
- *  {{node_type.topic(is_featured=true,limit=4,sort=created_at,direction=DESC)}}
- *  {{node_type.post(is_hero=true,limit=1)}}
- */
-function template_node_tags( string $template ) : array {
-	\preg_match_all(
-		'/{node_type\.(\w+)\(([^}]*)\)}/', 
-		$template, $matches, \PREG_SET_ORDER 
-	);
-	$tags = [];
-	
-	foreach ( $matches as $match ) {
-		$tags[] = [
-			'full'		=> $match[0],
-			'type'		=> $match[1],
-			'params'	=> template_parse_tag_args( $match[2] )
-		];
-	}
-	
-	return $tags;
-}
-
-/**
- *  Template resolving handler helper
- *  
- *  @param string	$type		Resolver type label
- *  @param array	$resolvers	List of type-keyed registered resolvers
- *  @return mixed			Resolved callable or null
- */
-function template_get_resolver( string $type, array $resolvers ) : ?callable {
-	if ( \is_callable( $resolvers[$type] ?? null ) ) {
-		return $resolvers[$type];
-	}
-	
-	if ( \is_callable( $resolvers['default'] ?? null ) ) {
-		return $resolvers['default'];
-	}
-	
-	return null;
-}
-
-/**
- *  Match node type to registered resolver
- *  
- *  @params string	$template 	Raw template data
- *  @param array	$resolvers	List of type-keyed registered resolvers
- *  @return string
- */
-function template_resolve_nodes( 
-	string	$template, 
-	array	$resolvers, 
-	array	$context	= [] 
-) : string {
-	
-	$tags	= template_node_tags( $template );
-	foreach ( $tags as $tag ) {
-		$type		= $tag['type'];
-		$params		= $tag['params'];
-		$full		= $tag['full'];
-		
-		$resolver	= template_get_resolver( $type, $resolvers );
-		$params['context'] = $context;
-		
-		if ( !$resolver ) {
-			Log::instance()->warn( "No resolver found for node type: {$type}" );
-			
-			// Swap placeholder with error message
-			$content	= 
-			"<!-- Unknown node type: {$type} -->";
-			
-		} else {
-			try {
-				$content	= 
-				$resolver( [ 
-					'type'		=> $type, 
-					'params'	=> $params, 
-					'full'		=> $full 
-				] );
-				
-				if ( null === $content ) {
-					Log::instance()->warn( "Resolver output failed for type: {$type}" );
-					$content = "<!-- Unknown node type: {$type} -->";
-				}
-			} catch ( \Throwable $e ) {
-				Log::instance()->warn( "Node resolver error for '{$type}': {$e->getMessage()}" );
-				$content	= 
-				"<!-- Error rendering node: {$type} -->";	
-			}
-		}
-		
-		$template = \str_replace( $full, $content, $template );
-	}
-	
-	return $template;
-}
-
-/**
- *  On-template logic parser
- *  
- *  @params string	$template 	Raw template data
- *  @param array	$context	Processed data context
- *  @param bool		$case_flag	Case sensitivity flag, defaults to false (insensitive)
- *  @return string
- */
-function template_conditionals(
-	string	$template,
-	array	$context,
-	bool	$case_flag	= false
-) : string {
-	$patterns = template_patterns();
-	\preg_match_all(
-		$patterns['ifelse'], $template, $matches, \PREG_SET_ORDER
-	);
-	
-	foreach ( $matches as $match ) {
-		$condition		= \trim( $match['condition'] );
-		$if_content		= $match['if_content']		?? '';
-		$elseif_condition	= $match['elseif_condition']	?? null;
-		$elseif_content		= $match['elseif_content']	?? '';
-		$else_content		= $match['else_content']	?? '';
-		
-		$replacement		= '';
-		
-		if ( template_logic_group( $condition, $context, $case_flag ) ) {
-			$replacement	= 
-			template_parse( $if_content, $context, $case_flag );
-		} elseif (
-			$elseif_condition && template_logic_group(
-				$elseif_condition, $context, $case_flag
-			)
-		) {
-			$replacement	= 
-			template_parse( $elseif_content, $context, $case_flag );
-		} elseif ( !empty( $else_content ) ) {
-			$replacement	= 
-			template_parse(
-				$else_content, $context, $case_flag
-			);
-		}
-		
-		$template	= \str_replace( $match[0], $replacement, $template );
-	}
-	
-	return $template;
-}
-
-/**
- *  Parse on-template rendering loops
- *  
- *  @params string	$template 	Raw template data
- *  @param array	$context	Processed data context
- *  @param bool		$case_flag	Case sensitivity flag, defaults to false (insensitive)
- *  @return string
- */
-function template_loops(
-	string	$template, 
-	array	$context, 
-	bool	$case_flag	= false 
-) : string {
-	$patterns	= template_patterns();
-	\preg_match_all( $patterns['loop'], $template, $matches, \PREG_SET_ORDER );
-	
-	foreach ( $matches as $match ) {
-		$label		= \trim( $match['label'] );
-		$alias		= $match['alias'] ?? 'value';
-		$content	= $match['content'];
-		
-		// Ensure label exists and is an array
-		if ( !isset( $context[$label] ) || !\is_array( $context[$label] ) ) {
-			$template	= \str_replace( $match[0], '', $template );
-			continue;
-		}
-		
-		$rendered	= '';
-		foreach ( $context[$label] as $item ) {
-			$vars		= $context;
-			$vars[$alias]	= $item;
-			$rendered	.= template_parse( $content, $vars, $case_flag );
-		}
-		
-		$template	= \str_replace( $match[0], $rendered, $template );
-	}
-	
-	return $template;
-}
-
-/**
- *  Template parsing entry point
- *  
- *  @params string	$template 	Raw template data
- *  @param array	$context	Processed data context
- *  @param bool		$case_flag	Case sensitivity flag, defaults to false (insensitive)
- *  @return string			Fully parsed template
- */
-function template_parse( 
-	string	$template, 
-	array	$context,
-	bool	$case_flag	= false 
-) : string {
-	if ( \preg_match( template_patterns()['incexists'], $template ) ) {
-		$template = template_partials( $template, $context, 0, [] );
-	}
-	
-	$template	= template_loops( $template, $context, $case_flag );
-	$template	= template_conditionals( $template, $context, $case_flag );
-	$template	= template_blocks( $template, $context );
-	$template	= template_interpolate( $template, $context );
-	
-	$resolvers	= [];
-	try {
-		if ( isset( $context['resolvers'] ) ) {
-			$resolvers	= $context['resolvers'];
-		} elseif ( isset( $context['resolver_loader'] ) ) {
-			$loader		= $context['resolver_loader'];
-			if ( \is_callable( $loader ) ) {
-				$resolvers	= $loader();
-			} else {
-				Log::instance()->warn( "Template resolver_loader is not a callable" );
-			}
-		}
-	} catch( \Throwable $e ) {
-		Log::instance()->error( "Error loading resolver: {$e->getMessage()}" );
-	}
-	
-	if ( !empty( $resolvers ) ) {
-		$template = template_resolve_nodes( $template, $resolvers, $context );
-	}
-	
-	return $template;
-}
-
-/**
- *  Load predefined static template from constant
- *  
- *  @return array
- */
-function template_load_static() : array {
-	$raw		= 
-	\defined( 'TEMPLATES' ) && \is_string( TEMPLATES )
-		? \constant( 'TEMPLATES' ) 
-		: '';
-	
-	// Try to get a default loaded template if nothing defined
-	if ( empty( $raw ) ) {
-		$fraw	= 
-		\defined( 'TEMPLATE_FILE' ) && \is_string( TEMPLATE_FILE )
-			? \constant( 'TEMPLATE_FILE' )
-			: '';
-		
-		if ( empty( $fraw ) || !\is_readable( $fraw ) )  { return []; }
-		
-		$flines	= \file( $fraw, \FILE_IGNORE_NEW_LINES );
-	} else { $flines = \explode( "\n", $raw ); }
-	
-	if ( !\is_array( $flines ) ) { return []; }
-	
-	$current	= null;
-	$templates	= [];
-	$buffer		= [];
-	$phrase		= '/^\s*-{3,}\s*(tpl_[A-Za-z0-9_]+)\s*-{3,}\s*$/';
-	
-	foreach ( $flines as $line ) {
-		// Match template
-		if ( \preg_match( $phrase, $line, $m ) ) {
-			if ( null !== $current ) {
-				$templates[$current] = 
-				\rtrim( \implode( "\n", $buffer ) );
-			}
-			
-			$current = $m[1];
-			$buffer  = [];
-			continue;
-		}
-		
-		// Skip comments
-		if ( \preg_match( '/^\s*(##|;;|%%)/', trim( $line ) ) ) {
-			continue;
-		}
-		
-		if ( null !== $current ) { $buffer[] = $line; }
-	}
-	
-	if ( null !== $current ) {
-		$templates[$current]	= \rtrim( \implode("\n", $buffer ) );
-	}
-	
-	return $templates;
-}
-
-/**
- *  Store and send rendering templates
- *  
- *  @param string	$lable		Template name to send back
- *  @param array	$reg		New templates to initiaize registry or override existing templates
- *  @return string
- */
-function template( string $label, array $reg = [] ) : string {
-	static $tpl	= [];
-	
-	// Preload static templates
-	if ( empty( $tpl ) ) {
-		$tpl = template_load_static();
-	}
-	
-	// New templates? Append to current store
-	if ( !empty( $reg ) ) {
-		$tpl = \array_merge( $tpl, $reg );
-	}
-	
-	return $tpl[$label] ?? '';
-}
-
-/**
- *  Core template renderer with data context
- *  
- *  @param string	$label		Root base template
- *  @param array	$context	Data payload context(s)
- *  @param bool		$case_flag	Case sensitivity flag
- *  @return string
- */
-function template_render(
-	string	$label, 
-	array	$context	= [], 
-	bool	$case_flag	= false 
-) : string {
-	$tpl	= template( $label );
-	return template_parse( $tpl, $context, $case_flag );
 }
 
 
