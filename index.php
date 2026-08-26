@@ -5740,6 +5740,376 @@ final class Finder {
 
 
 /**
+ *  @class Main hook attribute
+ */
+#[Attribute( Attribute::TARGET_FUNCTION | Attribute::IS_REPEATABLE )]
+class Hook {
+	/**
+	 *  Hook constructor
+	 *  
+	 *  @param string	$name		Event name
+	 *  @param int		$priority	Execution order, higher > earlier
+	 */
+	public function __construct(
+		public readonly	string	$name,
+		public		int	$priority = 0
+	) {}
+}
+
+/**
+ *  @class Discovery wrapper for hooks
+ */
+#[Attribute( Attribute::TARGET_CLASS | Attribute::IS_REPEATABLE )]
+class HookContainer { public function __construct() {} }
+
+/** 
+ *  @class Hook handling container for callable with unique name and priority
+ */
+class HookHandler {
+	/**
+	 * 
+	 *  @param string	$name		Event name in full string or partial event.*
+	 *  @param object	$instance	Handler class instance
+	 *  @param string	$method		Callable handler
+	 *  @param int		$prority	Hook execution priority, defaults to 0
+	 */
+	public function __construct(
+		public readonly	string	$name,
+		public readonly	object	$instance,
+		public readonly	string	$method,
+		public		int	$priority	= 0
+	) {}
+	
+	public function call( string $event, array $result, ...$args ) : array {
+		return $this->instance->{$this->method}( $event, $result, ...$args ) ?? [];
+	}
+}
+
+/**
+ *  @class Templated wrapper helper
+ *  @example 
+ *  #[Hook('before_main')]
+ *  public function before_main( string $event, HookResult $result, array $args ) : HookResult {
+ *  	return $result->with_html( '<h1 class="title">Page Title</h1>' );
+ *  }
+ */
+class HookResult {
+	public function __construct(
+		public ?string	$html		= null,
+		public ?string	$template	= null,
+		public array	$data		= [],
+		public array	$meta		= []
+	) {}
+	
+	public function with_html( string $html ) : self {
+		$clone = clone $this;
+		$clone->html = $html;
+		return $clone;
+	}
+	
+	public function with_template( string $template ) : self {
+		$clone = clone $this;
+		$clone->template = $template;
+		return $clone;
+	}
+	
+	public function with_data( array $data ) : self {
+		$clone = clone $this;
+		$clone->data = $data;
+		return $clone;
+	}
+	
+	public function merge( self $other ) : self {
+		$clone = clone $this;
+		$clone->html		= $other->html ?? $this->html;
+		$clone->template	= $other->template ?? $this->template;
+		$clone->data		= \array_merge( $this->data, $other->data );
+		$clone->meta		= \array_merge( $this->meta, $other->meta );
+		
+		return $clone;
+	}
+}
+
+/**
+ *  @class Consolidated hook system with execution priority and cumulative stored output
+ */
+class HookRegistry {
+	
+	public function __construct(
+		private array $handlers	= [],
+		private array $output	= []
+	) {}
+	
+	/**
+	 *  Adding new hook
+	 */
+	public function add( HookHandler $hook ) : void {
+		$name = \strtolower( $hook->name );
+		$this->handlers[$name][] = $hook;
+	}
+	
+	/**
+	 *  Search hooks by full or partial name
+	 */
+	public function get( string $name ) : array {
+		$name	= \strtolower( $name );
+		$found	= [];
+		
+		foreach ( $this->handlers as $group => $hooks ) {
+			// Exact match?
+			if ( $group === $name ) {
+				$found = \array_merge( $found, $hooks );
+				continue;
+			}
+			
+			// No wildcard? Move on
+			if ( !\str_contains( $group, '*' ) ) { continue; }
+			
+			// Prefixed wildcard event
+			if ( \str_ends_with( $group, '*' ) ) {
+				if ( \str_starts_with( $name, \substr( $group, 0, -1 ) ) ) {
+					$found	= \array_merge( $found, $hooks );
+					continue;
+				}
+			}
+			
+			// Suffixed wildcard event
+			if ( \str_starts_with( $group, '*' ) ) {
+				if ( \str_ends_with( $name, \substr( $group, 1 ) ) ) {
+					$found	= \array_merge( $found, $hooks );
+					continue;
+				}
+			}
+			
+			// Clean pattern for matching everything else
+			// TODO: Edge case for multi-match
+			$pattern	= 
+			'/^' . \str_replace( '\*', '.*', \preg_quote( $group, '/' ) ) . '$/';
+			
+			if ( \preg_match( $pattern, $name ) ) {
+				$found = \array_merge( $found, $hooks );
+			}
+		}
+		
+		// Reorder hooks by priority
+		\usort( $found, fn( $a, $b ) => $b->priority <=> $a->priority );
+		return $found;
+	}
+	
+	/**
+	 *  Execute hook and return mutated output
+	 */
+	public function run( string $name, ...$args ) : mixed {
+		$name	= \strtolower( $name );
+		$hooks	= $this->get( $name );
+		$result = $this->output[$name] ?? new HookResult();
+		
+		foreach ( $hooks as $hook ) {
+			// Call and 
+			$result = 
+			$hook->call( 
+				$name,
+				$result,
+				...$args
+			) ?? [];
+		}
+		
+		return $this->output[$name] = $result;
+	}
+	
+	/**
+	 *  Get execution result
+	 */
+	public function values( string $name ) : mixed {
+		return $this->output[ \strtolower( $name ) ] ?? [];
+	}
+	
+	/**
+	 *  Clear results
+	 */
+	public function clear( string $name ) : void {
+		unset( $this->output[ \strtolower( $name ) ] );
+	}
+}
+
+/**
+ *  @class Hook discovery and loading
+ */
+class HookLoader {
+	public function __construct(
+		private HookRegistry	$registry,
+		private array		$classes	= []
+	) {}
+	
+	/**
+	 *  Process hook containers and append handlers
+	 *  
+	 *  @param string	$class		Instance name (static::class)
+	 */
+	private function parse( string $class ) : void {
+		if ( isset( $this->classes[$class] ) ) { return; }
+		
+		$ref			= new \ReflectionClass( $class );
+		
+		if ( $ref->isAbstract() ) { return; }
+		if ( !$ref->getAttributes( HookContainer::class ) ) { return; }
+		
+		$this->classes[$class]	= true;
+		$instance		= Container::instance()->get( $class );
+		
+		// Scan for hooks
+		foreach ( $ref->getMethods() as $method ) {
+			foreach ( $method->getAttributes( Hook::class ) as $attr ) {
+				$meta = $attr->newInstance();
+				$this->registry->add(
+					new HookHandler(
+						$meta->name,
+						$instance,
+						$method->getName(),
+						$meta->priority
+					)
+				);
+			}
+		}
+	}
+	
+	/**
+	 *  Load events and hooks from current script, optionally other folders
+	 *  
+	 *  @param bool		$explore	Branch into other folders, defaults to false
+	 */
+	public function autoload( bool $explore = false ) : void {
+		// Preload local hooks
+		foreach ( \get_declared_classes() as $class ) {
+			$this->parse( $class );
+		}
+		
+		// Skip moving out to other locations for now
+		if ( !$explore ) { return; }
+		
+		$path	= Text::slash_path( PATH, true );
+		// TODO: Make this configurable
+		$dirs	= [
+			'app',
+			'modules',
+			'plugins',
+			'themes'
+		];
+		
+		foreach ( $dirs as $dir ) {
+			$file	= \rtrim( 's', $dir ) . '.info';
+			$found	= Finder::in( $path . $dir, $file );
+			foreach ( $found as $info ) {
+				$class			= $info['class'];
+				if ( !$class ) { continue; }
+				
+				$this->parse( $class );
+			}
+		}
+	}
+}
+
+/**
+ *  @class Wrapping pipeline for content hooks
+ */
+class HookPipeline {
+	public function __construct( 
+		private HookRegistry	$registry,
+		private Template	$template
+	) {}
+
+	/**
+	 *  Wrap component region in 'before' and 'after' event hooks and their output
+	 *  
+	 *  @param string	$before		Before template parsing event
+	 *  @param string	$after		After template parsing event
+	 *  @param string	$tpl		Base component template
+	 *  @param array	$input		Raw component data
+	 *  @param bool		$full		Render full regions
+	 *  @return string
+	 */
+	public function wrap(
+		string	$before,
+		string	$after,
+		string	$tpl	= '',
+		array	$input	= [],
+		bool	$full	= false
+	) : string {
+		// Call "before" event hook
+		$bout	= 
+		$this->registry->run( $before, [
+			'data'		=> $input,
+			'template'	=> $tpl,
+			'full'		=> $full
+		] );
+		
+		// Prepend any HTML output and render the new ( or old ) template
+		$html	=
+		( $this->registry->values( $before )['html'] ?? '' ) .
+		$this->template->render(
+			$bout->template ?? $tpl,
+			$input,
+			$full
+		);
+		
+		// Call "after" event hook
+		$aout	= 
+		$this->registry->run( $after, [
+			'data'		=> $input,	// Raw component data
+			'before'	=> $before,	// Event called before
+			'html'		=> $html,	// Current HTML
+			'full'		=> $full,	// Full region render
+			'template'	=> $tpl		// New or previously replaced
+		] );
+		
+		// Send any replaced HTML or already rendered HTML
+		return $aout->html ?? $html;
+	}
+}
+
+/**
+ *  @class End of execution scheduler
+ *  @exmaple 
+ *  $registry = new HookRegistry();
+ *  $shutdown = new HookShutdown( $registry );
+ *  register_shutdown_function( [ $shutdown, 'run' ] );
+ */
+class HookShutdown {
+	/**
+	 *  @var array Collection of functions to execute after content sent
+	 */
+	private array $tasks = [];
+	
+	public function __construct(
+		private HookRegistry $registry
+	) {}
+	
+	public function register( callable $task, mixed $args = null ) : void {
+		$this->tasks[] = [$task, $args];
+	}
+	
+	public function run() : void {
+		// Cleanup any session data
+		if ( \session_status() === PHP_SESSION_ACTIVE) {
+			\session_write_close();
+		}
+		
+		// Fire shutdown hooks
+		$this->registry->run( 'shutdown', [] );
+		
+		// Deferred tasks
+		foreach ( $this->tasks as [$task, $args] ) {
+			match( true ) {
+				\is_array( $args )	=> $task( ...$args ),
+				( null !== $args )	=> $task( $args ),
+				default			=> $task()
+			};
+		}
+	}
+}
+
+
+/**
  *  Configuration settings and options
  */
 
@@ -8742,296 +9112,6 @@ function plugin_init( bool $run = true ) : void {
 			);
 		}
 	}
-}
-
-
-/**
- *  Hooks and extensions
- */
-
-/**
- *  Main hook attribute
- */
-#[Attribute( Attribute::TARGET_FUNCTION | Attribute::IS_REPEATABLE )]
-class Hook {
-	/**
-	 *  Hook constructor
-	 *  
-	 *  @param string	$name		Event name
-	 *  @param int		$priority	Execution order, higher > earlier
-	 */
-	public function __construct(
-		public readonly string	$name,
-		public int		$priority	= 0
-	) {}
-}
-
-/**
- *  Consolidated hook system with execution priority and cumulative stored output
- *  
- *  @param string	$action		Switched behavior of the registry
- *  @param string	$name		Event name in full string or partial event.*
- *  @param array	$args		Event arguments
- *  @return mixed
- */
-function hook_registry( string $action, string $name, ...$args ) : mixed {
-	static	$handlers	= [];
-	static	$output		= [];
-
-	// Normalize
-	$action	= \strtolower( $action );
-	$name	= \strtolower( $name );
-
-	// Match actions
-	return match( $action ) {
-		// Adding new hook
-		'add'		=> $handlers[$name][]	= [
-			'handler'	=> $args[0],
-			'priority'	=> $args[1] ?? 0
-		],
-		
-		// Execute hook and return mutated output
-		'run'		=> 
-		( function() use ( &$output, $name, $args ) {
-			$hooks	= hook_registry( 'get', $name );
-			$result	= $output[$name] ?? [];
-			foreach ( $hooks as $handler ) {
-				$result = 
-				( $handler['handler'] )(
-					$name,
-					$result,
-					...$args
-				) ?? [];
-			}
-			
-			$output[$name]	= $result;
-			return $output[$name];
-		} )(),
-		
-		// Search hooks by full or partial name
-		'get'		=> 
-		( function() use ( $handlers, $name ) {
-			$found	= [];
-			foreach ( $handlers as $group => $hooks ) {
-				// Exact match?
-				if ( $name === $group ) {
-					$found	= \array_merge( $found, $hooks );
-					continue;
-				}
-				
-				// No wildcard? Move on
-				if ( !\str_contains( $group, '*' ) ) { continue; }
-				
-				// Prefixed wildcard event
-				if ( \str_ends_with( $group, '*' ) ) {
-					if ( \str_starts_with( $name, \substr( $group, 0, -1 ) ) ) {
-						$found	= \array_merge( $found, $hooks );
-						continue;
-					}
-				}
-				
-				// Suffixed wildcard event
-				if ( \str_starts_with( $group, '*' ) ) {
-					if ( \str_ends_with( $name, \substr( $group, 1 ) ) ) {
-						$found	= \array_merge( $found, $hooks );
-						continue;
-					}
-				}
-				
-				// Clean pattern for matching everything else
-				$pat	= 
-				\preg_replace( '/\\\\\*/', '.*', \preg_quote( $group, '/' ) );
-				
-				if ( \preg_match(  '/^' . $pat  . '$/', $name ) ) {
-					$found	= \array_merge( $found, $hooks );
-				}
-			}
-			
-			// Reorder hooks by priority
-			\usort( 
-				$found, 
-				fn( $a, $b ) => $b['priority'] <=> $a['priority'] 
-			);
-			
-			return $found;
-		} )(),
-		
-		// Get execution result
-		'values'	=> $output[$name] ?? [],
-		
-		// Clear results
-		'clear'		=> 
-		( function() use ( &$output, $name ) { 
-			unset( $output[$name] );
-			return true; 
-		} )(),
-		
-		// Resort hooks by priority
-		'priority'	=> 
-		( function() use ( &$handlers, $args, $name ) {
-			[ $hook, $priority ]	= $args;
-			foreach ( $handlers[$name] ?? [] as &$h ) {
-				if ( $hook === $h['handler'] ) {
-					$h['priority'] = $priority;
-				}
-			}
-			
-			return null;
-		} )(),
-		
-		// Nothing else to send
-		default		=> null
-	};
-}
-
-/**
- *  Load event hooks from current script
- */
-function hook_autoload() : void {
-	$functions = Util::functions_list();
-	foreach ( $functions as $handler ) {
-		$ref	= 
-		\is_array( $handler ) 
-			? new \ReflectionMethod( $handler[0], $handler[1] )
-			: new \ReflectionFunction( $handler );
-		$attrs	= $ref->getAttributes( Hook::class );
-		
-		foreach ( $attrs as $attr ) {
-			$hook	= $attr->newInstance();
-			hook_registry( 
-				'add', 
-				$hook->name, 
-				$handler, 
-				$hook->priority 
-			);
-		}
-	}
-}
-
-/**
- *  Execute or set hooks and extensions
- *  Append a hook handler in [ 'event', 'handler' ] format
- *  Call the hook event in [ 'event', args... ] format
- *  
- *  @param array	$params		[ 'event', 'handler' ]
- */
-function hook( array $params ) {
-	
-	// Nothing to add?
-	if ( empty( $params ) ) { return; }
-	
-	$event	= \strtolower( \array_shift( $params ) );
-	
-	// Adding a handler to the given event?
-	if ( \is_string( $params[0] ) && \is_callable( $params[0] ) ) {
-		return hook_registry( 'add', $event, $params[0], 0 );
-	}
-	
-	// Asking for hook-named output
-	if ( \is_string( $params[0] ) && empty( $params[0] ) ) {
-		return hook_registry( 'values', $event );
-	}
-	
-	// Handler being called with parameters, if any
-	return hook_registry( 'run', $event, ...$params );
-}
-
-/**
- *  Check for non-empty string result from hook
- *  
- *  @param string	$event		Hook event name
- *  @param string	$default	Fallback content
- *  @return string
- */
-function hook_string( string $event, string $default = '' ) : string {
-	$sent	= hook( [ $event, '' ] );
-	return 
-	( !empty( $sent ) && \is_string( $sent ) ) ? $sent : $default;
-}
-
-/**
- *  Check for non-empty array result from hook
- *  
- *  @param string	$event		Hook event name
- *  @param array	$default	Fallback content
- *  @return array
- */
-function hook_array( string $event, array $default = [] ) : array {
-	$sent	= hook( [ $event, '' ] );
-	return 
-	( !empty( $sent ) && \is_array( $sent ) ) ? $sent : $default;
-}
-
-/**
- *  Get HTML from hook result, if sent
- *  
- *  @param string	$event		Hook event name
- *  @param string	$default	Fallback html content
- *  @return string
- */
-function hook_html( string $event, string $default = '' ) : string {
-	return hook_array( $event )['html'] ?? $default;
-}
-
-/**
- *  Get HTML render template from hook result, if sent
- *  
- *  @param string	$event		Hook event name
- *  @param string	$default	Fallback template
- *  @param array	$input		Component to apply template to
- *  @param bool		$full		Render full regions
- *  @return string
- */
-function hook_template_render( 
-	string	$event, 
-	string	$default,
-	array	$input,
-	bool	$full	= false
-) : string {
-	return 
-	template_render( 
-		hook_array( $event )['template'] ?? 
-		hook_string( $event, $default ), $input, $full
-	);
-}
-
-/**
- *  Wrap component region in 'before' and 'after' event hooks and their output
- *  
- *  @param string	$before		Before template parsing event
- *  @param string	$after		After template parsing event
- *  @param string	$tpl		Base component template
- *  @param array	$input		Raw component data
- *  @param bool		$full		Render full regions
- *  @return string
- */
-function hook_wrap( 
-	string		$before, 
-	string		$after, 
-	string		$tpl		= '', 
-	array		$input		= [],
-	bool		$full		= false
-) {
-	// Call "before" event hook
-	hook( [ $before, [ 
-		'data' => $input, 'template' => $tpl, 'full' => $full 
-	] ] );
-	
-	// Prepend any HTML output and render the new ( or old ) template
-	$html	= hook_html( $before ) . 
-			hook_template_render( $before, $tpl, $input, $full );
-	
-	// Call "after" event hook
-	hook( [ $after, [ 
-		'data'		=> $input,	// Raw component data
-		'before'	=> $before,	// Event called before
-		'html'		=> $html,	// Current HTML
-		'full'		=> $full,	// Full region render
-		'template'	=> $tpl		// New or previously replaced
-	] ] );
-	
-	// Send any replaced HTML or already rendered HTML
-	return hook_html( $after, $html );
 }
 
 
