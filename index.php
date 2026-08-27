@@ -1721,6 +1721,22 @@ final class Util {
 	}
 	
 	/**
+	 *  Value array filter application helper
+	 *  
+	 *  @param array	$lines		Extracted configuration lines
+	 *  @param bool		$un		Unique values, if true
+	 *  @param callable	$filter		Optional callable
+	 *  @return array
+	 */
+	public function lines( array $lines, bool $un = false, $filter = null ) : array {
+		if ( $un ) { $lines = \array_unique( $lines ); }
+		
+		return ( !empty( $filter ) && \is_callable( $filter ) )
+			? \array_map( $filter, $lines ) 
+			: $lines;
+	}
+	
+	/**
 	 *  Cached timezone list helper
 	 *  
 	 *  @return array
@@ -5273,7 +5289,7 @@ class PageResponse extends Response {
 				=> $this->security_policy_items( $policy['Content-Security-Policy'] ?? [] ),
 			
 			'referer', 'referrer', 'referer-policy'
-				=> $this->security_policy_terms( $policy['Referer-Policy'] ?? [], ',' ),
+				=> $this->security_policy_terms( $policy['Referrer-Policy'] ?? [], ',' ),
 			
 			'transport', 'strict-transport-security', 'transport-security'
 				=> $this->security_policy_terms( $policy['Strict-Transport-Security'] ?? [], '; ' ),
@@ -5440,24 +5456,18 @@ class PageResponse extends Response {
 		}
 		
 		// Other headers
-		if ( !empty( $header = $this->security_policy( 'permissions', $policy ) ) ) {
-			$headers['Permissions-Policy']			= $header;
-		}
+		$params = [ 
+			'permissions'	=> 'Permissions-Policy',
+			'transport'	=> 'Strict-Transport-Security',
+			'frames'	=> 'X-Frame-Options',
+			'xss'		=> 'X-XSS-Protection',
+			'referer'	=> 'Referrer-Policy'
+		];
 		
-		if ( !empty( $header = $this->security_policy( 'transport', $policy ) ) ) {
-			$headers['Strict-Transport-Security']		= $header;
-		}
-		
-		if ( !empty( $header = $this->security_policy( 'frames', $policy ) ) ) {
-			$headers['X-Frame-Options']			= $header;
-		}
-		
-		if ( !empty( $header = $this->security_policy( 'xss', $policy ) ) ) {
-			$headers['X-XSS-Protection']			= $header;
-		}
-	
-		if ( !empty( $header = $this->security_policy( 'referer', $policy ) ) ) {
-			$headers['X-XSS-Protection']			= $header;
+		foreach ( $params as $k => $v ) {
+			if ( !empty( $header = $this->security_policy( $k, $policy ) ) ) {
+				$headers[$v] = $header;
+			}
 		}
 		
 		return $headers;
@@ -5517,6 +5527,494 @@ class PageResponse extends Response {
 		$this->html( $content ?? '', $code, $headers );
 	}
 }
+
+
+/**
+ *  @class Configuration settings and options
+ */
+final class Config extends Instance {
+	
+	/**
+	 *  @var string Main configuration file location
+	 */
+	private readonly string $config_file;
+	
+	/**
+	 *  @var string Config related log file location
+	 */
+	private readonly string $message_log;
+	
+	/**
+	 *  @var string Main storage location
+	 */
+	private readonly string $storage_base;
+	
+	/**
+	 *  @var array Expanded constant definitions
+	 */
+	private array $constants;
+	
+	/**
+	 *  @var array Raw configuration settings
+	 */
+	private array $settings;
+	
+	/**
+	 *  @var array Constant expanded configuration settings
+	 */
+	private array $expanded;
+	
+	/**
+	 *  @var array Merged realm data
+	 */
+	private array $merged;
+	
+	/**
+	 *  @var array Standalone default parameters
+	 */
+	private array $defaults;
+	
+	public function __construct() {
+		$this->config_file = 
+			$this->core_path( 'CONFIG_FILE', 'config.json' );
+		$this->message_log = 
+			$this->core_path( 'CONFIG_LOG', 'config_messages.log' );
+		
+		$this->storage_base = @\realpath( Storage::base() );
+	}
+	
+	/**
+	 *  Core file location builder
+	 *  
+	 *  @param string	$constant	Defined constant path
+	 *  @param string	$name		File name
+	 *  @param bool		$is_dir		Constant is a directory location, if true
+	 *  @return string
+	 */
+	private function core_path(
+		string	$constant, 
+		string	$name, 
+		bool	$is_dir		= false 
+	) : string {
+		$path	= 
+		\defined( $constant ) 
+			? \constant( $constant ) 
+			: Storage::base() . $name;
+		
+		return $is_dir 
+			? \rtrim( $path, '\\/' ) . \DIRECTORY_SEPARATOR 
+			: $path;
+	}
+	
+	/**
+	 *  Check storage location sub-path
+	 *  
+	 *  @param string	$path	Storage location checker
+	 *  @return bool		True if valid location within CONFIG_DIR
+	 */
+	public function store_valid( string $path ) : bool {
+		return ( false !== $path ) && ( 0 === \strpos( $path, $this->storage_base ) );
+	}
+	
+	/**
+	 *  Global info writer
+	 *  
+	 *  @param string	$msg		Main content body
+	 *  @param string	$label		Optional tag
+	 *  @param string	$msg_file	Description for $msg_file
+	 *  @return void
+	 */
+	private function config_message( 
+		string	$msg, 
+		string	$label		= 'INFO', 
+		?string	$msg_file	= null
+	) : void {
+		Log::instance()->info( $msg, $label, $this->config_file ) );
+	}
+	
+	/**
+	 *  Expand defined constants into configuration scope
+	 *  
+	 *  @param array	$config		Loaded configuration
+	 *  @param bool		$reparse	Reload configuration settings, if true
+	 *  @return array
+	 */
+	public function expand_constants( array $config, bool $reparse = false ) : array {
+		if ( !isset( $this->constants ) || $reparse ) {
+			$this->constants	??= [];
+			$temp		= \get_defined_constants( true )['user'] ?? [];
+			if ( empty( $temp ) ) { return $this->constants; };
+			
+			foreach ( $temp as $key => $value ) {
+				$nkey = '{{' . $key . '}}';
+				$this->constants[$nkey] = $value;
+			}
+		}
+		
+		\array_walk_recursive( $config, function( &$value ) {
+			if ( !\is_string( $value ) ) { return; }
+			$value = 
+			\str_replace( 
+				\array_keys( $this->constants ), 
+				\array_values( $this->constants ), 
+				$value
+			);
+		} );
+		
+		return $config;
+	}
+	
+	/**
+	 *  Load configuration JSON file
+	 *  
+	 *  @param string	$file	Location on disk
+	 *  @return array
+	 */
+	private function load_json( string $file ) : array {
+		if ( !\is_readable( $file ) ) {
+			$this->config_message( "Config file is not readable: {$file}", 'ERROR' );
+			
+			throw new 
+			\RuntimeException( "Config file is not readable." );
+		}
+		
+		$raw	= \file_get_contents( $file );
+		if ( false === $raw ) {
+			$this->config_message( "Unable to read config file: {$file}", 'ERROR' );
+			
+			throw new 
+			\RuntimeException( "Unable to read config file." );
+		}
+		
+		if ( !\json_validate( $raw ) ) { // Since PHP 8.3
+			$this->config_message( "Invalid JSON found in config file: {$file}", 'ERROR' );
+			
+			throw new 
+			\RuntimeException( "Invalid JSON format" );
+		}
+		
+		$config = \json_decode( $raw, true );
+		if ( \json_last_error() !== \JSON_ERROR_NONE ) {
+			$this->config_message( 
+				"Invalid JSON found in config file: {$file} - " . 
+					"JSON decode error [Code " . \json_last_error() . "]: " . 
+					\json_last_error_msg(), 
+				'ERROR' 
+			);
+			
+			throw new 
+			\RuntimeException( "Invalid JSON in config file" );
+		}
+		
+		return $config;
+	}
+	
+	/**
+	 *  Generate backup config file name
+	 *  
+	 *  @return string
+	 */
+	private function backup_name() : string {
+		return Storage::backup_path( $this->config_file );
+	}
+	
+	/**
+	 *  Create a configuration backup file
+	 *  
+	 *  @return bool		True on success
+	 */
+	private function backup() : bool {
+		$bkp	= $this->backup_name();
+		
+		if ( !copy( $this->config_file, $bkp ) ) {
+			$this->config_message( "Config backup failed: {$bkp}", 'ERROR' );
+			
+			throw new 
+			\RuntimeException( "Config backup failed" );
+		}
+		
+		return true;
+	}
+	
+	/**
+	 *  Write parsed configuration settings to config file
+	 *  
+	 *  @param string	$json		JSON formatted configuration settings
+	 *  @return bool			True on success
+	 */
+	private function write( string $json ) : bool {
+		return Storage::write_file( $this->config_file, $json );
+	}
+	
+	/**
+	 *  Save parsed or preloaded configuation settings
+	 *  
+	 *  @param array	$settings	New settings
+	 *  @param string	$modified_by	Modification source, defaults to 'system'
+	 *  @return bool			True on success
+	 */
+	private function save( 
+		array	$settings	= null, 
+		string	$modified_by	= 'system' 
+	) : bool {
+		$settings['_meta']	= [
+			'last_saved'	=> date( 'c' ),
+			'modified_by'	=> $modified_by
+		];
+		
+		$json	= 
+		\json_encode( $settings, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES );
+		
+		if ( false === $json ) {
+			$this->config_message( 
+				"Invalid JSON format [Code " . 
+					\json_last_error() . "]: " . 
+					\json_last_error_msg(), 
+				'ERROR' 
+			);
+			
+			throw new 
+			\RuntimeException( "Invalid JSON format for settings" );
+		}
+		
+		return $this->write( $json );
+	}
+	
+	/**
+	 *  Processed configuration settings
+	 *  
+	 *  @param array	$new_settings	Optional new settings to merge with existing ones
+	 *  @return array
+	 */
+	public function parsed( ?array $new_settings = null ) : array {
+		$this->settings		??= $this->load_json( $this->config_file );
+		$this->expanded		??= $this->expand_constants( $this->settings, true );
+		
+		if ( null === $new_settings ) { return $this->expanded; }
+	
+		// Merge new settings
+		$this->settings		= 
+		\array_replace_recursive( $this->settings, $new_settings );
+		
+		// Save changes at shutdown
+		\register_shutdown_function( function() {
+			$user	= Sanitize::normalize( $_SERVER['REMOTE_USER'] ?? 'system' );
+			
+			$this->backup();
+			$this->save( $this->settings, $user );
+		} );
+	
+		// Expand changes
+		$this->expanded	= $this->expand_constants( $this->settings, true );
+		return $this->expanded;
+	}
+	
+	/**
+	 *  Helper to change a single configuration setting in the root config
+	 *  
+	 *  @param string	$key	Main configuration key
+	 *  @param bool		$value	New replaement
+	 */
+	public function edit( string $key, mixed $value ) : void {
+		$this->parsed( [ $key => $value ] );
+	}
+	
+	/**
+	 *  Config merging helper for overriding defaults with realm-specific settings
+	 *  
+	 *  @return array
+	 */
+	public function realm() : array {
+		$config	= $this->parsed();
+		if ( 
+			!\is_array( $config['defaults'] ?? null ) ||	// Global settings
+			!\is_array( $config['realms'] ?? null )		// Per-domain settings
+		) {
+			throw new 
+			\RuntimeException( "Invalid config structure." );
+		}
+		
+		// Detect current host
+		$host	= \strtolower( Request::instance()->host );
+		$realm	= [];
+		
+		// Match realm first
+		foreach ( $config['realms'] ?? [] as $r ) {
+			if ( !\is_array( $r ) ) { continue; }
+			if (
+				$r['domain'] === $host	|| 
+				\in_array( $host, $r['alias'] ?? [], true ) 
+			) {
+				$realm = $r;
+				break;
+			}
+		}
+		
+		$merged = \array_merge( $config['defaults'] ?? [], $realm ?? [] );
+		return $merged;
+	}
+	
+	/**
+	 *  Config definition content-type filtering
+	 *  
+	 *  @param mixed	$value		Base configuration value
+	 *  @param string	$type		Format data type
+	 *  @param mixed	$filter		Optional filter
+	 *  @return mixed
+	 */
+	private function value_format( mixed $value, string $type, $filter = null ) : mixed {
+		if ( \is_array( $value ) ) {
+			return Util::lines( $value, false, $filter );
+		}
+		
+		return match( \strtolower( $type ) ) {
+			'int', 'integer'	=> Sanitize::sint( ( string ) $value ),
+			'bool', 'boolean'	=> Sanitize::sbool( ( string ) $value ),
+			'lines'			=> ( function() use ( $value, $filter ) {
+				$lines	= 
+				\preg_split( 
+					'/\s*\R\s*/', 
+					trim( ( string ) $value ), 
+					-1, 
+					\PREG_SPLIT_NO_EMPTY 
+				);
+				
+				return Util::lines( $lines, true, $filter );
+			} )(),
+			
+			'json'			=> ( function() use ( $value ) {
+				return \is_array( $value ) 
+					? Util::json_udecode( $value )
+					: Util::json_udecode( ( string ) $value );
+			} )(),
+			
+			default			=> Sanitize::text( $value )
+		};
+	}
+	
+	/**
+	 *  Get stored configuration settings or get default
+	 *  
+	 *  @param string	$key		Configuration setting name
+	 *  @param mixed	$default	If not set, fallback value
+	 *  @param string	$type		String, integer, json, or boolean
+	 *  @param string	$filter		Optional parse function
+	 *  @return mixed
+	 */
+	public function setting( 
+		?string		$key		= null, 
+				$default	= null, 
+		string		$type		= 'string',
+		string		$filter		= '' 
+	) : mixed {
+		$this->merged ??= $this->realm();
+		
+		// Fallback to defaults or send full config on empty key
+		
+		if ( null === $key ) { return $this->merged; }
+		
+		$value	= $this->merged[$key] ?? $default;
+		return empty( $filter ) 
+			? $value 
+			: $this->value_format( $value, $type, $filter );
+	}
+	
+	/**
+	 *  Get all whitelisted extensions
+	 *  
+	 *  @param string	$group		Search category
+	 *  @param array	$sent		Overridden list
+	 *  @return array
+	 */
+	public function ext_groups( string $group = '', ?array $sent = null ) : array {
+		// Default whitelist
+		static $cs;
+		$cs ??= $this->setting( 'static_ext', [], 'json' );
+		
+		// Extend whitelist
+		$ext	=  
+		empty( $sent ) 
+			? $cs 
+			: \array_merge( $cs, $sent );
+		
+		return empty( $group ) 
+			? \array_unique( Util::trimmed_list( \implode( ',', $ext ), true ) ) 
+			: \array_unique( Util::trimmed_list( $ext[$group] ?? '', true ) );
+	}
+	
+	/**
+	 *  Database configuration profile
+	 *  
+	 *  @param string $profile Database name
+	 *  @param array $updates Override configuration presets
+	 */
+	public function edit_db_profile( string $profile, array $updates ) : void {
+		$profiles = $this->setting( 'db_profiles', [], 'json' );
+		if ( isset( $profiles[$profile] ) ) {
+			$this->config_message(
+				"Database profile {$profile} edited",
+				'INFO'
+			);
+		} else {
+			$this->config_message(
+				"New database profile {$profile} created",
+				'INFO'
+			);
+		}
+		
+		$profiles[$profile] = 
+		\array_replace_recursive( $profiles[$profile] ?? [], $updates );
+		
+		$this->parsed( [ 'db_profiles' => $profiles ] );
+	}
+	
+	public function defaults( string $param ) : ?string {
+		static $dir;
+		$dir ??= 
+		defined( 'PLUGIN_DIR' )
+			? constant( 'PLUGIN_DIR' )
+			: PATH . 'plugins' . \DIRECTORY_SEPARATOR;
+			
+		$this->defaults ??= [
+			'plugin_dir'	=> \is_dir( $dir ) ? $dir : PATH,
+
+			'default_lang'	=>
+			defined( 'DEFAULT_LANGUAGE' ) 
+				? constant( 'DEFAULT_LANGUAGE' ) 
+				: 'en-US',
+			
+			'default_tz'	=> 
+			defined( 'DEFAULT_TIMEZONE' )
+				? constant( 'DEFAULT_TIMEZONE' )
+				: 'America\/New_York',
+			
+			'default_title'	=>
+			defined( 'DEFAULT_PAGE_TITLE' )
+				? constant( 'DEFAULT_PAGE_TITLE' )
+				: 'My Site',
+			
+			'default_desc'	=>
+			defined( 'DEFAULT_PAGE_SUB' )
+					? constant( 'DEFAULT_PAGE_SUB' )
+					: 'A Nice Place'
+		];
+		
+		return match( $param ) {
+			'plugin_dir'	=> 
+				\is_dir( $this->defaults['plugin_dir'] ) 
+					? $this->defaults['plugin_dir']
+					: PATH,
+			
+			'default_lang'	=> $this->defaults['default_lang'],
+			'default_tz'	=> $this->defaults['default_tz'],
+			'default_title'	=> $this->defaults['default_title'],
+			'default_desc'	=> $this->defaults['default_desc'],
+				
+			default		=> null;
+		}
+	}
+}
+
 
 /**
  *  @class Metadata attribute for plugins, templates, custom hooks etc...
@@ -6995,523 +7493,6 @@ class Template {
 		return $this->parse( $tpl, $context, $case_flag );
 	}
 }
-
-
-/**
- *  Configuration settings and options
- */
-
-/**
- *  Core file location builder
- *  
- *  @param string	$constant	Defined constant path
- *  @param string	$name		File name
- *  @param bool		$is_dir		Constant is a directory location, if true
- *  @return string
- */
-function config_core_path( 
-	string	$constant, 
-	string	$name, 
-	bool	$is_dir		= false 
-) : string {
-	$path	= 
-	\defined( $constant ) 
-		? \constant( $constant ) 
-		: Storage::base() . $name;
-	
-	return $is_dir 
-		? \rtrim( $path, '\\/' ) . \DIRECTORY_SEPARATOR 
-		: $path;
-}
-
-/**
- *  Main configuration file location
- *  
- *  @return string
- */
-function config_file() : string {
-	static $conf_file;
-	$conf_file	??= config_core_path( 'CONFIG_FILE', 'config.json' );
-	
-	return $conf_file;
-}
-
-/**
- *  Config related log file location
- *  
- *  @return string
- */
-function config_message_file() : string {
-	static $message_log;
-	$message_log	??= config_core_path( 'CONFIG_LOG', 'config_messages.log' );
-	
-	return $message_log;
-}
-
-/**
- *  Check storage location sub-path
- *  
- *  @param string	$path	Storage location checker
- *  @return bool		True if valid location within CONFIG_DIR
- */
-function config_store_valid( string $path ) : bool {
-	static $root;
-	$root	??= \realpath( Storage::base() );
-	$path	= \realpath( $path );
-	
-	return ( false !== $path ) && ( 0 === \strpos( $path, $root ) );
-}
-
-/**
- *  Global info writer
- *  
- *  @param string	$msg		Main content body
- *  @param string	$label		Optional tag
- *  @param string	$msg_file	Description for $msg_file
- *  @return void
- */
-function config_message( 
-	string	$msg, 
-	string	$label		= 'INFO', 
-	?string	$msg_file	= null
-) : void {
-	Log::instance()->info( $msg, $label, config_message_file() );
-}
-
-/**
- *  Expand defined constants into configuration scope
- *  
- *  @param array	$config		Loaded configuration
- *  @param bool		$reparse	Reload configuration settings, if true
- *  @return array
- */
-function config_expand_constants( array $config, bool $reparse = false ) : array {
-	static $constants;
-	
-	if ( !isset( $constants ) || $reparse ) {
-		$constants	??= [];
-		$temp		= \get_defined_constants( true )['user'] ?? [];
-		if ( empty( $temp ) ) { return $constants; };
-		
-		foreach ( $temp as $key => $value ) {
-			$nkey = '{{' . $key . '}}';
-			$constants[$nkey] = $value;
-		}
-	}
-	
-	\array_walk_recursive( $config, function( &$value ) use ( $constants ) {
-		if ( !\is_string( $value ) ) { return; }
-		$value = 
-		\str_replace( 
-			\array_keys( $constants ), 
-			\array_values( $constants ), 
-			$value
-		);
-	} );
-	
-	return $config;
-}
-
-/**
- *  Load configuration JSON file
- *  
- *  @param string	$file	Location on disk
- *  @return array
- */
-function config_load_json( string $file ) : array {
-	if ( !\is_readable( $file ) ) {
-		config_message( "Config file is not readable: {$file}", 'ERROR' );
-		
-		throw new 
-		\RuntimeException( "Config file is not readable." );
-	}
-	
-	$raw	= \file_get_contents( $file );
-	if ( false === $raw ) {
-		config_message( "Unable to read config file: {$file}", 'ERROR' );
-		
-		throw new 
-		\RuntimeException( "Unable to read config file." );
-	}
-	
-	if ( !\json_validate( $raw ) ) { // Since PHP 8.3
-		config_message( "Invalid JSON found in config file: {$file}", 'ERROR' );
-		
-		throw new 
-		\RuntimeException( "Invalid JSON format" );
-	}
-	
-	$config = \json_decode( $raw, true );
-	if ( \json_last_error() !== \JSON_ERROR_NONE ) {
-		config_message( 
-			"Invalid JSON found in config file: {$file} - " . 
-				"JSON decode error [Code " . \json_last_error() . "]: " . 
-				\json_last_error_msg(), 
-			'ERROR' 
-		);
-		
-		throw new 
-		\RuntimeException( "Invalid JSON in config file" );
-	}
-	
-	return $config;
-}
-
-/**
- *  Generate backup config file name
- *  
- *  @return string
- */
-function config_backup_name() : string {
-	return Storage::backup_path( config_file() );
-}
-
-/**
- *  Create a configuration backup file
- *  
- *  @return bool		True on success
- */
-function config_backup() : bool {
-	$bkp	= config_backup_name();
-	
-	if ( !copy( config_file(), $bkp ) ) {
-		config_message( "Config backup failed: {$bkp}", 'ERROR' );
-		
-		throw new 
-		\RuntimeException( "Config backup failed" );
-	}
-	
-	return true;
-}
-
-/**
- *  Write parsed configuration settings to config file
- *  
- *  @param string	$json		JSON formatted configuration settings
- *  @return bool			True on success
- */
-function config_write( string $json ) : bool {
-	return Storage::write_file( config_file(), $json );
-}
-
-/**
- *  Save parsed or preloaded configuation settings
- *  
- *  @param array	$settings	New settings
- *  @param string	$modified_by	Modification source, defaults to 'system'
- *  @return bool			True on success
- */
-function config_save( 
-	array	$settings	= null, 
-	string	$modified_by	= 'system' 
-) : bool {
-	$settings['_meta']	= [
-		'last_saved'	=> date( 'c' ),
-		'modified_by'	=> $modified_by
-	];
-	
-	$json	= 
-	\json_encode( $settings, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES );
-	
-	if ( false === $json ) {
-		config_message( 
-			"Invalid JSON format [Code " . 
-				\json_last_error() . "]: " . 
-				\json_last_error_msg(), 
-			'ERROR' 
-		);
-		
-		throw new 
-		\RuntimeException( "Invalid JSON format for settings" );
-	}
-	
-	return config_write( $json );
-}
-
-/**
- *  Processed configuration settings
- *  
- *  @param array	$new_settings	Optional new settings to merge with existing ones
- *  @return array
- */
-function config_parsed( ?array $new_settings = null ) : array {
-	static $expanded	= [];
-	static $settings	= [];
-	static $reg		= false;
-	
-	$settings		??= config_load_json( config_file() );
-	$expanded		??= config_expand_constants( $settings, true );
-	
-	if ( null === $new_settings ) { return $expanded; }
-
-	// Merge new settings
-	$settings	= \array_replace_recursive( $settings, $new_settings );
-	
-	// Save changes at shutdown
-	\register_shutdown_function( function() use ( $settings ) {
-		$user	= Sanitize::normalize( $_SERVER['REMOTE_USER'] ?? 'system' );
-		
-		config_backup();
-		config_save( $settings, $user );
-	} );
-
-	// Expand changes
-	$expanded	= config_expand_constants( $settings, true );
-	return $expanded;
-}
-
-/**
- *  Helper to change a single configuration setting in the root config
- *  
- *  @param string	$key	Main configuration key
- *  @param bool		$value	New replaement
- */
-function config_edit( string $key, mixed $value ) : void {
-	config_parsed( [ $key => $value ] );
-}
-
-/**
- *  Config merging helper for overriding defaults with realm-specific settings
- *  
- *  @return array
- */
-function config_realm() : array {
-	$config	= config_parsed();
-	if ( 
-		!\is_array( $config['defaults'] ?? null ) ||	// Global settings
-		!\is_array( $config['realms'] ?? null )		// Per-domain settings
-	) {
-		throw new 
-		\RuntimeException( "Invalid config structure." );
-	}
-	
-	// Detect current host
-	$host	= \strtolower( Request::instance()->host );
-	$realm	= [];
-	
-	// Match realm first
-	foreach ( $config['realms'] ?? [] as $r ) {
-		if ( !\is_array( $r ) ) { continue; }
-		if (
-			$r['domain'] === $host	|| 
-			\in_array( $host, $r['alias'] ?? [], true ) 
-		) {
-			$realm = $r;
-			break;
-		}
-	}
-	
-	$merged = \array_merge( $config['defaults'] ?? [], $realm ?? [] );
-	return $merged;
-}
-
-/**
- *  Config value array filter application helper
- *  
- *  @param array	$lines		Extracted configuration lines
- *  @param bool		$un		Unique values, if true
- *  @param callable	$filter		Optional callable
- *  @return array
- */
-function config_lines( array $lines, bool $un = false, $filter = null ) : array {
-	if ( $un ) { $lines = \array_unique( $lines ); }
-	
-	return ( !empty( $filter ) && \is_callable( $filter ) )
-		? \array_map( $filter, $lines ) 
-		: $lines;
-}
-
-/**
- *  Config definition content-type filtering
- *  
- *  @param mixed	$value		Base configuration value
- *  @param string	$type		Format data type
- *  @param mixed	$filter		Optional filter
- *  @return mixed
- */
-function config_value_format( mixed $value, string $type, $filter = null ) : mixed {
-	if ( \is_array( $value ) ) {
-		return config_lines( $value, false, $filter );
-	}
-	
-	return match( \strtolower( $type ) ) {
-		'int', 'integer'	=> Sanitize::sint( ( string ) $value ),
-		'bool', 'boolean'	=> Sanitize::sbool( ( string ) $value ),
-		'lines'			=> ( function() use ( $value, $filter ) {
-			$lines	= 
-			\preg_split( 
-				'/\s*\R\s*/', 
-				trim( ( string ) $value ), 
-				-1, 
-				\PREG_SPLIT_NO_EMPTY 
-			);
-			
-			return config_lines( $lines, true, $filter );
-		} )(),
-		
-		'json'			=> ( function() use ( $value ) {
-			return \is_array( $value ) 
-				? Util::json_udecode( $value )
-				: Util::json_udecode( ( string ) $value );
-		} )(),
-		
-		default			=> Sanitize::text( $value )
-	};
-}
-
-/**
- *  Get all whitelisted extensions
- *  
- *  @param string	$group		Search category
- *  @param array	$sent		Overridden list
- *  @return array
- */
-function config_ext_groups( string $group = '', ?array $sent = null ) : array {
-	// Default whitelist
-	static $cs;
-	$cs ??= config( 'static_ext', [], 'json' );
-	
-	// Extend whitelist
-	$ext	=  
-	empty( $sent ) 
-		? $cs 
-		: \array_merge( $cs, $sent );
-	
-	return empty( $group ) 
-		? \array_unique( Util::trimmed_list( \implode( ',', $ext ), true ) ) 
-		: \array_unique( Util::trimmed_list( $ext[$group] ?? '', true ) );
-}
-
-/**
- *  Database configuration profile
- *  
- *  @param string $profile Database name
- *  @param array $updates Override configuration presets
- */
-function config_edit_db_profile( string $profile, array $updates ) : void {
-	$profiles = config( 'db_profiles', [], 'json' );
-	if ( isset( $profiles[$profile] ) ) {
-		config_message(
-			"Database profile {$profile} edited",
-			'INFO'
-		);
-	} else {
-		config_message(
-			"New database profile {$profile} created",
-			'INFO'
-		);
-	}
-	
-	$profiles[$profile] = 
-	\array_replace_recursive( $profiles[$profile] ?? [], $updates );
-	
-	config_parsed( [ 'db_profiles' => $profiles ] );
-}
-
-/**
- *  Return preset plugin directory, defaults to PATH relative 'plugins/'
- *  
- *  @return string
- */
-function config_plugin_dir() : string {
-	static $dir;
-	$dir ??= 
-	defined( 'PLUGIN_DIR' )
-		? constant( 'PLUGIN_DIR' )
-		: PATH . 'plugins' . \DIRECTORY_SEPARATOR;
-	
-	return \is_dir( $dir ) ? $dir : PATH;
-}
-
-/**
- *  Preset language if set via constant, defaults to 'en-US'
- *  
- *  @return string
- */
-function config_default_lang() : string {
-	static $lang;
-	$lang ??= 
-	defined( 'DEFAULT_LANGUAGE' ) 
-		? constant( 'DEFAULT_LANGUAGE' ) 
-		: 'en-US';
-
-	return $lang;
-}
-
-/**
- *  Preset timezone if set via constant, defaults to 'America/New_York'
- *  
- *  @return string
- */
-function config_default_tz() : string {
-	static $tz;
-	$tz	??=
-	defined( 'DEFAULT_TIMEZONE' )
-		? constant( 'DEFAULT_TIMEZONE' )
-		: 'America\/New_York';
-	
-	return $tz;
-}
-
-/**
- *  Preset site title, defaults to 'My Place'
- *  
- *  @return string
- */
-function config_default_title() : string {
-	static $title;
-	$title	??=
-	defined( 'DEFAULT_PAGE_TITLE' )
-		? constant( 'DEFAULT_PAGE_TITLE' )
-		: 'My Place';
-	
-	return $title;
-}
-
-/**
- *  Preset site subtitle, defaults to 'A Nice Place'
- *  
- *  @return string
- */
-function config_default_desc() : string {
-	static $desc;
-	$desc	??=
-	defined( 'DEFAULT_PAGE_SUB' )
-		? constant( 'DEFAULT_PAGE_SUB' )
-		: 'A Nice Place';
-	
-	return $desc;
-}
-
-/**
- *  Get stored configuration settings or get default
- *  
- *  @param string	$key		Configuration setting name
- *  @param mixed	$default	If not set, fallback value
- *  @param string	$type		String, integer, json, or boolean
- *  @param string	$filter		Optional parse function
- *  @return mixed
- */
-function config( 
-	?string		$key		= null, 
-			$default	= null, 
-	string		$type		= 'string',
-	string		$filter		= '' 
-) : mixed {
-	static $merged	= null;
-	
-	$merged ??= config_realm();
-	
-	// Fallback to defaults or send full config on empty key
-	
-	if ( null === $key ) { return $merged; }
-	
-	$value	= $merged[$key] ?? $default;
-	return empty( $filter ) 
-		? $value 
-		: config_value_format( $value, $type, $filter );
-}
-
 
 /**
  *  Language translation
