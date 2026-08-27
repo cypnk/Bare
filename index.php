@@ -683,19 +683,20 @@ HTML
  */
 abstract class Instance {
 	
-	public static function instance( ?array $params = null ) : self {
+	public static function instance() : static {
 		static $_single; 
 		
 		if ( isset( $_single ) ) { return $_single; }
 		
+		$args		= \func_get_args();
 		$class		= static::class;
 		$_single	= 
 		\method_exists( $class, 'create' ) 
-			? ( empty( $params ) 
+			? ( empty( $args ) 
 				? \call_user_func( [ $class, 'create' ] )
-				: \call_user_func_array( [ $class, 'create' ], $params )
+				: \call_user_func_array( [ $class, 'create' ], $args )
 			)
-			: ( empty( $params ) ? new $class() : new $class( ...$params ) );
+			: ( empty( $args ) ? new $class() : new $class( ...$args ) );
 		
 		return $_single;
 	}
@@ -1033,27 +1034,22 @@ final class Container extends Instance {
 		return $this->get( $dep );
 	}
 	
-	private function autoload( string $class ) : ?object {
-		$ref	= new \ReflectionClass( $class );
-		
-		if ( !$ref->isInstantiable() ) {
-			$this->referror( "Unable to instantiate {$class}" );
-		}
-		
-		$cstor	= $ref->getConstructor();
-		
-		// No constructor = no arguments, return as-is
-		if ( null === $cstor ) { return new $class(); }
-		
+	/**
+	 *  Instantiator parameter population
+	 *  
+	 *  @param ReflectionMethod	$method		Constructor or 'create()'
+	 *  @return array
+	 */
+	private function populate( \ReflectionMethod $method ) : array {
 		// Constructor arguments
 		$args	= [];
-		$params	= $cstor->getParameters();
+		$params	= $method->getParameters();
 		
 		foreach ( $params as $param ) {
 			$ptype = $param->getType();
 			if ( !$ptype instanceof \ReflectionNamedType ) {
 				$this->referror( 
-					"Unsupported parameter type for {$class} constructor" 
+					"Unsupported parameter type for {$method->getName()}" 
 				);
 			}
 			
@@ -1067,13 +1063,40 @@ final class Container extends Instance {
 				// Well, I tried
 				$this->referror(
 					"Cannot autoload builtin parameter " . 
-					"\${$param->getName()} in {$class}"
+					"\${$param->getName()} in {$method}"
 				);
 			}
 			
 			$args[] = $this->argdep( $ptype, $param );
 		}
 		
+		return $args;
+	}
+	
+	private function autoload( string $class ) : ?object {
+		$ref	= new \ReflectionClass( $class );
+		
+		if ( !$ref->isInstantiable() ) {
+			$this->referror( "Unable to instantiate {$class}" );
+		}
+		
+		// Static create short circuit
+		if ( 
+			\is_subclass_of( $class, Instance::class ) && 
+			\method_exists( $class, 'create' )
+		) {
+			$method	= new \ReflectionMethod( $class, 'create' );
+			$args	= $this->populate( $method );
+			
+			return $class::instance( ...$args );
+		}
+		
+		$cstor	= $ref->getConstructor();
+		
+		// No constructor = no arguments, return as-is
+		if ( null === $cstor ) { return new $class(); }
+		
+		$args	= $this->populate( $cstor );
 		return $ref->newInstanceArgs( $args );
 	}
 	
@@ -3659,7 +3682,7 @@ final class Storage {
 /**
  *  @class Logging and message handling
  */
-final class Log {
+final class Log extends Instance {
 	
 	/**
 	 *  @var array	$cache{file:string, message:string}	Message and file pairs
@@ -3670,11 +3693,11 @@ final class Log {
 	 *  @var array	$priority[]				Log level proiority
 	 */
 	private array $priority	= [ 
-			'DEBUG'		=> 0, 
-			'INFO'		=> 1, 
-			'NOTICE'	=> 2, 
-			'WARN'		=> 3, 
-			'ERROR'		=> 4 
+		'DEBUG'		=> 0, 
+		'INFO'		=> 1, 
+		'NOTICE'	=> 2, 
+		'WARN'		=> 3, 
+		'ERROR'		=> 4 
 	];
 	
 	/**
@@ -3692,14 +3715,12 @@ final class Log {
 		public readonly string	$default_log
 	) {}
 	
-	public static function instance(
+	public static function create(
 		?int	$max_retention	= null,
 		?int	$max_size	= null,
 		?string	$default_level	= null,
 		?string	$default_log	= null
-	) : self {
-		static $_single		= []; 
-		
+	) : static {
 		$max_retention		??= 
 		\defined( 'LOG_MAX_RETENTION' ) 
 			? ( int ) \constant( 'LOG_MAX_RETENTION' ) 
@@ -3729,9 +3750,7 @@ final class Log {
 		
 		// Avoid creating a new instance with same params
 		$key		= \hash( 'sha256', \print_r( $params, true ) );
-		$_single[$key]	??= new static( ...$params );
-		
-		return $_single[$key];
+		return new static( ...$params );
 	}
 	
 	/**
@@ -3976,7 +3995,8 @@ final class Request extends Instance {
 		public readonly string		$query,
 		public readonly array		$params,
 		public readonly string		$protocol,
-		public readonly bool		$is_tls
+		public readonly bool		$is_tls,
+		public readonly string		$user
 	) {
 		$this->id		= ( string ) ( $_SERVER['REQUEST_TIME'] ?? time() ) . '_' . 
 			\bin2hex( \random_bytes( 32 ) );
@@ -3996,8 +4016,9 @@ final class Request extends Instance {
 		?string		$query			= null,
 		?array		$params			= null,
 		?string		$protocol		= null,
-		?bool		$is_tls			= null
-	) : self {
+		?bool		$is_tls			= null,
+		?string		$user			= null,
+	) : static {
 		$method			??= static::_method();
 		$effective_method	??= static::_effective_method();
 		$forwarded		??= static::_forwarded();
@@ -4010,8 +4031,9 @@ final class Request extends Instance {
 		$params			??= Sanitize::query( true, false ) ?? [];
 		$protocol		??= static::_protocol();
 		$is_tls			??= static::_is_tls();
+		$user			??= static::_user();
 		
-		return new self(
+		return new static(
 			$method,
 			$effective_method,
 			$forwarded,
@@ -4023,7 +4045,8 @@ final class Request extends Instance {
 			$query,
 			$params,
 			$protocol,
-			$is_tls
+			$is_tls,
+			$user
 		);
 	}
 	
@@ -4360,6 +4383,10 @@ final class Request extends Instance {
 		return $headers;
 	}
 	
+	private static function _user() : string {
+		return Sanitize::normalize( $_SERVER['REMOTE_USER'] ?? 'system' );
+	}
+	
 	/**
 	 *  Forwarded HTTP header chain from load balancer
 	 *  
@@ -4566,9 +4593,6 @@ final class Request extends Instance {
 }
 
 
-
-
-
 /**
  *  @class Response and output handling
  */
@@ -4592,9 +4616,8 @@ class Response extends Instance {
 		?int		$code		= null,
 		?array		$headers	= [],
 				$body		= null
-	) : self {
-		$request ??= Request::instance();
-		
+	) : static {
+		$request ??= Container::instance()->get( 'Request' );
 		return new static( $request, $code, $headers, $body );
 	}
 	
@@ -4881,7 +4904,7 @@ final class FileResponse extends Response {
 			$curr_size	= Storage::file_size( $fpath );
 			
 		} catch ( \Throwable $e ) {
-			Log::instance()->error( "Meta cache error: {$e->getMessage()}" );
+			Container::instance()->get( 'Log' )->error( "Meta cache error: {$e->getMessage()}" );
 			return null;
 		}
 		
@@ -4925,7 +4948,7 @@ final class FileResponse extends Response {
 				\RuntimeException( "Failed to replace cache file" );
 			}
 		} catch ( \Throwable $e ) {
-			Log::instance()->error( "Meta cache error: {$e->getMessage()}" );
+			Container::instance()->get( 'Log' )->error( "Meta cache error: {$e->getMessage()}" );
 		}
 	}
 	
@@ -5165,7 +5188,7 @@ final class FileResponse extends Response {
 			
 		} catch( \Throwable $e ) {
 			$msg	= "File response error";
-			Log::instance()->error( $msg . ": {$e->getMessage()}" );
+			Container::instance()->get( 'Log' )->error( $msg . ": {$e->getMessage()}" );
 			
 			$this->code = 500;
 			$this->status();
@@ -5379,7 +5402,7 @@ class PageResponse extends Response {
 	 *  OPTIONS header response helper
 	 */
 	public function options( array $headers = [] ) : void {
-		$method	= Request::instance()->method;
+		$method	= $this->request->method;
 		if ( 0 === \strcasecmp( 'options', $method ) ) {
 			$this->send( 204, $headers );
 			exit();
@@ -5574,13 +5597,18 @@ final class Config extends Instance {
 	 */
 	private array $defaults;
 	
-	public function __construct() {
+	public function __construct( public readonly Request $request ) {
 		$this->config_file = 
 			$this->core_path( 'CONFIG_FILE', 'config.json' );
 		$this->message_log = 
 			$this->core_path( 'CONFIG_LOG', 'config_messages.log' );
 		
 		$this->storage_base = @\realpath( Storage::base() );
+	}
+	
+	public static function create( ?Request $request = null ) : static {
+		$request ??= Container::instance()->get( 'Request' );
+		return new static( $request );
 	}
 	
 	/**
@@ -5621,15 +5649,15 @@ final class Config extends Instance {
 	 *  
 	 *  @param string	$msg		Main content body
 	 *  @param string	$label		Optional tag
-	 *  @param string	$msg_file	Description for $msg_file
-	 *  @return void
+	 *  @param string	$msg_file	Custom message file
 	 */
-	private function config_message( 
-		string	$msg, 
-		string	$label		= 'INFO', 
+	private function message(
+		string	$msg,
+		string	$label		= 'INFO',
 		?string	$msg_file	= null
 	) : void {
-		Log::instance()->info( $msg, $label, $this->config_file ) );
+		$msg_file ??= $this->message_log;
+		Container::instance()->get( 'Log' )->info( $msg, $label, $msg_file );
 	}
 	
 	/**
@@ -5672,7 +5700,7 @@ final class Config extends Instance {
 	 */
 	private function load_json( string $file ) : array {
 		if ( !\is_readable( $file ) ) {
-			$this->config_message( "Config file is not readable: {$file}", 'ERROR' );
+			$this->message( "Config file is not readable: {$file}", 'ERROR' );
 			
 			throw new 
 			\RuntimeException( "Config file is not readable." );
@@ -5680,14 +5708,14 @@ final class Config extends Instance {
 		
 		$raw	= \file_get_contents( $file );
 		if ( false === $raw ) {
-			$this->config_message( "Unable to read config file: {$file}", 'ERROR' );
+			$this->message( "Unable to read config file: {$file}", 'ERROR' );
 			
 			throw new 
 			\RuntimeException( "Unable to read config file." );
 		}
 		
 		if ( !\json_validate( $raw ) ) { // Since PHP 8.3
-			$this->config_message( "Invalid JSON found in config file: {$file}", 'ERROR' );
+			$this->message( "Invalid JSON found in config file: {$file}", 'ERROR' );
 			
 			throw new 
 			\RuntimeException( "Invalid JSON format" );
@@ -5695,7 +5723,7 @@ final class Config extends Instance {
 		
 		$config = \json_decode( $raw, true );
 		if ( \json_last_error() !== \JSON_ERROR_NONE ) {
-			$this->config_message( 
+			$this->message( 
 				"Invalid JSON found in config file: {$file} - " . 
 					"JSON decode error [Code " . \json_last_error() . "]: " . 
 					\json_last_error_msg(), 
@@ -5727,7 +5755,7 @@ final class Config extends Instance {
 		$bkp	= $this->backup_name();
 		
 		if ( !copy( $this->config_file, $bkp ) ) {
-			$this->config_message( "Config backup failed: {$bkp}", 'ERROR' );
+			$this->message( "Config backup failed: {$bkp}", 'ERROR' );
 			
 			throw new 
 			\RuntimeException( "Config backup failed" );
@@ -5766,7 +5794,7 @@ final class Config extends Instance {
 		\json_encode( $settings, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES );
 		
 		if ( false === $json ) {
-			$this->config_message( 
+			$this->message( 
 				"Invalid JSON format [Code " . 
 					\json_last_error() . "]: " . 
 					\json_last_error_msg(), 
@@ -5798,7 +5826,7 @@ final class Config extends Instance {
 		
 		// Save changes at shutdown
 		\register_shutdown_function( function() {
-			$user	= Sanitize::normalize( $_SERVER['REMOTE_USER'] ?? 'system' );
+			$user	= $this->request->user;
 			
 			$this->backup();
 			$this->save( $this->settings, $user );
@@ -5835,7 +5863,7 @@ final class Config extends Instance {
 		}
 		
 		// Detect current host
-		$host	= \strtolower( Request::instance()->host );
+		$host	= \strtolower( Container::instance()->get( 'Request' )->host );
 		$realm	= [];
 		
 		// Match realm first
@@ -5951,12 +5979,12 @@ final class Config extends Instance {
 	public function edit_db_profile( string $profile, array $updates ) : void {
 		$profiles = $this->setting( 'db_profiles', [], 'json' );
 		if ( isset( $profiles[$profile] ) ) {
-			$this->config_message(
+			$this->message(
 				"Database profile {$profile} edited",
 				'INFO'
 			);
 		} else {
-			$this->config_message(
+			$this->message(
 				"New database profile {$profile} created",
 				'INFO'
 			);
@@ -5977,7 +6005,7 @@ final class Config extends Instance {
 			
 		$this->defaults ??= [
 			'plugin_dir'	=> \is_dir( $dir ) ? $dir : PATH,
-
+			
 			'default_lang'	=>
 			defined( 'DEFAULT_LANGUAGE' ) 
 				? constant( 'DEFAULT_LANGUAGE' ) 
@@ -6010,8 +6038,8 @@ final class Config extends Instance {
 			'default_title'	=> $this->defaults['default_title'],
 			'default_desc'	=> $this->defaults['default_desc'],
 				
-			default		=> null;
-		}
+			default		=> null
+		};
 	}
 }
 
@@ -6769,7 +6797,7 @@ class Template {
 			$params['context'] = $context;
 			
 			if ( !$resolver ) {
-				Log::instance()->warn( "No resolver found for node type: {$type}" );
+				Container::instance()->get( 'Log' )->warn( "No resolver found for node type: {$type}" );
 				
 				// Swap placeholder with error message
 				$content	= 
@@ -6785,11 +6813,11 @@ class Template {
 					] );
 					
 					if ( null === $content ) {
-						Log::instance()->warn( "Resolver output failed for type: {$type}" );
+						Container::instance()->get( 'Log' )->warn( "Resolver output failed for type: {$type}" );
 						$content = "<!-- Unknown node type: {$type} -->";
 					}
 				} catch ( \Throwable $e ) {
-					Log::instance()->warn( "Node resolver error for '{$type}': {$e->getMessage()}" );
+					Container::instance()->get( 'Log' )->warn( "Node resolver error for '{$type}': {$e->getMessage()}" );
 					$content	= 
 					"<!-- Error rendering node: {$type} -->";	
 				}
@@ -7088,7 +7116,7 @@ class Template {
 		\strtolower( \pathinfo( $path, \PATHINFO_EXTENSION ) ?: 'na' );
 		
 		if ( !\in_array( $ext, $allowed, true ) ) {
-			Log::instance()->error( "Disallowed template extension: {$ext}" );
+			Container::instance()->get( 'Log' )->error( "Disallowed template extension: {$ext}" );
 			
 			throw new 
 			\RuntimeException( "Invalid template type" );
@@ -7110,7 +7138,7 @@ class Template {
 		$base		= @\realpath( $dir . $vdir );
 		
 		if ( !$base ) {
-			Log::instance()->error( "Invalid base path: {$base}" );
+			Container::instance()->get( 'Log' )->error( "Invalid base path: {$base}" );
 			
 			throw new 
 			\RuntimeException( "Template base path not found" );
@@ -7121,7 +7149,7 @@ class Template {
 		$relative	= \preg_replace( '#/+#', '/', $relative ); // Duplicate slash fix
 		
 		if ( \str_contains( $relative, '..' ) ) { // No traversal
-			Log::instance()->error( "Suspicious template path: {$path}" );
+			Container::instance()->get( 'Log' )->error( "Suspicious template path: {$path}" );
 			
 			throw new 
 			\RuntimeException( "Invalid template path" );
@@ -7130,14 +7158,14 @@ class Template {
 		$relative	= Sanitize::path_traversal( $relative ) ?: '';
 		$full		= @\realpath( $base . '/' . $relative );
 		if ( !$full || 0 !== \stripos( $full, $base ) ) {
-			Log::instance()->error( "Template path traversal attempt: {$path}" );
+			Container::instance()->get( 'Log' )->error( "Template path traversal attempt: {$path}" );
 			
 			throw new 
 			\RuntimeException( "Invalid template path" );
 		}
 	
 		if ( !\is_readable( $full ) ) {
-			Log::instance()->error( "Template not found: {$path}" );
+			Container::instance()->get( 'Log' )->error( "Template not found: {$path}" );
 			
 			throw new 
 			\RuntimeException( "Template not readable" );
@@ -7145,13 +7173,13 @@ class Template {
 	
 		$info	= $cache[$full] ??= \file_get_contents( $full );
 		if ( false === $info ) {
-			Log::instance()->error( "Failed to read template: {$path}" );
+			Container::instance()->get( 'Log' )->error( "Failed to read template: {$path}" );
 			
 			throw new 
 			\RuntimeException( "Failed to read template" );
 		}
 	
-		Log::instance()->debug( "Loaded template: {$full}" );
+		Container::instance()->get( 'Log' )->debug( "Loaded template: {$full}" );
 		return $info;
 	}
 	
@@ -7233,7 +7261,7 @@ class Template {
 	) : string {
 		$max_depth	= 5;
 		if ( $depth > $max_depth ) {
-			Log::instance()->warn( "Max template include depth exceeded" );
+			Container::instance()->get( 'Log' )->warn( "Max template include depth exceeded" );
 			return $template;
 		}
 		
@@ -7248,7 +7276,7 @@ class Template {
 		$partials	= [];
 		foreach ( $includes as $key ) {
 			if ( \in_array( $key, $seen, true ) ) {
-				Log::instance()->warn( "Circular include detected {$key}" );
+				Container::instance()->get( 'Log' )->warn( "Circular include detected {$key}" );
 				continue;
 			}
 			
@@ -7265,7 +7293,7 @@ class Template {
 				);
 				
 			} catch ( \Throwable $e ) {
-				Log::instance()->warn( "Partial not loaded: {$key}: {$e->getMessage()}" );
+				Container::instance()->get( 'Log' )->warn( "Partial not loaded: {$key}: {$e->getMessage()}" );
 				$partials["{include:{$key}}"]	= '';
 			}
 		}
@@ -7439,11 +7467,11 @@ class Template {
 				if ( \is_callable( $loader ) ) {
 					$resolvers	= $loader();
 				} else {
-					Log::instance()->warn( "Template resolver_loader is not a callable" );
+					Container::instance()->get( 'Log' )->warn( "Template resolver_loader is not a callable" );
 				}
 			}
 		} catch( \Throwable $e ) {
-			Log::instance()->error( "Error loading resolver: {$e->getMessage()}" );
+			Container::instance()->get( 'Log' )->error( "Error loading resolver: {$e->getMessage()}" );
 		}
 		
 		if ( !empty( $resolvers ) ) {
@@ -8479,7 +8507,7 @@ function format_body(
 	if ( !isset( $sanity ) ) {
 		if ( Util::missing( 'libxml_clear_errors' ) ) {
 			$sanity	= false;
-			Log::instance()->error( 'Bare requires the libxml extension.' );
+			Container::instance()->get( 'Log' )->error( 'Bare requires the libxml extension.' );
 			return '';
 		}
 		
@@ -8570,7 +8598,7 @@ function view_include( string $file, array $data ) : string {
 			return \ob_get_clean();
 		} catch ( \Throwable $e ) {
 			\ob_end_flush();
-			Log::instance()->error( "Error in view {$file}: {$e->getMessage()}" );
+			Container::instance()->get( 'Log' )->error( "Error in view {$file}: {$e->getMessage()}" );
 			return '';
 		}
 	} )();
@@ -8678,7 +8706,7 @@ function view_render( string $layout, array $vars = [] ) : string {
 	static $stack	= [];
 	
 	if ( Util::value_exists_ci( $layout, $stack ) ) {
-		Log::instance()->error( "Recursive view detected: {$layout}" );
+		Container::instance()->get( 'Log' )->error( "Recursive view detected: {$layout}" );
 		
 		throw new 
 		\RuntimeException( "Recursive view detected" );
@@ -8689,7 +8717,7 @@ function view_render( string $layout, array $vars = [] ) : string {
 		$paths		= view_paths();
 		$file		= view_resolve_path( $paths, $layout );
 		if ( !\is_readable( $file ) ) {
-			Log::instance()->error( "View not found: {$layout}" );
+			Container::instance()->get( 'Log' )->error( "View not found: {$layout}" );
 			
 			throw new 
 			\RuntimeException( "View not found" );
@@ -8701,7 +8729,7 @@ function view_render( string $layout, array $vars = [] ) : string {
 	try {
 		return view_include( $cache[$layout], $vars );
 	} catch( \Throwable $e ) {
-		Log::instance()->error( "Error including view {$layout}: {$e->getMessage()}" );
+		Container::instance()->get( 'Log' )->error( "Error including view {$layout}: {$e->getMessage()}" );
 		
 		throw new 
 		\RuntimeException( "Error rendering view" );
@@ -9111,7 +9139,7 @@ function plugin_autoload() : array {
 			
 			// Duplicate plugin name?
 			if ( isset( $plugins[$name] ) ) {
-				Log::instance()->error( "Plugin {$name} already exists" );
+				Container::instance()->get( 'Log' )->error( "Plugin {$name} already exists" );
 				continue;
 			}
 			
@@ -9155,7 +9183,7 @@ function plugin_init( bool $run = true ) : void {
 			} else { $fn(); }
 			
 		} catch( \Throwable $e ) {
-			Log::instance()->error(
+			Container::instance()->get( 'Log' )->error(
 				"Plugin {$meta->name} failed initialization: " .
 				$e->getMessage()
 			);
@@ -9257,7 +9285,7 @@ function db_stmt( ?\PDO $dbh, string $sql ) {
 		return $stmt;
 		
 	} catch ( \PDOException $e ) {
-		Log::instance()->error( "Failed to prepare statement with {$sql}: {$e->getMessage()}" );
+		Container::instance()->get( 'Log' )->error( "Failed to prepare statement with {$sql}: {$e->getMessage()}" );
 		
 		throw new 
 		\RuntimeException( "Database statement preparation failed" );
@@ -9279,7 +9307,7 @@ function db_exec( \PDOStatement $stmt, array $params, string $context ) : bool {
 			? $stmt->execute( $params ) 
 			: $stmt->execute();
 		
-		Log::instance()->debug( $context );
+		Container::instance()->get( 'Log' )->debug( $context );
 		return $result;
 		
 	} catch( \Throwable $e ) {
@@ -9287,7 +9315,7 @@ function db_exec( \PDOStatement $stmt, array $params, string $context ) : bool {
 		$func	= $trace[1]['function']		?? 'global scope';
 		$file	= $trace[1]['file']		?? 'unknown file';
 		$line	= $trace[1]['line']		?? 'unknown line';
-		Log::instance()->error(
+		Container::instance()->get( 'Log' )->error(
 			"Error in db_exec: {$context} — {$e->getMessage()} " .
 			"called by {$func} on line {$line} in {$file}"
 		);
@@ -9309,7 +9337,7 @@ function db_exec( \PDOStatement $stmt, array $params, string $context ) : bool {
  */
 function db_exec_batch( \PDO $dbh, string $sql, string $context = 'Batch SQL' ) : bool {
 	if ( empty( trim( $sql ) ) ) {
-		Log::instance()->warn( "Empty SQL passed to db_exec_batch" );
+		Container::instance()->get( 'Log' )->warn( "Empty SQL passed to db_exec_batch" );
 		return false;
 	}
 	
@@ -9317,13 +9345,13 @@ function db_exec_batch( \PDO $dbh, string $sql, string $context = 'Batch SQL' ) 
 		$dbh->beginTransaction();
 		$dbh->exec( $sql );
 		$dbh->commit();
-		Log::instance()->debug( $context );
+		Container::instance()->get( 'Log' )->debug( $context );
 		return true;
 
 	} catch ( \PDOException $e ) {
 		$dbh->rollback();
 		
-		Log::instance()->error( 
+		Container::instance()->get( 'Log' )->error( 
 			"Batch execution failed for SQL " . 
 				\mb_substr( $sql, 0, 100 ) . 
 				": {$e->getMessage()}"
@@ -9350,7 +9378,7 @@ function db_get_property( \PDO $dbh, int $attribute, $default = null ) : mixed {
 		return ( false !== $value && null !== $value ) ? $value : $default;
 		
 	} catch ( \PDOException $e ) {
-		Log::instance()->warn( "Failed to get PDO attribute {$attribute}: {$e->getMessage()}" );
+		Container::instance()->get( 'Log' )->warn( "Failed to get PDO attribute {$attribute}: {$e->getMessage()}" );
 		return $default;
 	}
 }
@@ -9366,12 +9394,12 @@ function db_get_driver( \PDO $dbh ) : string {
 	
 	$driver = db_get_property( $dbh, \PDO::ATTR_DRIVER_NAME );
 	if ( null === $driver ) {
-		Log::instance()->warn( "Unable to determine DB driver" );
+		Container::instance()->get( 'Log' )->warn( "Unable to determine DB driver" );
 		return 'unknown';
 	}
 	
 	if ( !\in_array( $driver, $supported, true ) ) {
-		Log::instance()->warn( "Unsupported DB driver: {$driver}" );
+		Container::instance()->get( 'Log' )->warn( "Unsupported DB driver: {$driver}" );
 	}
 	
 	return \strtolower( $driver );
@@ -9440,7 +9468,7 @@ function db_profile_info( \PDO $dbh, string $profile = 'main' ) : array {
 	$cache ??= config( 'db_profiles', [], 'json' );
 	$config = $cache[$profile] ?? null;
 	if ( !$config ) {
-		Log::instance()->error( "Unknown DB profile: {$profile}" );
+		Container::instance()->get( 'Log' )->error( "Unknown DB profile: {$profile}" );
 		
 		throw new 
 		\InvalidArgumentException( "Unknown DB profile" );
@@ -9531,7 +9559,7 @@ function db_batch_schema(
 	$sql_file	= \realpath( $sql_file );
 	
 	if ( !$sql_file || !\is_readable( $sql_file ) ) {
-		Log::instance()->error(
+		Container::instance()->get( 'Log' )->error(
 			"Invalid schema file: {$sql_file} for database: {$schema}"
 		);
 		
@@ -9546,7 +9574,7 @@ function db_batch_schema(
 			if ( false !== $found ) { break; }
 			
 		} catch ( \Throwable $e ) {
-			Log::instance()->error(
+			Container::instance()->get( 'Log' )->error(
 				"Error getting SQL data from {$sql_file}. Retrying"
 			);
 			
@@ -9557,7 +9585,7 @@ function db_batch_schema(
 
 	// No schema file found
 	if ( false === $found ) {
-		Log::instance()->error( "Failed to read schema file: {$sql_file}" );
+		Container::instance()->get( 'Log' )->error( "Failed to read schema file: {$sql_file}" );
 		
 		throw new
 		\RuntimeException( "Unable to load schema file" );
@@ -9565,7 +9593,7 @@ function db_batch_schema(
 
 	// Nothing in schema file
 	if ( empty( trim( $found ) ) ) {
-		Log::instance()->error( "Schema file is empty: {$sql_file}" );
+		Container::instance()->get( 'Log' )->error( "Schema file is empty: {$sql_file}" );
 		
 		throw new 
 		\RuntimeException( "Schema file is empty" );
@@ -9587,7 +9615,7 @@ function db_batch_schema(
 		
 	} catch( \Throwable $e ) {
 		$dbh->rollback();
-		Log::instance()->error(
+		Container::instance()->get( 'Log' )->error(
 			"Error loading database schema file: {$sql_file} " .
 			$e->getMessage() 
 		);
@@ -9606,14 +9634,14 @@ function db_batch_schema(
 function db_get_migrations( string $mi_dir ) : iterable {
 	// No migrations set
 	if ( !\is_dir( $mi_dir ) ) {
-		Log::instance()->debug( "Called db_migrate() with no migrations" );
+		Container::instance()->get( 'Log' )->debug( "Called db_migrate() with no migrations" );
 		return [];
 	}
 	
 	// Get all .sql files
 	$files = \glob( $mi_dir . '/*.sql' );
 	if ( !$files ) {
-		Log::instance()->debug( "No migration files found in {$mi_dir}" );
+		Container::instance()->get( 'Log' )->debug( "No migration files found in {$mi_dir}" );
 		return [];
 	}
 	
@@ -9625,7 +9653,7 @@ function db_get_migrations( string $mi_dir ) : iterable {
 		) ) {
 			yield [ 'file' => $file, 'version' => $match[1] ];
 		} else {
-			Log::instance()->debug(
+			Container::instance()->get( 'Log' )->debug(
 				"Skipping file with no valid version: {$file} in {$mi_dir}"
 			);
 		}
@@ -9647,7 +9675,7 @@ function db_migrate( \PDO $dbh, string $profile ) : void {
 	$migrations	= [];
 	foreach ( db_get_migrations( $mi_dir ) as $m ) {
 		if ( \version_compare( $m['version'], $curr_ver ) <= 0 ) {
-			Log::instance()->debug(
+			Container::instance()->get( 'Log' )->debug(
 				"Skipping migration {$m['version']} (current version is newer)"
 			);
 			continue;
@@ -9662,10 +9690,10 @@ function db_migrate( \PDO $dbh, string $profile ) : void {
 	foreach ( $migrations as $m ) {
 		try {
 			db_batch_schema( $dbh, $m['file'], $m['version'], "Applied migration from {$m['file']}" );
-			Log::instance()->info( "Migration {$m['version']} applied successfully" );
+			Container::instance()->get( 'Log' )->info( "Migration {$m['version']} applied successfully" );
 			
 		} catch ( \Throwable $e ) {
-			Log::instance()->error( "Migration {$m['version']} from {$m['file']} failed: {$e->getMessage()}" );
+			Container::instance()->get( 'Log' )->error( "Migration {$m['version']} from {$m['file']} failed: {$e->getMessage()}" );
 			
 			throw new 
 			\RuntimeException( "Migration failed: {$m['version']}" );
@@ -9694,19 +9722,19 @@ function db_maintenance( \PDO $dbh, array $config ) : void {
 	$settings	= $dbh->query( $sql )->fetchColumn();
 	
 	if ( false === $settings ) {
-		Log::instance()->info( "No database maintenance settings found" );
+		Container::instance()->get( 'Log' )->info( "No database maintenance settings found" );
 		$settings	= '{ "last_maintenance" : 0 }'; // Fallback
 	}
 	
 	// Since PHP 8.3
 	if ( !\json_validate( $settings ) ) {
-		Log::instance()->error( "Error decoding maintenance settings" );
+		Container::instance()->get( 'Log' )->error( "Error decoding maintenance settings" );
 		return;
 	}
 	
 	$info	= \json_decode( $settings, true );
 	if ( false === $info || !\is_array( $info ) ) {
-		Log::instance()->error( "Invalid JSON in maintenance settings" );
+		Container::instance()->get( 'Log' )->error( "Invalid JSON in maintenance settings" );
 		return;
 	}
 	
@@ -9715,22 +9743,22 @@ function db_maintenance( \PDO $dbh, array $config ) : void {
 	
 	// Skip if not needed
 	if ( ( $now - $last_maint ) < $maint ) {
-		Log::instance()->debug( "Maintenance not required yet" );
+		Container::instance()->get( 'Log' )->debug( "Maintenance not required yet" );
 		return;
 	}
 	
 	$commands	= $config['maint_exec'] ?? [];
 	if ( !\is_array( $commands ) || empty( $commands ) ) {
-		Log::instance()->warn( "No maintenance commands configured" );
+		Container::instance()->get( 'Log' )->warn( "No maintenance commands configured" );
 		return;
 	}
 	
 	foreach ( $commands as $cmd ) {
 		try {
 			$dbh->exec( $cmd );
-			Log::instance()->info( "Executed maintenance command: {$cmd}" );
+			Container::instance()->get( 'Log' )->info( "Executed maintenance command: {$cmd}" );
 		} catch ( \PDOException $e ) {
-			Log::instance()->error( "Maintenance command failed: {$cmd} — {$e->getMessage()}" );
+			Container::instance()->get( 'Log' )->error( "Maintenance command failed: {$cmd} — {$e->getMessage()}" );
 		}
 	}
 	
@@ -9743,7 +9771,7 @@ function db_maintenance( \PDO $dbh, array $config ) : void {
 		':settings' => $new_settings
 	], "Initiating database maintenance" );
 	
-	Log::instance()->info( "Database maintenance completed" );
+	Container::instance()->get( 'Log' )->info( "Database maintenance completed" );
 }
 
 /**
@@ -9766,7 +9794,7 @@ function db_with_transaction( \PDO $dbh, callable $fn ) : mixed {
 			$dbh->rollBack();
 		}
 		
-		Log::instance()->error( "Error completing transaction via callable" );
+		Container::instance()->get( 'Log' )->error( "Error completing transaction via callable" );
 		return false;
 	}
 }
@@ -9836,7 +9864,7 @@ function db_get( string $profile = 'main', ?array $new_profiles = null ) : \PDO 
 		
 	} catch ( \PDOException $e ) {
 		// Handle connection errors gracefully
-		Log::instance()->error( "Database connection failed: {$e->getMessage()}" );
+		Container::instance()->get( 'Log' )->error( "Database connection failed: {$e->getMessage()}" );
 		die( 'Unable to connect to database' );
 	}
 	
@@ -10049,11 +10077,11 @@ function sess_write( $session_id, $data ) {
 		);
 		
 		$host	= 
-		\idn_to_ascii( Request::instance()->host, \IDNA_DEFAULT, \INTL_IDNA_VARIANT_UTS46 );
+		\idn_to_ascii( Container::instance()->get( 'Request' )->host, \IDNA_DEFAULT, \INTL_IDNA_VARIANT_UTS46 );
 		return $stmt->execute( [
 			':basename'	=> \strtolower( $host ),
 			':id'		=> $session_id,
-			':ip'		=> Request::instance()->ip( true ),
+			':ip'		=> Container::instance()->get( 'Request' )->ip( true ),
 			':data'		=> $data
 		] );
 	} );
@@ -10135,7 +10163,7 @@ function sess_init() : void {
 	$params	??= 
 	\session_set_cookie_params( [
 		'httponly'	=> true, 
-		'secure'	=> Request::instance()->is_tls, 
+		'secure'	=> Container::instance()->get( 'Request' )->is_tls, 
 		'samesite'	=> 'Strict', 
 		'path'		=> config( 'cookie_path', '/' ), 
 	] );
@@ -10155,7 +10183,7 @@ function sess_init() : void {
 	
 	if ( \session_status() === \PHP_SESSION_NONE ) {
 		if ( \headers_sent( $file, $line ) ) {
-			Log::instance()->error( 
+			Container::instance()->get( 'Log' )->error( 
 				"Cannot start session: headers already sent by {$file} on line {$line}"
 			);
 			
@@ -10165,16 +10193,16 @@ function sess_init() : void {
 		
 		try {
 			if ( !\session_start() ) { // Something else went wrong
-				Log::instance()->error( "Session failed to start" );
+				Container::instance()->get( 'Log' )->error( "Session failed to start" );
 				
 				throw new 
 				\RuntimeException( "Session start failed" );
 			}
 			
-			Log::instance()->debug( "Session started: " . \session_id() );
+			Container::instance()->get( 'Log' )->debug( "Session started: " . \session_id() );
 		} catch ( \Throwable $e ) {
 			
-			Log::instance()->error( "Session error: {$e->getMessage()}" );
+			Container::instance()->get( 'Log' )->error( "Session error: {$e->getMessage()}" );
 			error_page();
 		}
 	}
@@ -10650,7 +10678,7 @@ function init_startup_log() : void {
 		'These required library(ies) may be missing or disabled: ' . 
 			implode( ', ', $miss['required'] );
 		
-		Log::instance()->error( Text::truncate( Sanitize::spaces( $msg ), 0, 2048 ), $log );
+		Container::instance()->get( 'Log' )->error( Text::truncate( Sanitize::spaces( $msg ), 0, 2048 ), $log );
 	}
 	
 	if ( !empty( $miss['optional'] ) ) {
@@ -10658,7 +10686,7 @@ function init_startup_log() : void {
 		'These recommended function(s) or library(ies) may be missing or disabled: ' . 
 			implode( ', ', $miss['optional'] );
 		
-		Log::instance()->info( Text::truncate( Sanitize::spaces( $msg ), 0, 2048 ), $log );
+		Container::instance()->get( 'Log' )->info( Text::truncate( Sanitize::spaces( $msg ), 0, 2048 ), $log );
 	}
 }
 
@@ -10695,7 +10723,7 @@ function startup() : void {
 		hook_autoload();
 		
 		$routes	= route_resolve();
-		$request = Request::instance();
+		$request = Container::instance()->get( 'Request' );
 		route( $routes, $request->uri, $request->method );
 	} finally {
 		$errors->end_scope( $scope );
@@ -11013,13 +11041,13 @@ function logNotice( string $msg ) : bool {
  *  @return bool
  */
 function visitorError( int $code = 0, string $msg = '-' ) {
-	$mt	= Request::instance()->method;
+	$mt	= Container::instance()->get( 'Request' )->method;
 	
 	$ua	= logStr( $_SERVER['HTTP_USER_AGENT'] ?? '-' );
 	$me	= logStr( empty( $mt ) ? 'unknown' : $mt );
 	$uri	= logStr( $_SERVER['REQUEST_URI'] ?? '' );
 	
-	$err	= $code . ' ' . Request::instance()->ip( true ) . ' ' . $me . ' ' . $msg . ' ' . 
+	$err	= $code . ' ' . Container::instance()->get( 'Request' )->ip( true ) . ' ' . $me . ' ' . $msg . ' ' . 
 			$ua . ' ' . $uri;
 	
 	shutdown( 'logError', [ $err, false ] );
@@ -11941,7 +11969,7 @@ function sameSiteCookie() : string {
 		return 'Strict';
 	}
 	
-	return Request::instance()->is_tls ? 'None' : 'Lax';
+	return Container::instance()->get( 'Request' )->is_tls ? 'None' : 'Lax';
 }
 
 /**
@@ -11956,7 +11984,7 @@ function cookiePrefix() : string {
 	}
 	
 	$cpath	= config( 'cookie_path', '/' );
-	$tls	= Request::instance()->is_tls;
+	$tls	= Container::instance()->get( 'Request' )->is_tls;
 	
 	// Enable locking if connection is secure and path is '/'
 	$prefix	= 
@@ -11973,7 +12001,7 @@ function cookiePrefix() : string {
  */
 function appKey() : string {
 	return 
-	cookiePrefix() . \hash( 'tiger160,4', getHost() . Request::instance()->protocol );
+	cookiePrefix() . \hash( 'tiger160,4', getHost() . Container::instance()->get( 'Request' )->protocol );
 }
 
 /**
@@ -11996,7 +12024,7 @@ function defaultCookieOptions( array $options = [] ) : array {
 			( int ) ( $options['expires'] ?? time() + $cexp ),
 		'path'		=> $cpath,
 		'samesite'	=> sameSiteCookie(),
-		'secure'	=> Request::instance()->is_tls,
+		'secure'	=> Container::instance()->get( 'Request' )->is_tls,
 		'httponly'	=> true
 	];
 	
@@ -12660,7 +12688,7 @@ function sendAllowHeader() {
  *  @param string	$msg		Header message
  */
 function protocolHeader( int $code, string $msg ) {
-	$prot = Request::instance()->protocol;
+	$prot = Container::instance()->get( 'Request' )->protocol;
 	\header( "$prot $code $msg", true );
 }
 
@@ -12769,7 +12797,7 @@ function getHost() : string {
 	
 	$sk	= getSitesEnabled();
 	$sw	= Util::trimmed_list( implode( ',', array_keys( $sk ) ), true );
-	$raw	= Request::instance()->host;
+	$raw	= Container::instance()->get( 'Request' )->host;
 
 	$host	= isset( $sw[$raw] ) ? lowercase( $raw ) : '';
 	
@@ -13215,7 +13243,7 @@ function handleOptions() {
  *  @param string	$path	Current request path
  */
 function handleCache( string $path ) {
-	$cache	= getCache( Request::instance()->url );
+	$cache	= getCache( Container::instance()->get( 'Request' )->url );
 	
 	if ( empty( $cache ) ) {
 		return;
@@ -13320,7 +13348,7 @@ function request( string $event, array $hook, array $params ) : array {
 	}
 	
 	// Sanity checks
-	$req	= Request::instance();
+	$req	= Container::instance()->get( 'Request' );
 	$path	= $req->uri;
 	$verb	= $req->method;
 	$safe	= getAllowedMethods( true );
@@ -13530,7 +13558,7 @@ function fileRequest(
 	}
 	
 	// Check if ranged request
-	$req	= Request::instance();
+	$req	= Container::instance()->get( 'Request' );
 	$ranged	= $req->is_ranged();
 	
 	// Static file path
@@ -14675,7 +14703,7 @@ function formatMeta(
 		'read_time'	=> hook_string( 'formatreadtime', $read ),
 		'tags'		=> formatTags( $tags, $index ),
 		'permalink'	=> 
-		Request::instance()->origin . dateSlug( \basename( $path ), $pub )
+		Container::instance()->get( 'Request' )->origin . dateSlug( \basename( $path ), $pub )
 	];
 }
 
@@ -16003,7 +16031,7 @@ function showFeed( string $event, array $hook, array $params ) {
 	
 	// Send result if hook returned content
 	sendOverride( 'feedrender', true );
-	$req	= Request::instance();
+	$req	= Container::instance()->get( 'Request' );
 	$tpl	= [
 		'page_title'	=> $ptitle,
 		'tagline'	=> $psub,
