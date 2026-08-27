@@ -5996,15 +5996,22 @@ final class Config extends Instance {
 		$this->parsed( [ 'db_profiles' => $profiles ] );
 	}
 	
+	/**
+	 *  Default parameters from defined constants
+	 *  
+	 *  @param string	$param		Config alias
+	 */
 	public function defaults( string $param ) : ?string {
 		static $dir;
 		$dir ??= 
 		defined( 'PLUGIN_DIR' )
-			? constant( 'PLUGIN_DIR' )
-			: PATH . 'plugins' . \DIRECTORY_SEPARATOR;
+			? Text::slash_path( constant( 'PLUGIN_DIR' ), true )
+			: Text::slash_path( PATH ) . 'plugins' . \DIRECTORY_SEPARATOR;
 			
 		$this->defaults ??= [
-			'plugin_dir'	=> \is_dir( $dir ) ? $dir : PATH,
+			'plugin_dir'	=> \is_dir( $dir ) 
+				? $dir 
+				: Text::slash_path( PATH, true ), // PATH fallback
 			
 			'default_lang'	=>
 			defined( 'DEFAULT_LANGUAGE' ) 
@@ -6023,15 +6030,15 @@ final class Config extends Instance {
 			
 			'default_desc'	=>
 			defined( 'DEFAULT_PAGE_SUB' )
-					? constant( 'DEFAULT_PAGE_SUB' )
-					: 'A Nice Place'
+				? constant( 'DEFAULT_PAGE_SUB' )
+				: 'A Nice Place'
 		];
 		
-		return match( $param ) {
+		return match( \strtolower( $param ) ) {
 			'plugin_dir'	=> 
 				\is_dir( $this->defaults['plugin_dir'] ) 
 					? $this->defaults['plugin_dir']
-					: PATH,
+					: Text::slash_path( PATH, true ),
 			
 			'default_lang'	=> $this->defaults['default_lang'],
 			'default_tz'	=> $this->defaults['default_tz'],
