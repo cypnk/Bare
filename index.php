@@ -1073,14 +1073,20 @@ final class Container extends Instance {
 		return $args;
 	}
 	
-	private function autoload( string $class ) : ?object {
+	/**
+	 *  Instantiate class with required parameters, checking for Instance sublcass
+	 *  
+	 *  @param string	$class		Fully qualified class name
+	 *  @return object|null
+	 */
+	private function autoload( string $class ) : object {
 		$ref	= new \ReflectionClass( $class );
 		
 		if ( !$ref->isInstantiable() ) {
 			$this->referror( "Unable to instantiate {$class}" );
 		}
 		
-		// Static create short circuit
+		// Static create() short circuit
 		if ( 
 			\is_subclass_of( $class, Instance::class ) && 
 			\method_exists( $class, 'create' )
@@ -1100,6 +1106,11 @@ final class Container extends Instance {
 		return $ref->newInstanceArgs( $args );
 	}
 	
+	/**
+	 *  Resolve callable once based on id signature, optionally autoload
+	 *  
+	 *  @param string	$id	Definition signature
+	 */
 	private function resolve( string $id ) : mixed {
 		if ( \array_key_exists( $id, $this->processing ) ) {
 			$this->referror( "Circular reference {$id} found" );
@@ -1994,6 +2005,42 @@ final class Text {
 		return $out;
 	}
 	
+	/** 
+	 *  Remove empty lines from the beginning and end of a list of lines
+	 *  
+	 *  @param array	$lines		Content lines
+	 *  @param bool		$no_empty	Remove internally empty lines
+	 *  @return array
+	 */
+	public static function trim_lines( array $lines, bool $no_empty = false ) : array {
+		if ( empty( $lines ) ) { return []; }
+		
+		$lines = \array_map( static function( $val ) {
+			return \is_array( $val ) ? '' : \strval( $val );
+		}, $lines );
+		
+		if ( $no_empty ) {
+			return \array_filter( $lines, static function( $val ) {
+				return '' !== \trim( $val );
+			} );
+		}
+		
+		// Remove empty lines from beginning of list
+		while( '' === \trim( \current( $lines ) ) ) {
+			\array_shift( $lines );
+		}
+		
+		if ( empty( $lines ) ) { return []; }
+		
+		// Empty lines from end of list
+		while ( '' === \trim( \end( $lines ) ) ) {
+			\array_pop( $lines );
+		}
+		
+		\reset( $lines );
+		return $lines;
+	}
+	
 	/**
 	 *  Try to detect if a string contains ASCII-only text
 	 *  
@@ -2010,7 +2057,12 @@ final class Text {
 	 *  @param mixed	$source		Original text
 	 *  @param string	$term		Search term
 	 */
-	public static function has( $source, string $term ) : bool {
+	public static function has( mixed $source, string $term ) : bool {
+		if ( \is_array( $source ) ) {
+			if ( empty( $source ) ) { return false; }
+			return \in_array( $term, $source );
+		}
+		
 		return 
 		( empty( $source ) || empty( $term ) ) ? 
 			false : \str_contains( ( string ) $source, $term );
@@ -3523,7 +3575,8 @@ final class Storage {
 		$ext		= $options['tmp_ext'] ?? '.tmp';
 		$tmp_handle	= null;
 		$lock_handle	= false;
-		$tmp_file	= $path . '.' . $id . '.' . \bin2hex( \random_bytes( 4 ) ) . $ext;
+		$rnb		= \bin2hex( \random_bytes( 4 ) );
+		$tmp_file	= "{$path}.{$id}.{$rnb}.{$ext}";
 		
 		try {
 			$lock_handle	= static::lock_file( $lock_file, 'c+' );
@@ -3685,12 +3738,12 @@ final class Storage {
 final class Log extends Instance {
 	
 	/**
-	 *  @var array	$cache{file:string, message:string}	Message and file pairs
+	 *  @var array<file:string, message:string>	Message and file pairs
 	 */
 	private array $cache	= [];
 	
 	/**
-	 *  @var array	$priority[]				Log level proiority
+	 *  @var array<string, int>				Log level proiority
 	 */
 	private array $priority	= [ 
 		'DEBUG'		=> 0, 
@@ -4033,6 +4086,7 @@ final class Request extends Instance {
 		$is_tls			??= static::_is_tls();
 		$user			??= static::_user();
 		
+		$headers = Text::trim_lines( $headers, true );
 		return new static(
 			$method,
 			$effective_method,
@@ -4599,6 +4653,11 @@ final class Request extends Instance {
 class Response extends Instance {
 	
 	/**
+	 * @var Log Event logger
+	 */
+	private readonly Log $logger;
+	
+	/**
 	 *  Core response class
 	 *  
 	 *  @param Request	$request	Original client request
@@ -4609,7 +4668,9 @@ class Response extends Instance {
 		public int	$code		= 200,
 		public array	$headers	= [],
 		public mixed	$body		= null
-	) {}
+	) {
+		$this->logger = Container::instance()->get( 'Log' );
+	}
 	
 	public static function create(
 		?Request	$request	= null,
@@ -4904,7 +4965,7 @@ final class FileResponse extends Response {
 			$curr_size	= Storage::file_size( $fpath );
 			
 		} catch ( \Throwable $e ) {
-			Container::instance()->get( 'Log' )->error( "Meta cache error: {$e->getMessage()}" );
+			$this->logger->error( "Meta cache error: {$e->getMessage()}" );
 			return null;
 		}
 		
@@ -4948,7 +5009,7 @@ final class FileResponse extends Response {
 				\RuntimeException( "Failed to replace cache file" );
 			}
 		} catch ( \Throwable $e ) {
-			Container::instance()->get( 'Log' )->error( "Meta cache error: {$e->getMessage()}" );
+			$this->logger->error( "Meta cache error: {$e->getMessage()}" );
 		}
 	}
 	
@@ -5188,7 +5249,7 @@ final class FileResponse extends Response {
 			
 		} catch( \Throwable $e ) {
 			$msg	= "File response error";
-			Container::instance()->get( 'Log' )->error( $msg . ": {$e->getMessage()}" );
+			$this->logger->error( $msg . ": {$e->getMessage()}" );
 			
 			$this->code = 500;
 			$this->status();
@@ -5597,13 +5658,19 @@ final class Config extends Instance {
 	 */
 	private array $defaults;
 	
+	/**
+	 * @var Log Event logger
+	 */
+	private readonly Log $logger;
+	
 	public function __construct( public readonly Request $request ) {
-		$this->config_file = 
+		$this->config_file	= 
 			$this->core_path( 'CONFIG_FILE', 'config.json' );
-		$this->message_log = 
+		$this->message_log	= 
 			$this->core_path( 'CONFIG_LOG', 'config_messages.log' );
 		
-		$this->storage_base = @\realpath( Storage::base() );
+		$this->storage_base	= @\realpath( Storage::base() );
+		$this->logger		= Container::instance()->get( 'Log' );
 	}
 	
 	public static function create( ?Request $request = null ) : static {
@@ -5657,7 +5724,7 @@ final class Config extends Instance {
 		?string	$msg_file	= null
 	) : void {
 		$msg_file ??= $this->message_log;
-		Container::instance()->get( 'Log' )->info( $msg, $label, $msg_file );
+		$this->logger->info( $msg, $label, $msg_file );
 	}
 	
 	/**
@@ -5863,7 +5930,7 @@ final class Config extends Instance {
 		}
 		
 		// Detect current host
-		$host	= \strtolower( Container::instance()->get( 'Request' )->host );
+		$host	= \strtolower( $this->request->host );
 		$realm	= [];
 		
 		// Match realm first
@@ -6006,7 +6073,7 @@ final class Config extends Instance {
 		$dir ??= 
 		defined( 'PLUGIN_DIR' )
 			? Text::slash_path( constant( 'PLUGIN_DIR' ), true )
-			: Text::slash_path( PATH ) . 'plugins' . \DIRECTORY_SEPARATOR;
+			: Text::slash_path( PATH, true ) . 'plugins' . \DIRECTORY_SEPARATOR;
 			
 		$this->defaults ??= [
 			'plugin_dir'	=> \is_dir( $dir ) 
@@ -6052,6 +6119,187 @@ final class Config extends Instance {
 
 
 /**
+ *  @class Language translation
+ */
+class Language extends Instance {
+	
+	/**
+	 *  @var array Cached language translations
+	 */
+	private array $data;
+	
+	// Matching type, average matches / minute, character pattern
+	public const DEFAULT_CHARSETS	= [
+		[ 'words', 230, '/[\p{Latin}\p{Greek}\p{Cyrillic}]/u' ],
+		[ 'words', 250, '/[\p{Arabic}\p{Hebrew}]/u' ],
+		
+		[ 'chars', 1000, '/[\p{Han}\p{Hiragana}\p{Katakana}]/u' ]
+	];
+	
+	public function __construct( public readonly Config $config ) {}
+	
+	/**
+	 *  Load default language and append language file definitions
+	 */
+	private function preload() : array {
+		$terms	= $this->config->setting( 'default_translation', [], 'json' );
+		$lang	= $this->config->defaults( 'default_lang' );
+		$file	= $this->config->load_json( $lang . '.json' );
+		if ( !empty( $file ) ) {
+			$terms	= 
+			\array_merge_recursive( $terms, Util::json_udecode( $file ) );
+		}
+		
+		return $terms;
+	}
+	
+	/**
+	 *  Load and process language file
+	 *  
+	 *  @param array	$sent	Custom language translations
+	 *  @return array
+	 */
+	public function translate( ?array $sent = null ) : array {
+		$this->data ??= $this->preload();
+		if ( empty( $sent ) ) {
+			return $this->data;
+		}
+		
+		$this->data = \array_merge( $this->data, $sent );
+		
+		return $this->data;
+	}
+	
+	/**
+	 *  Get language specific terms
+	 *  
+	 *  @param string	$name		Language substitution label
+	 *  @param string	$default	Default value if not given
+	 *  @param array	$sent		Custom language translation
+	 *  @return string
+	 */
+	public function term( string $name, string $default, ?array $sent = null ) {
+		return $this->translate( $sent )[$name] ?? $default;
+	}
+	
+	/**
+	 *  Get translation file error message with fallback
+	 *  
+	 *  @param string	$name		Language substitution label
+	 *  @param string	$default	Fallback value if not available
+	 *  @param array	$sent		Custom language translation
+	 *  @return string
+	 */
+	public function error( string $name, string $default, ?array $sent = null ) {
+		return $this->translate( $sent )['errors'][$name] ?? $default;
+	}
+	
+	/**
+	 *  Scan template for language placeholders
+	 *  
+	 *  @param string	$tpl		Loaded template data
+	 *  @param array	$sent		Custom language translation
+	 *  @return string
+	 */
+	public function parse( string $tpl, ?array $sent = null ) : string {
+		$tpl	= Util::prefix_replace( 'lang', $this->translate( $sent ), $tpl );
+		
+		// Change variable placeholders
+		return \preg_replace( '/\s*__(\w+)__\s*/', ' {\1} ', $tpl );
+	}
+	
+	/**
+	 *  Find word or character count within a block of text
+	 *  
+	 *  @param string	$find	Raw text to match
+	 *  @param string	$mode	Word splitting mode
+	 *  @return int
+	 */
+	public function wordcount( string $find, string $mode = '' ) : int {
+		// Select split type
+		switch( $mode ) {
+			case 'dist':
+				// Words seprated by non-letters and non-punctuation
+				$pat = '/[^\p{L}\p{P}]+/u';
+				break;
+				
+			case 'chars':
+				// All characters
+				$pat = '//u';
+				break;
+				
+			case 'words':
+				// Split into words separated by non-letter/num chars
+				$pat = '/[^\p{L}\p{N}\-_\']+/u';
+				break;
+	
+			default:
+				// Simplest split by various separators. E.G. Space
+				$pat = '/[\p{Z}]+/u';
+		}
+		
+		$c = \preg_split( $pat, $find, -1, \PREG_SPLIT_NO_EMPTY );
+		return ( false === $c ) ? 0 : count( $c );
+	}
+	
+	/**
+	 *  Estimate reading time in minutes based on words/characters in a text block
+	 *  
+	 *  @param string	$text	Text input
+	 *  @param array	$load	Language sets with read times
+	 *  @return int
+	 */
+	public function read_time( string $text, ?array $load = null ) : int {
+		$sets = 
+		empty( $load )
+			? static::DEFAULT_CHARSETS
+			: \array_merge( static::DEFAULT_CHARSETS, $load );
+		
+		// Remove tags and trim
+		$text	= Sanitize::bland( $text );
+		if ( empty( $text ) ) { return 1; }
+		
+		// Default
+		$speed	= 200;
+		$set	= 'words';
+		
+		// Total characters
+		$chars	= $this->wordcount( $text, 'chars' );
+		
+		// Previous character count
+		$prev	= 0;
+		
+		// Guess language type based on search chars to total chars ratio
+		foreach( $sets as $k => $v ) {
+			if ( !preg_match( $v[2], $text ) ) {
+				continue;
+			}
+			
+			// Character set found
+			$m = \preg_split( $v[2], $text );
+			if ( false === $m ) {
+				continue;
+			}
+			
+			$c = count( $m );
+			if ( !$c ) { continue; }
+			
+			// Current character ratio exceeds previous? Set new defaults
+			if ( ( $c / $chars ) > ( $prev / $chars ) ) {
+				$set	= $v[0];
+				$speed	= $v[1];
+				$prev	= $c;
+			}
+		}
+		
+		// Always send back at least 1 minute reading time
+		$rt = ( int ) ceil( $this->wordcount( $text, $set ) / $speed );
+		return ( $rt < 1 ) ? 1 : $rt;
+	}
+}
+
+
+/**
  *  @class Metadata attribute for plugins, templates, custom hooks etc...
  */
 #[Attribute( Attribute::TARGET_CLASS | Attribute::IS_REPEATABLE )]
@@ -6087,7 +6335,7 @@ class Info {
  */
 final class Finder {
 	/**
-	 *  @var array<string,mixed> Running directory cache
+	 *  @var array<string, mixed> Running directory cache
 	 */
 	private static array $cache	= [];
 	
@@ -6619,7 +6867,7 @@ class HookPipeline {
  */
 class HookShutdown {
 	/**
-	 *  @var array Collection of functions to execute after content sent
+	 *  @var array<callable, array> Collection of functions to execute after content sent
 	 */
 	private array $tasks = [];
 	
@@ -6657,42 +6905,58 @@ class HookShutdown {
  */
 class Template {
 	
+	/**
+	 *  @var array Interpolated template cache
+	 */
 	private array $cache;
+	
+	/**
+	 *  @var array Active placeholder patterns
+	 */
 	private array $patterns;
 	
-	public function __construct( private HookRegistry $registry, array $extend = [] ) {
-		$this->patterns = array_merge( $this->default_patterns(), $extend );
-	}
+	/**
+	 * @var Log Event logger
+	 */
+	private readonly Log $logger;
 	
-	private function default_patterns() : array {
-		return [
-			'loop'		=> 
-			'/\{loop:(?P<label>\w+)(?:\s+as\s+(?P<alias>\w+))?\}'
-			. '(?P<content>.*?)\{endloop\}/si',
-			
-			'ifelse'	=> 
-			'/\{if:(?P<condition>.*?)\}(?P<if_content>.*?)'
-				. '(?:\{elseif:(?P<elseif_condition>.*?)\}(?P<elseif_content>.*?))?'
-				. '(?:\{else\}(?P<else_content>.*?))?\{endif\}/si',
-			
-			'logic'		=> 
-			'/(?P<variable>[\w\.\-]+)\s*(?P<operator>===|!==|==|!=|>=|<=|>|<|in|contains)'
-				. '\s*(?P<value>"[^"]*"|\'[^\']*\'|\S+)/i',
-			
-			'block'		=> '/\{\{#(\w+)\}\}(.*?)\{\{\/\1\}\}/si',
-			
-			'args'		=> 
-			'/\s*([\w\-]+)\s*=\s*("([^"]*)"|\'([^\']*)\'|([^,\s]+))\s*/',
-			
-			'incexists'	=> '/\{include:(?<key>[\w\-.\/]+)(?:\|[^}]+)?\}/i',
-			'include'	=> 
-			'/\{include:(?<inc_file>(?:\./)?(?:[\w\-]+\/)*[\w\-.]+)' 
-				. '(?:\|(?<params>[^}]+))?\}/i',
-			
-			'hook'		=> '/\{hook:(?<name>[\w\.\-]+)(?:\((?<args>[^}]*)\))?\}/i',
-			'hookblock'	=> '/\{hook:(?<name>[\w\.\-]+)\}(?<content>.*?)\{endhook\}/si',
-
-		];
+	public const DEFAULT_PATTERNS	= [
+		'loop'		=> 
+		'/\{loop:(?P<label>\w+)(?:\s+as\s+(?P<alias>\w+))?\}'
+		. '(?P<content>.*?)\{endloop\}/si',
+		
+		'ifelse'	=> 
+		'/\{if:(?P<condition>.*?)\}(?P<if_content>.*?)'
+		. '(?:\{elseif:(?P<elseif_condition>.*?)\}(?P<elseif_content>.*?))?'
+		. '(?:\{else\}(?P<else_content>.*?))?\{endif\}/si',
+		
+		'logic'		=> 
+		'/(?P<variable>[\w\.\-]+)\s*(?P<operator>===|!==|==|!=|>=|<=|>|<|in|contains)'
+			. '\s*(?P<value>"[^"]*"|\'[^\']*\'|\S+)/i',
+		
+		'block'		=> '/\{\{#(\w+)\}\}(.*?)\{\{\/\1\}\}/si',
+		
+		'args'		=> 
+		'/\s*([\w\-]+)\s*=\s*("([^"]*)"|\'([^\']*)\'|([^,\s]+))\s*/',
+		
+		'incexists'	=> '/\{include:(?<key>[\w\-.\/]+)(?:\|[^}]+)?\}/i',
+		'include'	=> 
+		'/\{include:(?<inc_file>(?:\./)?(?:[\w\-]+\/)*[\w\-.]+)' 
+		. '(?:\|(?<params>[^}]+))?\}/i',
+		
+		'hook'		=> '/\{hook:(?<name>[\w\.\-\_]+)(?:\((?<args>[^}]*)\))?\}/i',
+		'hookblock'	=> '/\{hook:(?<name>[\w\.\-\_]+)\}(?<content>.*?)\{endhook\}/si',
+	];
+	
+	/**
+	 *  Main template constructor
+	 *  
+	 *  @param HookRegistry		$registery	Main hook system for template-based callables
+	 *  @param array		$extend		Extended template placeholder patterns
+	 */
+	public function __construct( private HookRegistry $registry, array $extend = [] ) {
+		$this->patterns = array_merge( static::DEFAULT_PATTERNS, $extend );
+		$this->logger	= Container::instance()->get( 'Log' );
 	}
 	
 	/**
@@ -6784,7 +7048,7 @@ class Template {
 	/**
 	 *  Match node type to registered resolver
 	 *  
-	 *  @params string	$template 	Raw template data
+	 *  @param string	$template 	Raw template data
 	 *  @param array	$resolvers	List of type-keyed registered resolvers
 	 *  @return string
 	 */
@@ -6804,7 +7068,7 @@ class Template {
 			$params['context'] = $context;
 			
 			if ( !$resolver ) {
-				Container::instance()->get( 'Log' )->warn( "No resolver found for node type: {$type}" );
+				$this->logger->warn( "No resolver found for node type: {$type}" );
 				
 				// Swap placeholder with error message
 				$content	= 
@@ -6820,11 +7084,11 @@ class Template {
 					] );
 					
 					if ( null === $content ) {
-						Container::instance()->get( 'Log' )->warn( "Resolver output failed for type: {$type}" );
+						$this->logger->warn( "Resolver output failed for type: {$type}" );
 						$content = "<!-- Unknown node type: {$type} -->";
 					}
 				} catch ( \Throwable $e ) {
-					Container::instance()->get( 'Log' )->warn( "Node resolver error for '{$type}': {$e->getMessage()}" );
+					$this->logger->warn( "Node resolver error for '{$type}': {$e->getMessage()}" );
 					$content	= 
 					"<!-- Error rendering node: {$type} -->";	
 				}
@@ -6863,7 +7127,7 @@ class Template {
 	}
 	
 	/**
-	 *  Convert dot notation phrase 
+	 *  Convert dot notation phrase
 	 *  
 	 *  @param string	$template	Template name
 	 *  @param array	$vars		Placeholder value replacements
@@ -7123,7 +7387,7 @@ class Template {
 		\strtolower( \pathinfo( $path, \PATHINFO_EXTENSION ) ?: 'na' );
 		
 		if ( !\in_array( $ext, $allowed, true ) ) {
-			Container::instance()->get( 'Log' )->error( "Disallowed template extension: {$ext}" );
+			$this->logger->error( "Disallowed template extension: {$ext}" );
 			
 			throw new 
 			\RuntimeException( "Invalid template type" );
@@ -7145,7 +7409,7 @@ class Template {
 		$base		= @\realpath( $dir . $vdir );
 		
 		if ( !$base ) {
-			Container::instance()->get( 'Log' )->error( "Invalid base path: {$base}" );
+			$this->logger->error( "Invalid base path: {$base}" );
 			
 			throw new 
 			\RuntimeException( "Template base path not found" );
@@ -7156,7 +7420,7 @@ class Template {
 		$relative	= \preg_replace( '#/+#', '/', $relative ); // Duplicate slash fix
 		
 		if ( \str_contains( $relative, '..' ) ) { // No traversal
-			Container::instance()->get( 'Log' )->error( "Suspicious template path: {$path}" );
+			$this->logger->error( "Suspicious template path: {$path}" );
 			
 			throw new 
 			\RuntimeException( "Invalid template path" );
@@ -7165,14 +7429,14 @@ class Template {
 		$relative	= Sanitize::path_traversal( $relative ) ?: '';
 		$full		= @\realpath( $base . '/' . $relative );
 		if ( !$full || 0 !== \stripos( $full, $base ) ) {
-			Container::instance()->get( 'Log' )->error( "Template path traversal attempt: {$path}" );
+			$this->logger->error( "Template path traversal attempt: {$path}" );
 			
 			throw new 
 			\RuntimeException( "Invalid template path" );
 		}
 	
 		if ( !\is_readable( $full ) ) {
-			Container::instance()->get( 'Log' )->error( "Template not found: {$path}" );
+			$this->logger->error( "Template not found: {$path}" );
 			
 			throw new 
 			\RuntimeException( "Template not readable" );
@@ -7180,13 +7444,13 @@ class Template {
 	
 		$info	= $cache[$full] ??= \file_get_contents( $full );
 		if ( false === $info ) {
-			Container::instance()->get( 'Log' )->error( "Failed to read template: {$path}" );
+			$this->logger->error( "Failed to read template: {$path}" );
 			
 			throw new 
 			\RuntimeException( "Failed to read template" );
 		}
-	
-		Container::instance()->get( 'Log' )->debug( "Loaded template: {$full}" );
+		
+		$this->logger->debug( "Loaded template: {$full}" );
 		return $info;
 	}
 	
@@ -7268,7 +7532,7 @@ class Template {
 	) : string {
 		$max_depth	= 5;
 		if ( $depth > $max_depth ) {
-			Container::instance()->get( 'Log' )->warn( "Max template include depth exceeded" );
+			$this->logger->warn( "Max template include depth exceeded" );
 			return $template;
 		}
 		
@@ -7283,7 +7547,7 @@ class Template {
 		$partials	= [];
 		foreach ( $includes as $key ) {
 			if ( \in_array( $key, $seen, true ) ) {
-				Container::instance()->get( 'Log' )->warn( "Circular include detected {$key}" );
+				$this->logger->warn( "Circular include detected {$key}" );
 				continue;
 			}
 			
@@ -7300,7 +7564,7 @@ class Template {
 				);
 				
 			} catch ( \Throwable $e ) {
-				Container::instance()->get( 'Log' )->warn( "Partial not loaded: {$key}: {$e->getMessage()}" );
+				$this->logger->warn( "Partial not loaded: {$key}: {$e->getMessage()}" );
 				$partials["{include:{$key}}"]	= '';
 			}
 		}
@@ -7404,7 +7668,7 @@ class Template {
 		// Block hooks
 		$template = 
 		\preg_replace_callback(
-			$this->patterns('hookblock'),
+			$this->patterns( 'hookblock' ),
 			function ( $m ) use ( $context ) {
 				$name		= $m['name'];
 				$content	= $m['content'];
@@ -7422,10 +7686,10 @@ class Template {
 		// Inline hooks
 		$template	= 
 		\preg_replace_callback(
-			$this->patterns('hook'),
+			$this->patterns( 'hook' ),
 			function ( $m ) use ( $context ) {
 				$name	= $m['name'];
-				$args	= $this->parse_tag_args($m['args'] ?? '');
+				$args	= $this->parse_tag_args( $m['args'] ?? '' );
 				
 				$result = 
 				$this->registry->run( $name, [
@@ -7474,11 +7738,11 @@ class Template {
 				if ( \is_callable( $loader ) ) {
 					$resolvers	= $loader();
 				} else {
-					Container::instance()->get( 'Log' )->warn( "Template resolver_loader is not a callable" );
+					$this->logger->warn( "Template resolver_loader is not a callable" );
 				}
 			}
 		} catch( \Throwable $e ) {
-			Container::instance()->get( 'Log' )->error( "Error loading resolver: {$e->getMessage()}" );
+			$this->logger->error( "Error loading resolver: {$e->getMessage()}" );
 		}
 		
 		if ( !empty( $resolvers ) ) {
@@ -7948,178 +8212,6 @@ final class Router {
 		
 		// TODO: Send not found
 	}
-}
-
-/**
- *  Language translation
- */
-
-/**
- *  Load and process language file
- *  
- *  @param array	$sent	Custom language translations
- *  @return array
- */
-function language( ?array $sent = null ) : array {
-	static $data;
-	
-	if ( isset( $data ) ) { return $data; }
-	
-	// Set default language and append language file definitions
-	$terms	= config( 'default_translation', [], 'json' );
-	$lang	= config( 'language', config_default_lang() );
-	$file	= config_load_json( $lang . '.json' );
-	if ( !empty( $file ) ) {
-		$terms	= 
-		\array_merge_recursive( $terms,  Util::json_udecode( $file ) );
-	}
-	
-	$data	= empty( $terms ) ? [] : $terms;
-	if ( !empty( $sent ) ) {
-		$data	= \array_merge( $data, $sent );
-	}
-	
-	return $data;
-}
-
-/**
- *  Get language specific terms
- *  
- *  @param string	$name		Language substitution label
- *  @param string	$default	Default value if not given
- *  @param array	$sent		Custom language translation
- *  @return string
- */
-function language_term( string $name, string $default, ?array $sent = null ) {
-	$data = language( $sent );
-	return $data[$name] ?? $default;
-}
-
-/**
- *  Get translation file error message with fallback
- *  
- *  @param string	$name		Language substitution label
- *  @param string	$default	Fallback value if not available
- *  @param array	$sent		Custom language translation
- *  @return string
- */
-function language_error( string $name, string $default, ?array $sent = null ) {
-	$data = language( $sent );
-	return $data['errors'][$name] ?? $default;
-}
-
-/**
- *  Scan template for language placeholders
- *  
- *  @param string	$tpl		Loaded template data
- *  @param array	$sent		Custom language translation
- *  @return string
- */
-function language_parse( string $tpl, ?array $sent = null ) : string {
-	$tpl		= Util::prefix_replace( 'lang', language( $sent ), $tpl );
-	
-	// Change variable placeholders
-	return \preg_replace( '/\s*__(\w+)__\s*/', ' {\1} ', $tpl );
-}
-
-/**
- *  Find word or character count within a block of text
- *  
- *  @param string	$find	Raw text to match
- *  @param string	$mode	Word splitting mode
- *  @return int
- */
-function language_wordcount( string $find, string $mode = '' ) : int {
-	// Select split type
-	switch( $mode ) {
-		case 'dist':
-			// Words seprated by non-letters and non-punctuation
-			$pat = '/[^\p{L}\p{P}]+/u';
-			break;
-			
-		case 'chars':
-			// All characters
-			$pat = '//u';
-			break;
-			
-		case 'words':
-			// Split into words separated by non-letter/num chars
-			$pat = '/[^\p{L}\p{N}\-_\']+/u';
-			break;
-
-		default:
-			// Simplest split by various separators. E.G. Space
-			$pat = '/[\p{Z}]+/u';
-	}
-	
-	$c = \preg_split( $pat, $find, -1, \PREG_SPLIT_NO_EMPTY );
-	return ( false === $c ) ? 0 : count( $c );
-}
-
-/**
- *  Estimate reading time in minutes based on words/characters in a text block
- *  
- *  @param string	$text	Text input
- *  @param array	$load	Language sets with read times
- *  @return int
- */
-function language_read_time( string $text, ?array $load = null ) : int {
-	static $sets;
-	static $default = [
-		// Matching type, average matches / minute, character pattern
-		[ 'words', 230, '/[\p{Latin}\p{Greek}\p{Cyrillic}]/u' ],
-		[ 'words', 250, '/[\p{Arabic}\p{Hebrew}]/u' ],
-		
-		[ 'chars', 1000, '/[\p{Han}\p{Hiragana}\p{Katakana}]/u' ]
-	];
-	
-	$sets ??= $default;
-	if ( !empty( $load ) ) {
-		$sets = \array_merge( $sets, $load );
-	}
-	
-	// Remove tags and trim
-	$text	= Sanitize::bland( $text );
-	if ( empty( $text ) ) {
-		return 1;
-	}
-	
-	// Default
-	$speed	= 200;
-	$set	= 'words';
-	
-	// Total characters
-	$chars	= language_wordcount( $text, 'chars' );
-	
-	// Previous character count
-	$prev	= 0;
-	
-	// Guess language type based on search chars to total chars ratio
-	foreach( $sets as $k => $v ) {
-		if ( !preg_match( $v[2], $text ) ) {
-			continue;
-		}
-		
-		// Character set found
-		$m = \preg_split( $v[2], $text );
-		if ( false === $m ) {
-			continue;
-		}
-		
-		$c = count( $m );
-		if ( !$c ) { continue; }
-		
-		// Current character ratio exceeds previous? Set new defaults
-		if ( ( $c / $chars ) > ( $prev / $chars ) ) {
-			$set	= $v[0];
-			$speed	= $v[1];
-			$prev	= $c;
-		}
-	}
-	
-	// Always send back at least 1 minute reading time
-	$rt = ( int ) ceil( language_wordcount( $text, $set ) / $speed );
-	return ( $rt < 1 ) ? 1 : $rt;
 }
 
 
