@@ -6528,12 +6528,12 @@ class Hook {
 	/**
 	 *  Hook constructor
 	 *  
-	 *  @param string	$name		Event name
+	 *  @param array|string	$name		Event name
 	 *  @param int		$priority	Execution order, higher > earlier
 	 */
 	public function __construct(
-		public readonly	string	$name,
-		public		int	$priority = 0
+		public readonly	array|string	$name,
+		public		int		$priority = 0
 	) {}
 }
 
@@ -6542,6 +6542,120 @@ class Hook {
  */
 #[Attribute( Attribute::TARGET_CLASS | Attribute::IS_REPEATABLE )]
 class HookContainer { public function __construct() {} }
+
+/**
+ *  @class Templated wrapper helper
+ *  @example 
+ *  #[Hook('before_main')]
+ *  public function before_main( string $event, HookResult $result, array $args ) : HookResult {
+ *  	return $result->with_html( '<h1 class="title">Page Title</h1>' );
+ *  }
+ */
+class HookResult {
+	/**
+	 *  @var array Partial, appended, HTML content
+	 */
+	private array $fragments	= [];
+	
+	/**
+	 *  @var array Hook section HTML blocks
+	 */
+	private array $blocks		= [];
+	
+	public function __construct(
+		public ?string	$html		= null,
+		public ?string	$template	= null,
+		public array	$data		= [],
+		public array	$meta		= []
+	) {}
+	
+	public function with_html( string $html ) : self {
+		$clone			= clone $this;
+		$clone->html		= $html;
+		return $clone;
+	}
+	
+	public function with_template( string $template ) : self {
+		$clone			= clone $this;
+		$clone->template	= $template;
+		return $clone;
+	}
+	
+	public function with_data( array $data ) : self {
+		$clone			= clone $this;
+		$clone->data		= $data;
+		return $clone;
+	}
+	
+	public function prepend_html( string $html ) : self {
+		$clone			= clone $this;
+		$clone->html		= $html . ( $this->html ?? '' );
+		return $clone;
+	}
+	
+	public function append_html( string $html ) : self {
+		$clone			= clone $this;
+		$clone->html		= ( $this->html ?? '' ) . $html;
+		return $clone;
+	}
+	
+	public function get_html() : string {
+		return $this->html ?? '';
+	}
+	
+	public function add_meta( array $meta ) : self {
+		$clone			= clone $this;
+		$clone->meta		= \array_merge( $this->meta, $meta );
+		return $clone;
+	}
+	
+	public function add_data( array $data ) : self {
+		$clone			= clone $this;
+		$clone->data		= \array_merge( $this->data, $data );
+		return $clone;
+	}
+	
+	public function add_fragment( string $html ) : self {
+		$clone			= clone $this;
+		$clone->fragments[]	= $html;
+    		return $clone;
+	}
+	
+	public function add_block( string $name, string $html ) : self {
+		$clone			= clone $this;
+		$clone->blocks[$name][]	= $html;
+		return $clone;
+	}
+	
+	public function has_blocks( string $name ) : bool {
+		return !empty( $this->blocks[$name] );
+	}
+	
+	public function blocks( ?string $name = null ) : array {
+		return ( null === $name ) 
+			? $this->blocks
+			: $this->blocks[$name] ?? [];
+	}
+	
+	public function fragments() : array {
+		return $this->fragments;
+	}
+	
+	public function merge( self $stage ) : self {
+		$clone			= clone $this;
+		$clone->html		= ( null !== $stage->html ) ? $stage->html : $this->html;
+		$clone->template	= $stage->template ?? $this->template;
+		$clone->data		= \array_merge( $this->data, $stage->data );
+		$clone->meta		= \array_merge( $this->meta, $stage->meta );
+		$clone->fragments	= \array_merge( $this->fragments, $stage->fragments );
+		
+		foreach ( $stage->blocks as $name => $block ) {
+			$clone->blocks[$name] = \array_merge( $this->blocks[$name] ?? [], $block );
+		}
+		
+		return $clone;
+	}
+}
 
 /** 
  *  @class Hook handling container for callable with unique name and priority
@@ -6561,53 +6675,8 @@ class HookHandler {
 		public		int	$priority	= 0
 	) {}
 	
-	public function call( string $event, array $result, ...$args ) : array {
-		return $this->instance->{$this->method}( $event, $result, ...$args ) ?? [];
-	}
-}
-
-/**
- *  @class Templated wrapper helper
- *  @example 
- *  #[Hook('before_main')]
- *  public function before_main( string $event, HookResult $result, array $args ) : HookResult {
- *  	return $result->with_html( '<h1 class="title">Page Title</h1>' );
- *  }
- */
-class HookResult {
-	public function __construct(
-		public ?string	$html		= null,
-		public ?string	$template	= null,
-		public array	$data		= [],
-		public array	$meta		= []
-	) {}
-	
-	public function with_html( string $html ) : self {
-		$clone = clone $this;
-		$clone->html = $html;
-		return $clone;
-	}
-	
-	public function with_template( string $template ) : self {
-		$clone = clone $this;
-		$clone->template = $template;
-		return $clone;
-	}
-	
-	public function with_data( array $data ) : self {
-		$clone = clone $this;
-		$clone->data = $data;
-		return $clone;
-	}
-	
-	public function merge( self $other ) : self {
-		$clone = clone $this;
-		$clone->html		= $other->html ?? $this->html;
-		$clone->template	= $other->template ?? $this->template;
-		$clone->data		= \array_merge( $this->data, $other->data );
-		$clone->meta		= \array_merge( $this->meta, $other->meta );
-		
-		return $clone;
+	public function call( string $event, HookResult $result, array $args ) : HookResult {
+		return $this->instance->{$this->method}( $event, $result, $args );
 	}
 }
 
@@ -6646,24 +6715,7 @@ class HookRegistry {
 			// No wildcard? Move on
 			if ( !\str_contains( $group, '*' ) ) { continue; }
 			
-			// Prefixed wildcard event
-			if ( \str_ends_with( $group, '*' ) ) {
-				if ( \str_starts_with( $name, \substr( $group, 0, -1 ) ) ) {
-					$found	= \array_merge( $found, $hooks );
-					continue;
-				}
-			}
-			
-			// Suffixed wildcard event
-			if ( \str_starts_with( $group, '*' ) ) {
-				if ( \str_ends_with( $name, \substr( $group, 1 ) ) ) {
-					$found	= \array_merge( $found, $hooks );
-					continue;
-				}
-			}
-			
 			// Clean pattern for matching everything else
-			// TODO: Edge case for multi-match
 			$pattern	= 
 			'/^' . \str_replace( '\*', '.*', \preg_quote( $group, '/' ) ) . '$/';
 			
@@ -6679,23 +6731,34 @@ class HookRegistry {
 	
 	/**
 	 *  Execute hook and return mutated output
+	 *  
+	 *  @return HookResult
 	 */
-	public function run( string $name, ...$args ) : mixed {
+	public function run( string $name, bool $cache = false, array $args = [] ) : HookResult {
 		$name	= \strtolower( $name );
 		$hooks	= $this->get( $name );
-		$result = $this->output[$name] ?? new HookResult();
+		$result	= new HookResult();
 		
 		foreach ( $hooks as $hook ) {
-			// Call and 
-			$result = 
-			$hook->call( 
-				$name,
-				$result,
-				...$args
-			) ?? [];
+			// Call and mutate results
+			$stage = $hook->call( $name, $result, $args );
+			
+			if ( !$stage instanceof HookResult ) {
+				// Fail immediately
+				throw new 
+				\RuntimeException(
+					"Hook {$hook->name} must return HookResult"
+				);
+			}
+			
+			// Previous results
+			$result = $result->merge( $stage );
 		}
+
+		// Collected results
+		if ( $cache ) { $this->output[$name] = $result; }
 		
-		return $this->output[$name] = $result;
+		return $result;
 	}
 	
 	/**
@@ -6735,13 +6798,11 @@ class HookLoader {
 		) { return; }
 		
 		$ref			= new \ReflectionClass( $class );
-		
-		if ( $ref->isAbstract() || $ref->isInternal() ) { 
-			$this->skipped[$class] = true;
-			return; 
-		}
-		
-		if ( !$ref->getAttributes( HookContainer::class ) ) { 
+		if ( 
+			$ref->isAbstract()		|| 
+			$ref->isInternal()		|| 
+			!$ref->getAttributes( HookContainer::class ) 
+		) { 
 			$this->skipped[$class] = true;
 			return; 
 		}
@@ -6752,15 +6813,17 @@ class HookLoader {
 		// Scan for hooks
 		foreach ( $ref->getMethods() as $method ) {
 			foreach ( $method->getAttributes( Hook::class ) as $attr ) {
-				$meta = $attr->newInstance();
-				$this->registry->add(
-					new HookHandler(
-						$meta->name,
-						$instance,
-						$method->getName(),
-						$meta->priority
-					)
-				);
+				$meta	= $attr->newInstance();
+				foreach ( ( array ) $meta->name as $event) {
+					$this->registry->add(
+						new HookHandler(
+							name		: $meta->name,
+							instance	: $instance,
+							method		: $method->getName(),
+							priority	: $meta->priority
+						)
+					);
+				}
 			}
 		}
 	}
@@ -6806,7 +6869,8 @@ class HookLoader {
  */
 class HookPipeline {
 	public function __construct( 
-		private HookRegistry	$registry
+		private HookRegistry	$registry,
+		private Template	$template
 	) {}
 
 	/**
@@ -6827,34 +6891,46 @@ class HookPipeline {
 		bool	$full	= false
 	) : string {
 		// Call "before" event hook
-		$bout	= 
-		$this->registry->run( $before, [
+		$bout		= 
+		$this->registry->run( $before, false, [
 			'data'		=> $input,
 			'template'	=> $tpl,
 			'full'		=> $full
 		] );
 		
-		// Prepend any HTML output and render the new ( or old ) template
-		$html	=
-		( $this->registry->values( $before )['html'] ?? '' ) .
+		// Optional template override
+		$render_tpl	= $bout->template ?? $tpl;
+		
+		// Main render
+		$main_html	= 
 		$this->template->render(
-			$bout->template ?? $tpl,
+			$render_tpl,
 			$input,
 			$full
 		);
 		
+		$result		= ( new HookResult() )->with_html( $main_html );
+		
 		// Call "after" event hook
-		$aout	= 
-		$this->registry->run( $after, [
+		$aout		= 
+		$this->registry->run( $after, false, [
 			'data'		=> $input,	// Raw component data
 			'before'	=> $before,	// Event called before
-			'html'		=> $html,	// Current HTML
+			'html'		=> $main_html,	// Current HTML
 			'full'		=> $full,	// Full region render
-			'template'	=> $tpl		// New or previously replaced
+			'template'	=> $render_tpl	// New or previously replaced
 		] );
 		
-		// Send any replaced HTML or already rendered HTML
-		return $aout->html ?? $html;
+		// Merge before, current, and after
+		$out		= $bout->merge( $result )->merge( $aout );
+		$out_html	= $out->html ?? '';
+		
+		foreach( $out->fragments as $frag ) {
+			$out_html .= $frag;
+		}
+		
+		// Send any replaced or already processed hook output
+		return $out_html;
 	}
 }
 
@@ -6876,25 +6952,42 @@ class HookShutdown {
 	) {}
 	
 	public function register( callable $task, mixed $args = null ) : void {
-		$this->tasks[] = [$task, $args];
+		$this->tasks[] = [ $task, $args ];
 	}
 	
 	public function run() : void {
+		$sess_id = \session_id() ?: '';
+		
 		// Cleanup any session data
 		if ( \session_status() === PHP_SESSION_ACTIVE) {
 			\session_write_close();
 		}
 		
 		// Fire shutdown hooks
-		$this->registry->run( 'shutdown', [] );
+		$this->registry->run( 'shutdown', false, [
+			'time'		=> \microtime( true ),
+			'memory'	=> \memory_get_usage(),
+			'peak'		=> \memory_get_peak_usage(),
+			'session'	=> $sess_id,
+		] );
+		
+		$err	= [];
 		
 		// Deferred tasks
-		foreach ( $this->tasks as [$task, $args] ) {
-			match( true ) {
-				\is_array( $args )	=> $task( ...$args ),
-				( null !== $args )	=> $task( $args ),
-				default			=> $task()
-			};
+		foreach ( $this->tasks as [ $task, $args ] ) {
+			try {
+				match( true ) {
+					\is_array( $args )	=> $task( ...$args ),
+					( null !== $args )	=> $task( $args ),
+					default			=> $task()
+				};
+			} catch( \Throwable $e ) {
+				$err[] = $e->getMessage();
+			}
+		}
+		
+		if ( !empty( $err ) ) {
+			\error_log( "[Shutdown]\n" . \implode( "\n", $err ) );
 		}
 	}
 }
@@ -6945,7 +7038,8 @@ class Template {
 		. '(?:\|(?<params>[^}]+))?\}/i',
 		
 		'hook'		=> '/\{hook:(?<name>[\w\.\-\_]+)(?:\((?<args>[^}]*)\))?\}/i',
-		'hookblock'	=> '/\{hook:(?<name>[\w\.\-\_]+)\}(?<content>.*?)\{endhook\}/si',
+		'hookblock'	=> 
+		'/\{hook:(?<name>[\w\.\-\_]+)(?:\((?<args>[^}]*)\))?\}(?<content>.*?)\{endhook\}/si',
 	];
 	
 	/**
@@ -7664,21 +7758,44 @@ class Template {
 		return $template;
 	}
 	
+	private function hook_run( array $m, array $context, bool $is_block ) : string {
+		$name		= $m['name'];
+		$content	= $m['content'] ?? '';
+		$params		= $this->parse_tag_args( $m['args'] ?? '' );
+		$result		= 
+		$this->registry->run( $name, false, [
+			'context'	=> $context,
+			'default'	=> $content,
+			'params'	=> $params 
+		] );
+		
+		$html		= 
+		( null !== $result->html )
+			? $result->html
+			: ( $is_block ? $content : '' );
+		
+		// Fragments after processed content or original content
+		foreach ( $result->fragments() as $frag ) {
+			$html .= $frag;
+		}
+		
+		// Named content blocks
+		if ( $is_block && $result->has_block( $name ) ) {
+			foreach ( $result->blocks( $name ) as $block ) {
+				$html .= $block;
+			}
+		}
+		
+		return $html;
+	}
+	
 	private function hooks( string $template, array $context ) : string {
 		// Block hooks
 		$template = 
 		\preg_replace_callback(
 			$this->patterns( 'hookblock' ),
 			function ( $m ) use ( $context ) {
-				$name		= $m['name'];
-				$content	= $m['content'];
-				$result		= 
-				$this->registry->run( $name, [
-					'context'	=> $context,
-					'content'	=> $content
-				] );
-				
-				return $result->html ?? $content;
+				return $this->hook_run( $m, $context, true );
 			},
 			$template
 		);
@@ -7688,16 +7805,7 @@ class Template {
 		\preg_replace_callback(
 			$this->patterns( 'hook' ),
 			function ( $m ) use ( $context ) {
-				$name	= $m['name'];
-				$args	= $this->parse_tag_args( $m['args'] ?? '' );
-				
-				$result = 
-				$this->registry->run( $name, [
-					'context'	=> $context,
-					'args'		=> $args
-				] );
-				
-				return $result->html ?? '';
+				return $this->hook_run( $m, $context, false );
 			},
 			$template
 		);
@@ -7708,7 +7816,7 @@ class Template {
 	/**
 	 *  Template parsing entry point
 	 *  
-	 *  @params string	$template 	Raw template data
+	 *  @param string	$template 	Raw template data
 	 *  @param array	$context	Processed data context
 	 *  @param bool		$case_flag	Case sensitivity flag, defaults to false (insensitive)
 	 *  @return string			Fully parsed template
