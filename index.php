@@ -769,6 +769,11 @@ final class Errors extends Instance {
 		return static::encode( $mapped );
 	}
 	
+	/**
+	 *  Begin error handling scope with this instance
+	 *  
+	 *  @return array			Previous reporting and handler, if any
+	 */
 	public function start_scope() : array {
 		$prev_report	= \error_reporting();
 		\error_reporting( \E_ALL );
@@ -781,6 +786,11 @@ final class Errors extends Instance {
 		return [ $prev_report, $prev_handler ];
 	}
 	
+	/**
+	 *  End current error handling scope
+	 *  
+	 *  @param array	$scope		Previous error reporting and handler in that order
+	 */
 	public function end_scope( array $scope ) : void {
 		[ $prev_report, $prev_handler ]	= $scope;
 		\error_reporting( $prev_report );
@@ -818,6 +828,7 @@ final class Errors extends Instance {
 	 */
 	public static function show_page() : never {
 		\http_response_code( 500 );
+		
 		echo "An unexpected error occurred. Please try again later.";
 		exit( 1 );
 	}
@@ -850,6 +861,7 @@ final class Errors extends Instance {
 			$e->getLine(),
 			$e->getTraceAsString()
 		);
+		
 		$log	.= 
 		"Request: " . ( $_SERVER['REQUEST_METHOD'] ?? 'CLI' ) . " " .
 		\htmlspecialchars( $_SERVER['REQUEST_URI'] ?? '' ) . "\n";
@@ -5765,7 +5777,7 @@ final class Config extends Instance {
 	 *  @param string	$file	Location on disk
 	 *  @return array
 	 */
-	private function load_json( string $file ) : array {
+	public function load_json( string $file ) : array {
 		if ( !\is_readable( $file ) ) {
 			$this->message( "Config file is not readable: {$file}", 'ERROR' );
 			
@@ -6140,6 +6152,8 @@ class Language extends Instance {
 	
 	/**
 	 *  Load default language and append language file definitions
+	 *  
+	 *  @return array
 	 */
 	private function preload() : array {
 		$terms	= $this->config->setting( 'default_translation', [], 'json' );
@@ -6449,6 +6463,8 @@ final class Finder {
 		if ( \preg_match( '/namespace\s+(.+?);/', $src, $ns ) ) { 
 			if ( \preg_match( '/class\s+(\w+)/', $src, $cls ) ) { 
 				$class = $ns[1] . '\\' . $cls[1];
+				
+				// TODO: Class prefix whitelist prefilter
 				if ( \class_exists( $class ) ) { 
 					$ref	= new \ReflectionClass( $class );
 					$attr	= $ref->getAttributes( Info::class );
@@ -6627,7 +6643,11 @@ class HookResult {
 		return $clone;
 	}
 	
-	public function has_blocks( string $name ) : bool {
+	public function has_blocks() : bool {
+		return ( bool ) count( $this->blocks );
+	}
+	
+	public function has_block( string $name ) : bool {
 		return !empty( $this->blocks[$name] );
 	}
 	
@@ -6868,17 +6888,28 @@ class HookLoader {
  *  @class Wrapping pipeline for content hooks
  */
 class HookPipeline {
+	
+	/**
+	 *  New pipeline with component/content block wrapper
+	 *  
+	 *  @param HookRegistry		$registry	Event hook container
+	 *  @param Language		$language	Placeholder replacement language and region
+	 *  @param Template		$template	Rendering component
+	 *  @param bool			$is_cached	Output from this pipeline won't be re-rendered
+	 */
 	public function __construct( 
 		private HookRegistry	$registry,
-		private Template	$template
+		private Language	$language,
+		private Template	$template,
+		public readonly bool	$is_cached	= false
 	) {}
-
+	
 	/**
 	 *  Wrap component region in 'before' and 'after' event hooks and their output
 	 *  
 	 *  @param string	$before		Before template parsing event
 	 *  @param string	$after		After template parsing event
-	 *  @param string	$tpl		Base component template
+	 *  @param string	$template	Base component template
 	 *  @param array	$input		Raw component data
 	 *  @param bool		$full		Render full regions
 	 *  @return string
@@ -6886,20 +6917,20 @@ class HookPipeline {
 	public function wrap(
 		string	$before,
 		string	$after,
-		string	$tpl	= '',
-		array	$input	= [],
-		bool	$full	= false
+		string	$template	= '',
+		array	$input		= [],
+		bool	$full		= false
 	) : string {
 		// Call "before" event hook
 		$bout		= 
-		$this->registry->run( $before, false, [
+		$this->registry->run( $before, $this->is_cached, [
 			'data'		=> $input,
-			'template'	=> $tpl,
+			'template'	=> $template,
 			'full'		=> $full
 		] );
 		
 		// Optional template override
-		$render_tpl	= $bout->template ?? $tpl;
+		$render_tpl	= $bout->template ?? $template;
 		
 		// Main render
 		$main_html	= 
@@ -6913,7 +6944,7 @@ class HookPipeline {
 		
 		// Call "after" event hook
 		$aout		= 
-		$this->registry->run( $after, false, [
+		$this->registry->run( $after, $this->is_cached, [
 			'data'		=> $input,	// Raw component data
 			'before'	=> $before,	// Event called before
 			'html'		=> $main_html,	// Current HTML
@@ -6925,11 +6956,12 @@ class HookPipeline {
 		$out		= $bout->merge( $result )->merge( $aout );
 		$out_html	= $out->html ?? '';
 		
-		foreach( $out->fragments as $frag ) {
+		foreach( $out->fragments() as $frag ) {
 			$out_html .= $frag;
 		}
 		
 		// Send any replaced or already processed hook output
+		// TODO: Use language and translation
 		return $out_html;
 	}
 }
@@ -6959,7 +6991,7 @@ class HookShutdown {
 		$sess_id = \session_id() ?: '';
 		
 		// Cleanup any session data
-		if ( \session_status() === PHP_SESSION_ACTIVE) {
+		if ( \session_status() === PHP_SESSION_ACTIVE ) {
 			\session_write_close();
 		}
 		
@@ -7013,7 +7045,7 @@ class Template {
 	 */
 	private readonly Log $logger;
 	
-	public const DEFAULT_PATTERNS	= [
+	public const PRESET_PATTERNS	= [
 		'loop'		=> 
 		'/\{loop:(?P<label>\w+)(?:\s+as\s+(?P<alias>\w+))?\}'
 		. '(?P<content>.*?)\{endloop\}/si',
@@ -7048,8 +7080,11 @@ class Template {
 	 *  @param HookRegistry		$registery	Main hook system for template-based callables
 	 *  @param array		$extend		Extended template placeholder patterns
 	 */
-	public function __construct( private HookRegistry $registry, array $extend = [] ) {
-		$this->patterns = array_merge( static::DEFAULT_PATTERNS, $extend );
+	public function __construct( 
+		private		HookRegistry	$registry, 
+		array		$extend			= []
+	) {
+		$this->patterns = array_merge( static::PRESET_PATTERNS, $extend );
 		$this->logger	= Container::instance()->get( 'Log' );
 	}
 	
@@ -7058,7 +7093,7 @@ class Template {
 	 *  
 	 *  @param string	$key		Match pattern key
 	 *  @param array	$extend		Optional extended patterns
-	 *  @return mixed
+	 *  @return array|string
 	 */
 	private function patterns( ?string $key = null, ?array $extend = null ) : string|array {
 		if ( !empty( $extend ) ) {
@@ -8324,6 +8359,228 @@ final class Router {
 
 
 /**
+ *  @class TODO: Future use
+ */
+#[Attribute( Attribute::TARGET_CLASS | Attribute::IS_REPEATABLE )]
+class ServiceProvider {
+	public function __construct(
+		public readonly string	$abstract,
+		public readonly string	$concrete
+	) {}
+}
+
+/**
+ *  @class TODO: Future use
+ */
+#[Attribute( Attribute::TARGET_CLASS | Attribute::IS_REPEATABLE )]
+class PluginMiddleware {
+	public function __construct(
+		public readonly string|array $middleware
+	) {}
+}
+
+/**
+ *  @class Main plugin attribute
+ */
+#[Attribute( Attribute::TARGET_CLASS | Attribute::IS_REPEATABLE )]
+class Plugin {
+	public function __construct(
+		public readonly	string		$name,
+		public readonly string		$description	= '',
+		public		int		$priority	= 0,
+		public readonly Info		$info
+	) {}
+}
+
+/**
+ *  @class Find and load plugins
+ */
+final class PluginDiscovery {
+	
+	/**
+	 *  @var array<string> Ignored classnames
+	 */
+	private			array	$skipped	= [];
+	
+	/**
+	 *  @var array<string> Already loaded plugins
+	 */
+	private			array	$plugins	= [];
+	
+	/**
+	 *  @var string Scan directory for plugin storage (from config)
+	 */
+	private readonly	string	$plugin_dir;
+	
+	/**
+	 * @var Log Event logger
+	 */
+	private readonly Log $logger;
+	
+	/**
+	 *  @var Router Request path router
+	 */
+	private readonly Router $router;
+	
+	public function __construct(
+		private readonly Container $container
+	) {
+		$this->logger		= $this->container->get( 'Log' );
+		$this->router		= $this->container->get( 'Router' );
+		$this->plugin_dir	= 
+			$this->container->get( 'Config' )->defaults( 'plugin_dir' );
+	}
+	
+	/**
+	 *  Add plugin routes, if any
+	 *  
+	 *  @param array	$plugin		Discovered plugin route data
+	 */
+	private function routes( array $plugin ) {
+		foreach ( $plugin['routes'] as $route ) {
+			$this->router->add( [
+				'pattern'	=> $route->pattern,
+				'method'	=> $route->method,
+				'handler'	=> $route->handler,
+				'middleware'	=> $route->middleware
+			] );
+		}
+	}
+	
+	public function discover( string $class ) : void {
+		if ( isset( $this->skipped[$class] ) ) { return; }
+		
+		$ref	= new \ReflectionClass( $class );
+		$attrs	= $ref->getAttributes( Plugin::class );
+		
+		// No plugin data to parse
+		if ( !$attrs ) {
+			$this->skipped[$class]	= true;
+			return; 
+		}
+		
+		$meta	= $attrs[0]->newInstance();
+		$name	= Sanitize::spaces( Sanitize::escape_text( $meta->name ) );
+		
+		// Duplicate plugin name?
+		if ( isset( $this->plugins[$name] ) ) {
+			$this->logger->error( "Plugin {$name} already exists" );
+			return;
+		}
+		
+		// Names must be safe to use anywhere
+		if ( 0 !== \strcmp( $name, $meta->name ) ) {
+			$this->logger->error( "Invalid characters in plugin {$name}" );
+			return;
+		}
+		
+		// TODO: Limit to whitelist by 'plugins_enabled' setting in config
+		
+		$raw	= $ref->getAttributes( Info::class ) ?: null;
+		$plugin	= [
+			'class'		=> $class,
+			'meta'		=> $meta,
+			'info'		=> $raw ? $raw[0]->newInstance() : new Info(),
+			'middleware'	=> [],
+			'routes'	=> $this->router->discovery->discover( $class ),
+			'providers'	=> []
+		];
+
+		// TODO: Needs a lot more work to be useful
+		foreach ( $ref->getAttributes( PluginMiddleware::class ) as $attr ) {
+			$plugin['middleware'][] = $attr->newInstance()->middleware;
+		}
+		
+		// TODO: Ditto
+		foreach ( $ref->getAttributes( ServiceProvider::class ) as $attr ) {
+			$plugin['providers'][] = $attr->newInstance();
+		}
+		$this->plugins[$name] = $plugin;
+	}
+	
+	public function classes( array $info ) : void {
+		foreach ( $info as $class ) {
+			if ( !\class_exists( $class['class'] ) ) { continue; }
+			
+			$this->discover( $class['class'] );
+		}
+		
+		\uasort(
+			$this->plugins,
+			fn( $a, $b ) => $a['meta']->priority <=> $b['meta']->priority
+		);
+	}
+	
+	public function autoload() : void {
+		// Preload locally declared plugins
+		$this->classes( \get_declared_classes() );
+		
+		// Skip traversing directories in debug mode
+		if ( defined( 'DEBUG_MODE' ) ) { return; }
+		
+		// Move on to directory classes
+		$files		= Finder::in( $this->plugin_dir );
+		$plugins	= 
+		\array_filter(
+			$files,
+    			fn( $info ) => null !== $info['class']
+		);
+		$this->classes( $plugins );
+	}
+	
+	/**
+	 *  Initialize plugin system
+	 *  
+	 *  @param bool		$run	Autoload and initialize each plugin (default)
+	 */
+	public function init( bool $run = true ) : void {
+		$this->autoload();
+		
+		// Load only?
+		if ( !$run ) { return; }
+		
+		foreach ( $this->plugins as $plugin ) {
+			$class	= $plugin['class'];
+			$meta	= $plugin['meta'];
+			$ref	= new \ReflectionClass( $class );
+			
+			try {
+				$args	= [];
+				$cstor	= $ref->getConstructor();
+				$params	= $cstor->getParameters();
+				
+				foreach ( $params as $param ) {
+					$type = $param->getType();
+					$name = $param->getName();
+					
+					if ( $type && $type instanceof \ReflectionNamedType ) {
+						$pname = $type->getName();
+				
+						$args[$name] = 
+						match( $pname ) {
+							Info::class		=> $plugin['info'],
+							Plugin::class		=> $meta,
+							Container::class	=> $this->container,
+							default			=> null
+						};
+					}
+				}
+				
+				// Pass on to plugin constructor
+				$ref->newInstanceArgs( $args );
+				
+			} catch( \Throwable $e ) {
+				$this->logger->error(
+					"Plugin {$meta->name} failed initialization: " .
+					$e->getMessage()
+				);
+			}
+		}
+	}
+}
+
+
+/**
  *  Content formatting
  */
 
@@ -9370,30 +9627,6 @@ function view_render( string $layout, array $vars = [] ) : string {
 /**
  *  Plugins and modules
  */
-
-/**
- *  Main plugin attribute
- */
-#[Attribute( Attribute::TARGET_FUNCTION | Attribute::IS_REPEATABLE )]
-class Plugin {
-	
-	/**
-	 *  Main constructor
-	 *  
-	 *  @param string		$name		Unique plugin name
-	 *  @param string		$description	Brief plugin description
-	 *  @param int			$priority	Initialization order, higher = earlier
-	 *  @param string|callable	$asset_dir	Files being served to the client
-	 *  @param string|callable	$data_dir	Writable storage directory
-	 */
-	public function __construct(
-		public readonly string			$name,
-		public readonly string			$description	= '',
-		public int				$priority	= 0,
-		public readonly string|\callable	$asset_dir	= 'assets/',
-		public readonly string|\callable	$data_dir	= 'data/'
-	) {}
-}
 
 /**
  *  Discover and load plugin files, limited by whitelist
