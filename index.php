@@ -8566,7 +8566,6 @@ class Format {
 			
 			// No headers, but with footers
 			empty( $headers ) && !empty( $footers )		=> 
-			return 
 			$this->template->render( 'tpl_table_nh', [ 
 				'tfoot' 		=> $footers,
 				'tbody'			=> $body
@@ -9484,6 +9483,868 @@ final class PluginDiscovery {
 
 
 /**
+ *  @class Database access
+ */
+final class Database {
+	
+	/**
+	 *  @var array<mixed> Saved database profiles
+	 */
+	private array $profiles		= [];
+	
+	/**
+	 *  @var array<string, PDOStatement> Cache of prepared statements
+	 */
+	private array $stmt_cache	= [];
+	
+	/**
+	 *  @var array<string, PDO> Running list of PDO connections
+	 */
+	private array $dbh		= [];
+	
+	/**
+	 *  @var array<string> Limited list of supported databases
+	 */
+	public readonly array $supported;
+	
+	/**
+	 *  @var int Maintenance frequency in number of days
+	 */
+	private int $maint;
+	
+	/**
+	 *  @var Config Configuration settings
+	 */
+	private Config $config;
+	/**
+	 * @var Log Event logger
+	 */
+	private readonly Log $logger;
+	
+	public function __construct() {
+		$this->supported	= [ 'pgsql', 'sqlite', 'mysql' ];
+		$this->config		= Container::instance()->get( 'Config' );
+		$this->logger		= Container::instance()->get( 'Log' );
+		
+		$this->maint	??= 
+		\defined( 'DB_MAINT' ) 
+			? \constant( 'DB_MAINT' )
+			: 7;
+	}
+	
+	/**
+	 *  Helper to turn a range of input values into an IN() parameter
+	 *  
+	 *  @example Parameters for [value1, value2] become "IN (:paramIn_0, :paramIn_1)"
+	 *  
+	 *  @param array	$params		PDO Named parameters sent back
+	 *  @param array	$vals		Keyed data
+	 *  @param string	$prefix		SQL Prepended fragment prefix
+	 *  @param string	$prefix		SQL Appended fragment suffix
+	 *  @return string
+	 */
+	public static function params_in( 
+		array		&$params, 
+		array		$vals, 
+		string		$prefix		= 'IN (', 
+		string		$suffix		= ')'
+	) : string {
+		$i =	0;
+		foreach ( $vals as $idx => $value ) {
+			$key		= ":param_{$i}";
+			$params[$key]	= $value;
+			$i++;
+		}
+		return $prefix . \implode( ',', \array_keys( $params ) ) . $suffix;
+	}
+	
+	/**
+	 *  Helper to populate optional parameters with equivalent named parameters
+	 *  
+	 *  @param array	$params		Key-value pairs with keys matching table field names
+	 *  @param bool		$is_insert	Format as insert if true
+	 *  @return string
+	 */
+	public static function params_sql( array $params, bool $is_insert ) : string {
+		$sql	= '';
+	
+		// Skip null properties
+		$params	= \array_filter( $params, fn( $v ) => !\is_null( $v ) );
+		
+		// Insert mode
+		if ( $is_insert ) {
+			$sql .= '( ';
+			foreach( $params as $k => $v ) {
+				$sql .= "{$k}, ";
+			}
+			$sql = \trim( $sql, ', ' ) . ' ) VALUES ( ';
+			foreach( $params as $k => $v ) {
+				$sql .= ":{$k}, ";
+			}
+			return \trim( $sql, ', ' ) . ' )';
+		}
+	
+		// Update mode
+		foreach( $params as $k => $v ) {
+			$sql .= "{$k} = :{$k}, ";
+		}
+		
+		return \trim( $sql, ', ' );
+	}
+	
+	/**
+	 *  Get or create cached PDO Statements
+	 *  
+	 *  @param PDO		$dbh	Database connection
+	 *  @param string	$sql	Query string or statement
+	 *  @return mixed
+	 */
+	public function statement( ?\PDO $dbh, string $sql ) {
+		if ( empty( $dbh ) && empty( $sql ) ) {
+			\array_map( 
+				static function( $v ) { return null; }, 
+				$cache 
+			);
+			return null;
+		}
+		
+		$key = \hash( 'sha1', \spl_object_id( $dbh ) . ':' . $sql );
+		
+		if ( isset( $this->stmt_cache[$key] ) ) {
+			return $this->stmt_cache[$key];
+		}
+		
+		try {
+			$stmt			= $dbh->prepare( $sql );
+			$this->stmt_cache[$key]	= $stmt;
+			return $stmt;
+			
+		} catch ( \PDOException $e ) {
+			Container::instance()->get( 'Log' )->error( 
+				"Failed to prepare statement with {$sql}: {$e->getMessage()}" 
+			);
+			
+			throw new 
+			\RuntimeException( "Database statement preparation failed" );
+		}
+	}
+	
+	/**
+	 *  Execute prepared statement
+	 *  
+	 *  @param PDOStatement		$stmt		Prepared statement
+	 *  @param array		$params		Any prepared values in [':param' => value ] format
+	 *  @param string		$context	Execution context data
+	 *  @return bool				True on success
+	 */
+	public function exec_stmt( \PDOStatement $stmt, array $params, string $context ) : bool {
+		try {
+			$result = 
+			count( $params ) > 0
+				? $stmt->execute( $params ) 
+				: $stmt->execute();
+			
+			Container::instance()->get( 'Log' )->debug( $context );
+			return $result;
+			
+		} catch( \Throwable $e ) {
+			$trace	= \debug_backtrace();
+			$func	= $trace[1]['function']		?? 'global scope';
+			$file	= $trace[1]['file']		?? 'unknown file';
+			$line	= $trace[1]['line']		?? 'unknown line';
+			Container::instance()->get( 'Log' )->error(
+				"Error in exec_stmt: {$context} — {$e->getMessage()} " .
+				"called by {$func} on line {$line} in {$file}"
+			);
+			
+			throw new 
+			\RuntimeException( "Error executing PDO statement" );
+		}
+		
+		return false;
+	}
+	
+	/**
+	 *  Execute larger SQL statements
+	 *  
+	 *  @param PDO		$dbh		PDO Database handle
+	 *  @param string	$sql		SQL statement block
+	 *  @param string	$context	Execution metadata info
+	 *  @return bool
+	 */
+	public function exec_batch( \PDO $dbh, string $sql, string $context = 'Batch SQL' ) : bool {
+		if ( empty( trim( $sql ) ) ) {
+			$this->logger->warn( "Empty SQL passed to exec_batch" );
+			return false;
+		}
+		
+		try {
+			$dbh->beginTransaction();
+			$dbh->exec( $sql );
+			$dbh->commit();
+			$this->logger->debug( $context );
+			return true;
+	
+		} catch ( \PDOException $e ) {
+			$dbh->rollback();
+			
+			Container::instance()->get( 'Log' )->error( 
+				"Batch execution failed for SQL " . 
+					\mb_substr( $sql, 0, 100 ) . 
+					": {$e->getMessage()}"
+			);
+			
+			throw new 
+			\RuntimeException( "Error executing PDO statement" );
+		}
+		
+		return false;
+	}
+	
+	/**
+	 *  Get PDO attribute info from given handle
+	 *  
+	 *  @param PDO		$dbh		PDO Database handle
+	 *  @param int		$attribute	PDO attribute constant
+	 *  @param mixed	$default	Optional default value
+	 *  @return mixed
+	 */
+	private function get_property( \PDO $dbh, int $attribute, $default = null ) : mixed {
+		try {
+			$value = $dbh->getAttribute( $attribute );
+			return ( false !== $value && null !== $value ) ? $value : $default;
+			
+		} catch ( \PDOException $e ) {
+			$this->logger->warn( "Failed to get PDO attribute {$attribute}: {$e->getMessage()}" );
+			return $default;
+		}
+	}
+	
+	/**
+	 *  Try to get current PDO database driver name, defaults to 'unknown'
+	 *  
+	 *  @param PDO		$dbh		PDO Database handle
+	 *  @return string
+	 */
+	public function get_driver( \PDO $dbh ) : string {
+		$driver = $this->get_property( $dbh, \PDO::ATTR_DRIVER_NAME );
+		if ( null === $driver ) {
+			$this->logger->warn( "Unable to determine DB driver" );
+			return 'unknown';
+		}
+		
+		if ( !\in_array( $driver, $this->supported, true ) ) {
+			$this->logger->warn( "Unsupported DB driver: {$driver}" );
+		}
+		
+		return \strtolower( $driver );
+	}
+	
+	/**
+	 *  SQL Timestamps format helper for comparisons
+	 *  
+	 *  @param PDO		$dbh		PDO Database handle
+	 *  @return string
+	 */
+	public function now_unix( \PDO $dbh, ?string $column = null ) : string {
+		$driver	= $this->get_driver( $dbh );
+		$column	??= 'now';
+		$column	= \preg_replace( '/^[\w_]/', '', $column );
+		
+		return match( $driver ) {
+			'sqlite'		=> "strftime( '%s','now' )",
+			'mysql','pgsql'		=> "UNIX_TIMESTAMP()",
+			//'sqlsrv'		=> "DATEDIFF(second, '1970-01-01', GETUTCDATE())"
+			default			=> 
+				throw new 
+				\RuntimeException( "Unsupported DB driver: {$driver}" )
+		};
+	}
+	
+	/**
+	 *  SQL Datetime format helper
+	 *  
+	 *  @param PDO		$dbh		PDO Database handle
+	 *  @return string
+	 */
+	public function now_datetime( \PDO $dbh ) : string {
+		$driver = $this->get_driver( $dbh );
+		return match( $driver ) {
+			'sqlite'		=> "datetime( 'now' )",
+			'mysql','pgsql'		=> "NOW()",
+			//'sqlsrv'		=> "GETUTCDATE()",
+			default			=> 
+				throw new 
+				\RuntimeException( "Unsupported DB driver: {$driver}" )
+		};
+	}
+	
+	public function now_value( \PDO $dbh ) : string {
+		$stmt = $dbh->query( "SELECT " . $this->now_datetime( $dbh ) );
+		return $stmt ? $stmt->fetchColumn() : '';
+	}
+	
+	public function sql_now_diff( \PDO $dbh, string $column = 'last_run' ) : string {
+		$now	= $this->now_unix( $dbh );
+		return \sprintf( "%s - %s", $now, $column );
+	}
+	
+	/**
+	 *  Database profile settings from config JSON file
+	 *  
+	 *  @param PDO		$dbh		PDO Database handle
+	 *  @param string	$profile	Database profile in config
+	 *  @return array
+	 */
+	public function dbh_profile( \PDO $dbh, string $profile = 'main' ) : array {
+		static $cache;
+	
+		// Load saved profile config
+		$cache ??= $this->config->setting( 'db_profiles', [], 'json' );
+		
+		$config = $cache[$profile] ?? null;
+		if ( !$config ) {
+			$this->logger->error( "Unknown DB profile: {$profile}" );
+			
+			throw new 
+			\InvalidArgumentException( "Unknown DB profile" );
+		}
+		
+		// Gather connection metadata
+		return [
+			'profile'		=> $profile,
+			'driver'		=> $this->get_driver( $dbh ),
+			
+			'server_version'	=> 
+			$this->get_property( $dbh, \PDO::ATTR_SERVER_VERSION, 'unknown' ),
+			
+			'client_version'	=> 
+			$this->get_property( $dbh, \PDO::ATTR_CLIENT_VERSION, 'unknown' ),
+			
+			'dsn'			=> $config['dsn']		?? null,
+			'username'		=> $config['username']		?? null,
+			'installed'		=> $config['installed'] 	?? false,
+			'schema'		=> $config['schema']		?? null,
+			'version'		=> $config['version']		?? null,
+			'migrations'		=> $config['migrations']	?? null,
+			'pre_exec'		=> $config['pre_exec']		?? [],
+			'post_exec'		=> $config['post_exec']		?? []
+		];
+	}
+	
+	/**
+	 *  PDO Connection attribute options
+	 *  
+	 *  @param array	$settings	Presets config settings
+	 *  @return array
+	 */
+	private function get_options( array $settings ) : array {
+		static $definitions	= [
+			'ATTR_TIMEOUT'			=> \PDO::ATTR_TIMEOUT,
+			'ATTR_DEFAULT_FETCH_MODE'	=> \PDO::ATTR_DEFAULT_FETCH_MODE,
+			'ATTR_PERSISTENT'		=> \PDO::ATTR_PERSISTENT,
+			'ATTR_EMULATE_PREPARES'		=> \PDO::ATTR_EMULATE_PREPARES,
+			'ATTR_ERRMODE'			=> \PDO::ATTR_ERRMODE,
+			'ATTR_CASE'			=> \PDO::ATTR_CASE,
+			'ATTR_STRINGIFY_FETCHES'	=> \PDO::ATTR_STRINGIFY_FETCHES,
+			'FETCH_ASSOC'			=> \PDO::FETCH_ASSOC,
+			'ERRMODE_EXCEPTION'		=> \PDO::ERRMODE_EXCEPTION
+		];
+		
+		if ( empty( $settings ) ) {
+			// Set some basic defaults
+			return [
+				\PDO::ATTR_DEFAULT_FETCH_MODE	=> \PDO::FETCH_ASSOC,
+				\PDO::ATTR_PERSISTENT		=> false,
+				\PDO::ATTR_EMULATE_PREPARES	=> false,
+				\PDO::ATTR_ERRMODE		=> \PDO::ERRMODE_EXCEPTION
+			];
+		}
+		
+		$options	= [];
+		foreach ( $settings as $key => $value ) {
+			if ( !isset( $definitions[$key] ) ) {
+				continue;
+			}
+			
+			$options[$definitions[$key]] = $definitions[$value] ?? $value;
+		}
+		return $options;
+	}
+	
+	/**
+	 *  Batch execute .sql file based on current database schema version
+	 *  
+	 *  @param PDO		$dbh		Database connection
+	 *  @param string	$schema		Database installation schema file
+	 *  @param string	$ver		Schema version
+	 */
+	private function batch_schema(
+		\PDO		$dbh,
+		string		$schema,
+		string		$ver,
+		string		$comment	= 'Database initialization with base tables',
+		?string		$sql_file	= null
+	) : void {
+		static $sql	= 
+		"INSERT INTO schema_meta ( version, comments, created_at )
+			VALUES ( :version, :comment, CURRENT_TIMESTAMP )";
+		
+		$info		= \pathinfo( $schema );
+		$sql_file	??= $info['dirname'] . '/' . $info['filename'] . '.sql';
+		$sql_file	= \realpath( $sql_file );
+		
+		if ( !$sql_file || !\is_readable( $sql_file ) ) {
+			$this->logger->error(
+				"Invalid schema file: {$sql_file} for database: {$schema}"
+			);
+			
+			throw new 
+			\RuntimeException( "Invalid schema file for database" );
+		}
+		
+		$found		= false;
+		for ( $i = 0; $i < 3; $i++ ) { // Adapt to momentary IO glitches
+			try {
+				$found		= @\file_get_contents( $sql_file );
+				if ( false !== $found ) { break; }
+				
+			} catch ( \Throwable $e ) {
+				$this->logger->error(
+					"Error getting SQL data from {$sql_file}. Retrying"
+				);
+				
+				\usleep( 100000 );
+				continue;
+			}
+		}
+	
+		// No schema file found
+		if ( false === $found ) {
+			$this->logger->error( "Failed to read schema file: {$sql_file}" );
+			
+			throw new
+			\RuntimeException( "Unable to load schema file" );
+		}
+	
+		// Nothing in schema file
+		if ( empty( \trim( $found ) ) ) {
+			$this->logger->error( "Schema file is empty: {$sql_file}" );
+			
+			throw new 
+			\RuntimeException( "Schema file is empty" );
+		}
+		
+		try {
+			$dbh->beginTransaction();
+			$dbh->exec( $found );
+	
+			// Only insert metadata if meta table is found
+			if ( false !== \stripos( $found, 'create table schema_meta' ) ) {
+				$this->exec_stmt( $this->statement( $dbh, $sql ), [
+					':version'	=> $ver,
+					':comment'	=> $comment
+				], "Schema file {$sql_file}" );
+			}
+			
+			$dbh->commit();
+			
+		} catch( \Throwable $e ) {
+			$dbh->rollback();
+			$this->logger->error(
+				"Error loading database schema file: {$sql_file} " .
+				$e->getMessage() 
+			);
+	
+			throw new 
+			\RuntimeException( "Error loading database schema file" );
+		}
+	}
+	
+	/**
+	 *  Database schema migration helper
+	 *  
+	 *  @param string $mi_dir Migration schema file location
+	 *  @return iterable
+	 */
+	public function get_migrations( string $mi_dir ) : iterable {
+		// No migrations set
+		if ( !\is_dir( $mi_dir ) ) {
+			$this->logger->debug( "Called db_migrate() with no migrations" );
+			return [];
+		}
+		
+		// Get all .sql files
+		$files = \glob( $mi_dir . '/*.sql' );
+		if ( !$files ) {
+			$this->logger->debug( "No migration files found in {$mi_dir}" );
+			return [];
+		}
+		
+		// Extract version from filename
+		foreach ( $files as $file ) {
+			if ( \preg_match(
+				'/(\d+\.\d+\.\d+(?:-[\w.-]+)?(?:\+[\w.-]+)?)/',
+					$file, $match
+			) ) {
+				yield [ 'file' => $file, 'version' => $match[1] ];
+			} else {
+				$this->logger->debug(
+					"Skipping file with no valid version: {$file} in {$mi_dir}"
+				);
+			}
+		}
+	}
+	
+	/**
+	 *  Automatic database schema upgrades
+	 *  
+	 *  @param PDO		$dbh	Database connection
+	 */
+	private function migrate( \PDO $dbh, string $profile ) : void {
+		// Get current schema version
+		$curr_ver	= $dbh
+			->query( "SELECT version FROM schema_meta ORDER BY created_at DESC LIMIT 1" )
+			->fetchColumn() ?? '0.0.0';
+		
+		$mi_dir		= Storage::base() . '/migrations/' . $profile;
+		$found		= $this->get_migrations( $mi_dir );
+		$migrations	= [];
+		foreach ( $found as $m ) {
+			if ( \version_compare( $m['version'], $curr_ver ) <= 0 ) {
+				$this->logger->debug(
+					"Skipping migration {$m['version']} (current version is newer)"
+				);
+				continue;
+			}
+			$migrations[] = $m;
+		}
+		
+		usort( $migrations, fn( $a, $b ) => 
+			\version_compare( $a['version'], $b['version'] ) );
+		
+		// Apply migrations
+		foreach ( $migrations as $m ) {
+			try {
+				$this->batch_schema( $dbh, $m['file'], $m['version'], "Applied migration from {$m['file']}" );
+				$this->logger->info( "Migration {$m['version']} applied successfully" );
+				
+			} catch ( \Throwable $e ) {
+				$this->logger->error( "Migration {$m['version']} from {$m['file']} failed: {$e->getMessage()}" );
+				
+				throw new 
+				\RuntimeException( "Migration failed: {$m['version']}" );
+			}
+		}
+	}
+	
+	/**
+	 *  Run maintenance on selected database
+	 *  
+	 *  @param PDO		$dbh	Database connection
+	 *  @param array 	$config	Maintenance settings
+	 */
+	private function maintenance( \PDO $dbh, array $config ) : void {
+		static $sql	= 
+		"SELECT settings FROM maintenance_meta
+			WHERE id = ( SELECT MAX( id ) FROM maintenance_meta );";
+		
+		$maint		= $this->maint * 86400;
+		$settings	= $dbh->query( $sql )->fetchColumn();
+		
+		if ( false === $settings ) {
+			$this->logger->info( "No database maintenance settings found" );
+			$settings	= '{ "last_maintenance" : 0 }'; // Fallback
+		}
+		
+		// Since PHP 8.3
+		if ( !\json_validate( $settings ) ) {
+			$this->logger->error( "Error decoding maintenance settings" );
+			return;
+		}
+		
+		$info	= \json_decode( $settings, true );
+		if ( false === $info || !\is_array( $info ) ) {
+			$this->logger->error( "Invalid JSON in maintenance settings" );
+			return;
+		}
+		
+		$last_maint	= $info['last_maintenance'] ?? 0;
+		$now		= time();
+		
+		// Skip if not needed
+		if ( ( $now - $last_maint ) < $maint ) {
+			$this->logger->debug( "Maintenance not required yet" );
+			return;
+		}
+		
+		$commands	= $config['maint_exec'] ?? [];
+		if ( !\is_array( $commands ) || empty( $commands ) ) {
+			$this->logger->warn( "No maintenance commands configured" );
+			return;
+		}
+		
+		foreach ( $commands as $cmd ) {
+			try {
+				$dbh->exec( $cmd );
+				$this->logger->info( "Executed maintenance command: {$cmd}" );
+			} catch ( \PDOException $e ) {
+				$this->logger->error( "Maintenance command failed: {$cmd} — {$e->getMessage()}" );
+			}
+		}
+		
+		$new_settings	= \json_encode( [ 'last_maintenance' => $now ] );
+		$insert_sql	=
+		"INSERT INTO maintenance_meta ( settings )
+			VALUES ( :settings )";
+		
+		$this->exec_stmt( $this->statement( $dbh, $insert_sql ), [
+			':settings' => $new_settings
+		], "Initiating database maintenance" );
+		
+		$this->logger->info( "Database maintenance completed" );
+	}
+	
+	/**
+	 *  Run callable with PDO transaction
+	 *  
+	 *  @param PDO		$dbh	Database connection
+	 *  @param callable	$fn	Execution handler
+	 *  @return mixed
+	 */
+	public function with_transaction( \PDO $dbh, callable $fn ) : mixed {
+		try {
+			$dbh->beginTransaction();
+			$result	= $fn( $dbh );
+			$dbh->commit();
+			
+			return $result;
+			
+		} catch ( \Throwable $e ) {
+			if ( $dbh->inTransaction() ) {
+				$dbh->rollBack();
+			}
+			
+			$this->logger->error( "Error completing transaction via callable" );
+			return false;
+		}
+	}
+	
+	/**
+	 *  Create config profile-based PDO database connection
+	 *  
+	 *  @param string	$profile	Connection profile label in configuration
+	 *  @param array	$new_profiles	Override connection profile
+	 *  @return PDO
+	 */
+	public function get( string $profile = 'main', ?array $new_profiles = null ) : \PDO {
+		if ( isset( $this->dbh[$profile] ) ) {
+			return $this->dbh[$profile];
+		}
+		
+		// Saved db profiles
+		$this->profiles	??= $this->config->setting( 'db_profiles' );
+		if ( !empty( $new_profiles ) ) {
+			$this->profiles	= 
+			\array_replace_recursive( $this->profiles, $new_profiles );
+		}
+		
+		$config		= $this->profiles[$profile] ?? null;
+		if ( null === $config ) {
+			throw new 
+			\InvalidArgumentException( "Unknown DB profile: {$profile}" );
+		}
+		
+		$installed	= ( bool ) ( $config['installed'] ?? false );
+		
+		try {
+			// Create a new PDO instance
+			$dbh = new \PDO(
+				$config['dsn'], 
+				$config['username'], 
+				$config['password'], 
+				$this->get_options( $config['options'] ?? [] ) 
+			);
+			
+			foreach ( $config['pre_exec'] ?? [] as $cmd ) {
+				$dbh->exec( $cmd );
+			}
+			
+			// Check if install scripts need to be run
+			if ( !$installed ) {
+				foreach ( $config['init_exec'] ?? [] as $cmd ) {
+					$dbh->exec( $cmd );
+				}
+				
+				$this->batch_schema(
+					$dbh, 
+					$config['schema'], 
+					$config['version'] ?? '1.0.0' 
+				);
+				
+				// Database is now setup
+				$config['installed'] = true;
+				
+				// Save changes to this profile
+				$this->config->edit_db_profile( $profile, $config );
+				$this->profiles[$profile] = $config;
+				
+			// Or run migrations instead
+			} else {
+				$this->migrate( $dbh, $config['migrations'] ?? [] );
+			}
+			
+			foreach ( $config['post_exec'] ?? [] as $cmd ) {
+				$dbh->exec( $cmd );
+			}
+			
+			// Check and run maintenance
+			$this->maintenance( $dbh, $config );
+		} catch ( \PDOException $e ) {
+			// Handle connection errors gracefully
+			$this->logger->error( "Database connection failed: {$e->getMessage()}" );
+			
+			die( 'Unable to connect to database' );
+		}
+		
+		$this->dbh[$profile] = $dbh;
+		return $dbh;
+	}
+	
+	/**
+	 *  Helper to get the result from a successful statement execution
+	 *  
+	 *  @param PDO		$dbh	Database connection
+	 *  @param PDOStatement	$stmt	PDO prepared statement
+	 *  @param array	$params	Parameters
+	 *  @param string	$rtype	Return type
+	 *  @return mixed
+	 */
+	public function result(
+		\PDO		$dbh,
+		\PDOStatement	$stmt,
+		array		$params		= [],
+		string		$rtype		= ''
+	) : mixed {
+		$ok	= 
+		$this->exec_stmt( 
+			$stmt, $params, "Running db_result() with return type {$rtype}" 
+		);
+		
+		if ( !$ok ) { return null; }
+		
+		return match( \strtolower( $rtype ) ) {
+			// Query with array return
+			'results'	=> $ok ? $stmt->fetchAll() : [], 
+			
+			// Insert with ID return
+			'insert'	=> $ok ? $dbh->lastInsertId() : 0, 
+			
+			// Single column value
+			'column'	=> $ok ? $stmt->fetchColumn() : '', 
+			
+			// Success status
+			default		=> $ok
+		};
+	}
+	
+	/**
+	 *  Shared data execution routine
+	 *  
+	 *  @param string	$sql		Database SQL
+	 *  @param string	$profile	Connection profile label in configuration
+	 *  @param array	$params		Parameters
+	 *  @param string	$rtype		Return type
+	 *  @return mixed
+	 */
+	public function result_exec(
+		string	$sql,
+		string	$profile,
+		array	$params		= [],
+		string	$rtype		= ''
+	) : mixed {
+		$dbh	= $this->get( $profile );
+		$stmt	= $this->statement( $dbh, $sql );
+		$res	= $this->result( $dbh, $stmt, $params, $rtype );
+		
+		$stmt->closeCursor();
+		return $res;
+	}
+	
+	/**
+	 *  Update or insert multiple database rows at once with single SQL
+	 *  
+	 *  @param string	$sql		Database SQL
+	 *  @param string	$profile	Connection profile label in configuration
+	 *  @param array	$batch		Collection of query parameters
+	 *  @param string	$rtype		Return type
+	 *  @return array			Result status
+	 */
+	public function batch_result_exec(
+		string	$sql,
+		string	$profile,
+		array	$batch		= [],
+		string	$rtype		= ''
+	) : array {
+		$dbh	= $this->get( $profile );
+		$stmt	= $this->statement( $dbh, $sql );
+		
+		return $this->with_transaction( $dbh, function( \PDO $dbh ) use ( $stmt, $batch, $rtype ) {
+			$res	= [];
+			
+			foreach( $batch as $params ) {
+				$status	= $this->result( $dbh, $stmt, $params, $rtype );
+				if ( null === $status ) {
+					$stmt->closeCursor();
+					break;
+				}
+				
+				$res[]	= $status;
+				$stmt->closeCursor();
+			}
+			return $res;
+		} );
+	}
+	
+	/**
+	 *  Insert record into database and return last ID
+	 *  
+	 *  @param string	$sql		Database SQL insert
+	 *  @param string	$profile	Connection profile label in configuration
+	 *  @param array	$params		Parameters
+	 *  @return int
+	 */
+	public function insert(
+		string	$sql,
+		string	$profile,
+		array	$params
+	) : int {
+		$res	= $this->result_exec( $sql, $profile, $params );
+		return empty( $res ) 
+			? 0
+			: ( \is_numeric( $res ) ? ( int ) $res : 0 );
+	}
+	
+	/**
+	 *  Create database update
+	 *  
+	 *  @param string	$sql		Database SQL update query
+	 *  @param string	$profile	Connection profile label in configuration
+	 *  @param array	$params		Query parameters (required)
+	 *  @return bool			Update status
+	 */
+	public function update(
+		string	$sql,
+		string	$profile,
+		array	$params		= []
+	) : bool {
+		return empty( $this->result_exec( $sql, $profile, $params ) ) 
+			? false : true;
+	}
+}
+
+
+/**
  *  Views and layouts for plugins
  */
 
@@ -9660,814 +10521,6 @@ function view_render( string $layout, array $vars = [] ) : string {
 	} finally {
 		\array_pop( $stack );
 	}
-}
-
-
-/**
- *  Database access
- */
-
-/**
- *  Helper to turn a range of input values into an IN() parameter
- *  
- *  @example Parameters for [value1, value2] become "IN (:paramIn_0, :paramIn_1)"
- *  
- *  @param array	$params		PDO Named parameters sent back
- *  @param array	$vals		Keyed data
- *  @param string	$prefix		SQL Prepended fragment prefix
- *  @param string	$prefix		SQL Appended fragment suffix
- *  @return string
- */
-function db_params_in( 
-	array		&$params, 
-	array		$vals, 
-	string		$prefix		= 'IN (', 
-	string		$suffix		= ')'
-) : string {
-	$i =	0;
-	foreach ( $vals as $idx => $value ) {
-		$key		= ":param_{$i}";
-		$params[$key]	= $value;
-		$i++;
-	}
-	return $prefix . implode( ',', \array_keys( $params ) ) . $suffix;
-}
-
-/**
- *  Helper to populate optional parameters with equivalent named parameters
- *  
- *  @param array	$params		Key-value pairs with keys matching table field names
- *  @param bool		$is_insert	Format as insert if true
- *  @return string
- */
-function db_params_sql( array $params, bool $is_insert ) : string {
-	$sql	= '';
-
-	// Skip null properties
-	$params	= \array_filter( $params, fn( $v ) => !\is_null( $v ) );
-	
-	// Insert mode
-	if ( $is_insert ) {
-		$sql .= '( ';
-		foreach( $params as $k => $v ) {
-			$sql .= "{$k}, ";
-		}
-		$sql = \trim( $sql, ', ' ) . ' ) VALUES ( ';
-		foreach( $params as $k => $v ) {
-			$sql .= ":{$k}, ";
-		}
-		return \trim( $sql, ', ' ) . ' )';
-	}
-
-	// Update mode
-	foreach( $params as $k => $v ) {
-		$sql .= "{$k} = :{$k}, ";
-	}
-	
-	return \trim( $sql, ', ' );
-}
-
-/**
- *  Get or create cached PDO Statements
- *  
- *  @param PDO		$dbh	Database connection
- *  @param string	$sql	Query string or statement
- *  @return mixed
- */
-function db_stmt( ?\PDO $dbh, string $sql ) {
-	static $cache = [];
-	if ( empty( $dbh ) && empty( $sql ) ) {
-		\array_map( 
-			static function( $v ) { return null; }, 
-			$cache 
-		);
-		return null;
-	}
-	
-	$key = \sha1( \spl_object_id( $dbh ) . ':' . $sql );
-	
-	if ( isset( $cache[$key] ) ) {
-		return $cache[$key];
-	}
-	
-	try {
-		$stmt		= $dbh->prepare( $sql );
-		$cache[$key]	= $stmt;
-		return $stmt;
-		
-	} catch ( \PDOException $e ) {
-		Container::instance()->get( 'Log' )->error( "Failed to prepare statement with {$sql}: {$e->getMessage()}" );
-		
-		throw new 
-		\RuntimeException( "Database statement preparation failed" );
-	}
-}
-
-/**
- *  Execute prepared statement
- *  
- *  @param PDOStatement		$stmt		Prepared statement
- *  @param array		$params		Any prepared values in [':param' => value ] format
- *  @param string		$context	Execution context data
- *  @return bool				True on success
- */
-function db_exec( \PDOStatement $stmt, array $params, string $context ) : bool {
-	try {
-		$result = 
-		count( $params ) > 0
-			? $stmt->execute( $params ) 
-			: $stmt->execute();
-		
-		Container::instance()->get( 'Log' )->debug( $context );
-		return $result;
-		
-	} catch( \Throwable $e ) {
-		$trace	= \debug_backtrace();
-		$func	= $trace[1]['function']		?? 'global scope';
-		$file	= $trace[1]['file']		?? 'unknown file';
-		$line	= $trace[1]['line']		?? 'unknown line';
-		Container::instance()->get( 'Log' )->error(
-			"Error in db_exec: {$context} — {$e->getMessage()} " .
-			"called by {$func} on line {$line} in {$file}"
-		);
-		
-		throw new 
-		\RuntimeException( "Error executing PDO statement" );
-	}
-	
-	return false;
-}
-
-/**
- *  Execute larger SQL statements
- *  
- *  @param PDO		$dbh		PDO Database handle
- *  @param string	$sql		SQL statement block
- *  @param string	$context	Execution metadata info
- *  @return bool
- */
-function db_exec_batch( \PDO $dbh, string $sql, string $context = 'Batch SQL' ) : bool {
-	if ( empty( trim( $sql ) ) ) {
-		Container::instance()->get( 'Log' )->warn( "Empty SQL passed to db_exec_batch" );
-		return false;
-	}
-	
-	try {
-		$dbh->beginTransaction();
-		$dbh->exec( $sql );
-		$dbh->commit();
-		Container::instance()->get( 'Log' )->debug( $context );
-		return true;
-
-	} catch ( \PDOException $e ) {
-		$dbh->rollback();
-		
-		Container::instance()->get( 'Log' )->error( 
-			"Batch execution failed for SQL " . 
-				\mb_substr( $sql, 0, 100 ) . 
-				": {$e->getMessage()}"
-		);
-		
-		throw new 
-		\RuntimeException( "Error executing PDO statement" );
-	}
-	
-	return false;
-}
-
-/**
- *  Get PDO attribute info from given handle
- *  
- *  @param PDO		$dbh		PDO Database handle
- *  @param int		$attribute	PDO attribute constant
- *  @param mixed	$default	Optional default value
- *  @return mixed
- */
-function db_get_property( \PDO $dbh, int $attribute, $default = null ) : mixed {
-	try {
-		$value = $dbh->getAttribute( $attribute );
-		return ( false !== $value && null !== $value ) ? $value : $default;
-		
-	} catch ( \PDOException $e ) {
-		Container::instance()->get( 'Log' )->warn( "Failed to get PDO attribute {$attribute}: {$e->getMessage()}" );
-		return $default;
-	}
-}
-
-/**
- *  Try to get current PDO database driver name, defaults to 'unknown'
- *  
- *  @param PDO		$dbh		PDO Database handle
- *  @return string
- */
-function db_get_driver( \PDO $dbh ) : string {
-	static $supported = [ 'pgsql', 'sqlite', 'mysql' ];
-	
-	$driver = db_get_property( $dbh, \PDO::ATTR_DRIVER_NAME );
-	if ( null === $driver ) {
-		Container::instance()->get( 'Log' )->warn( "Unable to determine DB driver" );
-		return 'unknown';
-	}
-	
-	if ( !\in_array( $driver, $supported, true ) ) {
-		Container::instance()->get( 'Log' )->warn( "Unsupported DB driver: {$driver}" );
-	}
-	
-	return \strtolower( $driver );
-}
-
-/**
- *  SQL Timestamps format helper for comparisons
- *  
- *  @param PDO		$dbh		PDO Database handle
- *  @return string
- */
-function db_now_unix( \PDO $dbh, ?string $column = null ) : string {
-	$driver	= db_get_driver( $dbh );
-	$column	??= 'now';
-	$column	= \preg_replace( '/^[\w_]/', '', $column );
-	
-	return match( $driver ) {
-		'sqlite'		=> "strftime( '%s','now' )",
-		'mysql','pgsql'		=> "UNIX_TIMESTAMP()",
-		//'sqlsrv'		=> "DATEDIFF(second, '1970-01-01', GETUTCDATE())"
-		default			=> 
-			throw new 
-			\RuntimeException( "Unsupported DB driver: {$driver}" )
-	};
-}
-
-/**
- *  SQL Datetime format helper
- *  
- *  @param PDO		$dbh		PDO Database handle
- *  @return string
- */
-function db_now_datetime( \PDO $dbh ) : string {
-	$driver = db_get_driver( $dbh );
-	return match( $driver ) {
-		'sqlite'		=> "datetime( 'now' )",
-		'mysql','pgsql'		=> "NOW()",
-		//'sqlsrv'		=> "GETUTCDATE()",
-		default			=> 
-			throw new 
-			\RuntimeException( "Unsupported DB driver: {$driver}" )
-	};
-}
-
-function db_now_value( \PDO $dbh ) : string {
-	$stmt = $dbh->query( "SELECT " . db_now_datetime( $dbh ) );
-	return $stmt ? $stmt->fetchColumn() : '';
-}
-
-function db_sql_now_diff( \PDO $dbh, string $column = 'last_run' ) : string {
-	$now	= db_now_unix( $dbh );
-	return \sprintf( "%s - %s", $now, $column );
-}
-
-/**
- *  Database profile settings from config JSON file
- *  
- *  @param PDO		$dbh		PDO Database handle
- *  @param string	$profile	Database profile in config
- *  @return array
- */
-function db_profile_info( \PDO $dbh, string $profile = 'main' ) : array {
-	static $cache;
-
-	// Load saved profile config
-	$cache ??= config( 'db_profiles', [], 'json' );
-	$config = $cache[$profile] ?? null;
-	if ( !$config ) {
-		Container::instance()->get( 'Log' )->error( "Unknown DB profile: {$profile}" );
-		
-		throw new 
-		\InvalidArgumentException( "Unknown DB profile" );
-	}
-	
-	// Gather connection metadata
-	return [
-		'profile'		=> $profile,
-		'driver'		=> db_get_driver( $dbh ),
-		
-		'server_version'	=> 
-		db_get_property( $dbh, \PDO::ATTR_SERVER_VERSION, 'unknown' ),
-		
-		'client_version'	=> 
-		db_get_property( $dbh, \PDO::ATTR_CLIENT_VERSION, 'unknown' ),
-		
-		'dsn'			=> $config['dsn']		?? null,
-		'username'		=> $config['username']		?? null,
-		'installed'		=> $config['installed'] 	?? false,
-		'schema'		=> $config['schema']		?? null,
-		'version'		=> $config['version']		?? null,
-		'migrations'		=> $config['migrations']	?? null,
-		'pre_exec'		=> $config['pre_exec']		?? [],
-		'post_exec'		=> $config['post_exec']		?? []
-	];
-}
-
-/**
- *  PDO Connection attribute options
- *  
- *  @param array	$settings	Presets config settings
- *  @return array
- */
-function db_get_options( array $settings ) : array {
-	static $definitions	= [
-		'ATTR_TIMEOUT'			=> \PDO::ATTR_TIMEOUT,
-		'ATTR_DEFAULT_FETCH_MODE'	=> \PDO::ATTR_DEFAULT_FETCH_MODE,
-		'ATTR_PERSISTENT'		=> \PDO::ATTR_PERSISTENT,
-		'ATTR_EMULATE_PREPARES'		=> \PDO::ATTR_EMULATE_PREPARES,
-		'ATTR_ERRMODE'			=> \PDO::ATTR_ERRMODE,
-		'ATTR_CASE'			=> \PDO::ATTR_CASE,
-		'ATTR_STRINGIFY_FETCHES'	=> \PDO::ATTR_STRINGIFY_FETCHES,
-		'FETCH_ASSOC'			=> \PDO::FETCH_ASSOC,
-		'ERRMODE_EXCEPTION'		=> \PDO::ERRMODE_EXCEPTION
-	];
-	
-	if ( empty( $settings ) ) {
-		// Set some basic defaults
-		return [
-			\PDO::ATTR_DEFAULT_FETCH_MODE	=> \PDO::FETCH_ASSOC,
-			\PDO::ATTR_PERSISTENT		=> false,
-			\PDO::ATTR_EMULATE_PREPARES	=> false,
-			\PDO::ATTR_ERRMODE		=> \PDO::ERRMODE_EXCEPTION
-		];
-	}
-	
-	$options	= [];
-	foreach ( $settings as $key => $value ) {
-		if ( !isset( $definitions[$key] ) ) {
-			continue;
-		}
-		
-		$options[$definitions[$key]] = $definitions[$value] ?? $value;
-	}
-	return $options;
-}
-
-/**
- *  Batch execute .sql file based on current database schema version
- *  
- *  @param PDO		$dbh		Database connection
- *  @param string	$schema		Database installation schema file
- *  @param string	$ver		Schema version
- */
-function db_batch_schema(
-	\PDO		$dbh,
-	string		$schema,
-	string		$ver,
-	string		$comment	= 'Database initialization with base tables',
-	?string		$sql_file	= null
-) : void {
-	static $sql	= 
-	"INSERT INTO schema_meta ( version, comments, created_at )
-		VALUES ( :version, :comment, CURRENT_TIMESTAMP )";
-	
-	$info		= \pathinfo( $schema );
-	$sql_file	??= $info['dirname'] . '/' . $info['filename'] . '.sql';
-	$sql_file	= \realpath( $sql_file );
-	
-	if ( !$sql_file || !\is_readable( $sql_file ) ) {
-		Container::instance()->get( 'Log' )->error(
-			"Invalid schema file: {$sql_file} for database: {$schema}"
-		);
-		
-		throw new 
-		\RuntimeException( "Invalid schema file for database" );
-	}
-	
-	$found		= false;
-	for ( $i = 0; $i < 3; $i++ ) { // Adapt to momentary IO glitches
-		try {
-			$found		= @\file_get_contents( $sql_file );
-			if ( false !== $found ) { break; }
-			
-		} catch ( \Throwable $e ) {
-			Container::instance()->get( 'Log' )->error(
-				"Error getting SQL data from {$sql_file}. Retrying"
-			);
-			
-			\usleep( 100000 );
-			continue;
-		}
-	}
-
-	// No schema file found
-	if ( false === $found ) {
-		Container::instance()->get( 'Log' )->error( "Failed to read schema file: {$sql_file}" );
-		
-		throw new
-		\RuntimeException( "Unable to load schema file" );
-	}
-
-	// Nothing in schema file
-	if ( empty( trim( $found ) ) ) {
-		Container::instance()->get( 'Log' )->error( "Schema file is empty: {$sql_file}" );
-		
-		throw new 
-		\RuntimeException( "Schema file is empty" );
-	}
-	
-	try {
-		$dbh->beginTransaction();
-		$dbh->exec( $found );
-
-		// Only insert metadata if meta table is found
-		if ( false !== \stripos( $found, 'create table schema_meta' ) ) {
-			db_exec( db_stmt( $dbh, $sql ), [
-				':version'	=> $ver,
-				':comment'	=> $comment
-			], "Schema file {$sql_file}" );
-		}
-		
-		$dbh->commit();
-		
-	} catch( \Throwable $e ) {
-		$dbh->rollback();
-		Container::instance()->get( 'Log' )->error(
-			"Error loading database schema file: {$sql_file} " .
-			$e->getMessage() 
-		);
-
-		throw new 
-		\RuntimeException( "Error loading database schema file" );
-	}
-}
-
-/**
- *  Database schema migration helper
- *  
- *  @param string $mi_dir Migration schema file location
- *  @return iterable
- */
-function db_get_migrations( string $mi_dir ) : iterable {
-	// No migrations set
-	if ( !\is_dir( $mi_dir ) ) {
-		Container::instance()->get( 'Log' )->debug( "Called db_migrate() with no migrations" );
-		return [];
-	}
-	
-	// Get all .sql files
-	$files = \glob( $mi_dir . '/*.sql' );
-	if ( !$files ) {
-		Container::instance()->get( 'Log' )->debug( "No migration files found in {$mi_dir}" );
-		return [];
-	}
-	
-	// Extract version from filename
-	foreach ( $files as $file ) {
-		if ( \preg_match(
-			'/(\d+\.\d+\.\d+(?:-[\w.-]+)?(?:\+[\w.-]+)?)/',
-				$file, $match
-		) ) {
-			yield [ 'file' => $file, 'version' => $match[1] ];
-		} else {
-			Container::instance()->get( 'Log' )->debug(
-				"Skipping file with no valid version: {$file} in {$mi_dir}"
-			);
-		}
-	}
-}
-
-/**
- *  Automatic database schema upgrades
- *  
- *  @param PDO		$dbh	Database connection
- */
-function db_migrate( \PDO $dbh, string $profile ) : void {
-	// Get current schema version
-	$curr_ver	= $dbh
-		->query( "SELECT version FROM schema_meta ORDER BY created_at DESC LIMIT 1" )
-		->fetchColumn() ?? '0.0.0';
-	
-	$mi_dir		= Storage::base() . '/migrations/' . $profile;
-	$migrations	= [];
-	foreach ( db_get_migrations( $mi_dir ) as $m ) {
-		if ( \version_compare( $m['version'], $curr_ver ) <= 0 ) {
-			Container::instance()->get( 'Log' )->debug(
-				"Skipping migration {$m['version']} (current version is newer)"
-			);
-			continue;
-		}
-		$migrations[] = $m;
-	}
-	
-	usort( $migrations, fn( $a, $b ) => 
-		\version_compare( $a['version'], $b['version'] ) );
-	
-	// Apply migrations
-	foreach ( $migrations as $m ) {
-		try {
-			db_batch_schema( $dbh, $m['file'], $m['version'], "Applied migration from {$m['file']}" );
-			Container::instance()->get( 'Log' )->info( "Migration {$m['version']} applied successfully" );
-			
-		} catch ( \Throwable $e ) {
-			Container::instance()->get( 'Log' )->error( "Migration {$m['version']} from {$m['file']} failed: {$e->getMessage()}" );
-			
-			throw new 
-			\RuntimeException( "Migration failed: {$m['version']}" );
-		}
-	}
-}
-
-/**
- *  Run maintenance on selected database
- *  
- *  @param PDO		$dbh	Database connection
- *  @param array 	$config	Maintenance settings
- */
-function db_maintenance( \PDO $dbh, array $config ) : void {
-	static $db_maint;
-	static $sql	= 
-	"SELECT settings FROM maintenance_meta
-		WHERE id = ( SELECT MAX( id ) FROM maintenance_meta );";
-	
-	$db_maint	??= 
-	\defined( 'DB_MAINT' ) 
-		? \constant( 'DB_MAINT' )
-		: 7;
-	
-	$maint		= $db_maint * 86400;
-	$settings	= $dbh->query( $sql )->fetchColumn();
-	
-	if ( false === $settings ) {
-		Container::instance()->get( 'Log' )->info( "No database maintenance settings found" );
-		$settings	= '{ "last_maintenance" : 0 }'; // Fallback
-	}
-	
-	// Since PHP 8.3
-	if ( !\json_validate( $settings ) ) {
-		Container::instance()->get( 'Log' )->error( "Error decoding maintenance settings" );
-		return;
-	}
-	
-	$info	= \json_decode( $settings, true );
-	if ( false === $info || !\is_array( $info ) ) {
-		Container::instance()->get( 'Log' )->error( "Invalid JSON in maintenance settings" );
-		return;
-	}
-	
-	$last_maint	= $info['last_maintenance'] ?? 0;
-	$now		= time();
-	
-	// Skip if not needed
-	if ( ( $now - $last_maint ) < $maint ) {
-		Container::instance()->get( 'Log' )->debug( "Maintenance not required yet" );
-		return;
-	}
-	
-	$commands	= $config['maint_exec'] ?? [];
-	if ( !\is_array( $commands ) || empty( $commands ) ) {
-		Container::instance()->get( 'Log' )->warn( "No maintenance commands configured" );
-		return;
-	}
-	
-	foreach ( $commands as $cmd ) {
-		try {
-			$dbh->exec( $cmd );
-			Container::instance()->get( 'Log' )->info( "Executed maintenance command: {$cmd}" );
-		} catch ( \PDOException $e ) {
-			Container::instance()->get( 'Log' )->error( "Maintenance command failed: {$cmd} — {$e->getMessage()}" );
-		}
-	}
-	
-	$new_settings	= \json_encode( [ 'last_maintenance' => $now ] );
-	$insert_sql	=
-	"INSERT INTO maintenance_meta ( settings )
-		VALUES ( :settings )";
-	
-	db_exec( db_stmt( $dbh, $insert_sql ), [
-		':settings' => $new_settings
-	], "Initiating database maintenance" );
-	
-	Container::instance()->get( 'Log' )->info( "Database maintenance completed" );
-}
-
-/**
- *  Run callable with PDO transaction
- *  
- *  @param PDO		$dbh	Database connection
- *  @param callable	$fn	Execution handler
- *  @return mixed
- */
-function db_with_transaction( \PDO $dbh, callable $fn ) : mixed {
-	try {
-		$dbh->beginTransaction();
-		$result	= $fn( $dbh );
-		$dbh->commit();
-		
-		return $result;
-		
-	} catch ( \Throwable $e ) {
-		if ( $dbh->inTransaction() ) {
-			$dbh->rollBack();
-		}
-		
-		Container::instance()->get( 'Log' )->error( "Error completing transaction via callable" );
-		return false;
-	}
-}
-
-/**
- *  Create config profile-based PDO database connection
- *  
- *  @param string	$profile	Connection profile label in configuration
- *  @param array	$new_profiles	Override connection profile
- *  @return PDO
- */
-function db_get( string $profile = 'main', ?array $new_profiles = null ) : \PDO {
-	static $dbh	= [];
-	static $saved	= [];
-	if ( isset( $dbh[$profile] ) ) {
-		return $dbh[$profile];
-	}
-	
-	$saved	??= config( 'db_profiles' );
-	if ( !empty( $new_profiles ) ) {
-		$saved	= \array_replace_recursive( $saved, $new_profiles );
-	}
-	
-	$config		= $saved[$profile] ?? null;
-	if ( null === $config ) {
-		throw new 
-		\InvalidArgumentException( "Unknown DB profile: {$profile}" );
-	}
-	
-	$create		= $config['installed'];
-	
-	try {
-		// Create a new PDO instance
-		$dbh = new \PDO(
-			$config['dsn'], 
-			$config['username'], 
-			$config['password'], 
-			db_get_options( $config['options'] ?? [] ) 
-		);
-		
-		foreach ( $config['pre_exec'] ?? [] as $cmd ) {
-			$dbh->exec( $cmd );
-		}
-		
-		if ( $create ) {
-			foreach ( $config['init_exec'] ?? [] as $cmd ) {
-				$dbh->exec( $cmd );
-			}
-			
-			db_batch_schema(
-				$dbh, 
-				$saved[$profile]['schema'], 
-				$saved[$profile]['version'] ?? '1.0.0' 
-			);
-			
-			$saved[$profile]['installed'] = true;
-			config_edit( 'db_profiles', $saved );
-		} else {
-			db_migrate( $dbh, $saved[$profile]['migrations'] ?? $profile );
-		}
-		
-		foreach ( $config['post_exec'] ?? [] as $cmd ) {
-			$dbh->exec( $cmd );
-		}
-		
-		db_maintenance( $dbh, $config );
-		
-	} catch ( \PDOException $e ) {
-		// Handle connection errors gracefully
-		Container::instance()->get( 'Log' )->error( "Database connection failed: {$e->getMessage()}" );
-		die( 'Unable to connect to database' );
-	}
-	
-	return $dbh;
-}
-
-/**
- *  Helper to get the result from a successful statement execution
- *  
- *  @param PDO		$dbh	Database connection
- *  @param PDOStatement	$stmt	PDO prepared statement
- *  @param array	$params	Parameters
- *  @param string	$rtype	Return type
- *  @return mixed
- */
-function db_result(
-	\PDO		$dbh,
-	\PDOStatement	$stmt,
-	array		$params		= [],
-	string		$rtype		= ''
-) : mixed {
-	$ok	= db_exec( $stmt, $params, "Running db_result() with return type {$rtype}" );
-	
-	if ( !$ok ) { return null; }
-	
-	return match( \strtolower( $rtype ) ) {
-		// Query with array return
-		'results'	=> $ok ? $stmt->fetchAll() : [], 
-		
-		// Insert with ID return
-		'insert'	=> $ok ? $dbh->lastInsertId() : 0, 
-		
-		// Single column value
-		'column'	=> $ok ? $stmt->fetchColumn() : '', 
-		
-		// Success status
-		default		=> $ok
-	};
-}
-
-/**
- *  Shared data execution routine
- *  
- *  @param string	$sql		Database SQL
- *  @param string	$profile	Connection profile label in configuration
- *  @param array	$params		Parameters
- *  @param string	$rtype		Return type
- *  @return mixed
- */
-function db_result_exec(
-	string	$sql,
-	string	$profile,
-	array	$params		= [],
-	string	$rtype		= ''
-) : mixed {
-	$dbh	= db_get( $profile );
-	$stmt	= db_stmt( $dbh, $sql );
-	$res	= db_result( $dbh, $stmt, $params, $rtype );
-	
-	$stmt->closeCursor();
-	return $res;
-}
-
-/**
- *  Update or insert multiple database rows at once with single SQL
- *  
- *  @param string	$sql		Database SQL
- *  @param string	$profile	Connection profile label in configuration
- *  @param array	$batch		Collection of query parameters
- *  @param string	$rtype		Return type
- *  @return array			Result status
- */
-function db_batch_result_exec(
-	string	$sql,
-	string	$profile,
-	array	$batch		= [],
-	string	$rtype		= ''
-) : array {
-	$dbh	= db_get( $profile );
-	$stmt	= db_stmt( $dbh, $sql );
-	
-	return db_with_transaction( $dbh, function( \PDO $dbh ) use ( $stmt, $batch, $rtype ) {
-		$res	= [];
-		
-		foreach( $batch as $params ) {
-			$status	= db_result( $dbh, $stmt, $params, $rtype );
-			if ( null === $status ) {
-				$stmt->closeCursor();
-				break;
-			}
-			
-			$res[]	= $status;
-			$stmt->closeCursor();
-		}
-		return $res;
-	} );
-}
-
-/**
- *  Insert record into database and return last ID
- *  
- *  @param string	$sql		Database SQL insert
- *  @param string	$profile	Connection profile label in configuration
- *  @param array	$params		Parameters
- *  @return int
- */
-function db_insert(
-	string	$sql,
-	string	$profile,
-	array	$params
-) : int {
-	$res	= db_result_exec( $sql, $profile, $params );
-	return empty( $res ) 
-		? 0
-		: ( \is_numeric( $res ) ? ( int ) $res : 0 );
-}
-
-/**
- *  Create database update
- *  
- *  @param string	$sql		Database SQL update query
- *  @param string	$profile	Connection profile label in configuration
- *  @param array	$params		Query parameters (required)
- *  @return bool			Update status
- */
-function db_update(
-	string	$sql,
-	string	$profile,
-	array	$params		= []
-) : bool {
-	return empty( db_result_exec( $sql, $profile, $params ) ) 
-		? false : true;
 }
 
 
