@@ -1166,6 +1166,8 @@ final class Util {
 	
 	protected static array $extensions;
 	
+	protected static \DateTime $now;
+	
 	/**
 	 *  Currently running extensions
 	 *  
@@ -1229,6 +1231,8 @@ final class Util {
 		static $fn	= [];
 		
 		if ( isset( $fn[$func] ) ) { return $fn[$func]; }
+		
+		// Previously, this was a Suhosin-aware check
 		$fn[$func] = !\function_exists( $func );
 		
 		return $fn[$func];
@@ -1265,12 +1269,17 @@ final class Util {
 	 *  Get list of current user-defined functions
 	 *  
 	 *  @param bool		$update	Force cache refresh
+	 *  @param string|array	$filter	Function parameter filter
 	 *  @return array
 	 */
-	public static function functions_list( bool $update = false ) : array {
+	public static function functions_list( 
+		bool		$update	= false,
+		string|array	$filter = ''
+	) : array {
 		static $functions;
 		if ( $update || !isset( $functions ) ) {
 			$functions = \get_defined_functions()['user'];
+			// TODO: Reflection filter/sort using $filter
 		}
 		return $functions;
 	}
@@ -1541,7 +1550,10 @@ final class Util {
 	public static function array_normalize_keys( array $items ) : array {
 		$normal	= [];
 		foreach( $items as $key => $value ) {
-			$lkey		= \is_string( $key ) ? \strtolower( $key ) : $key;
+			$lkey		= 
+			\is_string( $key ) 
+				? \strtolower( $key ) : $key;
+			
 			$normal[$lkey]	= 
 			\is_array( $value ) && !\array_is_list( $value )
 				? static::array_normalize_keys( $value ) 
@@ -1560,13 +1572,12 @@ final class Util {
 		$normal	= [];
 		
 		foreach ( $tree as $key => $value ) {
-			if ( \is_array( $value ) ) {
-				$normal[$key] = static::normalize_array( $value );
-			} elseif ( \is_string( $value ) ) {
-				$normal[$key] = \strtolower( $value );
-			} else {
-				$normal[$key] = $value;
-			}
+			$normal[$key] = 
+			match( true ) {
+				\is_array( $value )	=> static::normalize_array( $value ), 
+				\is_string( $value )	=> \strtolower( $value ), 
+				default			=> $value
+			};
 		}
 		
 		return $normal;
@@ -1809,10 +1820,8 @@ final class Util {
 	 *  @return bool
 	 */
 	public static function date_is_future( \DateTime $start ) : bool {
-		static $now	= null;
-		$now		??= new \DateTime();
-		
-		return $start > $now;
+		static::$now	??= new \DateTime();
+		return $start > static::$now;
 	}
 	
 	/**
@@ -1823,9 +1832,8 @@ final class Util {
 	 *  @return array
 	 */
 	public static function date_range( array $params, bool $limit_now = false ) : array {
-		static $now	= null;
+		static::$now	??= new \DateTime();
 		
-		$now		??= new \DateTime();
 		$year		= $params['year']	?? null;
 		$month		= $params['month']	?? null;
 		$day		= $params['day']	?? null;
@@ -1872,7 +1880,7 @@ final class Util {
 			( clone $start )->modify( '+1 year' )
 		};
 		
-		$end	= ( $limit_now && $limit > $now ) ? $now : $limit;
+		$end	= ( $limit_now && $limit > static::$now ) ? static::$now : $limit;
 		return [ $start, $end, $page ];
 	}
 	
@@ -2064,6 +2072,32 @@ final class Text {
 	}
 	
 	/**
+	 *  Convert all convertable elements in an array to string
+	 *  
+	 *  @param array	$items		Raw items list
+	 */
+	public static function string_array_values( array $items ) : array {
+		$items	= 
+		\array_filter( $items, static function( $val ) { 
+			return ( !\is_array( $val ) && !\is_object( $val ) ) || (
+				\is_object( $val ) && \method_exists( $val, '__toString' )
+			);
+		} );
+		
+		return \array_map( 'strval', $items );
+	}
+	
+	/**
+	 *  Lowercase all values in an array
+	 *  
+	 *  @param array	$items		Already string converted items list
+	 *  @return array
+	 */
+	public static function lower_array_values( array $items  ) : array {
+		return \array_map( 'Text::lowercase', $collection );
+	}
+	
+	/**
 	 *  Try to detect if a string contains ASCII-only text
 	 *  
 	 *  @param string	$text		Text to test
@@ -2076,18 +2110,33 @@ final class Text {
 	/**
 	 *  Check if a string contains a fragment
 	 *  
-	 *  @param mixed	$source		Original text
+	 *  @param string|array	$source		Original text
 	 *  @param string	$term		Search term
+	 *  @param bool		$ci		Case insensitive if true (default)
 	 */
-	public static function has( mixed $source, string $term ) : bool {
+	public static function has( 
+		string|array	$source, 
+		string		$term, 
+		bool		$ci	= true 
+	) : bool {
 		if ( \is_array( $source ) ) {
 			if ( empty( $source ) ) { return false; }
-			return \in_array( $term, $source );
+			
+			$source = static::string_array_values( $source );
+			return $ci 
+				? \in_array( 
+					static::lowercase( $term ), 
+					static::lower_array_values( $source )
+				)
+				: \in_array( $term, $source );
 		}
 		
-		return 
-		( empty( $source ) || empty( $term ) ) ? 
-			false : \str_contains( ( string ) $source, $term );
+		return $ci 
+			? \str_contains( 
+				static::lowercase( $source ), 
+				static::lowercase( $term ) 
+			)
+			: \str_contains( $source, $term );
 	}
 	
 	/**
@@ -2095,22 +2144,18 @@ final class Text {
 	 *  
 	 *  @param string	$find		Needle to search
 	 *  @param array	$collection	Haystack to search partials for
-	 *  @param bool		$ca		Case insensitive if true (default)
+	 *  @param bool		$ci		Case insensitive if true (default)
 	 *  @return bool
 	 */
 	public static function starts_with( 
 		string	$find, 
 		array	$collection, 
-		bool	$ca		= true 
+		bool	$ci		= true 
 	) : bool {
-		if ( $ca ) {
-			$find = \strtolower( $find );
-			foreach ( $collection as $c ) {
-				if ( \str_starts_with( $find, \strtolower( $c ) ) ) {
-					return true;
-				}
-			}
-			return false;
+		$collection	= static::string_array_values( $collection );
+		if ( $ci ) {
+			$find		= static::lowercase( $find );
+			$collection	= static::lower_array_values( $find );
 		}
 		
 		foreach ( $collection as $c ) {
@@ -2263,10 +2308,14 @@ final class Sanitize {
 	 *  @return string
 	 */
 	public static function path_traversal( string $path ) : string {
+		$path		= \preg_replace( '/\\\\/', '/', $path );
+		
+		// Path starts with slash? Keep it
 		$pre		= \str_starts_with( $path, '/' ) ? '/' : '';
+		
 		$segments	= 
 		\array_filter( 
-			\explode( '/', \preg_replace( '/\\\\/', '/', $path )  ),
+			\explode( '/', $path ),
 			static function( $seg ) {
 				$seg = \trim( $seg );
 				return 
@@ -2496,7 +2545,7 @@ final class Sanitize {
 			'lpt1','lpt2','lpt3','lpt4','lpt5','lpt6','lpt7','lpt8','lpt9'
 		];
 		
-		$base	= \strtolower( \pathinfo( $name, \PATHINFO_FILENAME ) );
+		$base	= \trim( \strtolower( \pathinfo( $name, \PATHINFO_FILENAME ) ) );
 		return '' !== $base && \in_array( $base, $reserved );
 	}
 	
@@ -3278,13 +3327,10 @@ final class Storage {
 			
 		$mtime = @\filemtime( $check );
 		if ( $mtime !== false && $mtime < time() - $max_age ) {
-			if ( \is_dir( $check ) ) {
-				@\rmdir( $check );
-			} else {
-				if ( \is_file( $check ) ) {
-					@\unlink( $check );
-				}
-			}
+			
+			if ( \is_file( $check ) ) { @\unlink( $check ); }
+			elseif ( \is_dir( $check ) ) { @\rmdir( $check ); } 
+			
 			\error_log( "Stale lock for '{$lock_file}' removed" );
 		}
 	}
@@ -3378,9 +3424,7 @@ final class Storage {
 		// Attempt lock
 		while ( true ) {
 			$handle = \fopen( $lock_file, $mode );
-			if ( $handle && $get_lock() ) {
-				return $handle;
-			}
+			if ( $handle && $get_lock() ) { return $handle; }
 			
 			if ( !static::check_wait( $lock_file, $start, $max_wait ) ) {
 				static::release_lock( $handle, $lock_file );
@@ -3497,8 +3541,8 @@ final class Storage {
 		$base	= \basename( $name );
 		do {
 			$bkp = static::base()
-				. $base . '.'
-				. Util::timestamp( 'Y-m-d_H-i-s_' )
+				. $base . '.' 
+				. Util::timestamp( 'Y-m-d_H-i-s_' ) 
 				. \uniqid( '', true ) . $ext;
 		} while ( \file_exists( $bkp ) );
 		
@@ -4408,32 +4452,32 @@ final class Request extends Instance {
 		match( true ) {
 			// Secure header
 			( 
-				!empty( $_SERVER['HTTPS'] )
-				&& 0 !== \strcasecmp( $_SERVER['HTTPS'], 'off' ) 
+				!empty( $_SERVER['HTTPS'] )			&& 
+				0 !== \strcasecmp( $_SERVER['HTTPS'], 'off' ) 
 			),
 			
 			// Proxy/forwarded headers
 			( 
-				!empty( $_SERVER['HTTP_X_FORWARDED_PROTO'] )
-				&& 0 === \strcasecmp( $_SERVER['HTTP_X_FORWARDED_PROTO'], 'https' ) 
+				!empty( $_SERVER['HTTP_X_FORWARDED_PROTO'] )	&& 
+				0 === \strcasecmp( $_SERVER['HTTP_X_FORWARDED_PROTO'], 'https' ) 
 			),
 			( 
-				!empty( $_SERVER['HTTP_X_FORWARDED_PROTOCOL'] )
-				&& 0 === \strcasecmp( $_SERVER['HTTP_X_FORWARDED_PROTOCOL'], 'https' ) 
+				!empty( $_SERVER['HTTP_X_FORWARDED_PROTOCOL'] )	&&
+				0 === \strcasecmp( $_SERVER['HTTP_X_FORWARDED_PROTOCOL'], 'https' ) 
 			),
 			( 
-				!empty( $_SERVER['HTTP_X_FORWARDED_SSL'] )
-				&& 0 === \strcasecmp( $_SERVER['HTTP_X_FORWARDED_SSL'], 'on' ) 
+				!empty( $_SERVER['HTTP_X_FORWARDED_SSL'] )	&& 
+				0 === \strcasecmp( $_SERVER['HTTP_X_FORWARDED_SSL'], 'on' ) 
 			),
 			( 
-				!empty( $_SERVER['HTTP_X_URL_SCHEME'] )
-				&& 0 === \strcasecmp( $_SERVER['HTTP_X_URL_SCHEME'], 'https' ) 
+				!empty( $_SERVER['HTTP_X_URL_SCHEME'] )		&& 
+				0 === \strcasecmp( $_SERVER['HTTP_X_URL_SCHEME'], 'https' ) 
 			),
 			
 			// Fallback
 			( 
-				!empty( $_SERVER['SERVER_PORT'] ) 
-				&& 443 === ( int ) $_SERVER['SERVER_PORT']
+				!empty( $_SERVER['SERVER_PORT'] )		&& 
+				443 === ( int ) $_SERVER['SERVER_PORT']
 			)	=> true,
 			
 			default	=> false
@@ -4930,7 +4974,7 @@ final class FileResponse extends Response {
 	 *  @return string
 	 */
 	public function generate_etag( int $size, int $mtime ) : string {
-		$raw = \sprintf( '%x-%x', $mtime, $size );
+		$raw = @\sprintf( '%x-%x', $mtime, $size ) ?: '';
 		return "\"{$raw}\"";
 	}
 	
@@ -4943,6 +4987,7 @@ final class FileResponse extends Response {
 	private function meta_cache_path( string $fpath ) : string {
 		static $tmp;
 		
+		// Temporary directory within storage base
 		$tmp	??= Storage::base() . "/tmp/";
 		if ( !\is_dir( $tmp ) && !\mkdir( $tmp, 0777, true ) ) {
 			throw new 
@@ -5108,12 +5153,8 @@ final class FileResponse extends Response {
 			"Last-Modified"	=> $meta['last_modified']
 		];
 		
-		if ( $size ) {
-			$headers["Content-Length"]	= $meta['content_length'];
-		}
-		if ( $stype ) {
-			$headers["Content-Type"]	= $meta['content_type'];
-		}
+		if ( $size ) { $headers["Content-Length"] = $meta['content_length']; }
+		if ( $stype ) { $headers["Content-Type"] = $meta['content_type']; }
 		
 		return $headers;
 	}
@@ -5144,9 +5185,11 @@ final class FileResponse extends Response {
 			$headers, 
 			$this->file_headers( $fpath, false, true, true ) 
 		);
-		$this->headers = \array_merge( $this->headers, $headers );
 		
-		$this->code = 200;
+		$this->code	= 200;
+		$this->headers	= \array_merge( $this->headers, $headers );
+		
+		// Output file headers, flush and end buffers
 		$this->status();
 		$this->emit_headers();
 		$this->flush_buffers( true );
@@ -5179,19 +5222,22 @@ final class FileResponse extends Response {
 		string	$fpath,
 		array	$ranges
 	) : void {
+		// Header boudary marker 
 		$boundary	= \bin2hex( \random_bytes( 6 ) );
+		
+		$this->code	= 206;
 		$this->headers	= 
 		\array_merge( [
 				"Content-Type"	=> "multipart/byteranges; boundary={$boundary}",
 				"Accept-Ranges"	=> "bytes"
 			], $this->file_headers( $fpath, true, false, false ) 
 		);
-		$this->code = 206;
+		
 		$this->emit_headers();
 		$this->flush_buffers( true );
 		
 		foreach ( $ranges as [ $start, $end ] ) {
-			
+			// Stop on connection interruption
 			if ( \connection_aborted() ) { break; }
 			
 			$start	= \max( 0, $start );
@@ -5203,6 +5249,7 @@ final class FileResponse extends Response {
 			$length	= $end - $start + 1;
 			$chunk	= $length;
 			
+			// Range block header
 			$header	= 
 			"--{$boundary}\r\n" . 
 			"Content-Type: {$meta['content_type']}\r\n" . 
@@ -5214,6 +5261,7 @@ final class FileResponse extends Response {
 			echo $header;
 			\flush();
 			
+			// Range chunk stream
 			while( $chunk > 0 && !\feof( $handle ) ) {
 				if ( \connection_aborted() ) { break; }
 				
@@ -5226,7 +5274,9 @@ final class FileResponse extends Response {
 			echo "\r\n";
 		}
 		
+		// End with boundary marker
 		echo "--{$boundary}--\r\n";
+		\flush();
 	}
 	
 	/**
@@ -5245,7 +5295,7 @@ final class FileResponse extends Response {
 		?int	$client_mtime	= null,
 		?array	$ranges		= null
 	) : void {
-		$this->end_buffers();
+		$this->end_buffers();	// Clear buffers
 		$this->ignore_abort();
 		
 		$meta		= $this->file_metadata( $fpath );
@@ -5253,12 +5303,19 @@ final class FileResponse extends Response {
 		$mtime		= $meta['mtime'];
 		$handle		= null;
 		
+		// Not modified? Nothing to send
 		if ( $this->check_not_modified(
 			etag		: $etag, 
 			mtime		: $mtime, 
 			client_etag	: $client_etag, 
 			client_mtime	: $client_mtime 
-		) ) { exit(); }
+		) ) { 
+			$this->code	= 304;
+			$this->status();
+			$this->emit_headers();
+			$this->flush_buffers( true );
+			exit(); 
+		}
 		
 		try {
 			$handle = Storage::file_open( $fpath );
@@ -5275,6 +5332,8 @@ final class FileResponse extends Response {
 			
 			$this->code = 500;
 			$this->status();
+			$this->emit_headers();
+			$this->flush_buffers( true );
 			echo $msg;
 		} finally {
 			if ( \is_resource( $handle ) ) { \fclose( $handle ); }
@@ -5302,6 +5361,7 @@ class PageResponse extends Response {
 		$is_html	= !$is_json && \preg_match( '/<[^>]+>/', ( string ) $body );
 		
 		if ( !$ct_sent ) {
+			// Try a basic content header
 			$header	= 
 			match( true ) {
 				$is_json	=> 'Content-Type: application/json; charset=utf-8',
@@ -5317,7 +5377,6 @@ class PageResponse extends Response {
 			default		=> $body
 		};
 		
-		$this->flush_buffers();
 	}
 	
 	/** 
@@ -5464,21 +5523,20 @@ class PageResponse extends Response {
 		}
 		
 		$this->build_headers( $headers, $ct_sent, $lo_sent );
-		$this->status();
-		
-		if ( null !== $body && !$is_redir ) {
-			$this->body( $body, $ct_sent );
-		}
-		
 		if ( $is_redir ) {
 			if ( !$lo_sent ) {
 				throw new 
 				\RuntimeException( "Redirect requires a Location header" );
 			}
-			
-			$this->flush_buffers( true );
-			exit();
 		}
+		
+		$this->status();
+		$this->emit_headers();
+		if ( null !== $body && !$is_redir ) {
+			$this->body( $body, $ct_sent );
+		}
+		$this->flush_buffers( true );
+		exit();
 	}
 	
 	/**
@@ -5562,7 +5620,7 @@ class PageResponse extends Response {
 		}
 		
 		// Other headers
-		$params = [ 
+		$params	= [ 
 			'permissions'	=> 'Permissions-Policy',
 			'transport'	=> 'Strict-Transport-Security',
 			'frames'	=> 'X-Frame-Options',
@@ -6092,15 +6150,18 @@ final class Config extends Instance {
 	 */
 	public function defaults( string $param ) : ?string {
 		static $dir;
-		$dir ??= 
+		static $base;
+
+		$base	??= Text::slash_path( PATH, true );
+		$dir	??= 
 		defined( 'PLUGIN_DIR' )
 			? Text::slash_path( constant( 'PLUGIN_DIR' ), true )
-			: Text::slash_path( PATH, true ) . 'plugins' . \DIRECTORY_SEPARATOR;
+			: $base . Text::slash_path( 'plugins', true );
 			
 		$this->defaults ??= [
 			'plugin_dir'	=> \is_dir( $dir ) 
 				? $dir 
-				: Text::slash_path( PATH, true ), // PATH fallback
+				: $base, // PATH fallback
 			
 			'default_lang'	=>
 			defined( 'DEFAULT_LANGUAGE' ) 
@@ -6127,7 +6188,7 @@ final class Config extends Instance {
 			'plugin_dir'	=> 
 				\is_dir( $this->defaults['plugin_dir'] ) 
 					? $this->defaults['plugin_dir']
-					: Text::slash_path( PATH, true ),
+					: $base,
 			
 			'default_lang'	=> $this->defaults['default_lang'],
 			'default_tz'	=> $this->defaults['default_tz'],
