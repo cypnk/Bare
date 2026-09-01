@@ -2075,6 +2075,7 @@ final class Text {
 	 *  Convert all convertable elements in an array to string
 	 *  
 	 *  @param array	$items		Raw items list
+	 *  @return array
 	 */
 	public static function string_array_values( array $items ) : array {
 		$items	= 
@@ -5376,7 +5377,6 @@ class PageResponse extends Response {
 			$is_json	=> Util::json_uencode( $body ),
 			default		=> $body
 		};
-		
 	}
 	
 	/** 
@@ -9546,7 +9546,7 @@ final class PluginDiscovery {
 /**
  *  @class Database access
  */
-final class Database {
+final class Database extends Instance {
 	
 	/**
 	 *  @var array<mixed> Saved database profiles
@@ -10031,7 +10031,7 @@ final class Database {
 	public function get_migrations( string $mi_dir ) : iterable {
 		// No migrations set
 		if ( !\is_dir( $mi_dir ) ) {
-			$this->logger->debug( "Called db_migrate() with no migrations" );
+			$this->logger->debug( "Called get_migrations() with no migrations directory" );
 			return [];
 		}
 		
@@ -10289,7 +10289,7 @@ final class Database {
 	) : mixed {
 		$ok	= 
 		$this->exec_stmt( 
-			$stmt, $params, "Running db_result() with return type {$rtype}" 
+			$stmt, $params, "Running result() with return type {$rtype}" 
 		);
 		
 		if ( !$ok ) { return null; }
@@ -10401,6 +10401,255 @@ final class Database {
 	) : bool {
 		return empty( $this->result_exec( $sql, $profile, $params ) ) 
 			? false : true;
+	}
+}
+
+
+/**
+ *  @class Session management
+ */
+class Sessions extends Instance {
+	
+	private Config		$config;
+	private Logger		$logger;
+	private Database	$data;
+	private Request		$request;
+	
+	public function ___construct() {
+		$this->config		= Container::instance()->get( 'Config' );
+		$this->logger		= Container::instance()->get( 'Log' );
+		$this->data		= Container::instance()->get( 'Database' );
+		$this->request		= Container::instance()->get( 'Request' );
+	}
+	
+	/**
+	 *  Does nothing
+	 */
+	public function open( $save_path, $session_name ) { return true; }
+	public function close() { return true; }
+	
+	/**
+	 *  Create session ID
+	 *  
+	 *  @return string
+	 */
+	public function create_id() { return \bin2hex( \random_bytes( 32 ) ); }
+	
+	/**
+	 *  Validate session ID
+	 *  
+	 *  @param string	$session_id	Unique identifier
+	 *  @return bool
+	 */
+	public function validate_id( $session_id ) {
+		return \preg_match( '/^[a-f0-9]{64}$/', $session_id ) === 1;
+	}
+	
+	/**
+	 *  Read session data by ID
+	 *  
+	 *  @param string	$session_id	Unique identifier
+	 *  @return string
+	 */
+	public function read( $session_id ) {
+		$dbh	= $this->data->get( 'sessions' );
+		$stmt	= 
+		$dbh->prepare(
+		"SELECT session_data FROM sessions
+			WHERE session_id = :id
+			AND ( expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP )
+			LIMIT 1"
+		);
+		
+		$stmt->execute( [ ':id' => $session_id ] );
+		$row	= $stmt->fetch( \PDO::FETCH_ASSOC );
+		
+		return $row ? $row['session_data'] : '';
+	}
+	
+	/**
+	 *  Store session data
+	 *  
+	 *  @param string	$session_id	Unique identifier
+	 *  @param string	$data		Session information
+	 *  @return bool
+	 */
+	public function write( $session_id, $data ) {
+		$dbh	= $this->data->get( 'sessions' );
+		
+		return $this->data->with_transaction( 
+				$dbh, function( \PDO $dbh ) 
+					use ( $session_id, $data ) {
+			$stmt	= 
+			$dbh->prepare(
+				"INSERT INTO sessions (
+					basename, session_id, session_ip,
+					session_data, expires_at
+				)
+				VALUES (
+					:basename, :id, :ip, :data,
+						DATETIME( 'now', '+1 hour' )
+				) ON CONFLICT( basename, session_id )
+				DO UPDATE SET
+					session_data	= excluded.session_data,
+					session_ip	= excluded.session_ip,
+					expires_at	= excluded.expires_at"
+			);
+			
+			$host	= 
+			\idn_to_ascii( 
+				$this->request->host, 
+				\IDNA_DEFAULT, 
+				\INTL_IDNA_VARIANT_UTS46 
+			);
+			
+			return $stmt->execute( [
+				':basename'	=> \strtolower( $host ),
+				':id'		=> $session_id,
+				':ip'		=> $this->request->ip( true ),
+				':data'		=> $data
+			] );
+		} );
+	}
+	
+	/**
+	 *  Delete session
+	 *  
+	 *  @param string	$session_id	Unique identifier
+	 *  @return bool
+	 */
+	public function destroy( $session_id ) {
+		$dbh	= $this->data->get( 'sessions' );
+		return $this->data->with_transaction( 
+				$dbh, function( \PDO $dbh ) 
+					use ( $session_id ) {
+			$stmt	=
+			$dbh->prepare( "DELETE FROM sessions WHERE session_id = :id" );
+			
+			return $stmt->execute( [ ':id' => $session_id ] );
+		} );
+	}
+	
+	/**
+	 *  Session garbage collection
+	 *  
+	 *  @param int		$maxlifetime	Unused maximum TTL
+	 *  @return bool
+	 */
+	public function gc( $maxlifetime ) {
+		$dbh	= $this->data->get( 'sessions' );
+		
+		return $this->data->with_transaction( $dbh, function( \PDO $dbh ) {
+			return $dbh->exec(
+				"DELETE FROM sessions
+					WHERE expires_at IS NOT NULL
+					AND expires_at <= CURRENT_TIMESTAMP"
+			);
+		} );
+	}
+	
+	/**
+	 *  Update session data with timestamp
+	 *  
+	 *  @param string	$session_id	Unique identifier
+	 *  @return bool
+	 */
+	public function update_timestamp( $session_id, $data ) {
+		$dbh	= $this->data->get( 'sessions' );
+	
+		return db_with_transaction( 
+				$dbh, function( \PDO $dbh ) 
+					use ( $session_id, $data ) {
+			$stmt	=
+			$dbh->prepare( 
+			"UPDATE sessions
+				SET expires_at = DATETIME('now', '+1 hour'), 
+				data = :data
+				WHERE session_id = :id"
+			);
+			
+			return $stmt->execute( [ 
+				':id'	=> $session_id, 
+				':data'	=> $data
+			] );
+		} );
+	}
+
+	/**
+	 *  Turn off all session activity
+	 */
+	public function off() : void {
+		if ( \session_status() === \PHP_SESSION_ACTIVE ) {
+			\session_unset();
+			\session_destroy();
+			\session_write_close();
+		}
+	}
+	
+	/**
+	 *  Set session handler functions and initiate
+	 */
+	public function init() : void {
+		static $start;
+		static $params;
+		
+		$params	??= 
+		\session_set_cookie_params( [
+			'httponly'	=> true, 
+			'secure'	=> $this->request->is_tls, 
+			'samesite'	=> 'Strict', 
+			'path'		=> $this->config->setting( 'cookie_path', '/' ), 
+		] );
+		
+		$start	??= 
+		\session_set_save_handler( 
+			'sess_open', 
+			'sess_close', 
+			'sess_read', 
+			'sess_write', 
+			'sess_destroy', 
+			'sess_gc', 
+			'sess_create_id', 
+			'sess_validate_id',
+			'sess_update_timestamp'
+		);
+		
+		if ( \session_status() === \PHP_SESSION_NONE ) {
+			if ( \headers_sent( $file, $line ) ) {
+				$this->logger->error( 
+					"Cannot start session: headers already sent by {$file} on line {$line}"
+				);
+				
+				throw new 
+				\RuntimeException( "Session start failed due to headers already sent" );
+			}
+			
+			try {
+				if ( !\session_start() ) { // Something else went wrong
+					$this->logger->error( "Session failed to start" );
+					
+					throw new 
+					\RuntimeException( "Session start failed" );
+				}
+				
+				$this->logger->debug( "Session started: " . \session_id() );
+				
+			} catch ( \Throwable $e ) {
+				$this->logger->error( "Session error: {$e->getMessage()}" );
+				Container::instance( 'Error' )::show_page();
+			}
+		}
+		
+		$exp	= time() + ( int ) $this->config->setting( 'session_regen', 1800 );
+		if ( !isset( $_SESSION['session_regen'] ) ) {
+			$_SESSION['session_regen'] = $exp;
+			return;
+		}
+		
+		if ( time() > ( int ) $_SESSION['session_regen'] ) {
+			\session_regenerate_id( true );
+			$_SESSION['session_regen'] = $exp;
+		}
 	}
 }
 
@@ -10581,226 +10830,6 @@ function view_render( string $layout, array $vars = [] ) : string {
 		\RuntimeException( "Error rendering view" );
 	} finally {
 		\array_pop( $stack );
-	}
-}
-
-
-/**
- *  Session management
- */
-
-/**
- *  Does nothing
- */
-function sess_open( $save_path, $session_name ) { return true; }
-function sess_close() { return true; }
-
-/**
- *  Create session ID
- *  
- *  @return string
- */
-function sess_create_id() { return \bin2hex( \random_bytes( 32 ) ); }
-
-/**
- *  Validate session ID
- *  
- *  @param string	$session_id	Unique identifier
- *  @return bool
- */
-function sess_validate_id( $session_id ) {
-	return \preg_match( '/^[a-f0-9]{64}$/', $session_id ) === 1;
-}
-
-/**
- *  Read session data by ID
- *  
- *  @param string	$session_id	Unique identifier
- *  @return string
- */
-function sess_read( $session_id ) {
-	$dbh	= db_get( 'sessions' );
-	$stmt	= 
-	$dbh->prepare(
-	"SELECT session_data FROM sessions
-		WHERE session_id = :id
-		AND ( expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP )
-		LIMIT 1"
-	);
-	
-	$stmt->execute( [ ':id' => $session_id ] );
-	$row	= $stmt->fetch( \PDO::FETCH_ASSOC );
-	
-	return $row ? $row['session_data'] : '';
-}
-
-/**
- *  Store session data
- *  
- *  @param string	$session_id	Unique identifier
- *  @param string	$data		Session information
- *  @return bool
- */
-function sess_write( $session_id, $data ) {
-	$dbh	= db_get( 'sessions' );
-	
-	return db_with_transaction( $dbh, function( \PDO $dbh ) use ( $session_id, $data ) {
-		$stmt	= 
-		$dbh->prepare(
-			"INSERT INTO sessions (
-				basename, session_id, session_ip,
-				session_data, expires_at
-			)
-			VALUES (
-				:basename, :id, :ip, :data,
-					DATETIME( 'now', '+1 hour' )
-			) ON CONFLICT( basename, session_id )
-			DO UPDATE SET
-				session_data	= excluded.session_data,
-				session_ip	= excluded.session_ip,
-				expires_at	= excluded.expires_at"
-		);
-		
-		$host	= 
-		\idn_to_ascii( Container::instance()->get( 'Request' )->host, \IDNA_DEFAULT, \INTL_IDNA_VARIANT_UTS46 );
-		return $stmt->execute( [
-			':basename'	=> \strtolower( $host ),
-			':id'		=> $session_id,
-			':ip'		=> Container::instance()->get( 'Request' )->ip( true ),
-			':data'		=> $data
-		] );
-	} );
-}
-
-/**
- *  Delete session
- *  
- *  @param string	$session_id	Unique identifier
- *  @return bool
- */
-function sess_destroy( $session_id ) {
-	$dbh	= db_get( 'sessions' );
-	return db_with_transaction( $dbh, function( \PDO $dbh ) use ( $session_id ) {
-		$stmt	=
-		$dbh->prepare( "DELETE FROM sessions WHERE session_id = :id" );
-		
-		return $stmt->execute( [ ':id' => $session_id ] );
-	} );
-}
-
-/**
- *  Session garbage collection
- *  
- *  @param int		$maxlifetime	Unused maximum TTL
- *  @return bool
- */
-function sess_gc( $maxlifetime ) {
-	$dbh	= db_get( 'sessions' );
-	
-	return db_with_transaction( $dbh, function( \PDO $dbh ) {
-		return $dbh->exec(
-			"DELETE FROM sessions
-				WHERE expires_at IS NOT NULL
-				AND expires_at <= CURRENT_TIMESTAMP"
-		);
-	} );
-}
-
-/**
- *  Update session data with timestamp
- *  
- *  @param string	$session_id	Unique identifier
- *  @return bool
- */
-function sess_update_timestamp( $session_id, $data ) {
-	$dbh	= db_get( 'sessions' );
-
-	return db_with_transaction( $dbh, function( \PDO $dbh ) use ( $session_id, $data ) {
-		$stmt	=
-		$dbh->prepare( 
-		"UPDATE sessions
-			SET expires_at = DATETIME('now', '+1 hour'), 
-			data = :data
-			WHERE session_id = :id"
-		);
-		return $stmt->execute( [ 
-			':id'	=> $session_id, 
-			':data'	=> $data
-		] );
-	} );
-}
-
-function sess_off() : void {
-	if ( \session_status() === \PHP_SESSION_ACTIVE ) {
-		\session_unset();
-		\session_destroy();
-		\session_write_close();
-	}
-}
-
-/**
- *  Set session handler functions and initiate
- */
-function sess_init() : void {
-	static $params;
-	static $start;
-	
-	$params	??= 
-	\session_set_cookie_params( [
-		'httponly'	=> true, 
-		'secure'	=> Container::instance()->get( 'Request' )->is_tls, 
-		'samesite'	=> 'Strict', 
-		'path'		=> config( 'cookie_path', '/' ), 
-	] );
-	
-	$start	??= 
-	\session_set_save_handler( 
-		'sess_open', 
-		'sess_close', 
-		'sess_read', 
-		'sess_write', 
-		'sess_destroy', 
-		'sess_gc', 
-		'sess_create_id', 
-		'sess_validate_id',
-		'sess_update_timestamp'
-	);
-	
-	if ( \session_status() === \PHP_SESSION_NONE ) {
-		if ( \headers_sent( $file, $line ) ) {
-			Container::instance()->get( 'Log' )->error( 
-				"Cannot start session: headers already sent by {$file} on line {$line}"
-			);
-			
-			throw new 
-			\RuntimeException( "Session start failed due to headers already sent" );
-		}
-		
-		try {
-			if ( !\session_start() ) { // Something else went wrong
-				Container::instance()->get( 'Log' )->error( "Session failed to start" );
-				
-				throw new 
-				\RuntimeException( "Session start failed" );
-			}
-			
-			Container::instance()->get( 'Log' )->debug( "Session started: " . \session_id() );
-		} catch ( \Throwable $e ) {
-			
-			Container::instance()->get( 'Log' )->error( "Session error: {$e->getMessage()}" );
-			error_page();
-		}
-	}
-	
-	$exp	= time() + ( int ) config( 'session_regen', 1800 );
-	if ( !isset( $_SESSION['session_regen'] ) ) {
-		$_SESSION['session_regen'] = $exp;
-		return;
-	}
-	
-	if ( time() > ( int ) $_SESSION['session_regen'] ) {
-		\session_regenerate_id( true );
-		$_SESSION['session_regen'] = $exp;
 	}
 }
 
