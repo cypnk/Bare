@@ -2356,7 +2356,7 @@ final class Sanitize {
 	 *  @return array
 	 */
 	public static function host( string $txt ) : string {
-		return \mb_strtolower( \rtrim( 
+		return Text::lowercase( \rtrim( 
 			\parse_url( $txt, \PHP_URL_HOST ) ?? '', 
 			" \t\n\r\0\x0B." 
 		) );
@@ -2546,7 +2546,7 @@ final class Sanitize {
 			'lpt1','lpt2','lpt3','lpt4','lpt5','lpt6','lpt7','lpt8','lpt9'
 		];
 		
-		$base	= \trim( \strtolower( \pathinfo( $name, \PATHINFO_FILENAME ) ) );
+		$base	= \trim( Text::lowercase( \pathinfo( $name, \PATHINFO_FILENAME ) ) );
 		return '' !== $base && \in_array( $base, $reserved );
 	}
 	
@@ -6381,6 +6381,131 @@ class Language extends Instance {
 		$rt = ( int ) ceil( $this->wordcount( $text, $set ) / $speed );
 		return ( $rt < 1 ) ? 1 : $rt;
 	}
+	
+	/**
+	 *  Process search pattern for full text searching
+	 *  
+	 *  @param string	$find	Sent search parameters
+	 *  @return string
+	 */
+	public function search_phrase( string $find ) : string {
+		// Remove tags and trim
+		$find	= Sanitize::bland( $find );
+		if ( empty( $find ) ) {
+			return '';
+		}
+		
+		// Search words including quoted terms
+		if ( \preg_match_all( '/"(?:\\\\.|[^\\\\"])*"|\S+/', $find, $m ) ) {
+			if ( empty( $m ) ) { return ''; }
+			$fdata	= \array_unique( $m[0] ?? [] );
+		} else { return ''; }
+		
+		if ( empty( $fdata ) ) { return ''; }
+		
+		// Limit maximum number of unique words to search
+		$sc	= $this->config->setting( 'max_search_words', 10, 'int' );
+		if ( count( $fdata ) > $sc ) {
+			$fdata = \array_slice( $fdata, 0, $sc );
+		}
+		
+		// TODO: Move to language-agnostic patterns
+		
+		// Insert ' OR ' for multiple terms
+		$find	= \implode( ' OR ', $fdata );
+		
+		// Remove conflicting/duplicate params
+		$find	= 
+		\preg_replace( '/\b(AND|OR|NEAR|NOT)(?:\s\1)+/iu', 'OR', $find );
+		
+		$find	= \preg_replace( '/\bOR NEAR/iu', 'NEAR', $find );
+		$find	= \preg_replace( '/\bNEAR OR/iu', 'NEAR', $find );
+		$find	= \preg_replace( '/\bOR AND/iu', 'AND', $find );
+		$find	= \preg_replace( '/\bAND OR/iu', 'AND', $find );
+		$find	= \preg_replace( '/\bOR NOT/iu', 'NOT', $find );
+		$find	= \preg_replace( '/\bNOT OR/iu', 'NOT', $find );
+		
+		$find	= 
+		\preg_replace( '/\b(AND|OR|NEAR|NOT)(?:\s\1)+/iu', 'OR', $find );
+		
+		// Return with keywords removed from beginning and end
+		return 
+		\preg_replace( 
+			'/^(AND|OR|NEAR|NOT)(.*)(AND|OR|NEAR|NOT)$/ius', 
+			'$2', \trim( $find )
+		);
+	}
+	
+	/**
+	 *  Get common words in text for searching
+	 *  
+	 *  @param array|string	$lines		Content to process
+	 *  @param bool		$as_array	Returns as an array if true
+	 *  @return mixed
+	 */
+	public function filter_common_words( array|string $lines, bool $as_array = true ) {
+		static $stop;
+		
+		// Exclude some English stop words
+		static $default	= [
+			'a', 'about', 'able', 'above', 'act', 'after', 'again', 
+			'against', 'ago', 'all', 'also', 'am', 'an', 'and', 'any', 
+			'apart', 'are', 'aren\'t', 'as', 'as', 'at', 'away', 
+			'be', 'because', 'been', 'before', 'being', 'besides', 
+			'beside', 'below', 'between', 'beyond', 'both', 'but', 
+			'by', 'can', 'can\'t', 'cannot', 'could', 'couldn\'t', 
+			'did', 'didn\'t', 'do', 'does', 'doesn\'t', 'doing', 
+			'don\'t', 'down', 'during', 'each', 'few', 'for', 'from', 
+			'further', 'had', 'hadn\'t', 'has', 'hasn\'t', 'have', 
+			'haven\'t', 'having', 'he', 'he\'d', 'he\'ll', 'he\'s', 
+			'her', 'here', 'here\'s', 'hers', 'herself', 'hi', 'him', 
+			'himself', 'his', 'how', 'how\'s', 'i', 'i\'d', 'i\'ll', 
+			'i\'m', 'i\'ve', 'ie', 'if', 'in', 'into', 'is', 'isn\'t', 
+			'it', 'it\'s', 'its', 'itself', 'let\'s', 'like', 'j', 'k', 
+			'km', 'kg', 'last', 'late', 'later', 'latter', 'may', 'maybe', 
+			'me', 'more', 'most', 'mustn\'t', 'my', 'myself', 'no', 
+			'nor', 'not', 'of', 'off', 'ok', 'on', 'once', 'only', 
+			'or', 'other', 'ought', 'our', 'ours', 'ourselves', 
+			'out', 'over', 'own', 'same', 'shan\'t', 'she', 'she\'d', 
+			'she\'ll', 'she\'s', 'should', 'shouldn\'t', 'so', 
+			'some', 'soon', 'such', 'than', 'that', 'that\'s', 'the', 
+			'their', 'theirs', 'them', 'themselves', 'then', 'there', 
+			'there\'s', 'these', 'they', 'they\'d', 'they\'ll', 
+			'they\'re', 'they\'ve', 'this', 'those', 'through', 'to', 
+			'too', 'under', 'until', 'up', 'very', 'was', 'wasn\'t', 
+			'we', 'we\'d', 'well', 'we\'ll', 'we\'re', 'we\'ve', 
+			'were', 'weren\'t', 'will', 'what', 'what\'s', 'when', 
+			'when\'s', 'where', 'where\'s', 'which', 'while', 'who', 
+			'who\'s', 'whom', 'why', 'why\'s', 'with', 'won\'t', 
+			'would', 'wouldn\'t', 'yet', 'yes', 'you', 'you\'d', 
+			'you\'ll', 'you\'re', 'you\'ve', 'your', 'yours', 
+			'yourself', 'yourselves'
+		];
+		
+		// Configured stop words
+		$stop	??= $this->config->setting( 'stop_words', $default, 'array' );
+		if ( empty( $stop ) ) { $stop = $default; }
+		
+		// Make lines into a continous series of words
+		$text	= 
+		\is_array( $lines )
+			? Text::lowercase( \implode( ' ', $lines ) )
+			: Text::lowercase( $lines );
+		
+		// str_word_count alternative for unicode
+		$words	= \preg_split( '/[^\p{L}\p{N}\']+/u', $text );
+		
+		// Take out stop words
+		$words	= \array_diff( $words, $stop );
+		
+		// Most frequently used words
+		$fr	= \array_count_values( $words );
+		\arsort( $fr );
+		
+		$words	= \array_unique( \array_keys( $fr ) );
+		
+		return $as_array ? $words : implode( ' ', $words );
+	}
 }
 
 
@@ -6514,6 +6639,7 @@ final class Finder {
 				}
 			}
 		}
+		
 		return $meta;
 	}
 	
@@ -10410,12 +10536,12 @@ final class Database extends Instance {
  */
 class Sessions extends Instance {
 	
-	private Config		$config;
-	private Logger		$logger;
-	private Database	$data;
-	private Request		$request;
-	
-	public function ___construct() {
+	public function ___construct(
+		private Config		$config,
+		private Logger		$logger,
+		private Database	$data,
+		private Request		$request
+	) {
 		$this->config		= Container::instance()->get( 'Config' );
 		$this->logger		= Container::instance()->get( 'Log' );
 		$this->data		= Container::instance()->get( 'Database' );
@@ -10504,7 +10630,7 @@ class Sessions extends Instance {
 			);
 			
 			return $stmt->execute( [
-				':basename'	=> \strtolower( $host ),
+				':basename'	=> Text::lowercase( $host ),
 				':id'		=> $session_id,
 				':ip'		=> $this->request->ip( true ),
 				':data'		=> $data
@@ -10557,7 +10683,7 @@ class Sessions extends Instance {
 	public function update_timestamp( $session_id, $data ) {
 		$dbh	= $this->data->get( 'sessions' );
 	
-		return db_with_transaction( 
+		return $this->data->with_transaction( 
 				$dbh, function( \PDO $dbh ) 
 					use ( $session_id, $data ) {
 			$stmt	=
@@ -10603,15 +10729,15 @@ class Sessions extends Instance {
 		
 		$start	??= 
 		\session_set_save_handler( 
-			'sess_open', 
-			'sess_close', 
-			'sess_read', 
-			'sess_write', 
-			'sess_destroy', 
-			'sess_gc', 
-			'sess_create_id', 
-			'sess_validate_id',
-			'sess_update_timestamp'
+			[ $this, 'open' ], 
+			[ $this, 'close' ], 
+			[ $this, 'read' ], 
+			[ $this, 'write' ], 
+			[ $this, 'destroy' ], 
+			[ $this, 'gc' ], 
+			[ $this, 'create_id' ], 
+			[ $this, 'validate_id' ], 
+			[ $this, 'update_timestamp' ] 
 		);
 		
 		if ( \session_status() === \PHP_SESSION_NONE ) {
@@ -15853,64 +15979,6 @@ function validateForm(
 }
 
 /**
- *  Process search pattern for full text searching
- *  
- *  @param string	$find	Sent search parameters
- *  @return string
- */
-function searchData( string $find ) : string {
-	// Remove tags and trim
-	$find	= Sanitize::bland( $find );
-	if ( empty( $find ) ) {
-		return '';
-	}
-	
-	// Search words including quoted terms
-	if ( \preg_match_all( '/"(?:\\\\.|[^\\\\"])*"|\S+/', $find, $m ) ) {
-		if ( empty( $m ) ) {
-			return '';
-		}
-		$fdata	= \array_unique( $m[0] ?? [] );
-	} else {
-		return '';
-	}
-	
-	if ( empty( $fdata ) ) {
-		return '';
-	}
-	
-	// Limit maximum number of unique words to search
-	$sc	= setting( 'max_search_words', \MAX_SEARCH_WORDS, 'int' );
-	if ( count( $fdata ) > $sc ) {
-		$fdata = \array_slice( $fdata, 0, $sc );
-	}
-	
-	// Insert ' OR ' for multiple terms
-	$find	= \implode( ' OR ', $fdata );
-	
-	// Remove conflicting/duplicate params
-	$find	= 
-	\preg_replace( '/\b(AND|OR|NEAR|NOT)(?:\s\1)+/iu', 'OR', $find );
-	
-	$find	= \preg_replace( '/\bOR NEAR/iu', 'NEAR', $find );
-	$find	= \preg_replace( '/\bNEAR OR/iu', 'NEAR', $find );
-	$find	= \preg_replace( '/\bOR AND/iu', 'AND', $find );
-	$find	= \preg_replace( '/\bAND OR/iu', 'AND', $find );
-	$find	= \preg_replace( '/\bOR NOT/iu', 'NOT', $find );
-	$find	= \preg_replace( '/\bNOT OR/iu', 'NOT', $find );
-	
-	$find	= 
-	\preg_replace( '/\b(AND|OR|NEAR|NOT)(?:\s\1)+/iu', 'OR', $find );
-	
-	// Return with keywords removed from beginning and end
-	return 
-	\preg_replace( 
-		'/^(AND|OR|NEAR|NOT)(.*)(AND|OR|NEAR|NOT)$/ius', 
-		'$2', \trim( $find )
-	);
-}
-
-/**
  *  Render search form template
  *  
  *  @return string
@@ -16078,85 +16146,6 @@ function getSiblings( string $path ) : string {
 }
 
 /**
- *  Get common words in text for searching
- *  
- *  @param array	$lines		Content to process
- *  @param bool		$as_array	Returns as an array if true
- *  @return mixed
- */
-function getCommonWords( array $lines, bool $as_array = true ) {
-	static $stop;
-	
-	// Exclude some English stop words
-	static $default	= [
-		'a', 'about', 'able', 'above', 'act', 'after', 'again', 
-		'against', 'ago', 'all', 'also', 'am', 'an', 'and', 'any', 
-		'apart', 'are', 'aren\'t', 'as', 'as', 'at', 'away', 
-		'be', 'because', 'been', 'before', 'being', 'besides', 
-		'beside', 'below', 'between', 'beyond', 'both', 'but', 
-		'by', 'can', 'can\'t', 'cannot', 'could', 'couldn\'t', 
-		'did', 'didn\'t', 'do', 'does', 'doesn\'t', 'doing', 
-		'don\'t', 'down', 'during', 'each', 'few', 'for', 'from', 
-		'further', 'had', 'hadn\'t', 'has', 'hasn\'t', 'have', 
-		'haven\'t', 'having', 'he', 'he\'d', 'he\'ll', 'he\'s', 
-		'her', 'here', 'here\'s', 'hers', 'herself', 'hi', 'him', 
-		'himself', 'his', 'how', 'how\'s', 'i', 'i\'d', 'i\'ll', 
-		'i\'m', 'i\'ve', 'ie', 'if', 'in', 'into', 'is', 'isn\'t', 
-		'it', 'it\'s', 'its', 'itself', 'let\'s', 'like', 'j', 'k', 
-		'km', 'kg', 'last', 'late', 'later', 'latter', 'may', 'maybe', 
-		'me', 'more', 'most', 'mustn\'t', 'my', 'myself', 'no', 
-		'nor', 'not', 'of', 'off', 'ok', 'on', 'once', 'only', 
-		'or', 'other', 'ought', 'our', 'ours', 'ourselves', 
-		'out', 'over', 'own', 'same', 'shan\'t', 'she', 'she\'d', 
-		'she\'ll', 'she\'s', 'should', 'shouldn\'t', 'so', 
-		'some', 'soon', 'such', 'than', 'that', 'that\'s', 'the', 
-		'their', 'theirs', 'them', 'themselves', 'then', 'there', 
-		'there\'s', 'these', 'they', 'they\'d', 'they\'ll', 
-		'they\'re', 'they\'ve', 'this', 'those', 'through', 'to', 
-		'too', 'under', 'until', 'up', 'very', 'was', 'wasn\'t', 
-		'we', 'we\'d', 'well', 'we\'ll', 'we\'re', 'we\'ve', 
-		'were', 'weren\'t', 'will', 'what', 'what\'s', 'when', 
-		'when\'s', 'where', 'where\'s', 'which', 'while', 'who', 
-		'who\'s', 'whom', 'why', 'why\'s', 'with', 'won\'t', 
-		'would', 'wouldn\'t', 'yet', 'yes', 'you', 'you\'d', 
-		'you\'ll', 'you\'re', 'you\'ve', 'your', 'yours', 
-		'yourself', 'yourselves'
-	];
-	
-	// Preset stop words
-	if ( !isset( $stop ) ) {
-		// Configured stop words
-		$stop	= setting( 'stop_words', $default, 'array' );
-		if ( empty( $stop ) ) {
-			$stop = $default;
-		}
-		
-		// Send to hook for additional stop words
-		hook( [ 'stopwords', [ 'words' => $stop ] ] );
-		$stop	= hook_array( 'stopwords' )['words'] ?? $stop;
-		
-	}
-	
-	// Make lines into a continous series of words
-	$text	= \implode( ' ', $lines );
-	
-	// str_word_count alternative for unicode
-	$words	= 
-	\preg_split( '/[^\p{L}\p{N}\']+/u', lowercase( $text ) );
-	
-	// Take out stop words
-	$words	= \array_diff( $words, $stop );
-	
-	// Most frequently used words
-	$fr	= \array_count_values( $words );
-	\arsort( $fr );
-	
-	$words	= \array_unique( \array_keys( $fr ) );
-	
-	return $as_array ? $words : implode( ' ', $words );
-}
-
-/**
  *  Get posts related to current one by content
  *  
  *  @param string	$path	Current post permalink path
@@ -16186,11 +16175,11 @@ function getRelated( string $path ) : string {
 	}
 	
 	// Parse common words, excluding stop words
-	$words	= getCommonWords( $lines, false );
+	$words	= Language::instance()->filter_common_words( $lines, false );
 	
 	// Make search data with full title intact ( quotes removed )
 	$title	= \strtr( \current( $lines ), [ '"' => '' ] );
-	$data	= searchData( '"' . $title . '" ' . $words );
+	$data	= Language::instance()->search_phrase( '"' . $title . '" ' . $words );
 	$rlimit	= setting( 'related_limit', \RELATED_LIMIT, 'int' );
 	
 	// Search for related content excluding current post
@@ -16565,7 +16554,7 @@ function showSearch( string $event, array $hook, array $params ) {
 		loadIndex();
 	}
 	
-	$find	= searchData( $params['find'] ?? '' );
+	$find	= Language::instance()->search_phrase( $params['find'] ?? '' );
 	if ( empty( $find ) ) {
 		sendNotFound();
 	}
