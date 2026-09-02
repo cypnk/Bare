@@ -2678,6 +2678,25 @@ final class Sanitize {
 	}
 	
 	/**
+	 *  Normalize unicode characters
+	 *  
+	 *  This depends on the Intl extension (usually comes with PHP), 
+	 *  but needs to be enabled in php.ini
+	 *  @link https://www.php.net/manual/en/intl.installation.php
+	 *  
+	 *  @param string	$text
+	 *  @return string 
+	 */
+	public static function normalize( string $text ) : string {
+		if ( Util::missing( 'normalizer_normalize' ) ) { return $text; }
+		
+		$normal = 
+		\normalizer_normalize( static::bland( $text ), \Normalizer::FORM_C );
+		
+		return ( false === $normal ) ? $text : $normal;
+	}
+	
+	/**
 	 *  Filter XML string
 	 *  
 	 *  @param string	$text		Raw block
@@ -2744,25 +2763,6 @@ final class Sanitize {
 		return \preg_match( '/^\//', $v ) 
 			? static::url( $prefix . $v ) 
 			: static::url( $v );
-	}
-	
-	/**
-	 *  Normalize unicode characters
-	 *  
-	 *  This depends on the Intl extension (usually comes with PHP), 
-	 *  but needs to be enabled in php.ini
-	 *  @link https://www.php.net/manual/en/intl.installation.php
-	 *  
-	 *  @param string	$text
-	 *  @return string 
-	 */
-	public static function normalize( string $text ) : string {
-		if ( Util::missing( 'normalizer_normalize' ) ) { return $text; }
-		
-		$normal = 
-		\normalizer_normalize( static::bland( $text ), \Normalizer::FORM_C );
-		
-		return ( false === $normal ) ? $text : $normal;
 	}
 	
 	/**
@@ -8386,6 +8386,23 @@ class Format {
 	}
 	
 	/**
+	 *  Process multiple comma delimited whitelists and filter label names
+	 *  
+	 *  @param array	$groups		Raw key-value pairs
+	 *  @param bool		$lower		Values should be lowercase lists
+	 *  @return array
+	 */ 
+	public function whitelists( array $groups, bool $lower = false ) : array {
+		$ext = [];
+		foreach ( $groups as $k => $v ) { 
+			$ext[$this->label( $k )] = 
+			\implode( ',', Util::trimmed_list( $v, $lower ) );
+		}
+		
+		return $ext;
+	}
+	
+	/**
 	 *  Embedded media shortcode list helper and hook trigger
 	 *  
 	 *  @param array	$custom		Overriden embed HTML templates
@@ -10537,10 +10554,10 @@ final class Database extends Instance {
 class Sessions extends Instance {
 	
 	public function ___construct(
-		private Config		$config,
-		private Logger		$logger,
-		private Database	$data,
-		private Request		$request
+		public readonly	Config		$config,
+		public readonly	Log		$logger,
+		public readonly	Database	$data,
+		public readonly	Request		$request
 	) {
 		$this->config		= Container::instance()->get( 'Config' );
 		$this->logger		= Container::instance()->get( 'Log' );
@@ -10762,7 +10779,7 @@ class Sessions extends Instance {
 				
 			} catch ( \Throwable $e ) {
 				$this->logger->error( "Session error: {$e->getMessage()}" );
-				Container::instance( 'Error' )::show_page();
+				Container::instance()->get( 'Errors' )::show_page();
 			}
 		}
 		
@@ -11690,12 +11707,14 @@ function logRollover( string $file ) {
  */
 function appName() : string {
 	static $app;
+	static $fmt;
 	if ( isset( $app ) ) {
 		return $app;
 	}
-	$app = labelName( config( 'app_name', \APP_NAME ) );
+	$fmt ??= Container::instance()->get( 'Format' );
+	$app = $fmt->label( config( 'app_name', \APP_NAME ) );
 	if ( empty( $app ) ) {
-		$app = labelName( \APP_NAME );
+		$app = $fmt->label( \APP_NAME );
 	}
 	return $app;
 }
@@ -11749,7 +11768,7 @@ function logMessage(
  */
 function logError( string $err, bool $app = true ) : bool {
 	$file	= \CACHE . ( $app ? \ERROR : \ERROR_VISIT );
-	$err	= $app ? Sanitize::spaces( $err ) : truncate( $err, 0, 2048 );
+	$err	= $app ? Sanitize::spaces( $err ) : Text::truncate( $err, 0, 2048 );
 	
 	// Visitor errors have more header fields
 	$fields = $app ? 
@@ -11769,7 +11788,7 @@ function logNotice( string $msg ) : bool {
 	logMessage( 
 		\CACHE . \NOTICE, 
 		'date, time, s-comment',
-		truncate( Sanitize::spaces( $msg ), 0, 2048 ) 
+		Text::truncate( Sanitize::spaces( $msg ), 0, 2048 ) 
 	);
 }
 
@@ -12601,7 +12620,7 @@ function genCodeKey( int $size = 24 ) : string {
 		$code .= genAlphaNum();
 	}
 	
-	return truncate( $code, 0, $size );
+	return Text::truncate( $code, 0, $size );
 }
 
 
@@ -12903,32 +12922,6 @@ function strsize( string $text ) : int {
 }
 
 /**
- *  Limit string size
- *  
- *  @param string	$text	Raw input
- *  @param int		$start	Beginning index
- *  @param int		$size	Maximum string length
- *  @return string
- */
-function truncate( string $text, int $start, int $size ) {
-	if ( strsize( $text ) <= $size ) {
-		return $text;
-	}
-	
-	return \mb_substr( $text, $start, $size, '8bit' );
-}
-
-/**
- *  Try to detect if a string contains ASCII-only text
- *  
- *  @param string	$text		Text to test
- *  @return bool
- */
-function isASCII( string $text ) : bool {
-	return \mb_check_encoding( $text, 'ASCII' );
-}
-
-/**
  *  Check if a string contains a fragment
  *  
  *  @param mixed	$source		Original text
@@ -13017,128 +13010,6 @@ function dateSlug( string $slug, string $stamp ) : string {
 }
 
 /**
- *  Clean entry title
- *  
- *  @param mixed	$title	Raw title entered by the user
- *  @param int		$max	Maximum string length
- *  @return string
- */
-function title( $text, int $max = 255 ) : string {
-	if ( \is_array( $text ) ) {
-		return '';
-	}
-	
-	// Unify spaces, tabs, returns etc...
-	return 
-	smartTrim( Sanitize::spaces( ( string ) $text ), $max );
-}
-
-/**
- *  Normalize unicode characters
- *  
- *  This depends on the Intl extension (usually comes with PHP), 
- *  but needs to be enabled in php.ini
- *  @link https://www.php.net/manual/en/intl.installation.php
- *  
- *  @param string	$text
- *  @return string 
- */
-function normal( string $text ) : string {
-	if ( Util::missing( 'normalizer_normalize' ) ) {
-		return $text;
-	}
-	
-	$normal = 
-	\normalizer_normalize( $text, \Normalizer::FORM_C );
-	
-	return ( false === $normal ) ? $text : $normal;
-}
-
-/**
- *  Label name ( ASCII only )
- *  
- *  @param string	$text	Raw label entered into field
- *  @return string
- */
-function labelName( string $text ) : string {
-	$text	= Sanitize::spaces( $text, '_' );
-	
-	return 
-	smartTrim( \preg_replace( 
-		'/[^a-z0-9_\-\.]/i', '', normal( $text ) 
-	), 50 );
-}
-
-/**
- *  Process multiple comma delimited whitelists and filter label names
- *  
- *  @param array	$groups		Raw key-value pairs
- *  @param bool		$lower		Values should be lowercase lists
- *  @return array
- */ 
-function whiteLists( array $groups, bool $lower = false ) : array {
-	$ext = [];
-	
-	foreach ( $groups as $k => $v ) { 
-		$ext[labelName( $k )] = 
-		\implode( ',', Util::trimmed_list( $v, $lower ) );
-	}
-	
-	return $ext;
-}
-
-/**
- *  Convert to unicode lowercase
- *  
- *  @param string	$text	Raw mixed/uppercase text
- *  @return string
- */
-function lowercase( string $text ) : string {
-	return \mb_convert_case( $text, \MB_CASE_LOWER, 'UTF-8' );
-}
-
-/**
- *  Limit a string without cutting off words
- *  
- *  @param string	$val	Text to cut down
- *  @param int		$max	Content length (defaults to 100)
- *  @return string
- */
-function smartTrim(
-	string		$val, 
-	int		$max		= 100
-) : string {
-	$val	= \trim( $val );
-	$len	= strsize( $val );
-	
-	if ( $len <= $max ) {
-		return $val;
-	}
-	
-	$out	= '';
-	$words	= \preg_split( '/([\.\s]+)/', $val, -1, 
-			\PREG_SPLIT_OFFSET_CAPTURE | 
-			\PREG_SPLIT_DELIM_CAPTURE );
-	
-	for ( $i = 0; $i < \count( $words ); $i++ ) {
-		$w	= $words[$i];
-		// Add if this word's length is less than length
-		if ( $w[1] <= $max ) {
-			$out .= $w[0];
-		}
-	}
-	
-	$out	= \preg_replace( "/\r?\n/", '', $out );
-	
-	// If there's too much overlap
-	if ( strsize( $out ) > $max + 10 ) {
-		$out = truncate( $out, 0, $max );
-	}
-	
-	return $out;
-}
-
-/**
  *  Ensure date arguments don't exceed today
  *  
  *  @param array	$args	Date in year, month, day
@@ -13203,7 +13074,7 @@ function serverParamWhite( array $headers, array $terms, bool $case = false ) {
 		// Search in lowercase
 		if ( $case ) {
 			$lc	= \array_map( 'lowercase', $terms );
-			$sh	= \lowercase( $_SERVER[$h] );
+			$sh	= Text::lowercase( $_SERVER[$h] );
 			$found	= \in_array( $sh, $lc ) ? $sh : '';
 		} else {
 			$found	= 
@@ -13539,7 +13410,7 @@ function getHost() : string {
 	$sw	= Util::trimmed_list( implode( ',', array_keys( $sk ) ), true );
 	$raw	= Container::instance()->get( 'Request' )->host;
 
-	$host	= isset( $sw[$raw] ) ? lowercase( $raw ) : '';
+	$host	= isset( $sw[$raw] ) ? Text::lowercase( $raw ) : '';
 	
 	// Call host hook
 	hook( [ 'gethost', [
@@ -14785,10 +14656,13 @@ function extractMeta( array $find ) : array {
  *  Parse current post's type or send default type
  */
 function extractType( array $find ) : string {
+	static $fmt;
+	$fmt ??= Container::instance()->get( 'Format' );
+	
 	return 
-	lowercase( labelName( 
+	Text::lowercase( $fmt->label( 
 		$find['label'] ?? 
-		setting( 'post_type', \POST_TYPE )
+		Container::instance()->get( 'Config' )->setting( 'post_type', \POST_TYPE )
 	) );
 }
 
@@ -15311,8 +15185,11 @@ function loadIndex(
  *  Extract and filter metadata
  */
 function metadata( &$title, &$perm, $pub, $post, $path ) {
+	static $fmt;
+	$fmt	??= Container::instance()->get( 'Format' );
+	
 	// Get the title from the first line
-	$title	= title( \array_shift( $post ) );
+	$title	= $fmt->title( \array_shift( $post ) );
 	
 	// Convert pubdate and slug to permalink
 	$perm	= dateSlug( \basename( $path ), $pub );
@@ -16297,7 +16174,7 @@ function staticPage(
 	$psub	= config( 'page_sub', config_default_desc() );
 	
 	// First line is the title, everything else is the body
-	$title	= title( \array_shift( $post ) );
+	$title	= Container::instance()->get( 'Format' )->title( \array_shift( $post ) );
 	$body	= html( \implode( "\n", $post ), pageRoutePath(), $forms );
 	
 	// Send to render hook
@@ -17204,9 +17081,10 @@ function checkConfig( string $event, array $hook, array $params ) {
 	$data			= 
 	\filter_var_array( $params, $filter, false );
 	
+	$fmt = Container::instance()->get( 'Format' );
 	if ( !empty( $data['ext_whitelist'] ) ) {
 		$data['ext_whitelist']	= 
-			whiteLists( $data['ext_whitelist'], true );
+			$fmt->whitelists( $data['ext_whitelist'], true );
 	}
 	
 	if ( isset( $data['nonce_hash'] ) ) {
