@@ -4720,33 +4720,39 @@ final class Request extends Instance {
 class Response extends Instance {
 	
 	/**
-	 * @var Log Event logger
-	 */
-	private readonly Log $logger;
-	
-	/**
 	 *  Core response class
 	 *  
+	 *  @param Config	$config		Configuration settings
 	 *  @param Request	$request	Original client request
+	 *  @param Log		$logger		Event logger
 	 *  @param int		$code		HTTP Status code
+	 *  @param array	$headers	New response headers
+	 *  @param mixed	$body		Output response body
 	 */
 	public function __construct( 
-		public readonly Request $request,
-		public int	$code		= 200,
-		public array	$headers	= [],
-		public mixed	$body		= null
-	) {
-		$this->logger = Container::instance()->get( 'Log' );
-	}
+		public readonly Config	$config, 
+		public readonly Request $request, 
+		public readonly Log	$logger,
+		public int		$code		= 200,
+		public array		$headers	= [],
+		public mixed		$body		= null
+	) {}
 	
 	public static function create(
+		?Config		$config		= null,
 		?Request	$request	= null,
+		?Log		$logger		= null,
 		?int		$code		= null,
-		?array		$headers	= [],
-				$body		= null
+		array		$headers	= [],
+		mixed		$body		= null
 	) : static {
-		$request ??= Container::instance()->get( 'Request' );
-		return new static( $request, $code, $headers, $body );
+		$container	= Container::instance();
+		$config		??= $container->get( 'Config' );
+		$request	??= $container->get( 'Request' );
+		$logger		??= $container->get( 'Log' );
+		$code		??= 200;
+		
+		return new static( $config, $request, $logger, $code, $headers, $body );
 	}
 	
 	/**
@@ -5600,7 +5606,7 @@ class PageResponse extends Response {
 	 */
 	private function preamble( bool $send_csp = true, bool $send_type = true ) : array {
 		static $policy;
-		$policy	??= Container::instance()->get( 'Config' )->setting( 'headers', [], 'json' );
+		$policy	??= $this->config->setting( 'headers', [], 'json' );
 	
 		if ( empty( $policy ) ) { return []; }
 		
@@ -5739,23 +5745,32 @@ final class Config extends Instance {
 	private array $defaults;
 	
 	/**
-	 * @var Log Event logger
+	 *  Configuration constructor
+	 *  
+	 *  @param Log		$logger		Event logger
+	 *  @param Request	$request	Current user request
 	 */
-	private readonly Log $logger;
-	
-	public function __construct( public readonly Request $request ) {
+	public function __construct( 
+		public readonly Log	$logger,
+		public readonly Request $request 
+	) {
 		$this->config_file	= 
 			$this->core_path( 'CONFIG_FILE', 'config.json' );
 		$this->message_log	= 
 			$this->core_path( 'CONFIG_LOG', 'config_messages.log' );
 		
 		$this->storage_base	= @\realpath( Storage::base() );
-		$this->logger		= Container::instance()->get( 'Log' );
 	}
 	
-	public static function create( ?Request $request = null ) : static {
-		$request ??= Container::instance()->get( 'Request' );
-		return new static( $request );
+	public static function create( 
+		?Log		$logger		= null,
+		?Request	$request	= null 
+	) : static {
+		$container	= Container::instance();
+		$logger		??= $container->get( 'Log' );
+		$request	??= $container->get( 'Request' );
+		
+		return new static( $logger, $request );
 	}
 	
 	/**
@@ -6219,7 +6234,27 @@ class Language extends Instance {
 		[ 'chars', 1000, '/[\p{Han}\p{Hiragana}\p{Katakana}]/u' ]
 	];
 	
-	public function __construct( public readonly Config $config ) {}
+	/**
+	 *  Language constructor
+	 *  
+	 *  @param Config	$config	Configuration settings
+	 *  @param Log		$log	Event logger
+	 */
+	public function __construct( 
+		public readonly Config	$config,
+		public readonly Log	$log
+	) {}
+	
+	public static function create( 
+		?Config		$config		= null, 
+		?Log		$logger		= null 
+	) : static {
+		$container	= Container::instance();
+		$config		??= $container->get( 'Config' );
+		$logger		??= $container->get( 'Log' );
+		
+		return new static( $config, $logger );
+	}
 	
 	/**
 	 *  Load default language and append language file definitions
@@ -7225,7 +7260,7 @@ class HookShutdown {
 /**
  *  @class Templates and rendering
  */
-class Template {
+class Template extends Instance {
 	
 	/**
 	 *  @var array Interpolated template cache
@@ -7236,11 +7271,6 @@ class Template {
 	 *  @var array Active placeholder patterns
 	 */
 	private array $patterns;
-	
-	/**
-	 * @var Log Event logger
-	 */
-	private readonly Log $logger;
 	
 	public const PRESET_PATTERNS	= [
 		'loop'		=> 
@@ -7278,11 +7308,25 @@ class Template {
 	 *  @param array		$extend		Extended template placeholder patterns
 	 */
 	public function __construct( 
-		private		HookRegistry	$registry, 
-		array		$extend			= []
+		private readonly	Log		$logger,
+		private	readonly	HookRegistry	$registry, 
+		private 		array		$extend		= []
 	) {
 		$this->patterns = array_merge( static::PRESET_PATTERNS, $extend );
 		$this->logger	= Container::instance()->get( 'Log' );
+	}
+	
+	public static function create(
+		?Log		$logger		= null,
+		?HookRegistry	$registry	= null,
+		?array		$extend		= null
+	) : static {
+		$container	= Container::instance();
+		$logger		??= $container->get( 'Log' );
+		$registry	??= $container->get( 'HookRegistry' );
+		$extend		??= [];
+		
+		return new static( $logger, $registry, $extend );
 	}
 	
 	/**
@@ -8137,7 +8181,7 @@ class Template {
 /**
  *  @class Content formatting
  */
-class Format {
+class Format extends Instance {
 	
 	/**
 	 *  @var array<string, callback> Paragraph-level cleanup filters
@@ -8148,11 +8192,6 @@ class Format {
 	 *  @var array<string,callback> Code block cleanup filters
 	 */
 	private array $code_filters;
-	
-	/**
-	 *  @var Config Configuration settings
-	 */
-	private Config $config;
 	
 	/**
 	 *  @var string Date string format
@@ -8169,11 +8208,30 @@ class Format {
 	 */
 	private array $mark_format;
 	
+	/**
+	 *  Format constructor
+	 *  
+	 *  @param Config	$config		Configuration settings
+	 *  @param Language	$language	Language loading and translations
+	 *  @param Template	$template	Rendering and content transformation
+	 */
 	public function __construct(
-		private Language	$language,
-		private Template	$template
-	) {
-		$this->config = Container::instance()->get( 'Config' );
+		public readonly Config		$config,
+		public readonly Language	$language,
+		public readonly Template	$template
+	) {}
+	
+	public static function create(
+		?Config		$config		= null,
+		?Language	$language	= null,
+		?Template	$template	= null
+	) : static {
+		$container	= Container::instance();
+		$config		??= $container->get( 'Config' );
+		$language	??= $container->get( 'Language' );
+		$template	??= $container->get( 'Template' );
+		
+		return new static( $config, $language, $template );
 	}
 	
 	/**
@@ -9074,9 +9132,7 @@ class Route {
  */
 final class RouteDiscovery {
 	
-	public function __construct(
-		private readonly Container $container
-	) {}
+	public function __construct( private readonly Container $container ) {}
 	
 	public function routes( string $class, \ReflectionMethod $method ) : array {
 		$routes		= [];
@@ -9130,7 +9186,7 @@ final class RouteDiscovery {
 /**
  *  @class Routing and paths
  */
-final class Router {
+final class Router extends Instance {
 	
 	/**
 	 *  @var array Path matching regular expressions
@@ -9147,9 +9203,12 @@ final class Router {
 	 */
 	public readonly RouteDiscovery	$discovery;
 	
-	public function __construct(
-		private readonly Container $container
-	) {
+	/**
+	 *  Router constructor
+	 *  
+	 *  @param Container	Class instance handler
+	 */
+	public function __construct( public readonly Container $container ) {
 		// Start with core classes
 		$this->discovery = new RouteDiscovery( $this->container );
 	}
@@ -9519,22 +9578,36 @@ final class PluginDiscovery {
 	private readonly	string	$plugin_dir;
 	
 	/**
-	 * @var Log Event logger
-	 */
-	private readonly Log $logger;
-	
-	/**
 	 *  @var Router Request path router
 	 */
 	private readonly Router $router;
 	
+	/**
+	 *  Discovery constructor
+	 *  
+	 *  @param Config	$config	Configuration settings
+	 *  @param Log		$log	Event logger
+	 *  @param Router	$router	URL Path router
+	 */
 	public function __construct(
-		private readonly Container $container
+		public readonly Config	$config,
+		public readonly Log	$logger,
+		public readonly Router	$router
 	) {
-		$this->logger		= $this->container->get( 'Log' );
-		$this->router		= $this->container->get( 'Router' );
-		$this->plugin_dir	= 
-			$this->container->get( 'Config' )->defaults( 'plugin_dir' );
+		$this->plugin_dir = $this->config->defaults( 'plugin_dir' );
+	}
+	
+	public static function create(
+		?Config		$config		= null,
+		?Log		$log		= null,
+		?Router		$router		= null
+	) {
+		$container	= Container::instance();
+		$config		??= $container->get( 'Config' );
+		$logger		??= $container->get( 'Log' );
+		$router		??= $container->get( 'Router' );
+		
+		return new static( $config, $logger, $router );
 	}
 	
 	/**
@@ -9717,23 +9790,31 @@ final class Database extends Instance {
 	private int $maint;
 	
 	/**
-	 *  @var Config Configuration settings
+	 *  Database constructor
+	 *  
+	 *  @param Config	Configuration settings
+	 *  @param Log		Event logger
 	 */
-	private Config $config;
-	/**
-	 * @var Log Event logger
-	 */
-	private readonly Log $logger;
-	
-	public function __construct() {
+	public function __construct(
+		public readonly Config	$config,
+		public readonly Log	$logger
+	) {
 		$this->supported	= [ 'pgsql', 'sqlite', 'mysql' ];
-		$this->config		= Container::instance()->get( 'Config' );
-		$this->logger		= Container::instance()->get( 'Log' );
-		
-		$this->maint	??= 
+		$this->maint		??= 
 		\defined( 'DB_MAINT' ) 
 			? \constant( 'DB_MAINT' )
 			: 7;
+	}
+	
+	public static function create(
+		?Config		$config		= null,
+		?Log		$log		= null
+	) : static {
+		$container	= Container::instance();
+		$config		??= $container->get( 'Config' );
+		$logger		??= $container->get( 'Log' );
+		
+		return new static( $config, $log );
 	}
 	
 	/**
@@ -9787,7 +9868,7 @@ final class Database extends Instance {
 			}
 			return \trim( $sql, ', ' ) . ' )';
 		}
-	
+		
 		// Update mode
 		foreach( $params as $k => $v ) {
 			$sql .= "{$k} = :{$k}, ";
@@ -9807,7 +9888,7 @@ final class Database extends Instance {
 		if ( empty( $dbh ) && empty( $sql ) ) {
 			\array_map( 
 				static function( $v ) { return null; }, 
-				$cache 
+				$this->stmt_cache
 			);
 			return null;
 		}
@@ -9824,7 +9905,7 @@ final class Database extends Instance {
 			return $stmt;
 			
 		} catch ( \PDOException $e ) {
-			Container::instance()->get( 'Log' )->error( 
+			$this->logger->error( 
 				"Failed to prepare statement with {$sql}: {$e->getMessage()}" 
 			);
 			
@@ -9848,7 +9929,7 @@ final class Database extends Instance {
 				? $stmt->execute( $params ) 
 				: $stmt->execute();
 			
-			Container::instance()->get( 'Log' )->debug( $context );
+			$this->logger->debug( $context );
 			return $result;
 			
 		} catch( \Throwable $e ) {
@@ -9856,7 +9937,7 @@ final class Database extends Instance {
 			$func	= $trace[1]['function']		?? 'global scope';
 			$file	= $trace[1]['file']		?? 'unknown file';
 			$line	= $trace[1]['line']		?? 'unknown line';
-			Container::instance()->get( 'Log' )->error(
+			$this->logger->error(
 				"Error in exec_stmt: {$context} — {$e->getMessage()} " .
 				"called by {$func} on line {$line} in {$file}"
 			);
@@ -9892,7 +9973,7 @@ final class Database extends Instance {
 		} catch ( \PDOException $e ) {
 			$dbh->rollback();
 			
-			Container::instance()->get( 'Log' )->error( 
+			$this->logger->error( 
 				"Batch execution failed for SQL " . 
 					\mb_substr( $sql, 0, 100 ) . 
 					": {$e->getMessage()}"
@@ -10553,16 +10634,34 @@ final class Database extends Instance {
  */
 class Sessions extends Instance {
 	
+	/**
+	 *  Session constructor
+	 *  
+	 *  @param Config	$config		Main configuration
+	 *  @param Log		$log		Status logger
+	 *  @param Database	$data		Persistent storage
+	 *  @param Request	$request	Current client HTTP request
+	 */
 	public function ___construct(
 		public readonly	Config		$config,
 		public readonly	Log		$logger,
 		public readonly	Database	$data,
 		public readonly	Request		$request
-	) {
-		$this->config		= Container::instance()->get( 'Config' );
-		$this->logger		= Container::instance()->get( 'Log' );
-		$this->data		= Container::instance()->get( 'Database' );
-		$this->request		= Container::instance()->get( 'Request' );
+	) {}
+	
+	public static function create(
+		?Config		$config		= null,
+		?Log		$log		= null,
+		?Database	$data		= null,
+		?Request	$request	= null
+	) : static {
+		$container	= Container::instance();
+		$config		??= $container->get( 'Config' );
+		$logger		??= $container->get( 'Log' );
+		$data		??= $container->get( 'Database' );
+		$request	??= $container->get( 'Request' );
+		
+		return new static( $config, $logger, $data, $request );
 	}
 	
 	/**
@@ -10717,7 +10816,7 @@ class Sessions extends Instance {
 			] );
 		} );
 	}
-
+	
 	/**
 	 *  Turn off all session activity
 	 */
@@ -10793,6 +10892,245 @@ class Sessions extends Instance {
 			\session_regenerate_id( true );
 			$_SESSION['session_regen'] = $exp;
 		}
+	}
+}
+
+
+/**
+ *  @class Form validation
+ */
+class Forms extends Instance {
+	
+	private array $keys	= [];
+	
+	/**
+	 *  Form base constructor
+	 *  
+	 *  @param Sessions	Current user session
+	 *  @param Config	Configuration settings
+	 *  @param Log		Event logger
+	 */
+	public function __construct( 
+		public readonly Config		$config,
+		public readonly Log		$logger,
+		public readonly Sessions	$session
+	) {}
+
+	public static function create(
+		?Config		$config		= null,
+		?Log		$log		= null,
+		?Sessions	$session	= null,
+	) : static {
+		$container	= Container::instance();
+		$config		??= $container->get( 'Config' );
+		$log		??= $container->get( 'Log' );
+		$sessions	??= $container->get( 'Sessions' );
+		
+		return new static( $config, $logger, $sessions );
+	}
+	
+	/**
+	 *  Generate unique form ID from name
+	 *  
+	 *  @param string	$form_name	Form label
+	 *  @param bool		$use_id		Use session ID, if true
+	 *  @return string
+	 */
+	public function session_key( string $form_name, bool $use_id = false ) : string {
+		if ( isset( $this->keys[$form_name] ) ) { 
+			return $this->keys[$form_name]; 
+		}
+		
+		$this->session->init();
+		$phrase		= 
+		$use_id 
+			? $form_name . \session_id()
+			: $form_name;
+		
+		$keys[$form_name]	= \hash( 'sha1', $phrase );
+		return $keys[$form_name];
+	}
+	
+	/**
+	 *  Get anti-CSRF token pair from form submission
+	 *  
+	 *  @param string	$method		Request method
+	 *  @return array
+	 */
+	public function get_token( string $method = 'post' ) : array {
+		static $filter	= [
+			'nonce'		=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS, 
+			'token'		=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS 
+		];
+		
+		// Limit to get or post
+		$input	= 'get' === \strtolower( $method ) ? \INPUT_GET : \INPUT_POST;
+		return \filter_input_array( $input, $filter, true ) ?? [];
+	}
+	
+	/**
+	 *  Generate anti-CSRF token/nonce pair with tokenized options
+	 *  
+	 *  @param string	$form_name	Form label
+	 *  @param string	$method		Request method
+	 *  @param array	$options	Optional default options
+	 *  @return array
+	 */
+	public function set_token( 
+		string	$form_name,
+		string	$method,
+		?array	$options	= null
+	) : array {
+		$defaul_ttl	 = $this->config->setting( 'form_ttl', 86400, 'int' );
+		
+		// Defaults
+		$options		??= [
+			'allow_upload'	=> false,	// Allow file uploads ( plugins )
+			'allow_patch'	=> false,	// Enable PATCH method ( plugins )
+			'issued'	=> \time(),	// Form generated
+			'once'		=> false,	// Only allow one validation
+			'use_id'	=> false,	// Use session id
+			
+			// Expiration
+			'ttl'		=> 
+			$this->config->setting( $form_name . '_ttl', $default_ttl, 'int' ),
+			
+			// Session stored value
+			'secret'	=> \bin2hex( \random_bytes( 32 ) )
+		];
+		
+		$options['secret']	??= \bin2hex( \random_bytes( 32 ) );
+		
+		$use_id	= ( bool ) ( $options['use_id'] ?? false );
+		$key	= $this->session_key( $form_name, $use_id );
+		$old	= $_SESSION["form_{$key}"] ?? []; // Old form options, if any
+		
+		// Reset options
+		$data	= \array_merge( \is_array( $old ) ? $old : [], $options );
+		
+		$nonce	= \bin2hex( \random_bytes( 16 ) );	// Public value
+		$token	= \hash_hmac( 'sha256', $nonce, $data['secret'] . $method );
+		
+		$_SESSION["form_{$key}"] = $data;
+		
+		return [ 
+			'time'	=> time(), 
+			'token'	=> $token, 
+			'nonce'	=> $nonce
+		];
+	}
+	
+	/**
+	 *  Validate token/nonce pair with form options
+	 *  
+	 *  @param string	$form_name	Form label
+	 *  @param string	$method		Request method
+	 *  @param string	$nonce		Sent nonce
+	 *  @param string	$token		Sent token
+	 *  @param int		$issued		Form issue timestamp
+	 *  @param int		$ttl		Time to live
+	 *  @param bool		$once		Only validate once if true
+	 *  @return string
+	 */
+	public function token_validate(
+		string	$form_name,
+		string	$method,
+		string	$nonce,
+		string	$token,
+		?int	$issued	= null,
+		?int	$ttl	= null,
+		?bool	$once	= null
+	) : string {
+		$issued		??= time();	// Now
+		$ttl		??= 86400;	// 1 Day max
+		$once		??= false;	// Allow repeat
+		
+		$key		= $this->session_key( $form_name );
+		$meta		= ( array ) ( $_SESSION["form_{$key}"] ?? [] );
+		
+		// Find secret key or empty pad
+		$missing	= ( empty( $meta ) || !isset( $meta['secret'] ) );
+		$secret		= $missing ? \str_repeat( '0', 64 ) : $meta['secret'];
+		
+		$expected	= \hash_hmac( 'sha256', $nonce, $secret . $method );
+		$valid		= \hash_equals( $expected, $token );
+		
+		// Don't repeat if once is set
+		if ( $valid && $once ) {
+			unset( $_SESSION["form_{$key}"] );
+		}
+		
+		return match( true ) {
+			$missing			=> 'missing', 
+			( time() - $issued ) > $ttl	=> 'expired', 
+			$valid				=> 'ok', 
+			default				=> 'failed'
+		};
+	}
+	
+	/**
+	 *  Form validation wrapper
+	 *  
+	 *  @param string	$form_name	Form label
+	 *  @param string	$method		Request method
+	 *  @param string	$nonce		Sent nonce
+	 *  @param string	$token		Sent token
+	 *  @return array
+	 */
+	public function form_validate(
+		string	$form_name,
+		string	$method,
+		string	$nonce,
+		string	$token,
+		array	$required	= []
+	) : array {
+		
+		$key		= $this->session_key( $form_name );
+		$meta		= ( array ) $_SESSION["form_{$key}"] ?? [];
+		
+		$meta['issued']	??= null;
+		$meta['ttl']	??= null;
+		$meta['once']	??= null;
+		
+		$status		= 
+		$this->token_validate( 
+			form_name	: $form_name, 
+			method		: $method, 
+			nonce		: $nonce, 
+			token		: $token, 
+			issued		: $meta['issued'], 
+			ttl		: $meta['ttl'], 
+			once		: $meta['once']
+		);
+		
+		if ( $status !== 'ok' ) {
+			$this->logger->debug( "Form {$form_name} token validation failed" );
+			return [
+				'valid'		=> false, 
+				'status'	=> $status, 
+				'message'	=> "Token validation failed: {$status}"
+			];
+		}
+		
+		$this->logger->debug( "Form {$form_name} capability check" );
+		foreach ( $required as $capability ) {
+			if ( empty( $meta[$capability] ) ) {
+				$this->logger->debug( "Form {$form_name} capability {$capability} check failed" );
+				return [
+					'valid'		=> false, 
+					'status'	=> 'unauthorized', 
+					'message'	=> "Form does not allow: {$capability}"
+				];
+			}
+		}
+		
+		$this->logger->debug( "Form {$form_name} token validation OK" );
+		return [
+			'valid'		=> true, 
+			'status'	=> 'ok', 
+			'message'	=> 'Form is valid', 
+			'meta'		=> $meta
+		];
 	}
 }
 
@@ -10974,210 +11312,6 @@ function view_render( string $layout, array $vars = [] ) : string {
 	} finally {
 		\array_pop( $stack );
 	}
-}
-
-
-/**
- *  Form validation
- */
-
-/**
- *  Generate unique form ID from name
- *  
- *  @param string	$form_name	Form label
- *  @param bool		$use_id		Use session ID, if true
- *  @return string
- */
-function form_session_key( string $form_name, bool $use_id = false ) : string {
-	static $keys	= [];
-	sess_init();
-	
-	if ( isset( $keys[$form_name] ) ) { return $keys[$form_name]; }
-	
-	$phrase		= 
-	$use_id 
-		? $form_name . \session_id()
-		: $form_name;
-	
-	$keys[$form_name]	= \hash( 'sha1', $phrase );
-	return $keys[$form_name];
-}
-
-/**
- *  Get anti-CSRF token pair from form submission
- *  
- *  @param string	$method		Request method
- *  @return array
- */
-function form_get_token( string $method = 'post' ) : array {
-	static $filter	= [
-		'nonce'		=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS, 
-		'token'		=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS 
-	];
-	
-	$input	= 'get' === \strtolower( $method ) ? \INPUT_GET : \INPUT_POST;
-	return \filter_input_array( $input, $filter, true ) ?? [];
-}
-
-/**
- *  Generate anti-CSRF token/nonce pair with tokenized options
- *  
- *  @param string	$form_name	Form label
- *  @param string	$method		Request method
- *  @param array	$options	Optional default options
- *  @return array
- */
-function form_set_token( 
-	string	$form_name,
-	string	$method,
-	?array	$options	= null
-) : array {
-	// Defaults
-	$options		??= [
-		'allow_upload'	=> false,	// Allow file uploads ( plugins )
-		'allow_patch'	=> false,	// Enable PATCH method ( plugins )
-		'issued'	=> \time(),	// Form generated
-		'once'		=> false,	// Only allow one validation
-		'use_id'	=> false,	// Use session id
-		
-		// Expiration
-		'ttl'		=> 
-		config( $form_name . '_ttl', config( 'form_ttl', 3600 ) ),
-		
-		// Session stored value
-		'secret'	=> \bin2hex( \random_bytes( 32 ) )
-	];
-	
-	$options['secret']	??= \bin2hex( \random_bytes( 32 ) );
-	
-	$use_id	= ( bool ) ( $options['use_id'] ?? false );
-	$key	= form_session_key( $form_name, $use_id );
-	$old	= $_SESSION["form_{$key}"] ?? []; // Old form options, if any
-	
-	// Reset options
-	$data	= \array_merge( \is_array( $old ) ? $old : [], $options );
-	
-	$nonce	= \bin2hex( \random_bytes( 16 ) );	// Public value
-	$token	= \hash_hmac( 'sha256', $nonce, $data['secret'] . $method );
-	
-	$_SESSION["form_{$key}"] = $data;
-	
-	return [ 
-		'time'	=> time(), 
-		'token'	=> $token, 
-		'nonce'	=> $nonce
-	];
-}
-
-/**
- *  Validate token/nonce pair with form options
- *  
- *  @param string	$form_name	Form label
- *  @param string	$method		Request method
- *  @param string	$nonce		Sent nonce
- *  @param string	$token		Sent token
- *  @param int		$issued		Form issue timestamp
- *  @param int		$ttl		Time to live
- *  @param bool		$once		Only validate once if true
- *  @return string
- */
-function form_token_validate(
-	string	$form_name,
-	string	$method,
-	string	$nonce,
-	string	$token,
-	?int	$issued	= null,
-	?int	$ttl	= null,
-	?bool	$once	= null
-) : string {
-	$issued		??= time();	// Now
-	$ttl		??= 86400;	// 1 Day max
-	$once		??= false;	// Allow repeat
-	
-	$key		= form_session_key( $form_name );
-	
-	// Find key or empty pad
-	if ( isset( $_SESSION["form_{$key}"] ) ) {
-		$meta	= 
-		\is_array( $_SESSION["form_{$key}"] ) 
-			? $_SESSION["form_{$key}"]
-			: [];
-	} else {
-		$meta	= [];
-	}
-	
-	$missing	= ( empty( $meta ) || !isset( $meta['secret'] ) );
-	$secret		= $missing ? \str_repeat( '0', 64 ) : $meta['secret'];
-	$expected	= \hash_hmac( 'sha256', $nonce, $secret . $method );
-	$valid		= \hash_equals( $expected, $token );
-	
-	if ( $valid && $once ) {
-		unset( $_SESSION["form_{$key}"] );
-	}
-	
-	return match( true ) {
-		$missing			=> 'missing', 
-		( time() - $issued ) > $ttl	=> 'expired', 
-		$valid				=> 'ok', 
-		default				=> 'failed'
-	};
-}
-
-/**
- *  Form validation wrapper
- *  
- *  @param string	$form_name	Form label
- *  @param string	$method		Request method
- *  @param string	$nonce		Sent nonce
- *  @param string	$token		Sent token
- *  @return array
- */
-function form_validate(
-	string	$form_name,
-	string	$method,
-	string	$nonce,
-	string	$token,
-	array	$required	= []
-) : array {
-	
-	$key	= form_session_key( $form_name );
-	$meta	= $_SESSION["form_{$key}"] ?? [];
-	
-	$status	= 
-	form_token_validate( 
-		form_name	: $form_name, 
-		method		: $method, 
-		nonce		: $nonce, 
-		token		: $token, 
-		issued		: $meta['issued'] ?? null, 
-		ttl		: $meta['ttl']	?? null, 
-		once		: $meta['once']	?? null
-	);
-	
-	if ( $status !== 'ok' ) {
-		return [
-			'valid'		=> false, 
-			'status'	=> $status, 
-			'message'	=> "Token validation failed: {$status}"
-		];
-	}
-	
-	foreach ( $required as $capability ) {
-		if ( empty( $meta[$capability] ) ) {
-			return [
-				'valid'		=> false, 
-				'status'	=> 'unauthorized', 
-				'message'	=> "Form does not allow: {$capability}"
-			];
-		}
-	}
-	
-	return [
-		'valid'		=> true, 
-		'status'	=> 'ok', 
-		'message'	=> 'Form is valid', 
-		'meta'		=> $meta
-	];
 }
 
 
