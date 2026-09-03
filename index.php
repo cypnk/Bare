@@ -705,7 +705,7 @@ abstract class Instance {
 /**
  *  @class Errors and messaging
  */
-final class Errors extends Instance {
+final class Errors {
 	
 	public function __construct() {}
 	
@@ -826,11 +826,20 @@ final class Errors extends Instance {
 	/**
 	 *  Generic user-facing error page
 	 */
-	public static function show_page() : never {
-		\http_response_code( 500 );
+	public static function end_page( int $code = 500 ) : never {
+		\ob_end_clean();
+		\http_response_code( $code );
+		\header( 'Content-Type: text/html; charset=utf-8' );
 		
-		echo "An unexpected error occurred. Please try again later.";
-		exit( 1 );
+		$msg = match( true ) {
+			400		=> 'Invalid request',
+			401, 403	=> 'Access denied',
+			404		=> 'Page not found',
+			405		=> 'Method not allowed',
+			default	=>
+			'An unexpected error occurred. Please try again later.'
+		};
+		die( $msg );
 	}
 	
 	/**
@@ -867,7 +876,7 @@ final class Errors extends Instance {
 		\htmlspecialchars( $_SERVER['REQUEST_URI'] ?? '' ) . "\n";
 		
 		\error_log( $log );
-		static::show_page();
+		static::end_page( 500 );
 	}
 }
 
@@ -914,17 +923,16 @@ final class Container extends Instance {
 	 *  @param string	$concrete	Class implementation
 	 */
 	public function bind( string $abstract, string $concrete ) : void {
-		$err	= [];
 		if ( !\interface_exists( $abstract ) ) {
-			$err[] = "Interface {$abstract} not found";
+			$this->referror( "Interface {$abstract} not found" );
 		}
 		
 		if ( !\class_exists( $concrete ) ) {
-			$err[] = "Unable to bind {$abstract} to non-existent class {$concrete}";
+			$this->referror( "Unable to bind {$abstract} to non-existent class {$concrete}" );
 		}
 		
-		if ( !empty( $err ) ) {
-			$this->referror( \implode( $err, '. ' ) );
+		if ( !\is_subclass_of( $concrete, $abstract ) ) {
+			$this->referror( "Class {$concrete} does not implement {$abstract}" );
 		}
 		
 		$this->defs[$abstract]	= [
@@ -956,8 +964,24 @@ final class Container extends Instance {
 	 *  
 	 *  @param string	$id		Dependency name and/or type
 	 *  @param mixed	$dep		Singleton class or callable definition
+	 *  @example
+	 *  $container->set( MyClass::class );
+	 *  
+	 *  $container->set( MyClass::class, MyClass::create( $c ) );
+	 *  
+	 *  $container->set( MyClass::class, function( Container $c ) {
+	 *  	return MyClass::create( $c );
+	 *  } );
+	 *  
+	 *  $container->set( MyClass::class, function( Container $c ) {
+	 *  	return new MyClass( 
+	 *  		logger	: $c->get( Log::class ), 
+	 *  		config	: $c->get( Config::class ),
+	 *  		request	: $c->get( Request::class )
+	 *  	);
+	 *  });
 	 */
-	public function set( string $id, callable|string|null $dep = null ) : void {
+	public function set( string $id, callable|object|string|null $dep = null ) : void {
 		$this->defs[$id] = [
 			'type'	=> 'singleton',
 			'value'	=> $dep ?? $id
@@ -969,6 +993,18 @@ final class Container extends Instance {
 	 *  
 	 *  @param string	$id		Dependency name and/or type
 	 *  @param mixed	$dep		Factory dependency
+	 *  @example 
+	 *  $container->factory( MyFactory::class, function( Container $c ) { 
+	 *  	return MyFactory::create( $c );
+	 *  } );
+	 *  
+	 *  $container->factory( MyFactory::class, function( Container $c ) {
+	 *  	return new MyFactory( 
+	 *  		logger	: $c->get( Log::class ), 
+	 *  		config	: $c->get( Config::class ),
+	 *  		request	: $c->get( Request::class )
+	 *  	);
+	 *  });
 	 */
 	public function factory( string $id, callable|string $dep ) : void {
 		$this->defs[$id]	= [
@@ -976,7 +1012,7 @@ final class Container extends Instance {
 			'value'	=> $dep
 		];
 	}
-
+	
 	/**
 	 *  Checks if current stack or definitions list contains a given id
 	 * 
@@ -1027,6 +1063,11 @@ final class Container extends Instance {
 		\ReflectionParameter	$param 
 	) : mixed {
 		$dep	= $ptype->getName();
+		
+		// Dependency is Container itself?
+		if ( $dep === static::class ) {
+			return $this;
+		}
 		
 		// Try to get from existing functionality
 		if ( $param->isDefaultValueAvailable() ) {
@@ -1135,7 +1176,8 @@ final class Container extends Instance {
 		
 		$obj			= 
 		match( true ) {
-			\is_callable( $value )	=> $value( $this ),
+			\is_object( $value ) || \is_callable( $value ) 
+						=> $value( $this ),
 			
 			\is_string( $value ) && \class_exists( $value )
 						=> $this->autoload( $value ),
@@ -2095,7 +2137,7 @@ final class Text {
 	 *  @return array
 	 */
 	public static function lower_array_values( array $items  ) : array {
-		return \array_map( 'Text::lowercase', $collection );
+		return \array_map( 'Text::lowercase', $items );
 	}
 	
 	/**
@@ -4739,17 +4781,15 @@ class Response extends Instance {
 	) {}
 	
 	public static function create(
-		?Config		$config		= null,
-		?Request	$request	= null,
-		?Log		$logger		= null,
+		?Container	$container	= null,
 		?int		$code		= null,
 		array		$headers	= [],
 		mixed		$body		= null
 	) : static {
-		$container	= Container::instance();
-		$config		??= $container->get( 'Config' );
-		$request	??= $container->get( 'Request' );
-		$logger		??= $container->get( 'Log' );
+		$container	??= Container::instance();
+		$logger		= $container->get( Log::class );
+		$config		= $container->get( Config::class );
+		$request	= $container->get( Request::class );
 		$code		??= 200;
 		
 		return new static( $config, $request, $logger, $code, $headers, $body );
@@ -5762,13 +5802,10 @@ final class Config extends Instance {
 		$this->storage_base	= @\realpath( Storage::base() );
 	}
 	
-	public static function create( 
-		?Log		$logger		= null,
-		?Request	$request	= null 
-	) : static {
-		$container	= Container::instance();
-		$logger		??= $container->get( 'Log' );
-		$request	??= $container->get( 'Request' );
+	public static function create( ?Container $container = null ) : static {
+		$container	??= Container::instance();
+		$logger		= $container->get( Log::class );
+		$request	= $container->get( Request::class );
 		
 		return new static( $logger, $request );
 	}
@@ -6245,13 +6282,10 @@ class Language extends Instance {
 		public readonly Log	$log
 	) {}
 	
-	public static function create( 
-		?Config		$config		= null, 
-		?Log		$logger		= null 
-	) : static {
-		$container	= Container::instance();
-		$config		??= $container->get( 'Config' );
-		$logger		??= $container->get( 'Log' );
+	public static function create( ?Container $container = null ) : static {
+		$container	??= Container::instance();
+		$logger		= $container->get( Log::class );
+		$config		= $container->get( Config::class );
 		
 		return new static( $config, $logger );
 	}
@@ -7317,13 +7351,12 @@ class Template extends Instance {
 	}
 	
 	public static function create(
-		?Log		$logger		= null,
-		?HookRegistry	$registry	= null,
+		?Container	$container	= null,
 		?array		$extend		= null
 	) : static {
-		$container	= Container::instance();
-		$logger		??= $container->get( 'Log' );
-		$registry	??= $container->get( 'HookRegistry' );
+		$container	??= Container::instance();
+		$logger		= $container->get( Log::class );
+		$registry	= $container->get( HookRegistry::class );
 		$extend		??= [];
 		
 		return new static( $logger, $registry, $extend );
@@ -8221,15 +8254,11 @@ class Format extends Instance {
 		public readonly Template	$template
 	) {}
 	
-	public static function create(
-		?Config		$config		= null,
-		?Language	$language	= null,
-		?Template	$template	= null
-	) : static {
-		$container	= Container::instance();
-		$config		??= $container->get( 'Config' );
-		$language	??= $container->get( 'Language' );
-		$template	??= $container->get( 'Template' );
+	public static function create( ?Container $container = null ) : static {
+		$container	??= Container::instance();
+		$config		= $container->get( Config::class );
+		$language	= $container->get( Language::class );
+		$template	= $container->get( Template::class );
 		
 		return new static( $config, $language, $template );
 	}
@@ -9132,7 +9161,7 @@ class Route {
  */
 final class RouteDiscovery {
 	
-	public function __construct( private readonly Container $container ) {}
+	public function __construct( public readonly Container $container ) {}
 	
 	public function routes( string $class, \ReflectionMethod $method ) : array {
 		$routes		= [];
@@ -9578,16 +9607,11 @@ final class PluginDiscovery {
 	private readonly	string	$plugin_dir;
 	
 	/**
-	 *  @var Router Request path router
-	 */
-	private readonly Router $router;
-	
-	/**
 	 *  Discovery constructor
 	 *  
 	 *  @param Config	$config	Configuration settings
 	 *  @param Log		$log	Event logger
-	 *  @param Router	$router	URL Path router
+	 *  @param Router	$router	Request path router
 	 */
 	public function __construct(
 		public readonly Config	$config,
@@ -9597,15 +9621,11 @@ final class PluginDiscovery {
 		$this->plugin_dir = $this->config->defaults( 'plugin_dir' );
 	}
 	
-	public static function create(
-		?Config		$config		= null,
-		?Log		$log		= null,
-		?Router		$router		= null
-	) {
-		$container	= Container::instance();
-		$config		??= $container->get( 'Config' );
-		$logger		??= $container->get( 'Log' );
-		$router		??= $container->get( 'Router' );
+	public static function create( ?Container $container = null ) {
+		$container	??= Container::instance();
+		$logger		= $container->get( Log::class );
+		$config		= $container->get( Config::class );
+		$router		= $container->get( Router::class );
 		
 		return new static( $config, $logger, $router );
 	}
@@ -9806,15 +9826,12 @@ final class Database extends Instance {
 			: 7;
 	}
 	
-	public static function create(
-		?Config		$config		= null,
-		?Log		$log		= null
-	) : static {
-		$container	= Container::instance();
-		$config		??= $container->get( 'Config' );
-		$logger		??= $container->get( 'Log' );
+	public static function create( ?Container $container = null ) : static {
+		$container	??= Container::instance();
+		$logger		= $container->get( Log::class );
+		$config		= $container->get( Config::class );
 		
-		return new static( $config, $log );
+		return new static( $config, $logger );
 	}
 	
 	/**
@@ -10638,28 +10655,23 @@ class Sessions extends Instance {
 	 *  Session constructor
 	 *  
 	 *  @param Config	$config		Main configuration
-	 *  @param Log		$log		Status logger
+	 *  @param Log		$logger		Status logger
 	 *  @param Database	$data		Persistent storage
 	 *  @param Request	$request	Current client HTTP request
 	 */
-	public function ___construct(
+	public function __construct(
 		public readonly	Config		$config,
 		public readonly	Log		$logger,
 		public readonly	Database	$data,
 		public readonly	Request		$request
 	) {}
 	
-	public static function create(
-		?Config		$config		= null,
-		?Log		$log		= null,
-		?Database	$data		= null,
-		?Request	$request	= null
-	) : static {
-		$container	= Container::instance();
-		$config		??= $container->get( 'Config' );
-		$logger		??= $container->get( 'Log' );
-		$data		??= $container->get( 'Database' );
-		$request	??= $container->get( 'Request' );
+	public static function create( ?Container $container = null ) : static {
+		$container	??= Container::instance();
+		$logger		= $container->get( Log::class );
+		$config		= $container->get( Config::class );
+		$request	= $container->get( Request::class );
+		$data		= $container->get( Database::class );
 		
 		return new static( $config, $logger, $data, $request );
 	}
@@ -10878,7 +10890,7 @@ class Sessions extends Instance {
 				
 			} catch ( \Throwable $e ) {
 				$this->logger->error( "Session error: {$e->getMessage()}" );
-				Container::instance()->get( 'Errors' )::show_page();
+				Errors::end_page( 500 );
 			}
 		}
 		
@@ -10916,15 +10928,11 @@ class Forms extends Instance {
 		public readonly Sessions	$session
 	) {}
 
-	public static function create(
-		?Config		$config		= null,
-		?Log		$log		= null,
-		?Sessions	$session	= null,
-	) : static {
-		$container	= Container::instance();
-		$config		??= $container->get( 'Config' );
-		$log		??= $container->get( 'Log' );
-		$sessions	??= $container->get( 'Sessions' );
+	public static function create( ?Container $container = null ) : static {
+		$container	??= Container::instance();
+		$logger		= $container->get( Log::class );
+		$config		= $container->get( Config::class );
+		$sessions	= $container->get( Sessions::class );
 		
 		return new static( $config, $logger, $sessions );
 	}
@@ -10947,8 +10955,8 @@ class Forms extends Instance {
 			? $form_name . \session_id()
 			: $form_name;
 		
-		$keys[$form_name]	= \hash( 'sha1', $phrase );
-		return $keys[$form_name];
+		$this->keys[$form_name]	= \hash( 'sha1', $phrase );
+		return $this->keys[$form_name];
 	}
 	
 	/**
@@ -10981,7 +10989,8 @@ class Forms extends Instance {
 		string	$method,
 		?array	$options	= null
 	) : array {
-		$defaul_ttl	 = $this->config->setting( 'form_ttl', 86400, 'int' );
+		$default_ttl	 	= 
+		$this->config->setting( 'form_ttl', 86400, 'int' );
 		
 		// Defaults
 		$options		??= [
