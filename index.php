@@ -7357,8 +7357,7 @@ class Template extends Instance {
 		private	readonly	HookRegistry	$registry, 
 		private 		array		$extend		= []
 	) {
-		$this->patterns = array_merge( static::PRESET_PATTERNS, $extend );
-		$this->logger	= Container::instance()->get( 'Log' );
+		$this->patterns = \array_merge( static::PRESET_PATTERNS, $extend );
 	}
 	
 	public static function create(
@@ -9537,6 +9536,11 @@ final class Router extends Instance {
 		\RuntimeException( 'Invalid route handler' );
 	}
 	
+	// TODO
+	private function middleware() : void {
+		
+	}
+	
 	public function dispatch( string $method, string $uri ) : void {
 		$path	= \parse_url( $uri, \PHP_URL_PATH );
 		$path	= \rtrim( $path, '/' ) ?: '/';
@@ -9664,7 +9668,7 @@ final class PluginDiscovery {
 	public function discover( string $class ) : void {
 		if ( isset( $this->skipped[$class] ) ) { return; }
 		if ( !\class_exists( $class ) ) { 
-			$this->skipped[$class] = true; 
+			$this->skipped[$class] = true;
 			return;
 		}
 		
@@ -9727,12 +9731,17 @@ final class PluginDiscovery {
 		);
 	}
 	
-	public function autoload() : void {
+	/**
+	 *  Load plugins from current script, optionally other folders
+	 *  
+	 *  @param bool		$explore	Branch into other folders, defaults to false
+	 */
+	public function autoload( bool $explore = false ) : void {
 		// Preload locally declared plugins
 		$this->classes( \get_declared_classes() );
 		
-		// Skip traversing directories in debug mode
-		if ( defined( 'DEBUG_MODE' ) ) { return; }
+		// Skip traversing directories
+		if ( !$explore ) { return; }
 		
 		// Move on to directory classes
 		$files		= Finder::in( $this->plugin_dir );
@@ -11442,210 +11451,18 @@ class ViewLoader extends Instance {
 		
 		// Skip loading external views in debug mode
 		if ( defined( 'DEBUG_MODE' ) ) { return; }
-		$classes = Finder::in( PATH . 'views/' );
 		
+		$path		= 
+		Text::slash_path( PATH, true ) . 
+		\defined( 'VIEW_PATH' ) 
+			? Text::slash_path( \constant( 'VIEW_PATH' ), true )
+			: 'views/';
+		
+		$classes 	= Finder::in( $path );
 		foreach ( $classes as $info ) {
 			$this->parse( $info['class'] );
 		}
 	}
-}
-
-
-/**
- *  Content entry discovery and parsing
- */
-
-/**
- *  Process entry extension
- *  
- *  @return string
- */
-function entry_ext() : string {
-	static $ext;
-	$ext		??= '.' . 
-		\ltrim( \strtolower( config( 'entry_ext', 'md' ) ), '.' );
-	
-	return $ext;
-}
-
-/**
- *  Load entries
- *  
- *  @param string	$base	Search directory
- *  @return array
- */
-function entry_files( string $base ) : array {
-	$base		= \rtrim( $base,  '/\\' );
-	if ( !\is_dir( $base ) || !\is_readable( $base ) ) { 
-		return [];
-	}
-	
-	$files		= [];
-	$ext		= entry_ext();
-	$eext		= \ltrim( $ext, '.' );
-	
-	$dir		= 
-	new \RecursiveDirectoryIterator( 
-		$base, 
-		\FilesystemIterator::FOLLOW_SYMLINKS	| 
-		\FilesystemIterator::KEY_AS_FILENAME	| 
-		\FilesystemIterator::SKIP_DOTS
-	);
-		
-	$iterator	= 
-	new \RecursiveIteratorIterator( 
-		$dir, 
-		\RecursiveIteratorIterator::LEAVES_ONLY,
-		\RecursiveIteratorIterator::CATCH_GET_CHILD 
-	);
-	
-	foreach ( $iterator as $finfo ) {
-		if (
-			$finfo->isFile() && 
-			0 === \strcasecmp( $finfo->getExtension(), $eext )
-		) {
-			$files[] = [
-				'slug'		=> $finfo->getBasename( $ext ),
-				'path'		=> $finfo->getPathname(),
-				'mtime'		=> $finfo->getMTime(),
-			];
-		}
-	}
-	
-	return $files;
-}
-
-/**
- *  Process metadata from a given line as an array
- *  
- *  @param string	$line	Raw line entry
- *  @param array	$meta	Metadata storage
- *  @return			True if this line contained metadata
- */
-function entry_meta( string $line, array &$meta ) : bool {
-	if ( false === \strpos( $line, ':' ) ) { return false; }
-	
-	[ $key, $value ] = \array_map( 'trim', \explode( ':', $line, 2 ) );
-	if ( '' === $key  ) { return false; }
-	
-	$value		??= '';
-	$key		=  \strtolower( $key );
-	
-	if ( isset( $meta[$key] ) ) {
-		$meta[$key]	= ( array ) $meta[$key];
-		$meta[$key][]	= $value;
-		return true;
-	}
-	
-	$meta[$key]	= $value;
-	return true;
-}
-
-/**
- *  Load file information, including metadata
- *  
- *  @param string	$path	Full file location
- *  @return array
- */
-function entry_import( string $path ) : ?array {
-	if ( !\is_file( $path ) || !\is_readable( $path ) ) {
-		return null;
-	}
-	
-	$raw	= \file( $path, \FILE_IGNORE_NEW_LINES );
-	if ( false === $raw ) { return null; }
-	
-	$meta	= [];
-	$start	= 0;	// Body start
-	
-	$lines	= ( int ) config( 'entry_meta_lines', 6 );
-	$rcount	= count( $raw );
-	$mcount	= \min( $lines, $rcount );
-	
-	// Top metadata
-	for ( $i = 1; $i < $mcount; $i++ ) {
-		$line	= \trim( $raw[$i] );
-		if ( '' === $line ) {
-			$start = $i + 1;
-			break;
-		}
-		
-		if ( entry_meta( $line, $meta ) ) { continue; }
-		
-		$start = $i;
-		break;
-	}
-	
-	// Bottom metadata
-	$cut	= $rcount;
-	for ( $i = $rcount - 1; $i >= 0; $i-- ) {
-		$line	= \trim( $raw[$i] );
-		if ( '' === $line ) { continue; }
-		
-		if ( entry_meta( $line, $meta ) ) {
-			$cut = $i;
-			continue;
-		}
-		
-		break;
-	}
-	
-	// Ensure title exists at least as the first line, if not explicitly set
-	if ( !isset( $meta['title'] ) ) {
-		$meta['title'] = isset( $raw[0] ) 
-			? \array_shift( $raw )
-			: language_term( 'untitled', '(Untitled)' );
-	}
-	
-	// Path as slug
-	$meta['slug']	= \pathinfo( $path, \PATHINFO_FILENAME );
-	
-	$body		= 
-	\implode( "\n", \array_slice( $raw, $start, $cut - $start ) );
-	
-	return [ 'meta' => $meta, 'body' => $body ];
-}
-
-/**
- *  Paged entry index with detailed info
- *  
- *  @param string	$dir	Search directory
- *  @param int		$page	Current page index, defaults to 1
- *  @param int		$limit	Maximum number of files
- *  @return array
- */
-function entry_index( string $dir, int $page, int $limit ) : array {
-	$files		= entry_files( $dir );
-	if ( empty( $files ) ) { 
-		return [
-			'entries'	=> [],
-			'total_entries'	=> 0,
-			'total_pages'	=> 1,
-		]; 
-	}
-	
-	// Sort newest -> oldest
-	usort( $files, fn( $a, $b ) => $b['mtime'] <=> $a['mtime'] );
-	
-	$page	= \min( 1, $page );
-	$total	= count( $files );
-	$pcount	= \max( 1, ( int ) \ceil( $total / $limit ) );
-	
-	$offset	= ( $page - 1 ) * $limit;
-	$slice	= \array_slice( $files, $offset, $limit );
-	
-	// Load only the entries needed for this page
-	$entries = 
-	\array_values( \array_filter(
-		\array_map( fn( $f ) => entry_import( $f['path'] ), $slice ),
-		fn( $e ) => $e !== null
-	));
-	
-	return [
-		'entries'	=> $entries,
-		'total_entries'	=> $total,
-		'total_pages'	=> $pcount,
-	];
 }
 
 
@@ -11654,18 +11471,60 @@ function entry_index( string $dir, int $page, int $limit ) : array {
  *  Core functionality
  */
 
-
+/**
+ *  Main component actions
+ *  
+ *  @param bool		$debug	Start in debug mode
+ */
+function begin( bool $debug = false ) : void {
+	
+	// Base classes
+	$container	= Container::instance();
+	// Current initial request
+	$request	= $container->get( Request::class );
+	
+	$logger		= $container->get( Log::class );
+	$config		= $container->get( Config::class );
+	
+	// Core hooks
+	$registry	= $container->get( HookRegistry::class );
+	$shutdown	= new HookShutdown( $registry );	
+	$hooks		= $container->get( HookLoader::class );
+	
+	// Enable shutdown actions
+	\register_shutdown_function( [ $shutdown, 'run' ] );
+	
+	$router		= $container->get( Router::class );
+	$plugins	= $container->get( PluginDiscovery::class );
+	
+	// Disable exploring and don't initialize plugins in debug mode
+	if ( $debug ) {
+		$hooks->autoload( false );	
+		$plugins->autoload( false );
+		$plugins->init( false );
+		return;
+	}
+	
+	$hooks->autoload( true );
+	$plugins->autoload( true );
+	$plugins->init( true );
+}
 
 /**
  *  Application initizlization log
  */
-function init_startup_log() : void {
-	$log = Storage::base() . \STARTUP;
+function startup_log() : void {
+	$log_file = Storage::base() . 
+	\defined( 'STARTUP' ) 
+		? ( string ) constant( 'STARTUP' )
+		: 'startup.log';
 	
-	if ( \file_exists( $log ) ) { return; }
+	// Startup complete if log exists
+	if ( \file_exists( $log_file ) ) { return; }
 	
 	// List of required and optional libraries
-	$lib	= [ 
+	$lib	= 
+	[ 
 		'required' => [
 			'libxml_clear_errors'	=> 'libxml',
 			'mime_content_type'	=> 'fileinfo',
@@ -11685,265 +11544,381 @@ function init_startup_log() : void {
 	if ( !\defined( 'PDO::ATTR_DEFAULT_FETCH_MODE' ) ) {
 		$miss['required'][] = 'pdo-sqlite';
 	}
-	
-	// Log any missing required libraries
-	foreach ( $lib['required'] as $f => $name ) {
-		if ( !\function_exists( $f ) ) {
-			$miss['required'][] = $name;
-		}
-	}
-	
-	// Optional libraries
-	foreach ( $lib['optional'] as $f => $name ) {
-		if ( !\function_exists( $f ) ) {
-			$miss['optional'][] = $name;
-		}
-	}
-	
+
 	if ( !empty( $miss['required'] ) ) {
 		$msg	= 
 		'These required library(ies) may be missing or disabled: ' . 
 			implode( ', ', $miss['required'] );
+			$log = Text::truncate( Sanitize::spaces( $msg ), 0, 2048 );
+			\error_log( $log, 3, $log_file );
+		}
 		
-		Container::instance()->get( 'Log' )->error( Text::truncate( Sanitize::spaces( $msg ), 0, 2048 ), $log );
-	}
-	
-	if ( !empty( $miss['optional'] ) ) {
-		$msg	= 
-		'These recommended function(s) or library(ies) may be missing or disabled: ' . 
-			implode( ', ', $miss['optional'] );
-		
-		Container::instance()->get( 'Log' )->info( Text::truncate( Sanitize::spaces( $msg ), 0, 2048 ), $log );
+		if ( !empty( $miss['optional'] ) ) {
+			$msg	= 
+			'These recommended function(s) or library(ies) may be missing or disabled: ' . 
+				implode( ', ', $miss['optional'] );
+			$log = Text::truncate( Sanitize::spaces( $msg ), 0, 2048 );
+			\error_log( $log, 3, $log_file );
+		}
 	}
 }
 
 function startup() : void {
 	static $initialized	= false;
 	
-	$errors	= Errors::instance();
-	if ( !$initialized ) {
-		\date_default_timezone_set( 'UTC' );
-		\ignore_user_abort( true );
-		
-		\set_exception_handler( [ $errors, 'handle' ] );
-		
-		if ( defined( 'DEBUG_MODE' ) ) {
-			$errors->trace( 'Request started', [
-				'method'	=> $_SERVER['REQUEST_METHOD'],
-				'uri'		=> $_SERVER['REQUEST_URI']
-			] );
-		}
-		
-		init_startup_log();
-		
-		// Higher level shutdown functions
-		\register_shutdown_function( 'shutdown' );
-		
-		sess_init();
-		$initialized = true;
+	if ( $initialized ) { return; }
+	
+	$initizlied	= true;
+	\date_default_timezone_set( 'UTC' );
+	
+	$debug		= \defined( 'DEBUG_MODE' ) ? true : false;
+	
+	$errors	= new Errors();
+	\set_exception_handler( [ $errors, 'handle' ] );
+	
+	if ( $debug ) {
+		$errors->trace( 'Request started', [
+			'method'	=> $_SERVER['REQUEST_METHOD'],
+			'uri'		=> $_SERVER['REQUEST_URI']
+		] );
 	}
 	
 	$scope	= $errors->start_scope();
 	try {
-		$functions	= Util::functions_list( true );
-		plugin_init();
-		hook_autoload();
-		
-		$routes	= route_resolve();
-		$request = Container::instance()->get( 'Request' );
-		route( $routes, $request->uri, $request->method );
+		startup_log();
+		begin( $debug );
 	} finally {
 		$errors->end_scope( $scope );
 	}
-}
-
-/**
- *  Collection of functions to execute after content sent
- */
-function shutdown() {
-	static $registered	= [];
-	$args			= \func_get_args();
-	
-	// Shutdown called
-	if ( empty( $args ) ) {
-		// Cleanup any session data
-		if ( \session_status() === \PHP_SESSION_ACTIVE ) {
-			\session_write_close();
-		}
-		
-		hook( [ 'shutdown', [] ] );
-		foreach( $registered as $k => $v ) {
-			if ( \is_array( $v ) ) {
-				$k( ...$v );
-			} elseif ( $v !== null ) {
-				$k( $v );
-			} else {
-				$k();
-			}
-		}
-		
-		// End
-		return;
-	}
-	
-	if ( \is_callable( $args[0] ) ) {
-		$registered[$args[0]] = $args[1] ?? null;
-	}
-}
-
-/**
- *  Component-based asset directory locator
- *  
- *  @param string	$uri		File request URI
- *  @return string|null
- */
-function static_file_resolve( string $uri ) : ?string {
-	// Normalize the path
-	$path	= \parse_url( $uri, \PHP_URL_PATH );
-	$path	= \ltrim( $path, '/' );
-	
-	// Preload registered asset paths
-	$paths	= hook( [ 'register_asset_dir', [] ] );
-	
-	foreach ( $paths as $dir ) {
-		$root	= @\realpath( $dir );
-		if ( false === $root ) { continue; }
-		
-		$file	= \rtrim( $root, '/\\' ) . \DIRECTORY_SEPARATOR . $path;
-		$rpath	= @\realpath( $file );
-		
-		// Match first detection
-		if ( 
-			( false !== $rpath )			&& 
-			( 0 === \strpos( $rpath, $root ) )	&& 
-			\is_file( $rpath )
-		) {
-			return $rpath;
-		}
-	}
-	
-	// Nothing found
-	return null;
-}
-
-function archive_page_url( array $params, int $page ) : string {
-	$year	= $params['year'] ?? null;
-	$month	= $params['month'] ?? null;
-	$day	= $params['day'] ?? null;
-	
-	return match( true ) {
-		( null === $year )		=> 
-			"/{$year}",
-		( $year && $month && $day)	=>
-			"/{$year}/{$month}/{$day}/page{$page}",
-		( $year && $month )		=> 
-			"/{$year}/{$month}/page{$page}",
-		default				=> 
-			"/{$year}/page{$page}"
-	};
-}
-
-function archive_title_from_params( array $params ) : string {
-	$year	= $params['year']	?? null;
-	$month	= $params['month']	?? null;
-	$day	= $params['day']	?? null;
-	
-	return match( true ) {
-		( null === $year )		=> '',
-		( $year && $month && $day )	=>
-			\sprintf( '%04d-%02d-%02d', $year, $month, $day ),
-		
-		( $year && $month )		=>
-			\sprintf( '%04d-%02d', $year, $month ),
-		
-		default				=>
-			\sprintf( '%04d', $year )
-	};
 }
 
 
 /**
  *  Main Bare plugin
  */
-#[Plugin(
-	name		: 'Bare',
-	priority	: 1000
-)]
-function bare( Plugin $meta ) {
-	$base_dir 	= 
-	\is_callable( $meta->asset_dir )
-		? ( $meta->asset_dir )()
-		: $meta->asset_dir;
+#[Plugin( name: 'Bare', priority : 1000 ) ]
+#[Info( 
+	name	: 'Bare', 
+	version	: '2.0' 
+) ]
+class Bare {
+	/**
+	 *  @var Config Configuration settings
+	 */
+	private readonly Config $config;
 	
-	$dir	= config( 'asset_dir', $base_dir ); // Build on default
-	$dir	= \rtrim( $dir, '/\\' ) . \DIRECTORY_SEPARATOR;
-	hook( [ 'register_asset_dir', function( $event, $dirs ) use ( $dir ) {
-		$dirs[] = $dir;
-		return $dirs;
-	} ] );
-}
-
-/**
- *  Handle archive request with pagination
- *
- *  @param array	$params		Route parameters
- */
-#[Route( pattern: '/{year:int}/{month:int}/{day:int}/page{page:int}?', method: 'get' )]
-#[Route( pattern: '/{year:int}/{month:int}/{day:int}', method: 'get' )]
-#[Route( pattern: '/{year:int}/{month:int}/page{page:int}?', method: 'get' )]
-#[Route( pattern: '/{year:int}/{month:int}', method: 'get' )]
-#[Route( pattern: '/{year:int}/page{page:int}?', method: 'get' )]
-#[Route( pattern: '/{year:int}', method: 'get' )]
-function bare_archive( array $params ) {
-	// TODO: Build archive
-	[ $start, $end, $page ]	= Util::date_range( $params, true );
+	/**
+	 *  @var Language Translation and localization settings
+	 */
+	private readonly Language $language;
 	
-	die( 'Bare archive' );
-}
-
-#[Route( pattern: '/{year:int}/{month:int}/{day:int}/{slug:str}', method: 'get' )]
-function bare_post( array $params ) {
-	// TODO: Read post
+	public function __construct( 
+		private readonly Info		$info,
+		private readonly Plugin		$meta, 
+		private readonly Container	$container
+	) {
+		$this->config	= $this->container->get( 'Config' );
+		$this->language	= $this->container->get( 'Language' );
+		
+		$asset_dir	= $info->fields['asset_dir']	?? 'assets/';
+		$data_dir	= $info->fields['data_dir']	?? 'data/';
+		
+		$base_dir 	= 
+		\is_callable( $asset_dir )
+			? $asset_dir()
+			: $asset_dir;
+		
+		$dir		= $this->config->setting( 'asset_dir', $base_dir ); // Build on default
+		$dir		= \rtrim( $dir, '/\\' ) . \DIRECTORY_SEPARATOR;
+		
+		
+		/*
+		hook( [ 'register_asset_dir', function( $event, $dirs ) use ( $dir ) {
+			$dirs[] = $dir;
+			return $dirs;
+		} ] );*/
+	}
 	
-	die( 'Bare post' );
-} 
-
-#[Route( pattern: '/tags/{tag:str}/page{page:int}?', method: 'get' )]
-#[Route( pattern: '/tags/{tag:str}', method: 'get' )]
-function bare_tags( array $params ) {
-	// TODO: Tag search
-
-	die( 'Bare tags' );
-}
-
-#[Route( pattern: '/feed', method: 'get')]
-function bare_feed( array $params ) {
-	// TODO: Search archive
+	/**
+	 *  Content entry discovery and parsing
+	 */
 	
-	die( 'Bare feed' );
-}
-
-#[Route( pattern: '/about/{tree:str}?', method: 'get' )]
-function bare_about( array $params ) {
-	// TODO: About page etc...
+	/**
+	 *  Process entry extension, defaults to ''.md'
+	 *  
+	 *  @return string
+	 */
+	private function entry_ext() : string {
+		static $ext;
+		$ext		??= '.' . 
+		\ltrim( \strtolower( $this->config->setting( 'entry_ext', 'md' ) ), '.' );
+		
+		return $ext;
+	}
 	
-	die( 'Bare about' );
-}
-
-#[Route( pattern: '/?find={find:str}/page{page:int}?', method: 'get')]
-#[Route( pattern: '/?find={find:str}', method: 'get')]
-function bare_search( array $params ) {
-	// TODO: Search archive
+	/**
+	 *  Load entries
+	 *  
+	 *  @param string	$base	Search directory
+	 *  @return array
+	 */
+	private function entry_files( string $base ) : array {
+		$iterator = Storage::files_as_iterator( $base );
+		if ( empty( $iterator ) ) { return []; }
+		
+		$files	= [];
+		$ext	= $this->entry_ext();
+		$eext	= \ltrim( $ext, '.' );
+		$rext	= '/^.+\.' . $eext  . '$/i';
+		$filter	= 
+		new \CallbackFilterIterator(
+			$iterator,
+			fn( $finfo ) => 
+				$finfo->isFile()	&& 
+				$finfo->getSize() > 0	&& 
+				0 === \strcasecmp( $eext, $finfo->getExtension() )
+		);
+		
+		foreach ( $filter as $finfo ) {
+			$files[] = [
+				'slug'		=> $finfo->getBasename( $ext ),
+				'path'		=> $finfo->getPathname(),
+				'mtime'		=> $finfo->getMTime(),
+			];
+		}
+		
+		return $files;
+	}
 	
-	die( 'Bare search' );
-}
-
-#[Route( pattern: '/page{page:page}?', method: 'get' )]
-#[Route( pattern: '/', method: 'get' )]
-function bare_index( array $params ) {
-	// TODO: Index
+	/**
+	 *  Process metadata from a given line as an array
+	 *  
+	 *  @param string	$line	Raw line entry
+	 *  @param array	$meta	Metadata storage
+	 *  @return			True if this line contained metadata
+	 */
+	private function entry_meta( string $line, array &$meta ) : bool {
+		if ( \str_contains( $line, ':' ) ) { return false; }
+		
+		[ $key, $value ] = \array_map( 'trim', \explode( ':', $line, 2 ) );
+		if ( '' === $key  ) { return false; }
+		
+		$value		??= '';
+		$key		=  \strtolower( $key );
+		
+		if ( isset( $meta[$key] ) ) {
+			$meta[$key]	= ( array ) $meta[$key];
+			$meta[$key][]	= $value;
+			return true;
+		}
+		
+		$meta[$key]	= $value;
+		return true;
+	}
 	
-	die( 'Bare index' );
+	/**
+	 *  Load file information, including metadata
+	 *  
+	 *  @param string	$path	Full file location
+	 *  @return array
+	 */
+	private function entry_import( string $path ) : ?array {
+		if ( @!\is_readable( $path ) ) { return null; }
+		
+		$raw	= @\file( $path, \FILE_IGNORE_NEW_LINES );
+		if ( false === $raw ) { return null; }
+		
+		$raw	= Text::trim_lines( $raw );
+		if ( empty( $raw ) ) { return null; }
+		
+		$meta	= [];
+		$start	= 0;	// Body start
+		
+		$lines	= ( int ) $this->config->setting( 'entry_meta_lines', 6 );
+		$rcount	= count( $raw );
+		$mcount	= \min( $lines, $rcount );
+		
+		// Top metadata
+		for ( $i = 1; $i < $mcount; $i++ ) {
+			$line	= \trim( $raw[$i] );
+			if ( '' === $line ) {
+				$start = $i + 1;
+				break;
+			}
+			
+			if ( $this->entry_meta( $line, $meta ) ) { continue; }
+			
+			$start = $i;
+			break;
+		}
+		
+		// Bottom metadata
+		$cut	= $rcount;
+		for ( $i = $rcount - 1; $i >= $start; $i-- ) {
+			$line	= \trim( $raw[$i] );
+			if ( '' === $line ) { continue; }
+			
+			if ( $this->entry_meta( $line, $meta ) ) {
+				$cut = $i;
+				continue;
+			}
+			
+			break;
+		}
+		
+		// Ensure title exists at least as the first line, if not explicitly set
+		if ( !isset( $meta['title'] ) ) {
+			if ( isset( $raw[0] ) ) {
+				$meta['title']	= \trim( \array_shift( $raw ) );
+				$start		= \max( 0, $start - 1 );
+				$cut		= \max( 0, $cut - 1 );
+			} else {
+				$meta['title'] = 
+				$this->language->term( 'untitled', '(Untitled)' );
+			}
+		}
+		
+		// Path as slug
+		$meta['slug']	= \pathinfo( $path, \PATHINFO_FILENAME );
+
+		$text		= \array_slice( $raw, $start, $cut - $start );
+		$text		= Text::trim_lines( $text );
+		$body		= \implode( "\n", $text );
+		
+		return [ 'meta' => $meta, 'body' => $body ];
+	}
+	
+	/**
+	 *  Post stamp date formatting helper
+	 *  
+	 *  @param array	$post	Populated stamp in year, month, day format
+	 */
+	private function entry_date( array $post ) : \DateTime {
+		return new \DateTime( "{$post['year']}-{$post['month']}-{$post['day']} 00:00:00" );
+	}
+	
+	/**
+	 *  Paged entry index with detailed info
+	 *  
+	 *  @param string	$dir	Search directory
+	 *  @param DateTime	$start	Starting date for archive
+	 *  @param DateTime	$end	Ending date for archive
+	 *  @param int		$page	Current page index, defaults to 1
+	 *  @param int		$limit	Maximum number of files
+	 *  @return array
+	 */
+	private function entry_index( string $dir, \DateTime $start, \DateTime $end, int $page, int $limit ) : array {
+		$files	= $this->entry_files( $dir );
+		if ( empty( $files ) ) { 
+			return [
+				'entries'	=> [],
+				'total_entries'	=> 0,
+				'total_pages'	=> 1,
+			]; 
+		}
+
+		$files	= 
+		\array_filter(
+			$files,
+			fn( $p ) => $this->entry_date( $p ) >= $start && $this->entry_date( $p ) < $end
+		);
+		
+		// Nothing in this date range?
+		if ( empty( $files ) ) {
+			return [
+				'entries'	=> [],
+				'total_entries'	=> 0,
+				'total_pages'	=> 1,
+			];
+		}
+		
+		// Sort newest -> oldest
+		usort( $files, fn( $a, $b ) => $b['mtime'] <=> $a['mtime'] );
+		
+		$page	= \min( 1, $page );
+		$total	= count( $files );
+		$pcount	= \max( 1, ( int ) \ceil( $total / $limit ) );
+		
+		// Paginate
+		$offset	= ( $page - 1 ) * $limit;
+		$slice	= \array_slice( $files, $offset, $limit );
+		
+		// Load only the entries needed for this page
+		$entries = 
+		\array_values( \array_filter(
+			\array_map( fn( $f ) => $this->entry_import( $f['path'] ), $slice ),
+			fn( $e ) => $e !== null
+		) );
+		
+		return [
+			'entries'	=> $entries,
+			'total_entries'	=> $total,
+			'total_pages'	=> $pcount,
+		];
+	}
+	
+	#[Route( pattern : '/{year:int}/{month:int}/{day:int}/page{page:int}?', method : 'get' )]
+	#[Route( pattern : '/{year:int}/{month:int}/{day:int}', method : 'get' )]
+	#[Route( pattern : '/{year:int}/{month:int}/page{page:int}?', method : 'get' )]
+	#[Route( pattern : '/{year:int}/{month:int}', method : 'get' )]
+	#[Route( pattern : '/{year:int}/page{page:int}?', method : 'get' )]
+	#[Route( pattern : '/{year:int}', method : 'get' )]
+	public function archive( array $params ) {
+		[ $start, $end, $page ]	= Util::date_range( $params, true );
+		
+		$dir	= $this->config->setting( 'post_dir', Storage::base() );
+		$limit	= $this->config->setting( 'post_limit', 10 );
+		
+		$posts	= $this->entry_index( $dir, $start, $end, $page, $limit );
+		\var_dump( $posts ); // Test
+		
+		die( 'Bare archive' );
+	}
+	
+	#[Route( pattern : '/{year:int}/{month:int}/{day:int}/{slug:str}', method : 'get' )]
+	public function post( array $params ) {
+		// TODO: Read post
+		
+		die( 'Bare post' );
+	}
+	
+	#[Route( pattern : '/tags/{tag:str}/page{page:int}?', method : 'get' )]
+	#[Route( pattern : '/tags/{tag:str}', method : 'get' )]
+	public function tags( array $params ) {
+		// TODO: Tag search
+	
+		die( 'Bare tags' );
+	}
+	
+	#[Route( pattern : '/feed', method : 'get')]
+	public function feed( array $params ) {
+		// TODO: Search archive
+		
+		die( 'Bare feed' );
+	}
+	
+	#[Route( pattern : '/about/{tree:str}?', method : 'get' )]
+	public function about( array $params ) {
+		// TODO: About page etc...
+		
+		die( 'Bare about' );
+	}
+	
+	#[Route( pattern : '/?find={find:str}/page{page:int}?', method : 'get')]
+	#[Route( pattern : '/?find={find:str}', method : 'get')]
+	public function search( array $params ) {
+		// TODO: Search archive
+		
+		die( 'Bare search' );
+	}
+	
+	#[Route( pattern : '/page{page:page}?', method : 'get' )]
+	#[Route( pattern : '/', method : 'get' )]
+	public function index( array $params ) {
+		// TODO: Index
+		
+		die( 'Bare index' );
+	}
 }
 
 
@@ -17370,113 +17345,9 @@ function checkConfig( string $event, array $hook, array $params ) {
 	return \array_merge( $hook, $data );
 }
 
-/**
- *  Blog route adding event
- */
-function addBlogRoutes( string $event, array $hook, array $params ) {
-	return 
-	[
-	/**
-	 *  Homepage
-	 */
-	[ 'get', '',					'home' ],
-	[ 'get', 'page:page',				'homepaginate' ],
-	[ 'get', 'feed',				'feed' ],
-	
-	/**
-	 *  Archive routes
-	 */
-	[ 'get', ':year',				'archive' ],
-	[ 'get', ':year/page:page',			'archive' ],
-	[ 'get', ':year/:month',			'archive' ],
-	[ 'get', ':year/:month/page:page',		'archive' ],
-	[ 'get', ':year/:month/:day',			'archive' ],
-	
-	[ 'get', 'tags/:tag',				'tagview' ],
-	[ 'get', 'tags/:tag/page:page',			'tagpaginate' ],
-	
-	/**
-	 *  Generate archive cache
-	 */
-	[ 'get', 'archive',				'reindex' ],
-	[ 'get', 'archive/page:page',			'reindexpaged' ],
-	
-	/**
-	 *  Single post
-	 */
-	[ 'get', ':year/:month/:day/:slug',		'postview' ],
-	
-	/**
-	 *  About pages
-	 *  Remember to rename your about directory in POST_DIR if these are changed
-	 */
-	[ 'get', 'about',				'aboutview' ],
-	[ 'get', 'about/:tree',				'aboutview' ],
-	
-	/**
-	 *  Searching
-	 */
-	[ 'get', '\\?find=:find',			'search' ],
-	[ 'get', '\\?find=:find/page:page',		'searchpaginate' ]
-	];
-}
 
-// Environment check
+// Start application
 startup();
-
-/**
- *  Begin event registry
- */
-
-// Configuration load
-hook( [ 'checkconfig',	'checkConfig' ] );
-
-// Home and archive event handlers
-hook( [ 'home',		'showHome' ] );
-hook( [ 'home',		'showArchive' ] );
-hook( [ 'homepaginate',	'showArchive' ] );
-hook( [ 'archive',	'showArchive' ] );
-
-// Browsing tag events
-hook( [ 'tagview',	'showTag' ] );
-hook( [ 'tagpaginate',	'showTag' ] );
-
-// Post view event
-hook( [ 'postview',	'showPost' ] );
-
-// About page event
-hook( [ 'aboutview',	'showAbout' ] );
-
-// Searching
-hook( [ 'search',	'showSearch' ] );
-hook( [ 'searchpaginate','showSearch' ] );
-
-// Syndication feed and archive index events
-hook( [ 'feed',		'showFeed' ] );
-hook( [ 'reindex',	'runIndex' ] );
-hook( [ 'reindexpaged',	'runIndex' ] );
-
-// Special events
-hook( [ 'dbcreated',	'reloadIndex' ] );
-
-// Register request, route, and plugin load handlers
-hook( [ 'requesturl',	'filterRequest' ] );
-hook( [ 'begin',	'request' ] );
-hook( [ 'begin',	'route' ] );
-
-// Render events
-hook( [ 'formatpostprep', 'formatPostPrep' ] );
-
-// Append URL route markers
-hook( [ 'routemarker',	'routeMarkers' ] );
-
-// Register blog routes during 'addroutes' event ( called in request() )
-hook( [ 'initroutes',	'addBlogRoutes' ] );
-
-/**
- *  Begin Bare
- */
-hook( [ 'begin', [] ] );
 
 
 
