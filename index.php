@@ -7066,11 +7066,17 @@ class HookRegistry {
  *  @class Hook discovery and loading
  */
 class HookLoader {
-	public function __construct(
-		private HookRegistry	$registry,
-		private array		$classes	= [],
-		private array		$skipped	= []
-	) {}
+	/**
+	 *  @var array<string> Ignored classnames
+	 */
+	private	array	$skipped	= [];
+	
+	/**
+	 *  @var array<string> Already loaded hooks
+	 */
+	private array	$classes	= [];
+	
+	public function __construct( private HookRegistry $registry ) {}
 	
 	/**
 	 *  Process hook containers and append handlers
@@ -7082,6 +7088,11 @@ class HookLoader {
 			isset( $this->classes[$class] ) || 
 			isset( $this->skipped[$class] )
 		) { return; }
+		
+		if ( !\class_exists( $class ) ) { 
+			$this->skipped[$class] = true; 
+			return;
+		}
 		
 		$ref			= new \ReflectionClass( $class );
 		if ( 
@@ -9235,11 +9246,15 @@ final class Router extends Instance {
 	/**
 	 *  Router constructor
 	 *  
-	 *  @param Container	Class instance handler
+	 *  @param Container $container	Class instance handler
 	 */
 	public function __construct( public readonly Container $container ) {
 		// Start with core classes
 		$this->discovery = new RouteDiscovery( $this->container );
+	}
+	
+	public static function create( ?Container $container = null ) {
+		return new static( $container ?? Container::instance() );
 	}
 	
 	public function add( array $route ) : void {
@@ -9648,6 +9663,10 @@ final class PluginDiscovery {
 	
 	public function discover( string $class ) : void {
 		if ( isset( $this->skipped[$class] ) ) { return; }
+		if ( !\class_exists( $class ) ) { 
+			$this->skipped[$class] = true; 
+			return;
+		}
 		
 		$ref	= new \ReflectionClass( $class );
 		$attrs	= $ref->getAttributes( Plugin::class );
@@ -9699,8 +9718,6 @@ final class PluginDiscovery {
 	
 	public function classes( array $info ) : void {
 		foreach ( $info as $class ) {
-			if ( !\class_exists( $class['class'] ) ) { continue; }
-			
 			$this->discover( $class['class'] );
 		}
 		
@@ -9988,7 +10005,7 @@ final class Database extends Instance {
 			return true;
 	
 		} catch ( \PDOException $e ) {
-			$dbh->rollback();
+			$dbh->rollBack();
 			
 			$this->logger->error( 
 				"Batch execution failed for SQL " . 
@@ -10252,7 +10269,7 @@ final class Database extends Instance {
 			$dbh->commit();
 			
 		} catch( \Throwable $e ) {
-			$dbh->rollback();
+			$dbh->rollBack();
 			$this->logger->error(
 				"Error loading database schema file: {$sql_file} " .
 				$e->getMessage() 
@@ -11095,7 +11112,7 @@ class Forms extends Instance {
 	) : array {
 		
 		$key		= $this->session_key( $form_name );
-		$meta		= ( array ) $_SESSION["form_{$key}"] ?? [];
+		$meta		= ( array ) ( $_SESSION["form_{$key}"] ?? [] );
 		
 		$meta['issued']	??= null;
 		$meta['ttl']	??= null;
@@ -11145,10 +11162,6 @@ class Forms extends Instance {
 
 
 /**
- *  Views and layouts for plugins
- */
-
-/**
  *  Main view attribute
  */
 #[Attribute( Attribute::TARGET_FUNCTION | Attribute::IS_REPEATABLE )]
@@ -11166,160 +11179,274 @@ class View {
 }
 
 /**
- *  Isolated view source inclusion
- *  
- *  @param string	$file	View source file location
- *  @param array	$data	Parameter data
- *  @return string
+ *  @class Prefixed view class storage
  */
-function view_include( string $file, array $data ) : string {
-	$vars	= $data;
-	return ( function() use ( $file, $vars ) {
-		\extract( $vars, \EXTR_SKIP );
+class ViewRegistry extends Instance {
+	/**
+	 *  @var array Cached view paths in prefix->directory format
+	 */
+	private array $paths = [];
+	
+	public function __construct( private Config $config ) {
+		// Start with plugin directory
+		$this->paths[''] = $this->config->defaults( 'plugin_dir ');
+	}
+	
+	public static function create( ?Config $config	= null ) : static {
+		$config	??= Container::instance()->get( Config::class );
+		return new static( $config );
+	}
+	
+	/**
+	 *  Prefixed view cache
+	 *  
+	 *  @param string	$prefix	View prefix
+	 *  @param string	$path	Base view directory for given prefix
+	 *  @return array
+	 */
+	public function add( string $prefix, string $path ) : void {
+		$this->paths[$prefix] ??= \rtrim( $path, '/\\' );
+	}
+	
+	public function all() : array { return $this->paths; }
+}
+
+/**
+ *  @class Identify usable views from registry
+ */
+class ViewResolver {
+	
+	public function __construct( private ViewRegistry $registry ) {}
+	
+	/**
+	 *  Validate view path relative to base directory
+	 *  
+	 *  @param string	$file	Relative view source
+	 *  @param string	$base	Base view directory
+	 *  @return string
+	 */
+	private function validate( string $file, string $base ) : string {
+		$real_file	= @\realpath( $file );
+		$real_base	= @\realpath( $base );
 		
-		\ob_start();
-		try {
-			include $file;
-			return \ob_get_clean();
-		} catch ( \Throwable $e ) {
-			\ob_end_flush();
-			Container::instance()->get( 'Log' )->error( "Error in view {$file}: {$e->getMessage()}" );
-			return '';
+		if ( !$real_file || !$real_base ) {
+			throw new \RuntimeException( "Error resolving view path" );
 		}
-	} )();
-}
-
-/**
- *  Prefixed view cache
- *  
- *  @param string	$prefix	View prefix
- *  @param string	$path	Base view directory for given prefix
- *  @return array
- */
-function view_paths( ?string $prefix = null, ?string $path = null ) : array {
-	// Default view path
-	static $paths;
-	$paths ??= [ '' => config_plugin_dir() ];
-	
-	if ( null !== $prefix && null !== $path ) {
-		$paths[$prefix]	= \rtrim( $path, '\\/' );
-	}
-	
-	return $paths;
-}
-
-/**
- *  Validate view path relative to base directory
- *  
- *  @param string	$file	Relative view source
- *  @param string	$base	Base view directory
- *  @return string
- */
-function view_validate_path( 
-	string	$file, 
-	string	$base
-) : string {
-	$real_file	= \realpath( $file );
-	$real_base	= \realpath( \rtrim( $base, '\\/' ) );
-	if ( false === $real_file || false === $real_base ) {
-		throw new 
-		\RuntimeException( "Error resolving view path" );
-	}
-	
-	if ( !\str_starts_with( $real_file, $real_base ) ) {
-		throw new 
-		\RuntimeException( "Error with relative view base" );
-	}
-	
-	return $real_file;
-}
-
-/**
- *  Generate and validate relative view path by name
- *  
- *  @param array	$paths	Cached view paths in prefix->directory format
- *  @param string	$layout	Requested view by file basename
- *  @return string
- */
-function view_resolve_path( array $paths, string $layout ) : string {
-	\uksort( $paths, fn( $a, $b ) => \strlen( $b ) <=> \strlen( $a ) );
-	
-	foreach ( $paths as $prefix => $dir ) {
-		if ( '' === $prefix ) { continue; }
-		if ( \str_starts_with( $layout, $prefix . ':' ) ) {
-			$view	= \substr( $layout, \strlen( $prefix ) + 1 );
-			$file	= "{$dir}/{$view}.php";
-			return view_validate_path( $file, $dir );
-		}
-	}
-	
-	$default	= $paths[''] ?? null;
-	if ( null !== $default ) {
-		$file	= "{$default}/{$layout}.php";
-		return view_validate_path( $file, $default );
-	}
-	
-	throw new 
-	\RuntimeException( "No view path for: {$layout}" );
-}
-
-/**
- *  Auto-scan and register view layout attributes
- */
-function view_resolve() : void {
-	$functions	= Util::functions_list();
-	foreach ( $functions as $fn ) {
-		$ref	= new \ReflectionFunction( $fn );
-		$attrs	= $ref->getAttributes( View::class );
 		
-		foreach ( $attrs as $attr ) {
-			$meta	= $attr->newInstance();
-			view_paths( $meta->prefix, $meta->path );
+		if ( !\str_starts_with( $real_file, $real_base ) ) {
+			throw new 
+			\RuntimeException( "Error with relative view base" );
 		}
+		
+		return $real_file;
 	}
-}
-
-/**
- *  Include and render selected view with given variables
- *  
- *  @param string	$layout	Rendering layout view
- *  @param array	$vars	Parsed content to be sent to view for rendering
- *  @return string
- */
-function view_render( string $layout, array $vars = [] ) : string {
-	static $cache	= [];
-	static $stack	= [];
 	
-	if ( Util::value_exists_ci( $layout, $stack ) ) {
-		Container::instance()->get( 'Log' )->error( "Recursive view detected: {$layout}" );
+	/**
+	 *  Generate and validate relative view path by name
+	 *  
+	 *  @param string	$layout	Requested view by file basename
+	 *  @return string
+	 */
+	public function resolve( string $layout ): string {
+		$paths = $this->registry->all();
+
+		\uksort( $paths, fn( $a, $b ) => \strlen( $b ) <=> \strlen( $a ) );
+		
+		foreach ( $paths as $prefix => $dir ) {
+			if ( '' !== $prefix && \str_starts_with( $layout, $prefix . ':' ) ) {
+				$view = \substr( $layout, \strlen( $prefix ) + 1 );
+				return $this->validate( "{$dir}/{$view}.php", $dir );
+			}
+		}
+		
+		$default = $paths[''] ?? null;
+		if ( $default ) {
+			return $this->validate( "{$default}/{$layout}.php", $default );
+		}
 		
 		throw new 
-		\RuntimeException( "Recursive view detected" );
+		\RuntimeException( "No view path for: {$layout}" );
+	}
+}
+
+/**
+ *  @class View component output rendering
+ */
+class ViewRenderer {
+	
+	public function __construct( private Log $logger ) {}
+	
+	/**
+	 *  Isolated view source inclusion
+	 *  
+	 *  @param string	$file	View source file location
+	 *  @param array	$vars	Parameter data
+	 *  @return string
+	 */
+	public function render( string $file, array $vars ) : string {
+		
+		$fn = static function( $file, $vars, Log $logger ) {
+			if ( $vars ) { \extract( $vars, \EXTR_SKIP ); }
+			
+			\ob_start();
+			try {
+				include $file;
+				return \ob_get_clean();
+				
+			} catch ( \Throwable $e ) {
+				\ob_end_flush();
+				$logger->error("Error in view {$file}: {$e->getMessage()}");
+				
+				throw $e; // Throw again
+			}
+		};
+		
+		return $fn( $file, $vars, $this->logger );
+	}
+}
+
+/**
+ *  @class Views and layouts for plugins
+ */
+class ViewService extends Instance {
+
+	private array $cache = [];
+	private array $stack = [];
+
+	public function __construct(
+		private ViewResolver	$resolver,
+		private ViewRenderer	$renderer,
+		private Log		$logger
+	) {}
+	
+	public static function create(
+		?ViewResolver	$resolver	= null,
+		?ViewRenderer	$renderer	= null,
+		?Log		$logger		= null
+	) : static {
+		$logger		??= Container::instance()->get( Log::class );
+		$renderer	??= new ViewRenderer( $logger );
+		$resolver	??= 
+		new ViewResolver( Container::instance()->get( ViewRegistry::class ) );
+		
+		return new static( $resolver, $renderer, $logger );
 	}
 	
-	$stack[]	= $layout;
-	if ( !isset( $cache[$layout] ) ) {
-		$paths		= view_paths();
-		$file		= view_resolve_path( $paths, $layout );
-		if ( !\is_readable( $file ) ) {
-			Container::instance()->get( 'Log' )->error( "View not found: {$layout}" );
+	// TODO: Templates, hooks etc...
+	private function preparse( string $file, array $vars ) {
+		return $file;
+	}
+	
+	/**
+	 *  Include and render selected view with given variables
+	 *  
+	 *  @param string	$layout	Rendering layout view
+	 *  @param array	$vars	Parsed content to be sent to view for rendering
+	 *  @return string
+	 */
+	public function render( string $layout, array $vars = [] ) : string {
+		if ( Util::value_exists_ci( $layout, $this->stack ) ) {
+			$this->logger->error( "Recursive view detected: {$layout}" );
 			
 			throw new 
-			\RuntimeException( "View not found" );
+			\RuntimeException( "Recursive view detected" );
 		}
 		
-		$cache[$layout]	= $file;
+		$file = $this->preparse( $file, $vars );
+		
+		// Mark in stack
+		$this->stack[] = $layout;
+		try { 
+			// Check cache and load
+			if ( !isset( $this->cache[$layout] ) ) {
+				$file			= 
+				$this->resolver->resolve( $layout );
+				
+				// View must exist and have read permissions 
+				if ( !\is_readable( $file ) ) {
+					$this->logger->error( "View not found: {$layout}" );
+					\array_pop( $this->stack );
+					
+					throw new 
+					\RuntimeException( "View not found" );
+				}
+				
+				$this->cache[$layout] = $file;
+			}
+			
+			// Call on renderer
+			return $this->renderer->render( $this->cache[$layout], $vars );
+			
+		} catch ( \Throwable $e ) {
+			$this->logger->error( "Error rendering {$layout}: {$e->getMessage()}" );
+		} finally { 
+			// Clear from stack 
+			\array_pop( $this->stack ); 
+		}
+	}
+}
+
+class ViewLoader extends Instance {
+	
+	/**
+	 *  @var array<string> Ignored classnames
+	 */
+	private	array	$skipped	= [];
+	
+	/**
+	 *  @var array<string> Already loaded views
+	 */
+	private array	$classes	= [];
+
+	public function __construct( private ViewRegistry $registry ) {}
+	
+	public static function create( ?ViewRegistry $registry = null ) {
+		$registry ??= Container::instance()->get( ViewRegistry::class );
+		
+		return new static( $registry );
 	}
 	
-	try {
-		return view_include( $cache[$layout], $vars );
-	} catch( \Throwable $e ) {
-		Container::instance()->get( 'Log' )->error( "Error including view {$layout}: {$e->getMessage()}" );
+	private function parse( string $class ) : void {
+		if ( 
+			isset( $this->classes[$class] ) || 
+			isset( $this->skipped[$class] )
+		) { return; }
 		
-		throw new 
-		\RuntimeException( "Error rendering view" );
-	} finally {
-		\array_pop( $stack );
+		if ( !\class_exists( $class ) ) { 
+			$this->skipped[$class] = true; 
+			return;
+		}
+		
+		$ref			= new \ReflectionClass( $class );
+		if ( 
+			$ref->isAbstract()		|| 
+			$ref->isInternal()		|| 
+			!$ref->getAttributes( View::class ) 
+		) { 
+			$this->skipped[$class] = true;
+			return; 
+		}
+		
+		$this->classes[$class]	= true;
+		foreach ( $ref->getAttributes( View::class ) as $attr ) {
+			$meta	= $attr->newInstance();
+			$this->registry->add( $meta->prefix, $meta->path );
+		}
+	}
+	
+	public function load() : void {
+		// Preload local views
+		foreach ( \get_declared_classes() as $class ) {
+			$this->parse( $class );
+		}
+		
+		// Skip loading external views in debug mode
+		if ( defined( 'DEBUG_MODE' ) ) { return; }
+		$classes = Finder::in( PATH . 'views/' );
+		
+		foreach ( $classes as $info ) {
+			$this->parse( $info['class'] );
+		}
 	}
 }
 
