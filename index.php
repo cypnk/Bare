@@ -690,6 +690,7 @@ abstract class Instance {
 		
 		$args		= \func_get_args();
 		$class		= static::class;
+		
 		$_single	= 
 		\method_exists( $class, 'create' ) 
 			? ( empty( $args ) 
@@ -909,8 +910,8 @@ final class Container extends Instance {
 	 *  @param string	$msg		Formatted error message 
 	 */
 	private function referror( string $msg ) : never {
-		$path	= 
-		\implode( \array_keys( $this->processing ), '->' ) ?: 'Empty';
+		$keys	= \array_keys( $this->processing );
+		$path	= \implode( '->', $keys ) ?: 'Empty';
 		
 		throw new
 		\RuntimeException( $msg . " | Processing path: {$path}" );
@@ -975,7 +976,7 @@ final class Container extends Instance {
 	 *  
 	 *  $container->set( MyClass::class, function( Container $c ) {
 	 *  	return new MyClass( 
-	 *  		logger	: $c->get( Log::class ), 
+	 *  		logger	: $c->get( Logger::class ), 
 	 *  		config	: $c->get( Config::class ),
 	 *  		request	: $c->get( Request::class )
 	 *  	);
@@ -1000,7 +1001,7 @@ final class Container extends Instance {
 	 *  
 	 *  $container->factory( MyFactory::class, function( Container $c ) {
 	 *  	return new MyFactory( 
-	 *  		logger	: $c->get( Log::class ), 
+	 *  		logger	: $c->get( Logger::class ), 
 	 *  		config	: $c->get( Config::class ),
 	 *  		request	: $c->get( Request::class )
 	 *  	);
@@ -1134,7 +1135,6 @@ final class Container extends Instance {
 	 */
 	private function autoload( string $class ) : object {
 		$ref	= new \ReflectionClass( $class );
-		
 		if ( !$ref->isInstantiable() ) {
 			$this->referror( "Unable to instantiate {$class}" );
 		}
@@ -1146,8 +1146,8 @@ final class Container extends Instance {
 		) {
 			$method	= new \ReflectionMethod( $class, 'create' );
 			$args	= $this->populate( $method );
-			
-			return $class::instance( ...$args );
+			// Pass on create arguments
+			return $class::create( ...$args );
 		}
 		
 		$cstor	= $ref->getConstructor();
@@ -2398,10 +2398,13 @@ final class Sanitize {
 	 *  @return array
 	 */
 	public static function host( string $txt ) : string {
-		return Text::lowercase( \rtrim( 
-			\parse_url( $txt, \PHP_URL_HOST ) ?? '', 
-			" \t\n\r\0\x0B." 
-		) );
+		$txt = Text::lowercase( \trim( $txt, " \t\n\r\0\x0B.\\" ) );
+		if ( 
+			!\str_starts_with( $txt, 'http://' )	|| 
+			!\str_starts_with( $txt, 'https://' )
+		) { $txt = 'http://' . $txt; }
+		
+		return \parse_url( $txt, \PHP_URL_HOST ) ?? '';
 	}
 	
 	/**
@@ -3844,7 +3847,7 @@ final class Storage {
 /**
  *  @class Logging and message handling
  */
-final class Log extends Instance {
+final class Logger extends Instance {
 	
 	/**
 	 *  @var array<file:string, message:string>	Message and file pairs
@@ -3863,7 +3866,7 @@ final class Log extends Instance {
 	];
 	
 	/**
-	 *  Log constructor
+	 *  Logging constructor
 	 *  
 	 *  @param int		$max_retention	Days to retain archived logs
 	 *  @param int		$max_size	Maximum file size before rollover
@@ -3883,6 +3886,7 @@ final class Log extends Instance {
 		?string	$default_level	= null,
 		?string	$default_log	= null
 	) : static {
+		static $vars		= [];
 		$max_retention		??= 
 		\defined( 'LOG_MAX_RETENTION' ) 
 			? ( int ) \constant( 'LOG_MAX_RETENTION' ) 
@@ -3912,7 +3916,10 @@ final class Log extends Instance {
 		
 		// Avoid creating a new instance with same params
 		$key		= \hash( 'sha256', \print_r( $params, true ) );
-		return new static( ...$params );
+		if ( isset( $vars[$key] ) ) { return $vars[$key]; }
+		
+		$vars[$key] = new static( ...$params );
+		return $vars[$key];
 	}
 	
 	/**
@@ -4141,9 +4148,9 @@ final class Request extends Instance {
 	public readonly string	$timestamp;
 
 	/**
-	 *  @var string		$canonical_ip	Core IP data from forwarded headers
+	 *  @var array		$canonical_ip	Core IP data from forwarded headers
 	 */
-	private string		$canonical_ip;
+	private array		$canonical_ip;
 	
 	public function __construct(
 		public readonly string		$method,
@@ -4678,9 +4685,9 @@ final class Request extends Instance {
 			\is_array( $fwd['host'] ) 
 				? $fwd['host'][0] 
 				: $fwd['host'];
-				
-				$cache[$sent]	= Sanitize::host( $host );
-				return $cache[$sent];
+			
+			$cache[$sent]	= Sanitize::host( $host );
+			return $cache[$sent];
 		}
 		
 		$cache[$sent]	= 
@@ -4766,7 +4773,7 @@ class Response extends Instance {
 	 *  
 	 *  @param Config	$config		Configuration settings
 	 *  @param Request	$request	Original client request
-	 *  @param Log		$logger		Event logger
+	 *  @param Logger		$logger		Event logger
 	 *  @param int		$code		HTTP Status code
 	 *  @param array	$headers	New response headers
 	 *  @param mixed	$body		Output response body
@@ -4774,7 +4781,7 @@ class Response extends Instance {
 	public function __construct( 
 		public readonly Config	$config, 
 		public readonly Request $request, 
-		public readonly Log	$logger,
+		public readonly Logger	$logger,
 		public int		$code		= 200,
 		public array		$headers	= [],
 		public mixed		$body		= null
@@ -4787,7 +4794,7 @@ class Response extends Instance {
 		mixed		$body		= null
 	) : static {
 		$container	??= Container::instance();
-		$logger		= $container->get( Log::class );
+		$logger		= $container->get( Logger::class );
 		$config		= $container->get( Config::class );
 		$request	= $container->get( Request::class );
 		$code		??= 200;
@@ -5787,11 +5794,11 @@ final class Config extends Instance {
 	/**
 	 *  Configuration constructor
 	 *  
-	 *  @param Log		$logger		Event logger
+	 *  @param Logger	$logger		Event logger
 	 *  @param Request	$request	Current user request
 	 */
 	public function __construct( 
-		public readonly Log	$logger,
+		public readonly Logger	$logger,
 		public readonly Request $request 
 	) {
 		$this->config_file	= 
@@ -5804,7 +5811,7 @@ final class Config extends Instance {
 	
 	public static function create( ?Container $container = null ) : static {
 		$container	??= Container::instance();
-		$logger		= $container->get( Log::class );
+		$logger		= $container->get( Logger::class );
 		$request	= $container->get( Request::class );
 		
 		return new static( $logger, $request );
@@ -6275,16 +6282,16 @@ class Language extends Instance {
 	 *  Language constructor
 	 *  
 	 *  @param Config	$config	Configuration settings
-	 *  @param Log		$log	Event logger
+	 *  @param Logger	$log	Event logger
 	 */
 	public function __construct( 
 		public readonly Config	$config,
-		public readonly Log	$log
+		public readonly Logger	$logger
 	) {}
 	
 	public static function create( ?Container $container = null ) : static {
 		$container	??= Container::instance();
-		$logger		= $container->get( Log::class );
+		$logger		= $container->get( Logger::class );
 		$config		= $container->get( Config::class );
 		
 		return new static( $config, $logger );
@@ -6302,6 +6309,7 @@ class Language extends Instance {
 		if ( !empty( $file ) ) {
 			$terms	= 
 			\array_merge_recursive( $terms, Util::json_udecode( $file ) );
+			$this->logger->debug( "Language terms merged from translation file {$file}" );
 		}
 		
 		return $terms;
@@ -6716,9 +6724,9 @@ final class Finder {
 	 *  Reflection based detail load
 	 *  
 	 *  @param string	$file		Path on disk
-	 *  @return string|null
+	 *  @return array|null
 	 */
-	private static function autoload( string $file ) : ?string {
+	private static function autoload( string $file ) : ?array {
 		$src	= @\file_get_contents( $file );
 		if ( empty( $src ) ) { return null; }
 		
@@ -7353,7 +7361,7 @@ class Template extends Instance {
 	 *  @param array		$extend		Extended template placeholder patterns
 	 */
 	public function __construct( 
-		private readonly	Log		$logger,
+		private readonly	Logger		$logger,
 		private	readonly	HookRegistry	$registry, 
 		private 		array		$extend		= []
 	) {
@@ -7365,7 +7373,7 @@ class Template extends Instance {
 		?array		$extend		= null
 	) : static {
 		$container	??= Container::instance();
-		$logger		= $container->get( Log::class );
+		$logger		= $container->get( Logger::class );
 		$registry	= $container->get( HookRegistry::class );
 		$extend		??= [];
 		
@@ -8255,6 +8263,7 @@ class Format extends Instance {
 	 *  Format constructor
 	 *  
 	 *  @param Config	$config		Configuration settings
+	 *  @param Logger	$logger		Event and error logging
 	 *  @param Language	$language	Language loading and translations
 	 *  @param Template	$template	Rendering and content transformation
 	 */
@@ -8267,6 +8276,7 @@ class Format extends Instance {
 	public static function create( ?Container $container = null ) : static {
 		$container	??= Container::instance();
 		$config		= $container->get( Config::class );
+		$logger		= $container->get( Logger::class );
 		$language	= $container->get( Language::class );
 		$template	= $container->get( Template::class );
 		
@@ -8553,6 +8563,7 @@ class Format extends Instance {
 		
 		if ( !empty( $custom ) ) {
 			$this->hosted = \array_merge( $this->hosted, $custom );
+			$this->logger->debug( 'Custom hosted embed list merged to formatter' );
 		}
 		return $this->hosted;
 	}
@@ -9085,7 +9096,7 @@ class Format extends Instance {
 		if ( !isset( $sanity ) ) {
 			if ( Util::missing( 'libxml_clear_errors' ) ) {
 				$sanity	= false;
-				Container::instance()->get( 'Log' )->error( 
+				$this->logger->error( 
 					'The libxml extension is required for HTML formatting.' 
 				);
 				return '';
@@ -9634,7 +9645,7 @@ final class PluginDiscovery {
 	 */
 	public function __construct(
 		public readonly Config	$config,
-		public readonly Log	$logger,
+		public readonly Logger	$logger,
 		public readonly Router	$router
 	) {
 		$this->plugin_dir = $this->config->defaults( 'plugin_dir' );
@@ -9642,7 +9653,7 @@ final class PluginDiscovery {
 	
 	public static function create( ?Container $container = null ) {
 		$container	??= Container::instance();
-		$logger		= $container->get( Log::class );
+		$logger		= $container->get( Logger::class );
 		$config		= $container->get( Config::class );
 		$router		= $container->get( Router::class );
 		
@@ -9665,7 +9676,12 @@ final class PluginDiscovery {
 		}
 	}
 	
-	public function discover( string $class ) : void {
+	public function discover( string|array $info ) : void {
+		$class	= \is_array( $info ) 
+			? $info['class'] ?? ''
+			: $info;
+		
+		if ( empty( $class ) ) { return; }
 		if ( isset( $this->skipped[$class] ) ) { return; }
 		if ( !\class_exists( $class ) ) { 
 			$this->skipped[$class] = true;
@@ -9722,7 +9738,7 @@ final class PluginDiscovery {
 	
 	public function classes( array $info ) : void {
 		foreach ( $info as $class ) {
-			$this->discover( $class['class'] );
+			$this->discover( $class );
 		}
 		
 		\uasort(
@@ -9843,7 +9859,7 @@ final class Database extends Instance {
 	 */
 	public function __construct(
 		public readonly Config	$config,
-		public readonly Log	$logger
+		public readonly Logger	$logger
 	) {
 		$this->supported	= [ 'pgsql', 'sqlite', 'mysql' ];
 		$this->maint		??= 
@@ -9854,7 +9870,7 @@ final class Database extends Instance {
 	
 	public static function create( ?Container $container = null ) : static {
 		$container	??= Container::instance();
-		$logger		= $container->get( Log::class );
+		$logger		= $container->get( Logger::class );
 		$config		= $container->get( Config::class );
 		
 		return new static( $config, $logger );
@@ -10950,13 +10966,13 @@ class Forms extends Instance {
 	 */
 	public function __construct( 
 		public readonly Config		$config,
-		public readonly Log		$logger,
+		public readonly Logger		$logger,
 		public readonly Sessions	$session
 	) {}
 
 	public static function create( ?Container $container = null ) : static {
 		$container	??= Container::instance();
-		$logger		= $container->get( Log::class );
+		$logger		= $container->get( Logger::class );
 		$config		= $container->get( Config::class );
 		$sessions	= $container->get( Sessions::class );
 		
@@ -11283,7 +11299,7 @@ class ViewResolver {
  */
 class ViewRenderer {
 	
-	public function __construct( private Log $logger ) {}
+	public function __construct( private Logger $logger ) {}
 	
 	/**
 	 *  Isolated view source inclusion
@@ -11325,7 +11341,7 @@ class ViewService extends Instance {
 	public function __construct(
 		private ViewResolver	$resolver,
 		private ViewRenderer	$renderer,
-		private Log		$logger
+		private Logger		$logger
 	) {}
 	
 	public static function create(
@@ -11333,10 +11349,10 @@ class ViewService extends Instance {
 		?ViewRenderer	$renderer	= null,
 		?Log		$logger		= null
 	) : static {
-		$logger		??= Container::instance()->get( Log::class );
+		$container	= Container::instance();
+		$logger		??= $container->get( Logger::class );
 		$renderer	??= new ViewRenderer( $logger );
-		$resolver	??= 
-		new ViewResolver( Container::instance()->get( ViewRegistry::class ) );
+		$resolver	??= new ViewResolver( $container->get( ViewRegistry::class ) );
 		
 		return new static( $resolver, $renderer, $logger );
 	}
@@ -11483,7 +11499,7 @@ function begin( bool $debug = false ) : void {
 	// Current initial request
 	$request	= $container->get( Request::class );
 	
-	$logger		= $container->get( Log::class );
+	$logger		= $container->get( Logger::class );
 	$config		= $container->get( Config::class );
 	
 	// Core hooks
@@ -11514,9 +11530,9 @@ function begin( bool $debug = false ) : void {
  *  Application initizlization log
  */
 function startup_log() : void {
-	$log_file = Storage::base() . 
-	\defined( 'STARTUP' ) 
-		? ( string ) constant( 'STARTUP' )
+	$log_file = Storage::base();
+	$log_file .= \defined( 'STARTUP' ) 
+		? ( string ) \constant( 'STARTUP' )
 		: 'startup.log';
 	
 	// Startup complete if log exists
@@ -11576,6 +11592,9 @@ function startup_log() : void {
 		}
 }
 
+/**
+ *  Environmental settings and startup
+ */
 function startup() : void {
 	static $initialized	= false;
 	
@@ -11587,7 +11606,7 @@ function startup() : void {
 	$debug		= \defined( 'DEBUG_MODE' ) ? true : false;
 	
 	$errors	= new Errors();
-	\set_exception_handler( [ $errors, 'handle' ] );
+	\set_exception_handler( [ $errors, 'handler' ] );
 	
 	if ( $debug ) {
 		$errors->trace( 'Request started', [
