@@ -8269,6 +8269,7 @@ class Format extends Instance {
 	 */
 	public function __construct(
 		public readonly Config		$config,
+		public readonly Logger		$logger,
 		public readonly Language	$language,
 		public readonly Template	$template
 	) {}
@@ -8280,7 +8281,7 @@ class Format extends Instance {
 		$language	= $container->get( Language::class );
 		$template	= $container->get( Template::class );
 		
-		return new static( $config, $language, $template );
+		return new static( $config, $logger, $language, $template );
 	}
 	
 	/**
@@ -9741,6 +9742,7 @@ final class PluginDiscovery {
 			$this->discover( $class );
 		}
 		
+		// Resort by plugin priority
 		\uasort(
 			$this->plugins,
 			fn( $a, $b ) => $a['meta']->priority <=> $b['meta']->priority
@@ -11217,8 +11219,9 @@ class ViewRegistry extends Instance {
 		$this->paths[''] = $this->config->defaults( 'plugin_dir ');
 	}
 	
-	public static function create( ?Config $config	= null ) : static {
-		$config	??= Container::instance()->get( Config::class );
+	public static function create( ?Container $container = null ) : static {
+		$container	??= Container::instance();
+		$config		= $container->get( Config::class );
 		return new static( $config );
 	}
 	
@@ -11574,7 +11577,7 @@ function startup_log() : void {
 	if ( !\defined( 'PDO::ATTR_DEFAULT_FETCH_MODE' ) ) {
 		$miss['required'][] = 'pdo-sqlite';
 	}
-
+	
 	if ( !empty( $miss['required'] ) ) {
 		$msg	= 
 		'These required library(ies) may be missing or disabled: ' . 
