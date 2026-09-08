@@ -11755,7 +11755,7 @@ final class Main {
  *  @class Core request error hooks ( can be overriden in plugins )
  */
 #[HookContainer]
-class RequestErrors {
+class ErrorResponse {
 	
 	/**
 	 *  Standalone error page
@@ -11814,8 +11814,12 @@ HTML;
 			$body = $template->parse( static::ERROR_PAGE, $vars );
 		}
 		
-		$response	= PageResponse::create();
-		$response->send( code: $code, headers : $headers, body: $body );
+		$response	= 
+		PageResponse::create( code : $code, headers : $headers, body : $body );
+
+		( null === $body ) 
+			? $response->page( code : $code, content : $body )
+			: $response->html( status : $code, headers : $headers, html : $body );
 	}
 	
 	#[Hook( name : 'error_bad_request', priority: 1 ) ]
@@ -11825,7 +11829,8 @@ HTML;
 			args	: $args, 
 			code	: 400, 
 			title	: $result->data['title'] ?? 'Bad Request', 
-			message	: $result->data['message'] ?? 'Invalid request.'
+			message	: $result->data['message'] ?? 'Invalid request.',
+			headers	: $result->data['headers'] ?? []
 		);
 	}
 	
@@ -11836,7 +11841,8 @@ HTML;
 			code	: 401, 
 			title	: $result->data['title'] ?? 'Not Authorized', 
 			message	: $result->data['message'] ?? 
-				'Insufficient permissions to access resource.'
+				'Insufficient permissions to access resource.',
+			headers	: $result->data['headers'] ?? []
 		);
 	}
 	
@@ -11846,7 +11852,8 @@ HTML;
 			args	: $args, 
 			code	: 403, 
 			title	: $result->data['title'] ?? 'Forbidden', 
-			message	: $result->data['message'] ?? 'Access to resource is restricted.'
+			message	: $result->data['message'] ?? 'Access to resource is restricted.',
+			headers	: $result->data['headers'] ?? []
 		);
 	}
 	
@@ -11856,7 +11863,8 @@ HTML;
 			args	: $args, 
 			code	: 404, 
 			title	: $result->data['title'] ?? 'Not Found', 
-			message	: $result->data['message'] ?? 'Requested resource not found.'
+			message	: $result->data['message'] ?? 'Requested resource not found.',
+			headers	: $result->data['headers'] ?? []
 		);
 	}
 	
@@ -11868,7 +11876,7 @@ HTML;
 			code	: 405, 
 			title	: $result->data['titlte'] ?? 'Not Allowed', 
 			message	: $result->data['message'] ?? 'Request method not allowed.',
-			headers	: [ 'Allow' => 'GET, POST, HEAD, OPTIONS' ]
+			headers	: $result->data['headers'] ?? [ 'Allow' => 'GET, POST, HEAD, OPTIONS' ]
 		);
 	}
 	
@@ -11878,7 +11886,8 @@ HTML;
 			args	: $args, 
 			code	: 414, 
 			title	: $result->data['title'] ?? 'Invalid URI', 
-			message	: $result->data['message'] ?? 'The request path cannot be processed'
+			message	: $result->data['message'] ?? 'The request path cannot be processed',
+			headers	: $result->data['headers'] ?? []
 		);
 	}
 	
@@ -11888,7 +11897,8 @@ HTML;
 			args	: $args, 
 			code	: 416, 
 			title	: $result->data['title'] ?? 'Range Not Satisfiable', 
-			message	: $result->data['message'] ?? 'Invalid file range requested'
+			message	: $result->data['message'] ?? 'Invalid file range requested',
+			headers	: $result->data['headers'] ?? []
 		);
 	}
 	
@@ -11898,7 +11908,8 @@ HTML;
 			args	: $args, 
 			code	: 419, 
 			title	: $result->data['title'] ?? 'Expired', 
-			message	: $result->data['message'] ?? 'This form has expired'
+			message	: $result->data['message'] ?? 'This form has expired',
+			headers	: $result->data['headers'] ?? []
 		);
 	}
 	
@@ -11908,7 +11919,9 @@ HTML;
 			args	: $args, 
 			code	: 429, 
 			title	: $result->data['title'] ?? 'Too many requests', 
-			message	: $result->data['message'] ?? 'Cannot process this many requests at this time'
+			message	: $result->data['message'] ?? 
+				'Cannot process this many requests at this time',
+			headers	: $result->data['headers'] ?? []
 		);
 	}
 	
@@ -11918,7 +11931,8 @@ HTML;
 			args	: $args, 
 			code	: 500, 
 			title	: $result->data['title'] ?? 'Server Error', 
-			message	: $result->data['message'] ?? 'An unexpected error occurred.'
+			message	: $result->data['message'] ?? 'An unexpected error occurred.',
+			headers	: $result->data['headers'] ?? []
 		);
 	}
 }
