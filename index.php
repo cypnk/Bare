@@ -11820,11 +11820,12 @@ HTML;
 	
 	#[Hook( name : 'error_bad_request', priority: 1 ) ]
 	public function bad_request( string $event, HookResult $result, array $args ) : never {
+		
 		$this->response( 
 			args	: $args, 
 			code	: 400, 
-			title	: 'Bad Request', 
-			message	: 'Invalid request.'
+			title	: $result->data['title'] ?? 'Bad Request', 
+			message	: $result->data['message'] ?? 'Invalid request.'
 		);
 	}
 	
@@ -11833,8 +11834,9 @@ HTML;
 		$this->response( 
 			args	: $args, 
 			code	: 401, 
-			title	: 'Not Authorized', 
-			message	: 'Insufficient permissions to access resource.'
+			title	: $result->data['title'] ?? 'Not Authorized', 
+			message	: $result->data['message'] ?? 
+				'Insufficient permissions to access resource.'
 		);
 	}
 	
@@ -11843,8 +11845,8 @@ HTML;
 		$this->response( 
 			args	: $args, 
 			code	: 403, 
-			title	: 'Forbidden', 
-			message	: 'Access to resource is restricted.'
+			title	: $result->data['title'] ?? 'Forbidden', 
+			message	: $result->data['message'] ?? 'Access to resource is restricted.'
 		);
 	}
 	
@@ -11853,8 +11855,8 @@ HTML;
 		$this->response( 
 			args	: $args, 
 			code	: 404, 
-			title	: 'Not Found', 
-			message	: 'Requested resource not found.'
+			title	: $result->data['title'] ?? 'Not Found', 
+			message	: $result->data['message'] ?? 'Requested resource not found.'
 		);
 	}
 	
@@ -11864,19 +11866,19 @@ HTML;
 		$this->response( 
 			args	: $args, 
 			code	: 405, 
-			title	: 'Not Allowed', 
-			message	: 'Request method not allowed.',
+			title	: $result->data['titlte'] ?? 'Not Allowed', 
+			message	: $result->data['message'] ?? 'Request method not allowed.',
 			headers	: [ 'Allow' => 'GET, POST, HEAD, OPTIONS' ]
 		);
 	}
 	
 	#[Hook( name : 'error_bad_uri', priority: 1 ) ]
-	public function bad_range( string $event, HookResult $result, array $args ) : never {
+	public function bad_uri( string $event, HookResult $result, array $args ) : never {
 		$this->response( 
 			args	: $args, 
 			code	: 414, 
-			title	: 'Invalid URI', 
-			message	: 'The request path cannot be processed'
+			title	: $result->data['title'] ?? 'Invalid URI', 
+			message	: $result->data['message'] ?? 'The request path cannot be processed'
 		);
 	}
 	
@@ -11885,8 +11887,28 @@ HTML;
 		$this->response( 
 			args	: $args, 
 			code	: 416, 
-			title	: 'Range Not Satisfiable', 
-			message	: 'Invalid file range requested'
+			title	: $result->data['title'] ?? 'Range Not Satisfiable', 
+			message	: $result->data['message'] ?? 'Invalid file range requested'
+		);
+	}
+	
+	#[Hook( name : 'error_form_expired', priority: 1 ) ]
+	public function form_expired( string $event, HookResult $result, array $args ) : never {
+		$this->response( 
+			args	: $args, 
+			code	: 419, 
+			title	: $result->data['title'] ?? 'Expired', 
+			message	: $result->data['message'] ?? 'This form has expired'
+		);
+	}
+	
+	#[Hook( name : 'error_many_requests', priority: 1 ) ]
+	public function request_limit( string $event, HookResult $result, array $args ) : never {
+		$this->response( 
+			args	: $args, 
+			code	: 429, 
+			title	: $result->data['title'] ?? 'Too many requests', 
+			message	: $result->data['message'] ?? 'Cannot process this many requests at this time'
 		);
 	}
 	
@@ -11895,8 +11917,8 @@ HTML;
 		$this->response( 
 			args	: $args, 
 			code	: 500, 
-			title	: 'Server Error', 
-			message	: 'An unexpected error occurred.'
+			title	: $result->data['title'] ?? 'Server Error', 
+			message	: $result->data['message'] ?? 'An unexpected error occurred.'
 		);
 	}
 }
