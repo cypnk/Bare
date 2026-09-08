@@ -11546,63 +11546,38 @@ class ViewLoader extends Instance {
 
 
 /**
- *  Core functionality
+ *  @class Core functionality
  */
-
-/**
- *  Main component actions
- *  
- *  @param bool		$debug	Start in debug mode
- */
-function begin( bool $debug = false ) : void {
+final class Main {
+	/**
+	 *  @var string Startup log file
+	 */
+	private	readonly	string	$log_file;
 	
-	// Base classes
-	$container	= Container::instance();
-	// Current initial request
-	$request	= $container->get( Request::class );
+	/**
+	 *  @var bool Run startup sequence in debug mode if true
+	 */
+	private readonly	bool	$debug;
 	
-	$logger		= $container->get( Logger::class );
-	$config		= $container->get( Config::class );
+	/**
+	 *  @var Errors Common error handler
+	 */
+	public readonly		Errors	$errors;
 	
-	// Core hooks
-	$registry	= $container->get( HookRegistry::class );
-	$shutdown	= new HookShutdown( $registry );	
-	$hooks		= $container->get( HookLoader::class );
+	/**
+	 *  @var bool Runtime sanity check
+	 */
+	private			bool	$sanity		= false;
 	
-	// Enable shutdown actions
-	\register_shutdown_function( [ $shutdown, 'run' ] );
+	/**
+	 *  @var string Startup log data, if any
+	 */
+	private			string	$log_data;
 	
-	$router		= $container->get( Router::class );
-	$plugins	= $container->get( PluginDiscovery::class );
-	
-	// Disable exploring and don't initialize plugins in debug mode
-	if ( $debug ) {
-		$hooks->autoload( false );	
-		$plugins->autoload( false );
-		$plugins->init( false );
-		return;
-	}
-	
-	$hooks->autoload( true );
-	$plugins->autoload( true );
-	$plugins->init( true );
-}
-
-/**
- *  Application initizlization log
- */
-function startup_log() : void {
-	$log_file = Storage::base();
-	$log_file .= \defined( 'STARTUP' ) 
-		? ( string ) \constant( 'STARTUP' )
-		: 'startup.log';
-	
-	// Startup complete if log exists
-	if ( \file_exists( $log_file ) ) { return; }
-	
-	// List of required and optional libraries
-	$lib	= 
-	[ 
+	/**
+	 *  List of required and optional libraries
+	 */
+	const LIBS	= [
 		'required' => [
 			'libxml_clear_errors'	=> 'libxml',
 			'mime_content_type'	=> 'fileinfo',
@@ -11615,74 +11590,158 @@ function startup_log() : void {
 		]
 	];
 	
-	// Missing storage
-	$miss	= [ 'required' => [], 'optional' => [] ];	
+	/**
+	 *  Startup constructor
+	 */
+	public function __construct() {
+		// Prepare startup log file location
+		$this->log_file = Storage::base() . 
+		\defined( 'STARTUP' ) 
+			? ( string ) \constant( 'STARTUP' )
+			: 'startup.log';
+		
+		$this->debug	= \defined( 'DEBUG_MODE' ) ? true : false;
+		
+		$this->errors	= new Errors();
+	}
 	
-	// Log any missing required libraries
-	foreach ( $lib['required'] as $f => $name ) {
-		if ( !\function_exists( $f ) ) {
-			$miss['required'][] = $name;
+	/**
+	 *  Write to log file any saved messages
+	 */
+	public function write_startup_log() : void {
+		// No data to log or startup log ran already?
+		if ( 
+			empty( $this->log_data ) || 
+			\file_exists( $this->log_file ) 
+		) { return; }
+		
+		\error_log( $this->log_data, 3, $this->log_file );
+	}
+	
+	/**
+	 *  Application initizlization and prerequisite log
+	 */
+	private function sanity_log() : void {
+		
+		// Missing storage
+		$miss	= [ 'required' => [], 'optional' => [] ];
+		
+		// Log any missing required libraries
+		foreach ( static::LIBS['required'] as $f => $name ) {
+			if ( !\function_exists( $f ) ) {
+				$miss['required'][] = $name;
+			}
 		}
-	}
-	
-	// Optional libraries
-	foreach ( $lib['optional'] as $f => $name ) {
-		if ( !\function_exists( $f ) ) {
-			$miss['optional'][] = $name;
+		
+		// Optional libraries
+		foreach ( static::LIBS['optional'] as $f => $name ) {
+			if ( !\function_exists( $f ) ) {
+				$miss['optional'][] = $name;
+			}
 		}
-	}
-	
-	// Check PDO too
-	if ( !\defined( 'PDO::ATTR_DEFAULT_FETCH_MODE' ) ) {
-		$miss['required'][] = 'pdo-sqlite';
-	}
-	
-	if ( !empty( $miss['required'] ) ) {
-		$msg	= 
-		'These required library(ies) may be missing or disabled: ' . 
-			implode( ', ', $miss['required'] );
-			$log = Text::truncate( Sanitize::spaces( $msg ), 0, 2048 );
-			\error_log( $log, 3, $log_file );
+		
+		// Check PDO too
+		if ( !\defined( 'PDO::ATTR_DEFAULT_FETCH_MODE' ) ) {
+			$miss['required'][] = 'pdo-sqlite';
+		}
+		
+		if ( !empty( $miss['required'] ) ) {
+			$msg		= 
+			'These required library(ies) may be missing or disabled: ' . 
+				\implode( ', ', $miss['required'] );
+			
+			$this->log_data .= 
+			Text::truncate( Sanitize::spaces( $msg ), 0, 2048 ) . "\n";
 		}
 		
 		if ( !empty( $miss['optional'] ) ) {
-			$msg	= 
+			$msg		= 
 			'These recommended function(s) or library(ies) may be missing or disabled: ' . 
-				implode( ', ', $miss['optional'] );
-			$log = Text::truncate( Sanitize::spaces( $msg ), 0, 2048 );
-			\error_log( $log, 3, $log_file );
+				\implode( ', ', $miss['optional'] );
+			$this->log_data	.= 
+			Text::truncate( Sanitize::spaces( $msg ), 0, 2048 ) . "\n";
 		}
-}
-
-/**
- *  Environmental settings and startup
- */
-function startup() : void {
-	static $initialized	= false;
-	
-	if ( $initialized ) { return; }
-	
-	$initizlied	= true;
-	\date_default_timezone_set( 'UTC' );
-	
-	$debug		= \defined( 'DEBUG_MODE' ) ? true : false;
-	
-	$errors	= new Errors();
-	\set_exception_handler( [ $errors, 'handler' ] );
-	
-	if ( $debug ) {
-		$errors->trace( 'Request started', [
-			'method'	=> $_SERVER['REQUEST_METHOD'],
-			'uri'		=> $_SERVER['REQUEST_URI']
-		] );
+		
+		// Check sanity with required libraries
+		$this->sanity = empty( $miss['required' ] );
 	}
 	
-	$scope	= $errors->start_scope();
-	try {
-		startup_log();
-		begin( $debug );
-	} finally {
-		$errors->end_scope( $scope );
+	/**
+	 *  Prepare background environment and exception handling
+	 */
+	private function environment() : void {
+		// Core runs on UTC
+		\date_default_timezone_set( 'UTC' );
+		// Errors class handles exceptions
+		\set_exception_handler( [ $this->errors, 'handler' ] );
+		
+		if ( $this->debug ) {
+			// Start trace in debug mode
+			$this->errors->trace( 'Request started', [
+				'method'	=> $_SERVER['REQUEST_METHOD'],
+				'uri'		=> $_SERVER['REQUEST_URI']
+			] );
+		}
+	}
+	
+	/**
+	 *  Main component actions
+	 */
+	private function actions() : void {
+		// Base classes
+		$container	= Container::instance();
+		// Current initial request
+		$request	= $container->get( Request::class );
+		
+		// Foundation classes
+		$logger		= $container->get( Logger::class );
+		$config		= $container->get( Config::class );
+		
+		// Core hooks
+		$registry	= $container->get( HookRegistry::class );
+		$hooks		= $container->get( HookLoader::class );
+		
+		// Enable shutdown actions
+		$shutdown	= new HookShutdown( $registry );
+		\register_shutdown_function( [ $shutdown, 'run' ] );
+		
+		// URL routing and redirection
+		$router		= $container->get( Router::class );
+		
+		// Extra functionality
+		$plugins	= $container->get( PluginDiscovery::class );
+		
+		// Disable exploring and don't initialize plugins in debug mode
+		$disable	= !$this->debug;
+		$hooks->autoload( $disable );
+		$plugins->autoload( $disable );
+		$plugins->init( $disable );
+		
+		// Setup complete, call current route
+		$router->dispatch( $request->method, $request->uri );
+	}
+	
+	/**
+	 *  Main startup sequence
+	 */
+	public function sequence() : void {
+		// Start error capture scope
+		$scope = $this->errors->start_scope();
+		try {
+			\register_shutdown_function( [ $this, 'write_startup_log' ] );
+			
+			$this->environment();
+			$this->sanity_log();
+			
+			// Sanity check (AKA required libraries) failed?
+			if( !$this->sanity ) { return; }
+			
+			// Run actions 
+			$this->actions();
+		} finally {
+			// End scope
+			$this->errors->end_scope( $scope );
+		}
 	}
 }
 
@@ -15912,7 +15971,8 @@ function checkConfig( string $event, array $hook, array $params ) {
 
 
 // Start application
-startup();
+$main	= new Main();
+$main->sequence();
 
 
 
