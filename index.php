@@ -7042,18 +7042,12 @@ class HookRegistry {
 		
 		foreach ( $hooks as $hook ) {
 			// Call and mutate results
-			$stage = $hook->call( $name, $result, $args );
+			$stage = $hook->call( $name, $result, $args ) ?: null;
 			
-			if ( !$stage instanceof HookResult ) {
-				// Fail immediately
-				throw new 
-				\RuntimeException(
-					"Hook {$hook->name} must return HookResult"
-				);
+			// Merge with previous results
+			if ( null !== $stage && $stage instanceof HookResult ) {
+				$result = $result->merge( $stage );
 			}
-			
-			// Previous results
-			$result = $result->merge( $stage );
 		}
 
 		// Collected results
@@ -9583,10 +9577,8 @@ final class Router extends Instance {
 		\RuntimeException( 'Invalid route handler' );
 	}
 	
-	// TODO
-	private function middleware() : void {
-		
-	}
+	// TODO: Process and filter third-party handlers
+	private function middleware( array $mw ) : void {}
 	
 	public function dispatch( string $method, string $uri ) : void {
 		$path	= \parse_url( $uri, \PHP_URL_PATH );
@@ -9605,15 +9597,14 @@ final class Router extends Instance {
 				fn( $key ) => !\is_int( $key ),
 				\ARRAY_FILTER_USE_KEY
 			);
-
-			foreach ( $route['middleware'] as $mw) {
-				//$response = $mw( $request, $next );
+			
+			foreach ( $route['middleware'] as $mw ) {
+				$this->middleware( $mw );
 			}
+			
 			$this->handle( $route['handler'], $pattern, $params );
 			return;
 		}
-		
-		// TODO: Send not found
 	}
 }
 
@@ -9692,7 +9683,7 @@ final class PluginDiscovery {
 		public readonly HookLoader	$hooks
 	) {
 		$this->plugin_dir	= $this->config->defaults( 'plugin_dir' );
-		$this->enabled		= $this->config->settings( 'plugins_enabled', [], 'array' );
+		$this->enabled		= $this->config->setting( 'plugins_enabled', [], 'array' );
 	}
 	
 	public static function create( ?Container $container = null ) {
@@ -11544,7 +11535,6 @@ class ViewLoader extends Instance {
 }
 
 
-
 /**
  *  @class Core functionality
  */
@@ -11717,8 +11707,23 @@ final class Main {
 		$plugins->autoload( $disable );
 		$plugins->init( $disable );
 		
+		// Test for supported method
+		if ( 'unsupported' === $request->method ) {
+			$registry->run( 'error_bad_request', false, [
+				'uri'		=> $request->uri,
+				'method'	=> $request->method
+			] );
+			return;
+		}
+		
 		// Setup complete, call current route
 		$router->dispatch( $request->method, $request->uri );
+		
+		// Fallback run not found
+		$registry->run( 'error_not_found', false, [
+			'uri'		=> $request->uri,
+			'method'	=> $request->method
+		] );
 	}
 	
 	/**
@@ -11742,6 +11747,157 @@ final class Main {
 			// End scope
 			$this->errors->end_scope( $scope );
 		}
+	}
+}
+
+
+/**
+ *  @class Core request error hooks ( can be overriden in plugins )
+ */
+#[HookContainer]
+class RequestErrors {
+	
+	/**
+	 *  Standalone error page
+	 */
+	const ERROR_PAGE	=<<<HTML
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{code}} - {{page_title}}</title>
+</head>
+<body>
+<h1>{{code}} - {{page_title}}</h1>
+<p>{{body}}</p>
+<p><a href="{{back}}">Back</a> | <a href="{{search}}">Search</a></p>
+<small>Requested URI: {{uri}}</small>
+</body>
+</html>
+HTML;
+	
+	/**
+	 *  Output wraper
+	 *  
+	 *  @param array	$args		Passed hook event arguments
+	 *  @param int		$code		HTTP Response code
+	 *  @param string	$title		Error page main title
+	 *  @param string	$message	Content body or other useful info
+	 *  @param array	$headers	Additional response headers
+	 */
+	private function response( 
+		array	$args, 
+		int	$code, 
+		string	$title, 
+		string	$message	= 'An unexpected error occurred.',
+		array	$headers	= []
+	) : never {
+		$method		= \strtolower( $args['method'] ?? 'unsupported' );
+		$body		= \in_array( $method, [ 'get', 'post' ] ) ? $message : null;
+		
+		// Sending body?
+		if ( null !== $body ) {
+			$raw		= $args['uri'] ?? null;
+			$clean		= 
+			( null === $raw ) ? '' : ( Sanitize::uri( $raw ) ?? '' );
+			
+			$template	= Template::create();
+			$vars	= [
+				'code'			=> $code,
+				'uri'			=> $clean,
+				'back'			=> $args['back'] ?? '/',
+				'search'		=> $args['search'] ?? '/search',
+				'page_title'		=> $title,
+				'body'			=> $message
+			];
+			$body = $template->parse( static::ERROR_PAGE, $vars );
+		}
+		
+		$response	= PageResponse::create();
+		$response->send( code: $code, headers : $headers, body: $body );
+	}
+	
+	#[Hook( name : 'error_bad_request', priority: 1 ) ]
+	public function bad_request( string $event, HookResult $result, array $args ) : never {
+		$this->response( 
+			args	: $args, 
+			code	: 400, 
+			title	: 'Bad Request', 
+			message	: 'Invalid request.'
+		);
+	}
+	
+	#[Hook( name : 'error_not_authorized', priority: 1 ) ]
+	public function not_authorized( string $event, HookResult $result, array $args ) : never {
+		$this->response( 
+			args	: $args, 
+			code	: 401, 
+			title	: 'Not Authorized', 
+			message	: 'Insufficient permissions to access resource.'
+		);
+	}
+	
+	#[Hook( name : 'error_forbidden', priority: 1 ) ]
+	public function forbidden( string $event, HookResult $result, array $args ) : never {
+		$this->response( 
+			args	: $args, 
+			code	: 403, 
+			title	: 'Forbidden', 
+			message	: 'Access to resource is restricted.'
+		);
+	}
+	
+	#[Hook( name : 'error_not_found', priority: 1 ) ]
+	public function not_found( string $event, HookResult $result, array $args ) : never {
+		$this->response( 
+			args	: $args, 
+			code	: 404, 
+			title	: 'Not Found', 
+			message	: 'Requested resource not found.'
+		);
+	}
+	
+	#[Hook( name : 'error_not_allowed', priority: 1 ) ]
+	public function not_allowed( string $event, HookResult $result, array $args ) : never {
+		// TODO: Extract allowed from arguments, including per-uri allowed methods
+		$this->response( 
+			args	: $args, 
+			code	: 405, 
+			title	: 'Not Allowed', 
+			message	: 'Request method not allowed.',
+			headers	: [ 'Allow' => 'GET, POST, HEAD, OPTIONS' ]
+		);
+	}
+	
+	#[Hook( name : 'error_bad_uri', priority: 1 ) ]
+	public function bad_range( string $event, HookResult $result, array $args ) : never {
+		$this->response( 
+			args	: $args, 
+			code	: 414, 
+			title	: 'Invalid URI', 
+			message	: 'The request path cannot be processed'
+		);
+	}
+	
+	#[Hook( name : 'error_bad_range', priority: 1 ) ]
+	public function bad_range( string $event, HookResult $result, array $args ) : never {
+		$this->response( 
+			args	: $args, 
+			code	: 416, 
+			title	: 'Range Not Satisfiable', 
+			message	: 'Invalid file range requested'
+		);
+	}
+	
+	#[Hook( name : 'error_generic', priority: 1 ) ]
+	public function server_error( string $event, HookResult $result, array $args ) : never {
+		$this->response( 
+			args	: $args, 
+			code	: 500, 
+			title	: 'Server Error', 
+			message	: 'An unexpected error occurred.'
+		);
 	}
 }
 
@@ -13102,143 +13258,6 @@ function sendError( int $code, $body ) {
 	];
 	page_send( $code, render( template( 'tpl_error_page' ), $params ) );
 }
-
-/**
- *  Invalid file range error page helper
- */
-function sendRangeError() {
-	visitorError( 416, 'Range' );
-	sendError( 416, errorLang( "filerange", \MSG_FILERANGE ) );
-}
-
-/**
- *  Override content sending if hook was called
- *  
- *  @param string	$event	Event name to call back from hook
- *  @param bool		$feed	Sent content is to be rendered as feed
- */
-function sendOverride( string $event, bool $feed = false ) {
-	$sent	= hook( [ $event, '' ] );
-	if ( empty( $sent ) || !\is_array( $sent ) ) {
-		return;
-	}
-	
-	$html	= $sent['html'] ?? '';
-	if ( empty( $html ) ) {
-		return;
-	}
-	
-	page_send( 
-		( int ) ( $sent['code'] ?? 200 ), 
-		$html, 
-		( bool ) ( $sent['cache'] ?? true ),
-		$feed
-	);
-}
-
-/**
- *  Multi-page redirect helper
- *  
- *  @param string	$page		Relative path to redirect
- *  @param int		$code		HTTP Status code
- */
-function sendPage( 
-	string		$page		= '',
-	int		$code		= 200
-) {
-	// Pre-redirect hooks
-	hook( [ 'sendpage', [
-		'home'	=> pageRoutePath(),
-		'host'	=> getHost(),
-		'root'	=> getRoot(),
-		'code'	=> $code,
-		'page'	=> $page 
-	] ] );
-	
-	// Send redirect with requested code
-	redirect( $code, Text::slash_path( pageRoutePath(), true ) . $page );
-}
-
-/**
- *  Send bad request page and log the visit
- *  
- *  @param string	$vlog		Logged error message
- *  @param string	$msg		Language error sent to visitor
- *  @param string	$default	Fallback language error message
- */
-function sendBadRequest(
-	string	$vlog		= 'Host', 
-	string	$msg		= 'invalid',
-	string	$default	= \MSG_INVALID
-) {
-	visitorError( 400, $vlog );
-	sendError( 400, errorLang( $msg, $default ) );
-}
-
-/**
- *  Send bad URI page and log the visit
- *  
- *  @param string	$vlog		Logged error message
- *  @param string	$msg		Language error sent to visitor
- *  @param string	$default	Fallback language error message
- */
-function sendBadURI(
-	string	$vlog		= 'Path', 
-	string	$msg		= 'invalid',
-	string	$default	= \MSG_INVALID
-) {
-	visitorError( 414, $vlog );
-	page_send( 414, errorLang( $msg, $default ) );
-}
-
-/**
- *  Send access denied page and log the visit
- *  
- *  @param string	$vlog		Logged error message
- *  @param string	$msg		Language error sent to visitor
- *  @param string	$default	Fallback language error message
- */
-function sendDenied(
-	string	$vlog		= 'Denied', 
-	string	$msg		= 'denied', 
-	string	$default	= \MSG_DENIED 
-) {
-	visitorError( 403, $vlog );
-	sendError( 403, errorLang( $msg, $default ) );
-}
-
-/**
- *  Send method not allowed
- *  
- *  @param string	$vlog		Logged error message
- *  @param string	$msg		Language error sent to visitor
- *  @param string	$default	Fallback language error message
- */
-function sendBadMethod(
-	string	$vlog		= 'Method', 
-	string	$msg		= 'badmethod', 
-	string	$default	= \MSG_BADMETHOD 
-) {
-	visitorError( 405, $vlog );
-	sendError( 405, errorLang( $msg, $default ) );	
-}
-
-/**
- *  Send not found page and log the visit
- *  
- *  @param string	$vlog		Logged error message
- *  @param string	$msg		Language error sent to visitor
- *  @param string	$default	Fallback language error message
- */
-function sendNotFound(
-	string	$vlog		= 'NotFound', 
-	string	$msg		= 'notfound', 
-	string	$default	= \MSG_NOTFOUND 
-) {
-	visitorError( 404, $vlog );
-	sendError( 404, errorLang( $msg, $default ) );
-}
-
 
 
 /**
