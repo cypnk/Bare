@@ -7026,9 +7026,16 @@ class HookRegistry {
 	/**
 	 *  Execute hook and return mutated output
 	 *  
+	 *  @param string	$name		Hook event name
+	 *  @param bool		$is_cached	Cache the result in output
+	 *  @param array 	$args		Execution arguments/parameters
 	 *  @return HookResult
 	 */
-	public function run( string $name, bool $cache = false, array $args = [] ) : HookResult {
+	public function run( 
+		string	$name, 
+		bool	$is_cached	= false, 
+		array	$args		= [] 
+	) : HookResult {
 		$name	= \strtolower( $name );
 		$hooks	= $this->get( $name );
 		$result	= new HookResult();
@@ -7050,7 +7057,7 @@ class HookRegistry {
 		}
 
 		// Collected results
-		if ( $cache ) { $this->output[$name] = $result; }
+		if ( $is_cached ) { $this->output[$name] = $result; }
 		
 		return $result;
 	}
@@ -7087,6 +7094,31 @@ class HookLoader {
 	public function __construct( private HookRegistry $registry ) {}
 	
 	/**
+	 *  Scan for hooks in class methods by reflection
+	 *  
+	 *  @param ReflectionClass	$class	Currently observing class
+	 */
+	public function from_ref_class( \ReflectionClass $ref ) : void {
+		$instance	= Container::instance()->get( $ref->getName() );
+		
+		foreach ( $ref->getMethods() as $method ) {
+			foreach ( $method->getAttributes( Hook::class ) as $attr ) {
+				$meta	= $attr->newInstance();
+				foreach ( ( array ) $meta->name as $event ) {
+					$this->registry->add(
+						new HookHandler(
+							name		: $meta->name,
+							instance	: $instance,
+							method		: $method->getName(),
+							priority	: $meta->priority
+						)
+					);
+				}
+			}
+		}
+	}
+	
+	/**
 	 *  Process hook containers and append handlers
 	 *  
 	 *  @param string	$class		Instance name (static::class)
@@ -7113,24 +7145,9 @@ class HookLoader {
 		}
 		
 		$this->classes[$class]	= true;
-		$instance		= Container::instance()->get( $class );
 		
 		// Scan for hooks
-		foreach ( $ref->getMethods() as $method ) {
-			foreach ( $method->getAttributes( Hook::class ) as $attr ) {
-				$meta	= $attr->newInstance();
-				foreach ( ( array ) $meta->name as $event) {
-					$this->registry->add(
-						new HookHandler(
-							name		: $meta->name,
-							instance	: $instance,
-							method		: $method->getName(),
-							priority	: $meta->priority
-						)
-					);
-				}
-			}
-		}
+		$this->from_ref_class( $ref  );
 	}
 	
 	/**
@@ -7882,8 +7899,8 @@ class Template extends Instance {
 	 */
 	public function load_static() : array {
 		$raw		= 
-		\defined( 'TEMPLATES' ) && \is_string( TEMPLATES )
-			? \constant( 'TEMPLATES' ) 
+		\defined( 'TEMPLATES' ) 
+			? ( string ) \constant( 'TEMPLATES' ) 
 			: '';
 		
 		// Try to get a default loaded template if nothing defined
@@ -9185,6 +9202,13 @@ final class RouteDiscovery {
 	
 	public function __construct( public readonly Container $container ) {}
 	
+	/**
+	 *  Scan for any routes in method
+	 *  
+	 *  @param string		$class	Scanning class to build invoke or callback array
+	 *  @param ReflectionMethod	$method	Currently scanning method
+	 *  @return array			Complied routes
+	 */
 	public function routes( string $class, \ReflectionMethod $method ) : array {
 		$routes		= [];
 		$attrs		= $method->getAttributes( Route::class );
@@ -9208,6 +9232,12 @@ final class RouteDiscovery {
 		return $routes;
 	}
 	
+	/**
+	 *  Test class for any scannable methods and load their hooks, if any
+	 *  
+	 *  @param string	$class	Scanning class name
+	 *  @return array		Compiled handlers
+	 */
 	public function discover( string $class ) : array {
 		$ref		= new \ReflectionClass( $class );
 		$handlers	= [];
@@ -9223,6 +9253,11 @@ final class RouteDiscovery {
 		return $handlers;
 	}
 	
+	/**
+	 *  Parse list of discovered classes
+	 *  
+	 *  @param array	$classes	List of class names
+	 */
 	public function classes( array $classes ) : array {
 		$handlers	= [];
 		foreach ( $classes as $class ) {
@@ -9264,7 +9299,7 @@ final class Router extends Instance {
 		$this->discovery = new RouteDiscovery( $this->container );
 	}
 	
-	public static function create( ?Container $container = null ) {
+	public static function create( ?Container $container = null ) : static {
 		return new static( $container ?? Container::instance() );
 	}
 	
@@ -9287,7 +9322,7 @@ final class Router extends Instance {
 	private function patterns( ?array $new_patterns = null ) : array {
 		// Preset patterns
 		$this->type_patterns ??= 
-		$this->container->get( 'Config' )->setting( 'type_patterns', [
+		$this->container->get( Config::class )->setting( 'type_patterns', [
 			'path'		=> '.+',
 			'int'		=> '\d+',
 			'str'		=> '[^/]+',
@@ -9633,6 +9668,11 @@ final class PluginDiscovery {
 	private			array	$plugins	= [];
 	
 	/**
+	 *  Enabled plugins
+	 */
+	private 		array	$enabled	= [];
+	
+	/**
 	 *  @var string Scan directory for plugin storage (from config)
 	 */
 	private readonly	string	$plugin_dir;
@@ -9643,13 +9683,16 @@ final class PluginDiscovery {
 	 *  @param Config	$config	Configuration settings
 	 *  @param Log		$log	Event logger
 	 *  @param Router	$router	Request path router
+	 *  @param HookLoader	$hooks	Event hook loader
 	 */
 	public function __construct(
-		public readonly Config	$config,
-		public readonly Logger	$logger,
-		public readonly Router	$router
+		public readonly Config		$config,
+		public readonly Logger		$logger,
+		public readonly Router		$router,
+		public readonly HookLoader	$hooks
 	) {
-		$this->plugin_dir = $this->config->defaults( 'plugin_dir' );
+		$this->plugin_dir	= $this->config->defaults( 'plugin_dir' );
+		$this->enabled		= $this->config->settings( 'plugins_enabled', [], 'array' );
 	}
 	
 	public static function create( ?Container $container = null ) {
@@ -9657,8 +9700,9 @@ final class PluginDiscovery {
 		$logger		= $container->get( Logger::class );
 		$config		= $container->get( Config::class );
 		$router		= $container->get( Router::class );
+		$hooks		= $container->get( HookLoader::class );
 		
-		return new static( $config, $logger, $router );
+		return new static( $config, $logger, $router, $hooks );
 	}
 	
 	/**
@@ -9676,7 +9720,7 @@ final class PluginDiscovery {
 			] );
 		}
 	}
-	
+		
 	public function discover( string|array $info ) : void {
 		$class	= \is_array( $info ) 
 			? $info['class'] ?? ''
@@ -9684,20 +9728,33 @@ final class PluginDiscovery {
 		
 		if ( empty( $class ) ) { return; }
 		if ( isset( $this->skipped[$class] ) ) { return; }
+		
+		// TODO: Limit to whitelist by 'plugins_enabled' setting in config
+		/*
+		if ( !\in_array( $class, $this->enabled, true ) ) {
+			$this->skipped[$class] = true;
+			return; 
+		}
+		*/
+		
 		if ( !\class_exists( $class ) ) { 
 			$this->skipped[$class] = true;
 			return;
 		}
 		
 		$ref	= new \ReflectionClass( $class );
-		$attrs	= $ref->getAttributes( Plugin::class );
 		
-		// No plugin data to parse
-		if ( !$attrs ) {
-			$this->skipped[$class]	= true;
+		// Not a viable plugin?
+		if ( 
+			$ref->isAbstract()		|| 
+			$ref->isInternal()		|| 
+			!$ref->getAttributes( Plugin::class ) 
+		) { 
+			$this->skipped[$class] = true;
 			return; 
 		}
 		
+		$attrs	= $ref->getAttributes( Plugin::class );
 		$meta	= $attrs[0]->newInstance();
 		$name	= Sanitize::spaces( Sanitize::escape_text( $meta->name ) );
 		
@@ -9713,8 +9770,6 @@ final class PluginDiscovery {
 			return;
 		}
 		
-		// TODO: Limit to whitelist by 'plugins_enabled' setting in config
-		
 		$raw	= $ref->getAttributes( Info::class ) ?: null;
 		$plugin	= [
 			'class'		=> $class,
@@ -9724,7 +9779,10 @@ final class PluginDiscovery {
 			'routes'	=> $this->router->discovery->discover( $class ),
 			'providers'	=> []
 		];
-
+		
+		// Register plugin hooks, if any
+		$this->hooks->from_ref_class( $ref );
+		
 		// TODO: Needs a lot more work to be useful
 		foreach ( $ref->getAttributes( PluginMiddleware::class ) as $attr ) {
 			$plugin['middleware'][] = $attr->newInstance()->middleware;
@@ -9798,7 +9856,8 @@ final class PluginDiscovery {
 					
 					if ( $type && $type instanceof \ReflectionNamedType ) {
 						$pname = $type->getName();
-				
+						
+						// Plugin constructor should have these
 						$args[$name] = 
 						match( $pname ) {
 							Info::class		=> $plugin['info'],
