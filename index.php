@@ -11,44 +11,18 @@
  */
 
 /**
- *  Relative path based on current file location
+ *  Relative path based on current file location.
  */
-define( 'PATH',		\realpath( \dirname( __FILE__ ) ) . '/' );
+define( 'PATH',		\realpath( \dirname( __FILE__ ) ) . \DIRECTORY_SEPARATOR );
 // Use this instead if you keep scripts outside the web root
-// define( 'PATH',	\realpath( \dirname( __FILE__, 2 ) ) . '/htdocs/' );
+// define( 'PATH',	\realpath( \dirname( __FILE__, 2 ) ) . \DIRECTORY_SEPARATOR . 'htdocs' . \DIRECTORY_SEPARATOR );
 
-// Cache directory. Must be writable (chmod -R 0755 on *nix)
-define( 'STORAGE_DIR',	PATH . 'cache/' );
-// Use this instead if you keep the cache outside the web root
-// define( 'STORAGE_DIR',	\realpath( \dirname( __FILE__, 2 ) ) . '/cache/' );
-
-// Error log filename (will be created if it doesn't exist)
-define( 'ERROR',	'errors.log' );
-
-// Visitor error log (will be created if if doesn't exist)
-define( 'ERROR_VISIT',	'visitor_errors.log' );
-
-// Special notices and other messages that aren't errors but should be recorded
-define( 'NOTICE',	'notices.log' );
-
-// A log file created when Bare is first run with information about its enviornment
-define( 'STARTUP',	'startup.log' );
-
-
-/**
- *  Messages
- */
-define( 'MSG_NOTFOUND',		'Page not found' );
-define( 'MSG_NOROUTE',		'No route defined' );
-define( 'MSG_BADMETHOD',	'Method not allowed' );
-define( 'MSG_NOMETHOD',		'Method not implemented' );
-define( 'MSG_GENERIC',		'An error has occured' );
-define( 'MSG_DENIED',		'Access denied' );
-define( 'MSG_INVALID',		'Invalid request' );
-define( 'MSG_CODEDETECT',	'Server-side code detected' );
-define( 'MSG_EXPIRED',		'This form has expired' );
-define( 'MSG_TOOMANY',		'Too many requests' );
-define( 'MSG_FILERANGE',	'Invalid file range requested' );
+// Main storage directory. Must be writable.
+// *nix		: chmod -R 0755 /path/to/cache
+// macOS	: chmod -R go-rw /path/to/cache
+define( 'STORAGE_DIR',	PATH . 'cache' . \DIRECTORY_SEPARATOR );
+// Use this instead if you keep the cache outside the web root.
+// define( 'STORAGE_DIR',	\realpath( \dirname( __FILE__, 2 ) ) . \DIRECTORY_SEPARATOR . 'cache' . \DIRECTORY_SEPARATOR );
 
 
 /**
@@ -3968,6 +3942,7 @@ final class Logger extends Instance {
 		$path		= Sanitize::path_traversal( $path );
 		
 		if ( empty( $path ) ) { return false; }
+		if ( !\is_writable( \dirname( $path ) ) ) { return false; }
 		return \str_starts_with( $path, $root );
 	}
 	
@@ -3977,6 +3952,9 @@ final class Logger extends Instance {
 	 *  @param string	$log_file	Base log file, rotated
 	 */
 	private function cleanup( string $log_file ) : void {
+		// Retention not defined? Skip deleting old files
+		if ( !\defined( 'LOG_MAX_RETENTION' ) ) { return; }
+		
 		$files		= \glob( $log_file . '.*.log' );
 		if ( !$files ) { return; }
 		
@@ -3996,24 +3974,48 @@ final class Logger extends Instance {
 	}
 	
 	/**
+	 *  Set header fields on given log file
+	 *  
+	 *  @param string	$log_file	Writable file
+	 *  @param string	$fields		Comma-delimited list of fields
+	 */
+	private function header_fields( string $log_file, string $fields ) : void {
+		// Log field friendly date and time format
+		$dt		= \gmdate( 'Y-m-d H:i:s' );
+		$fields 	= 
+		"'#Software: Bare \n#Date: {$dt}\n#Fields: {$fields}"; 
+
+		if ( !Storage::append( $log_file, $fields, true ) ) {
+			\error_log( "Failed to append fields to {$log_file}" );
+			return;
+		}
+	}
+	
+	/**
 	 *  Rotate given log file
 	 *  
-	 *  @param string $log_file Target log file location on disk
+	 *  @param string	$log_file	Target log file location on disk
+	 *  @param string	$fields		Log header fields
 	 */
-	private function rotate( string $log_file ) : void {
+	private function rotate( string $log_file, string $fields ) : void {
 		
-		if ( !\is_readable( $log_file ) ) { return; }
-		
-		$fsize		= \filesize( $log_file );
-		if ( !$fsize ) { return; }
+		if ( !Storage::file_size( $log_file ) ) { 
+			// New file? Set fields
+			$this->header_fields( $log_file, $fields );
+			return; 
+		}
 		
 		if ( $fsize > $this->max_size ) {
+			// Filename friendly date and time format
 			$stamp		= \date( 'Ymd_His' );
 			$archive	= "{$log_file}.{$stamp}.log";
 			if ( !\rename( $log_file, $archive ) ) {
 				\error_log( "Failed to archive log: {$log_file}" );
 				return;
 			}
+			
+			// Set header fields on rotate
+			$this->header_fields( $log_file, $fields );
 		}
 		
 		// Retention cleanup
@@ -4023,48 +4025,72 @@ final class Logger extends Instance {
 	/**
 	 *  Core log writer
 	 *  
-	 *  @param array	$pair		Log file location and message combination
+	 *  @param array	$sets		Log file location and message combination
 	 */
-	public function write( ?array $pair = null ) : void {
+	public function write( ?array $sets = null ) : void {
 		static $reg	= false;
 		
+		// Register shutdown on first run
 		if ( !$reg ) {
 			$reg	= true;
 			\register_shutdown_function( [ $this, 'write' ] );
 		}
-	
+		
 		// New message added to queue
-		if ( null !== $pair ) {
-			[ $msg_file, $entry ] = $pair;
+		if ( null !== $sets ) {
+			// Expand sets
+			[ $log_file, $fields, $entry ] = $sets;
 			
-			if ( empty( $entry ) || empty( $msg_file ) ) { return; }
-			if ( !\is_string( $entry ) || !\is_string( $msg_file ) ) { return; }
+			if ( empty( $entry ) || empty( $log_file ) ) { return; }
+			if ( !\is_string( $entry ) || !\is_string( $log_file ) ) { return; }
 			
-			$this->cache[] = [ $msg_file, $entry ];
+			if ( !$this->file_valid( $log_file ) ) {
+				\error_log( "Log file {$log_file} is not usable" );
+				return; 
+			}
+			
+			$this->cache[] = [ $log_file, $fields, $entry ];
 			return;
 		}
 		
 		// Shutdown action
 		$grouped	= [];
 		foreach ( $this->cache as $set ) {
-			list( $file, $entry ) = $set;
-			$grouped[$file][] = $entry;
+			list( $log_file, $fields, $entry ) = $set;
+			
+			$grouped[$log_file] ??= [];
+			$grouped[$log_file][] = [ $fields, $entry ];
 		}
 		
 		$base		= Storage::base();
-		foreach ( $grouped as $file => $entries ) {
-			if ( !$this->file_valid( $file ) ) {
-				\error_log( "Log file {$file} is not within storage {$base}" );
-				continue; 
-			}
+		foreach ( $grouped as $log_file => $sets ) {
+			list( $fields, $entry ) = $sets;
 			
-			$this->rotate( $file );
+			$this->rotate( $log_file, $fields );
 			$data	= \implode( \PHP_EOL, $entries ) . \PHP_EOL;
 			
-			if ( !Storage::append( $file, $data, true ) ) {
-				\error_log( "Failed to append batched messages to {$file} in {$base}" );
+			if ( !Storage::append( $log_file, $data, true ) ) {
+				\error_log( "Failed to append batched messages to {$log_file} in {$base}" );
 			}
 		}
+	}
+	
+	/**
+	 *  Format message context to usable string
+	 *  
+	 *  @param string|array		$context	Message payload
+	 */
+	private function format_context( string|array $context ) : string {
+		if ( !\is_array( $context ) ) { return $context; }
+		
+		$msg	= Util::json_uencode( $context );
+		
+		// Since PHP 8.3
+		if ( !\json_validate( $msg ) ) {
+			\error_log( "Invalid JSON generated for log context" );
+			return '';
+		}
+		return Sanitize::spaces( $msg );
 	}
 	
 	/**
@@ -4074,15 +4100,13 @@ final class Logger extends Instance {
 	 *  @param string	$level		Priority level
 	 *  @return string
 	 */
-	private function format( string $msg, string $level = 'INFO' ) : string {
+	private function format_entry( string $msg, string $level = 'INFO' ) : string {
 		$id		= static::get_id();
 		$timestamp	= Util::timestamp();
 		$script		= 
 		Sanitize::spaces( \basename( $_SERVER['SCRIPT_NAME'] ?? 'unknown' ) );
 		
-		$msg		= Sanitize::spaces( $msg );
-		return "[{$timestamp}] [ID:{$id}] [{$script}] [{$level}]\n" .
-			"{$msg}\n\n---\n\n";
+		return "[{$timestamp}] [{$id}] [{$script}] [{$level}] {$msg}\n\n";
 	}
 	
 	/**
@@ -4095,24 +4119,15 @@ final class Logger extends Instance {
 	private function message(
 		string|array	$context,
 		string		$level		= 'INFO',
-		?string		$file		= null
+		?string		$file		= null, 
+		?string		$fields		= null
 	) : void {
+		$fields ??= "datetime, id, script, level, comment\n\n";
 		if ( empty( $this->check_level( $level ) ) ) { return; }
 		
-		if ( \is_array( $context ) ) {
-			$msg	= Util::json_uencode( $context );
-			
-			// Since PHP 8.3
-			if ( !\json_validate( $msg ) ) {
-				\error_log( "Invalid JSON generated for log context" );
-				return;
-			}
-		} else {
-			$msg = $context;
-		}
-		
-		$entry	= $this->format( $msg, $level );
-		$this->write( [ $this->file_log( $file ), $entry ] );
+		$msg	= $this->format_context( $context );
+		$entry	= $this->format_entry( $msg, $level );
+		$this->write( [ $this->file_log( $file ), $fields, $entry ] );
 	}
 	
 	public function info( string|array $context, ?string $file = null ) : void {
@@ -4129,6 +4144,39 @@ final class Logger extends Instance {
 
 	public function debug( string|array $context, ?string $file = null ) : void {
 		$this->message( $context, 'DEBUG', $file );
+	}
+	
+	/**
+	 *  Format web message log
+	 *  
+	 *  @param int			$code		HTTP Status code
+	 *  @param string|array		$context	Logging context detail
+	 *  @param Request		$request	Current page request
+	 */
+	public function web( 
+		int		$code, 
+		string|array	$context, 
+		Request		$request 
+	) : void {
+		static $fields	= 
+		"date, time, sc-status, c-host, s-ip, cs-method, cs-useragent, cs-uri, sc-comment\n\n";
+		
+		static $file	=
+		\defined( 'WEB_LOG_FILE' ) 
+			? ( string ) \constant( 'WEB_LOG_FILE' )
+			: 'visitors.log';
+		
+		$msg	= $this->format_context( $context );
+		$ua	= \Sanitize::spaces( '' === $request->ua() ? 'unknown' : $request->ua() );
+		$uri	= \Sanitize::spaces( '' === $request->uri ? 'unknown' : $request->uri );
+		$host	= \Sanitize::spaces( '' === $request->host ? 'unknown' : $request->host );
+		$me	= \Sanitize::spaces( $request->method );
+		$ip	= \Sanitize::spaces( $request->ip( true ) );
+		
+		$dt	= \gmdate( 'Y-m-d H:i:s' );
+		
+		$entry	= "{$dt} {$code} {$host} {$ip} {$me} {$ua} {$uri} {$msg}";
+		$this->write( [ $this->file_log( $file ), $fields, $entry ] );
 	}
 }
 
@@ -5603,19 +5651,19 @@ class PageResponse extends Response {
 		}
 	}
 	
-	public function html( string $html, int $status = 200, array $headers = [] ) : void {
+	public function html( int $status = 200, array $headers = [], string $html ) : void {
 		$headers['Content-Type'] ??= 'text/html; charset=UTF-8';
 		$this->send( $status, $headers, $html );
 		exit();
 	}
 	
-	public function json( array $data, int $status = 200, array $headers = [] ) : void {
+	public function json( int $status = 200, array $headers = [], array $data ) : void {
 		$headers['Content-Type'] ??= 'application/json; charset=UTF-8';
 		$this->send( $status, $headers, $data );
 		exit();
 	}
 	
-	public function text( string $text, int $status = 200, array $headers = [] ) : void {
+	public function text( int $status = 200, array $headers = [], string $text ) : void {
 		$headers['Content-Type'] ??= 'text/plain; charset=UTF-8';
 		$this->send( $status, $headers, $text );
 		exit();
