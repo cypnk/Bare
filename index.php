@@ -4056,7 +4056,7 @@ final class Logger extends Instance {
 		// Shutdown action
 		$grouped	= [];
 		foreach ( $this->cache as $set ) {
-			list( $log_file, $fields, $entry ) = $set;
+			[ $log_file, $fields, $entry ] = $set;
 			
 			$grouped[$log_file] ??= [];
 			$grouped[$log_file][] = [ $fields, $entry ];
@@ -4064,7 +4064,7 @@ final class Logger extends Instance {
 		
 		$base		= Storage::base();
 		foreach ( $grouped as $log_file => $sets ) {
-			list( $fields, $entry ) = $sets;
+			[ $fields, $entry ] = $sets;
 			
 			$this->rotate( $log_file, $fields );
 			$data	= \implode( \PHP_EOL, $entries ) . \PHP_EOL;
@@ -12005,13 +12005,19 @@ class Bare {
 	 */
 	private readonly Language $language;
 	
+	/**
+	 *  @var HookRegistry Event runner
+	 */
+	private readonly HookRegistry $hooks;
+	
 	public function __construct( 
 		private readonly Info		$info,
 		private readonly Plugin		$meta, 
 		private readonly Container	$container
 	) {
-		$this->config	= $this->container->get( 'Config' );
-		$this->language	= $this->container->get( 'Language' );
+		$this->config	= $this->container->get( Config::class );
+		$this->language	= $this->container->get( Language::class );
+		$this->hooks	= $this->container->get( HookRegistry::class );
 		
 		$asset_dir	= $info->fields['asset_dir']	?? 'assets/';
 		$data_dir	= $info->fields['data_dir']	?? 'data/';
@@ -12024,12 +12030,83 @@ class Bare {
 		$dir		= $this->config->setting( 'asset_dir', $base_dir ); // Build on default
 		$dir		= \rtrim( $dir, '/\\' ) . \DIRECTORY_SEPARATOR;
 		
+		// Register plugin directories for auto-discovery
+		$this->registry->run( 'register_directories', true, [
+			'asset_dir'	=> $dir,
+			'data_dir'	=> $data_dir
+		] );
+	}
+	
+	/**
+	 *  Hook event before/after HTML pipeline wrapper helper
+	 *  
+	 *  @param bool		$is_cached	Resulting HTML is cached in the hook output
+	 */
+	private function pipeline( bool $is_cached = false ) : HookPipeline {
+		return new HookPipeline( 
+			registry	: $this->hooks, 
+			language	: $this->language, 
+			template	: $this->template, 
+			is_cached	: $is_cached
+		);
+	}
+	
+	#[Hook( name : 'post_index_render', priority: 10 ) ]
+	public function post_index( string $event, HookResult $result, array $args ) : HookResult {
+		static $tpl_data;
+		// TODO: Preload custom classes
+		$tpl_data ??= [ 'post_index_wrap_classes' => '', 'post_index_ul_wrap_classes' => '' ];
 		
-		/*
-		hook( [ 'register_asset_dir', function( $event, $dirs ) use ( $dir ) {
-			$dirs[] = $dir;
-			return $dirs;
-		} ] );*/
+		return $result
+			->with_data( $tpl_data )
+			->with_template( 'tpl_index_wrap' );
+	}
+	
+	#[Hook( name : 'no_posts_render', priority: 10 ) ]
+	public function no_posts( string $event, HookResult $result, array $args ) : HookResult {
+		return $result
+			->with_data( [ 'no_posts_wrap' => '' ] )
+			->with_template( 'tpl_noposts' );
+	}
+	
+	#[Hook( name : 'post_full_render', priority: 10 ) ]
+	public function post_full( string $event, HookResult $result, array $args ) : HookResult {
+		static $tpl_data;
+		$tpl_data	??= [
+			'post_classes'			=> '',
+			'post_wrap_classes'		=> '',
+			'post_heading_classes'		=> '',
+			'post_heading_wrap_classes'	=> '',
+			'post_heading_h_classes'	=> '',
+			'post_heading_a_classes'	=> '',
+			'post_sub_classes'		=> '',
+			'post_body_wrap_classes'	=> '',
+			'post_body_content_classes'	=> '',
+			'post_body_tag_classes'		=> ''
+		];
+		
+		return $result
+			->with_data( $tpl_data )
+			->with_template( 'tpl_post' );
+	}
+	
+	#[Hook( name : 'post_idx_item_render', priority: 10 ) ]
+	public function post_item( string $event, HookResult $result, array $args ) : HookResult {
+		static $tpl_data;
+		$tpl_data	??= [
+			'post_idx_wrap_classes'		=> '',
+			'post_idx_classes'		=> '',
+			'post_idx_heading_classes'	=> '',
+			'post_idx_heading_h_classes'	=> '',
+			'post_idx_heading_a_classes'	=> '',
+			'post_idx_pub_classes'		=> '',
+			'post_idx_body_wrap_classes'	=> '',
+			'post_idx_body_tag_classes'	=> ''
+		];
+		
+		return $result
+			->with_data( $tpl_data )
+			->with_template( 'tpl_index_post' );
 	}
 	
 	/**
