@@ -2374,7 +2374,7 @@ final class Sanitize {
 	public static function host( string $txt ) : string {
 		$txt = Text::lowercase( \trim( $txt, " \t\n\r\0\x0B.\\" ) );
 		if ( 
-			!\str_starts_with( $txt, 'http://' )	|| 
+			!\str_starts_with( $txt, 'http://' )	&& 
 			!\str_starts_with( $txt, 'https://' )
 		) { $txt = 'http://' . $txt; }
 		
@@ -3998,8 +3998,8 @@ final class Logger extends Instance {
 	 *  @param string	$fields		Log header fields
 	 */
 	private function rotate( string $log_file, string $fields ) : void {
-		
-		if ( !Storage::file_size( $log_file ) ) { 
+		$fsize = Storage::file_size( $log_file );
+		if ( !$fsize ) { 
 			// New file? Set fields
 			$this->header_fields( $log_file, $fields );
 			return; 
@@ -4053,21 +4053,20 @@ final class Logger extends Instance {
 			return;
 		}
 		
-		// Shutdown action
+		// Shutdown action, group by log file
 		$grouped	= [];
 		foreach ( $this->cache as $set ) {
 			[ $log_file, $fields, $entry ] = $set;
 			
-			$grouped[$log_file] ??= [];
-			$grouped[$log_file][] = [ $fields, $entry ];
+			$grouped[$log_file]['fields']		= $fields;
+			$grouped[$log_file]['entries'][]	= $entry;
 		}
 		
+		// Rotate logs
 		$base		= Storage::base();
 		foreach ( $grouped as $log_file => $sets ) {
-			[ $fields, $entry ] = $sets;
-			
-			$this->rotate( $log_file, $fields );
-			$data	= \implode( \PHP_EOL, $entries ) . \PHP_EOL;
+			$this->rotate( $log_file, $sets['fields'] );
+			$data = \implode( \PHP_EOL, $sets['entries'] ) . \PHP_EOL;
 			
 			if ( !Storage::append( $log_file, $data, true ) ) {
 				\error_log( "Failed to append batched messages to {$log_file} in {$base}" );
@@ -4159,24 +4158,24 @@ final class Logger extends Instance {
 		Request		$request 
 	) : void {
 		static $fields	= 
-		"date, time, sc-status, c-host, s-ip, cs-method, cs-useragent, cs-uri, sc-comment\n\n";
+		"date, time, sc-status, c-host, s-ip, cs-method, cs-useragent, cs-uri, sc-comment\n";
 		
-		static $file	=
+		static $store	= 
 		\defined( 'WEB_LOG_FILE' ) 
 			? ( string ) \constant( 'WEB_LOG_FILE' )
 			: 'visitors.log';
 		
 		$msg	= $this->format_context( $context );
-		$ua	= \Sanitize::spaces( '' === $request->ua() ? 'unknown' : $request->ua() );
-		$uri	= \Sanitize::spaces( '' === $request->uri ? 'unknown' : $request->uri );
-		$host	= \Sanitize::spaces( '' === $request->host ? 'unknown' : $request->host );
-		$me	= \Sanitize::spaces( $request->method );
-		$ip	= \Sanitize::spaces( $request->ip( true ) );
+		$ua	= Sanitize::spaces( '' === $request->ua() ? 'unknown' : $request->ua() );
+		$uri	= Sanitize::spaces( '' === $request->uri ? 'unknown' : $request->uri );
+		$host	= Sanitize::spaces( '' === $request->host ? 'unknown' : $request->host );
+		$me	= $request->method;
+		$ip	= $request->ip( true );
 		
 		$dt	= \gmdate( 'Y-m-d H:i:s' );
 		
-		$entry	= "{$dt} {$code} {$host} {$ip} {$me} {$ua} {$uri} {$msg}";
-		$this->write( [ $this->file_log( $file ), $fields, $entry ] );
+		$entry	= \trim( "{$dt} {$code} {$host} {$ip} {$me} {$ua} {$uri} {$msg}" );
+		$this->write( [ $this->file_log( $store ), $fields, $entry ] );
 	}
 }
 
@@ -11922,7 +11921,6 @@ HTML;
 	
 	#[Hook( name : 'error_bad_request', priority : 1 )]
 	public function bad_request( string $event, HookResult $result, array $args ) : never {
-		
 		$this->response( 
 			args	: $args, 
 			code	: 400, 
@@ -12036,6 +12034,9 @@ HTML;
 }
 
 
+/**
+ *  @class Default file response hooks
+ */
 #[HookContainer]
 class FileHooks {
 	private array $asset_dirs	= [];
@@ -12083,13 +12084,11 @@ class FileHooks {
 			return; // Response should exit by now
 		}
 		
-		$etag		= $req->none_match();
-		$mtime		= $req->modified_since();
 		$response->send_file(
-			fpath		: $fpath, 
-			download	: false, 
-			client_etag	: $etag,
-			client_mtime	: $mtime,
+			fpath		: $fpath,
+			download	: false,
+			client_etag	: $req->none_match(),
+			client_mtime	: $req->modified_since(),
 			ranges		: empty( $frange ) ? null : $frange
 		);
 	}
@@ -12121,7 +12120,7 @@ class FileHooks {
 		
 		if ( !empty( $args['asset_dir'] ) ) {			
 			$dir = Text::slash_path( $args['asset_dir'], true );
-			if ( !\in_array( $dir, $this->asset_dirs ) {
+			if ( !\in_array( $dir, $this->asset_dirs ) ) {
 				$this->asset_dirs[] = $dir;
 			}
 		}
