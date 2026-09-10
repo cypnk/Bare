@@ -4972,12 +4972,10 @@ class Response extends Instance {
 			);
 			
 			if ( 1 === count( $tags ) && '*' === $tags[0] ) {
-				$this->code = 304;
 				return true;
 			}
 			
 			if ( \in_array( $etag_clean, $tags, true ) ) {
-				$this->code = 304;
 				return true;
 			}
 			
@@ -4988,7 +4986,6 @@ class Response extends Instance {
 		// Try If-Modified-Since
 		if ( null !== $client_mtime && $client_mtime > 0 ) {
 			if ( $mtime <= $client_mtime ) {
-				$this->code = 304;
 				return true;
 			}
 		}
@@ -5059,6 +5056,16 @@ class Response extends Instance {
 			\ignore_user_abort( true );
 		}
 		$ignore		= true;
+	}
+	
+	/**
+	 *  Send all headers, flush buffers, and exit
+	 */
+	public function send_finish() : never {
+		$this->status();
+		$this->emit_headers();
+		$this->flush_buffers( true );
+		exit(); 
 	}
 }
 
@@ -5397,13 +5404,10 @@ final class FileResponse extends Response {
 		?int	$client_mtime	= null,
 		?array	$ranges		= null
 	) : void {
-		$this->end_buffers();	// Clear buffers
-		$this->ignore_abort();
 		
 		$meta		= $this->file_metadata( $fpath );
 		$etag		= $meta['etag'];
 		$mtime		= $meta['mtime'];
-		$handle		= null;
 		
 		// Not modified? Nothing to send
 		if ( $this->check_not_modified(
@@ -5413,11 +5417,11 @@ final class FileResponse extends Response {
 			client_mtime	: $client_mtime 
 		) ) { 
 			$this->code	= 304;
-			$this->status();
-			$this->emit_headers();
-			$this->flush_buffers( true );
-			exit(); 
+			$this->send_finish();
 		}
+		
+		$this->ignore_abort();
+		$handle		= null;
 		
 		try {
 			$handle = Storage::file_open( $fpath );
@@ -9628,10 +9632,13 @@ final class Router extends Instance {
 	// TODO: Process and filter third-party handlers
 	private function middleware( array $mw ) : void {}
 	
-	public function dispatch( string $method, string $uri ) : void {
-		$path	= \parse_url( $uri, \PHP_URL_PATH );
-		$path	= \rtrim( $path, '/' ) ?: '/';
-		
+	/**
+	 *  Scan routes to handle request
+	 *  
+	 *  @param string	$method		Current request method
+	 *  @param string	$path		Cleaned request path
+	 */
+	private function scan( string $method, string $path ) : void {
 		foreach ( $this->routes as $route ) {
 			if ( 0 !== \strcasecmp( $route['method'], $method ) ) { continue; }
 			
@@ -9653,6 +9660,37 @@ final class Router extends Instance {
 			$this->handle( $route['handler'], $pattern, $params );
 			return;
 		}
+	}
+	
+	/**
+	 *  Run file scan hooks
+	 *  
+	 *  @param string	$method		Current request method
+	 *  @param string	$path		Cleaned request path
+	 *  @return HookResult|null
+	 */
+	private function try_file_hooks( string $method, string $path ) : HookResult|null {
+		$registry	= $this->container->get( HookRegistry::class );
+		return match( $method ) {
+			'head'		=> $registry->run( 'try_file_head', false, [ 'path' => $path ] ),
+			'get'		=> $registry->run( 'try_file_get', false, [ 'path' => $path ] ),
+			'post'		=> $registry->run( 'try_file_post', false, [ 'path' => $path ] ),
+			'patch'		=> $registry->run( 'try_file_patch', false, [ 'path' => $path ] ),
+			'put'		=> $registry->run( 'try_file_put', false, [ 'path' => $path ] ),
+			default		=> null
+		};
+	}
+	
+	public function dispatch( string $method, string $uri ) : void {
+		$path	= \parse_url( $uri, \PHP_URL_PATH );
+		$path	= \rtrim( $path, '/' ) ?: '/';
+
+		if ( '/' !== $path ) {
+			// Try some file hooks first
+			$this->try_file_hooks( $method, $path );
+		}
+		
+		$this->scan( $method, $path );
 	}
 }
 
@@ -11763,6 +11801,18 @@ final class Main {
 			] );
 			return;
 		}
+
+		// Break path to count folders
+		$segs		= \explode( '/', $request->uri );
+		
+		// Check folder limits ( nested path abuse prevention )
+		$climit	= config->setting( 'folder_limit', 15, 'int' );
+		if ( count( $segs ) > $climit ) {
+			$registry->run( 'error_bad_uri', false, [ 
+				'method'	=> $request->method, 
+				'uri'		=> $request->uri 
+			] );
+		}
 		
 		// Setup complete, call current route
 		$router->dispatch( $request->method, $request->uri );
@@ -11803,7 +11853,7 @@ final class Main {
  *  @class Core request error hooks ( can be overriden in plugins )
  */
 #[HookContainer]
-class ErrorResponse {
+class ErrorHooks {
 	
 	/**
 	 *  Standalone error page
@@ -11870,7 +11920,7 @@ HTML;
 			: $response->html( status : $code, headers : $headers, html : $body );
 	}
 	
-	#[Hook( name : 'error_bad_request', priority: 1 ) ]
+	#[Hook( name : 'error_bad_request', priority : 1 )]
 	public function bad_request( string $event, HookResult $result, array $args ) : never {
 		
 		$this->response( 
@@ -11882,7 +11932,7 @@ HTML;
 		);
 	}
 	
-	#[Hook( name : 'error_not_authorized', priority: 1 ) ]
+	#[Hook( name : 'error_not_authorized', priority : 1 )]
 	public function not_authorized( string $event, HookResult $result, array $args ) : never {
 		$this->response( 
 			args	: $args, 
@@ -11894,7 +11944,7 @@ HTML;
 		);
 	}
 	
-	#[Hook( name : 'error_forbidden', priority: 1 ) ]
+	#[Hook( name : 'error_forbidden', priority : 1 )]
 	public function forbidden( string $event, HookResult $result, array $args ) : never {
 		$this->response( 
 			args	: $args, 
@@ -11905,7 +11955,7 @@ HTML;
 		);
 	}
 	
-	#[Hook( name : 'error_not_found', priority: 1 ) ]
+	#[Hook( name : 'error_not_found', priority : 1 )]
 	public function not_found( string $event, HookResult $result, array $args ) : never {
 		$this->response( 
 			args	: $args, 
@@ -11916,7 +11966,7 @@ HTML;
 		);
 	}
 	
-	#[Hook( name : 'error_not_allowed', priority: 1 ) ]
+	#[Hook( name : 'error_not_allowed', priority : 1 )]
 	public function not_allowed( string $event, HookResult $result, array $args ) : never {
 		// TODO: Extract allowed from arguments, including per-uri allowed methods
 		$this->response( 
@@ -11928,7 +11978,7 @@ HTML;
 		);
 	}
 	
-	#[Hook( name : 'error_bad_uri', priority: 1 ) ]
+	#[Hook( name : 'error_bad_uri', priority : 1 )]
 	public function bad_uri( string $event, HookResult $result, array $args ) : never {
 		$this->response( 
 			args	: $args, 
@@ -11939,7 +11989,7 @@ HTML;
 		);
 	}
 	
-	#[Hook( name : 'error_bad_range', priority: 1 ) ]
+	#[Hook( name : 'error_bad_range', priority : 1 )]
 	public function bad_range( string $event, HookResult $result, array $args ) : never {
 		$this->response( 
 			args	: $args, 
@@ -11950,7 +12000,7 @@ HTML;
 		);
 	}
 	
-	#[Hook( name : 'error_form_expired', priority: 1 ) ]
+	#[Hook( name : 'error_form_expired', priority : 1 )]
 	public function form_expired( string $event, HookResult $result, array $args ) : never {
 		$this->response( 
 			args	: $args, 
@@ -11961,7 +12011,7 @@ HTML;
 		);
 	}
 	
-	#[Hook( name : 'error_many_requests', priority: 1 ) ]
+	#[Hook( name : 'error_many_requests', priority : 1 )]
 	public function request_limit( string $event, HookResult $result, array $args ) : never {
 		$this->response( 
 			args	: $args, 
@@ -11973,7 +12023,7 @@ HTML;
 		);
 	}
 	
-	#[Hook( name : 'error_generic', priority: 1 ) ]
+	#[Hook( name : 'error_generic', priority : 1 )]
 	public function server_error( string $event, HookResult $result, array $args ) : never {
 		$this->response( 
 			args	: $args, 
@@ -11982,6 +12032,120 @@ HTML;
 			message	: $result->data['message'] ?? 'An unexpected error occurred.',
 			headers	: $result->data['headers'] ?? []
 		);
+	}
+}
+
+
+#[HookContainer]
+class FileHooks {
+	private array $asset_dirs	= [];
+	private array $data_dirs	= [];
+	
+	public function __construct(
+		private readonly Config		$config,
+		private readonly HookRegistry	$registry
+	) {}
+	
+	/**
+	 *  File response helper
+	 *  
+	 *  @param string	$fpath		Found file path
+	 *  @param bool		$dosend		Output file, if true, or only send headers, if false
+	 *  @param array	$args		Hook event arguments
+	 */
+	private function file_send( string $fpath, bool $dosend, array $args ) : void {
+		
+		$container	= Container::instance();
+		$fsize		= Storage::file_size( $fpath );
+		
+		// Check if ranged request
+		$req		= $container->get( Request::class );
+		$ranged		= $req->is_ranged();
+		$frange 	= $req->range_header( $fsize );
+		
+		// Ranged request, but invalid ranges?
+		if ( $ranged && empty( $frange ) ) {
+			$registry->run( 'error_bad_range', true, $args );
+			return; // Hook should exit by now
+		}
+		
+		$response	= FileResponse::create( $container, 200 );
+		if ( !$dosend ) {
+			$headers	= 
+			$response->file_headers(
+				fpath	: $fpath,
+				wetag	: false,
+				size	: true,
+				stype	: true
+			);
+			$response->headers = \array_merge( $response->headers, $headers );
+			$response->send_finish();
+			return; // Response should exit by now
+		}
+		
+		$etag		= $req->none_match();
+		$mtime		= $req->modified_since();
+		$response->send_file(
+			fpath		: $fpath, 
+			download	: false, 
+			client_etag	: $etag,
+			client_mtime	: $mtime,
+			ranges		: empty( $frange ) ? null : $frange
+		);
+	}
+	
+	private function check_request( string $path, bool $dosend, array $args ) : void {
+		// Trim leading slash
+		$path	= \preg_replace( '/^\//', '', $path );
+		
+		$fpath	= $this->config->setting( 'file_dir', Storage::base() ) . $path;
+		if ( \file_exists( $fpath ) ) { $this->file_send( $fpath ); }
+		
+		// Try asset directories
+		foreach ( $this->asset_dirs as $dir ) {
+			$fpath = $dir . $path;
+			
+			// If found,send and end here
+			if ( \file_exists( $fpath ) ) { $this->file_send( $fpath ); }
+		}
+	}
+	
+	#[Hook( name : 'register_directories', priority : 1 )]
+	public function add_dir( string $event, HookResult $result, array $args ) : HookResult {
+		if ( !empty( $args['data_dir'] ) ) {
+			$dir = Text::slash_path( $args['data_dir'], true );
+			if ( !\in_array( $dir, $this->data_dirs ) ) {
+				$this->data_dirs[] = $dir;
+			}
+		}
+		
+		if ( !empty( $args['asset_dir'] ) ) {			
+			$dir = Text::slash_path( $args['asset_dir'], true );
+			if ( !\in_array( $dir, $this->asset_dirs ) {
+				$this->asset_dirs[] = $dir;
+			}
+		}
+		
+		return $result->with_data( [
+			'asset_dirs'	=> $this->asset_dirs,
+			'data_dirs'	=> $this->data_dirs
+		] );
+	}
+	
+	#[Hook( name : [ 'try_file_head', 'try_file_get' ], priority : 1 )]
+	public function file_scan( string $event, HookResult $result, array $args ) : HookResult {
+		$path	= $args['path'] ?? '';
+		
+		// Nothing to check?
+		if ( '' === $path ) { return $result; }
+		
+		$check	= match( $event ) {
+			'try_file_head'	=> $this->check_request( $path, false, $args ),
+			'try_file_get'	=> $this->check_request( $path, true, $args ),
+			default		=> $result
+		};
+		
+		return $check ?? $result;
 	}
 }
 
@@ -13333,91 +13497,6 @@ function setCacheExp( int $ttl ) {
 	\header( 'Expires: ' . 
 		\gmdate( 'D, d M Y H:i:s', time() + $ttl ) . 
 		' GMT', true );
-}
-
-/**
- *  Error file sending helper
- *  
- *  @param string	$path		Error file path
- *  @param int		$code		Error code number
- */
-function sendErrorFile( string $path, int $code ) {
-	// Prepend error root
-	$path = getRoot( true ) . $path;
-	if ( !\file_exists( $path ) ) {
-		return;
-	}
-	
-	hook( [ 'errorfilesend', [ 
-			'path'		=> $path, 
-			'code'		=> $code
-		] 
-	] );
-	sendFilePrep( $path, $code );
-	sendFileFinish( $path, true );
-	die();
-}
-
-/**
- *  Send error message wrapped in default page template
- */
-function sendError( int $code, $body ) {
-	// Try to send generic file error, if it exists, and exit
-	if ( \in_array( $code, [ 500, 501, 503 ] ) ) {
-		sendErrorFile( '50x.html', $code );
-	}
-	
-	$path	= '';
-	
-	// Try to send a static error file if it exists first
-	switch( $code ) {
-		case 400:
-		case 401:
-		case 403:
-		case 404:
-		case 405:
-		case 429:
-		case 500:
-		case 501:
-		case 503:
-			$path = $code . '.html';
-			break;
-	}
-	
-	// Should end here if error file exists
-	if ( !empty( $path ) ) {
-		sendErrorFile( $path, $code );
-	}
-	
-	// No error file sent, continue with built-in error page
-	$ptitle	= config( 'page_title', config_default_title() );
-	$psub	= config( 'page_sub', config_default_desc() );
-	
-	// Call error code hook
-	hook( [ 'errorcodesend', [
-		'code'		=> $code,
-		'title'		=> $ptitle,
-		'subtitle'	=> $psub,
-		'path'		=> $path,
-		'body'		=> $body
-	] ] );
-	
-	// Handle custom errors
-	$html	= hook_html( 'errorcodesend' );
-	
-	// Send custom errors
-	if ( !empty( $html ) ) {
-		page_send( $code, $html );
-	}
-	
-	// Send standard error page if nothing handled
-	$params	= [ 
-		'page_title'	=> $ptitle,
-		'tagline'	=> $psub,
-		'code'		=> $code,
-		'body'		=> $body 
-	];
-	page_send( $code, render( template( 'tpl_error_page' ), $params ) );
 }
 
 
