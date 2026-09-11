@@ -6959,7 +6959,7 @@ class HookResult {
 	public function add_fragment( string $html ) : self {
 		$clone			= clone $this;
 		$clone->fragments[]	= $html;
-    		return $clone;
+			return $clone;
 	}
 	
 	public function add_block( string $name, string $html ) : self {
@@ -9900,7 +9900,7 @@ final class PluginDiscovery {
 		$plugins	= 
 		\array_filter(
 			$files,
-    			fn( $info ) => null !== $info['class']
+				fn( $info ) => null !== $info['class']
 		);
 		$this->classes( $plugins );
 	}
@@ -12066,7 +12066,7 @@ class FileHooks {
 		
 		// Ranged request, but invalid ranges?
 		if ( $ranged && empty( $frange ) ) {
-			$registry->run( 'error_bad_range', true, $args );
+			$this->registry->run( 'error_bad_range', true, $args );
 			return; // Hook should exit by now
 		}
 		
@@ -12145,6 +12145,189 @@ class FileHooks {
 		};
 		
 		return $check ?? $result;
+	}
+}
+
+
+/**
+ *  @class Quick access cache
+ */
+#[HookContainer]
+class CacheHooks {
+	/**
+	 *  DB SQL
+	 */
+	const SQL	= [
+		'select'	=>
+		"SELECT content, status_code, is_partial, dynamic_keys, expires_at 
+			FROM cache_pages WHERE realm = :realm AND uri = :uri LIMIT 1;",
+		
+		'update'	=>
+		"UPDATE cache_summary SET hits = hits + 1, last_access_at = CURRENT_TIMESTAMP
+			WHERE realm = :realm AND uri = :uri",
+		
+		'insert'	=>
+		"INSERT INTO cache_pages (
+			realm, uri, content, is_partial, status_code, dynamic_keys, expires_at
+		) VALUES (
+			:realm, :uri, :content, :partial, :status_code, :dynamic_keys, :expires_at
+		)
+		ON CONFLICT( realm, uri )
+		DO UPDATE SET
+			content		= excluded.content,
+			status_code	= excluded.status_code,
+			is_partial	= excluded.is_partial,
+			dynamic_keys	= excluded.dynamic_keys,
+			expires_at	= excluded.expires_at;"
+	];
+	
+	/**
+	 *  @var int Default Time To Live for cached items
+	 */
+	private int $default_ttl;
+	
+	public function __construct(
+		private readonly Config		$config,
+		private readonly Database	$dbh
+	) {
+		$this->default_ttl	= 
+		( int ) $config->setting( 'cache_ttl', 3600, 'int' );
+	}
+	
+	/**
+	 *  Update hit statistics for realm and URI
+	 *  
+	 *  @param string	$realm		Domain, host name, or other sub index
+	 *  @param string	$uri		Current cache URI from router or hook
+ 	 */
+	private function update_hit_db( string $realm, string $uri ) : void {
+		$dbh->result_exec(
+			sql	: static::SQL['update'],
+			profile	:'cache',
+			params	: [ 'realm' => $realm, 'uri' => $uri ],
+			rtype	: ''
+		);
+	}
+	
+	/**
+	 *  Insert new cache entry
+	 *  
+	 *  @param array	$params		Prepared statement parameters
+	 */
+	private function insert_cache_db( array $params ) : void {
+		$sql	= static::SQL['insert'];
+		
+		$this->dbh->result_exec(
+			sql	: $sql,
+			profile	: 'cache',
+			params	: $params
+		);
+	}
+	
+	/**
+	 *  Build prepared statement parameters based on current state
+	 *  
+	 *  @param bool		$is_partial	True if this is only for partial content
+	 *  @param HookResult	$result		Passed through current hook result
+	 *  @param array	$args		Current hook execution arguments
+	 *  @return array|null			Viable array for parameters on success or null on failure
+	 */
+	private function build_params( bool $is_partial, HookResult $result, array $args ) : array|null {
+		$page		= $is_partial ? 'partial_content' : 'page_content';
+		$content	= $result->data[$page]	?? null;
+		
+		// Nothing to cache?
+		if ( null === $content ) { return null; }
+		
+		// No key?
+		$uri		= $args['uri']		?? null;
+		if ( null === $uri ) { return null; }
+		
+		// Argument options
+		$realm		= $args['realm']	?? 'default';
+		$ttl		= $args['ttl']		?? $this->default_ttl;
+		$exp		= $args['expires_at']	?? null;
+		$expires_at	= 
+		( $ttl > 0 )
+			? \gmdate( 'Y-m-d H:i:s', \time() + $ttl ) 
+			: null;
+		
+		// Payload options
+		$status	= $result->data['status_code']	?? 200;
+		$keys	= $result->data['dynamic_keys']	?? [];
+		return [
+			'realm' 	=> $realm,
+			'uri'		=> $uri,
+			'content'	=> $content,
+			'status_code'	=> $status,
+			'dynamic_keys'	=> Util::json_uencode( $keys ),
+			'expires_at'	=> $expires_at,
+			'partial'	=> $is_partial ? 1 : 0
+		];
+	}
+	
+	#[Hook( name : 'cache_lookup', priority : 1 )]
+	public function lookup( string $event, HookResult $result, array $args ) : HookResult {
+		$uri	= $args['uri']		?? null;
+		if ( null === $uri ) { return $result; }
+		
+		$realm	= $args['realm']	?? 'default';
+		
+		$sql	= static::SQL['select'];
+		$row	= 
+		$dbh->result_exec( 
+			sql	: $sql, 
+			profile	: 'cache', 
+			params	: [
+				'realm' => $realm, 
+				'uri'	=> $uri
+			], 
+			rtype	: 'results' 
+		);
+		
+		// No hit?
+		if ( empty( $row ) ) {
+			return $result->with_data([ 'cache_hit' => false ]);
+		}
+		
+		$cache	= $row[0];
+		
+		// Expiration check
+		if ( !empty( $cache['expires_at'] ) ) {
+			$exp	= \strtotime( $row['expires_at'] );
+			if ( false !== $exp && $exp <= \time() ) {
+				return $result->with_data([ 'cache_hit' => false ]);
+			}
+		}
+		
+		$is_partial	= ( int ) $row['is_partial'] === 1;
+		$req_partial	= $args['partial'] ?? false;
+		if ( $is_partial && !$req_partial ) {
+			return $result->with_data([ 'cache_hit' => false ]);
+		}
+
+		$page		= $is_partial ? 'partial_content' : 'page_content';
+		$this->update_hit_db( $realm, $uri );
+		return $result->with_data( [
+			'cache_hit'	=> true,
+			$page		=> $cache['content'],
+			'status_code'	=> ( int ) $cache['status_code'],
+			'dynamic_keys'	=> Util::json_udecode( $row['dynamic_keys'] ) ?? [],
+			'is_partial'	=> $is_partial,
+			'source'	=> 'cache'
+		] );
+	}
+	
+	#[Hook( name : [ 'cache_insert_full', 'cache_insert_partial' ], priority : 1 )]
+	public function cache_insert( string $event, HookResult $result, array $args ) : HookResult {
+		$is_partial	= 'cache_insert_partial' === $event;
+		
+		$params		= $this->build_params( $is_partial, $result, $args );
+		if ( null === $params ) { return $result; }
+
+		$key		= $is_partial ? 'cache_partial_written' : 'cache_written';
+		$this->insert_cache_db( $params );
+		return $result->with_data( [ $key => true ] );
 	}
 }
 
@@ -13077,157 +13260,6 @@ function render(
 	// Finally set classes again
 	return \strtr( $tpl, rsettings( 'classes' ) );
 }
-
-
-/**
- *  Caching
- */
-
-/**
- *  Generate cache key for the given URI
- *  This function lets caches be invalidated if config.json has been modified
- *  
- *  @param string	$uri		Original, URI as cache key
- *  @return string
- */
-function genCacheKey( string $uri ) : string {
-	static $fm;
-	
-	if ( !isset( $fm ) ) {
-		$cf	= \CACHE . \CONFIG;
-		$fm	= \file_exists( $cf ) ? \filemtime( $cf ) : false;
-	}
-	
-	return 
-	\hash( 'sha256', ( false === $fm ) ? $uri : $uri . ( string ) $fm );
-}
-
-/**
- *  Get cached data (if any) by URI key
- *  
- *  @param string	$uri		Original URI to check
- *  @return string
- */
-function getCache( string $uri ) : string {
-	$key	= genCacheKey( $uri );
-	hook( [ 'getcache', [ 'uri' => $uri, 'key' => $key ] ] );
-	
-	$find	= 
-	db_result_exec( 
-		"SELECT cache_id, content, expires 
-		FROM caches WHERE cache_id = :id LIMIT 1;", 
-		'bare',
-		[ ':id' => $key ]
-	);
-	
-	if ( empty( $find ) ) {
-		return '';
-	}
-	
-	// Find expiration
-	$row	= $find[0];
-	$exp	= \strtotime( $row['expires'] );
-	
-	// Formatting went wrong?
-	if ( false === $exp ) {
-		return '';
-	}
-	
-	// Send if TTL 
-	if ( $exp >= time() ) {
-		return $row['content'];
-	}
-	
-	return '';
-}
-
-/**
- *  Save content to cache
- *  
- *  @param string	$uri		URI to set cache to
- *  @param string	$content	Cache data
- */
-function saveCache( string $uri, string $content ) {
-	$key	= genCacheKey( $uri );
-	hook( [ 'savecache', [ 'uri' => $uri, 'key' => $key, 'content' => $content ] ] );
-	
-	$sql	= 
-	"REPLACE INTO caches ( cache_id, ttl, content )
-		VALUES ( :id, :ttl, :content );";
-	
-	$ttl	= config( 'cache_ttl', 3600, 'int' );
-	db_insert(
-		$sql, 
-		'bare',
-		[
-			':id'		=> $key, 
-			':ttl'		=> $ttl, 
-			':content'	=> $content 
-		]
-	);
-}
-
-/**
- *  Helper to find if sent user headers contain the given headers and/or values
- *  
- *  @example
- *  headerContains( [ 'X-Requested-With' => 'XMLHttpRequest' ] );
- *  headerContains( [ 'X-Requested-With' => [ 'MobileApp', 'XMLHttpRequest' ] ] );
- *  
- *  @param array	$search		Key/value pairs to find in sent headers
- *  @return bool
- */
-function headersContain( array $search ) : bool {
-	if ( empty( $search ) ) {
-		return false;
-	}
-	
-	$found	= \array_intersect_key( httpHeaders(), $search );
-	if ( empty( $found ) ) {
-		return false;
-	}
-	
-	foreach ( $found as $k => $v ) {
-		if ( \is_array( $search[$k] ) ) {
-			foreach ( $search[$k] as $j ) {
-				// Skip nested arrays
-				if ( \is_array( $j ) ) {
-					continue;
-				}
-				
-				if ( textHas( $v, ( string ) $j ) ) {
-					return true;
-				}
-			}
-		} else {
-			if ( textHas( $v, $search[$k] ) ) {
-				return true;
-			}
-		}
-	}
-	
-	return false;
-}
-
-/**
- *  Simple division helper for mixed content type numbers
- *  
- *  @param mixed	$n	Numerator value
- *  @param mixed	$d	Denominator value
- *  @param int		$prec	Decimal precision
- *  @return float
- */
-function division( $n, $d, int $prec = 4 ) : float {
-	
-	if ( \is_numeric( $n ) && \is_numeric( $d ) ) {
-		$fn = ( float ) $n;
-		$fd = ( float ) $d;
-		
-		return ( $fd != 0 ) ? round( ( $fn / $fd ), $prec ) : 0.0;
-	}
-	return 0.0;
-}
-
 
 
 /**
