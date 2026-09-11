@@ -42,6 +42,7 @@ CREATE INDEX idx_cache_expires ON cache_pages( expires_at )
 CREATE TRIGGER trg_update_cache_pages 
 BEFORE UPDATE ON cache_pages
 FOR EACH ROW
+WHEN NEW.updated = OLD.updated
 BEGIN
 	UPDATE cache_pages SET updated_at = CURRENT_TIMESTAMP 
 		WHERE cache_id = NEW.cache_id;
