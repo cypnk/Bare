@@ -35,82 +35,178 @@ define( 'STORAGE_DIR',	PATH . 'cache' . \DIRECTORY_SEPARATOR );
  */
 define( 'TEMPLATES', <<<HTML
 
-## HTML full page component
---- tpl_full_page ---
+## Main page template
+--- tpl_page ---
 <!DOCTYPE html>
-<html lang="{lang}">
+<html lang="{{page.lang}}">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<link rel="alternate" type="application/xml" title="{page_title}" href="{feedlink}">
-<title>{post_title}</title>
-{after_title}
-{stylesheets}
-{meta_tags}
+
+<title>{{page.title}}</title>
+{loop:page.feeds as feed}
+	{template:tpl_alternate feed="{{feed}}"}
+{endloop}
+
+{loop:page.meta_tags as tag}
+	{template:tpl_metatag tag="{{tag}}"}
+{endloop}
+
+{loop:page.head_links as link}
+	{template:tpl_linktag link="{{link}}"}
+{endloop}
+
+{loop:page.head_js as js}
+	{template:tpl_jstag js="{{js}}"}
+{endloop}
+
 </head>
-<body class="{body_classes}" {extra}>
-{body_before}
-{body}
-{body_after}
-{body_before_lastjs}
-{body_js}
-{body_after_lastjs}
+<body class="{{page.body_classes}}" {{page.extra}}>
+{{page.body}}
+
+{loop:page.body_js as js}
+	{template:tpl_jstag js="{{js}}"}
+{endloop}
 </body>
 </html>
 
-
-## Full static home page component
---- tpl_home_page ---
+## Standalone error page
+--- tpl_error ---
 <!DOCTYPE html>
-<html lang="{lang}">
+<html>
 <head>
 <meta charset="UTF-8">
-<link rel="alternate" type="application/xml" title="{page_title}" href="{feedlink}">
-<title>{post_title}</title>
-{after_title}
-{stylesheets}
-{meta_tags}
+<title>{{error.code}} - {{error.title}}</title>
+<style>
+* { box-sizing: border-box; }
+html {
+	color: #34495E; 
+	background: #efefef;
+}
+
+body {
+	font: 400 1rem sans-serif; 
+	text-align: center;
+	line-height: 1.6;
+}
+
+h1 { 
+	font-weight: 400; margin: 0; 
+}
+
+a { color: #415b76 }
+a:active { color: #e74c3c }
+a:hover{ color: #2c81ba }
+
+.page {
+	max-width: 600px;
+	margin: auto;
+	padding: 2rem;
+}
+
+.details {
+	margin-top: 1rem;
+	color: #666;
+	font-size: 0.9rem;
+}
+</style>
 </head>
-<body class="{body_classes}" {extra}>
-{body_before}
-<div class="{home_classes}">
-<article class="{home_wrap_classes}">
-{body}
-</article>
+
+<body>
+<div class="page">
+	<h1>{{error.code}} - {{error.title}}</h1>
+	<p>{{error.message}}</p>
+	
+	{if:error.details} <div class="details">{{error.details}}</div> {endif}
 </div>
-{body_after}
-{body_before_lastjs}
-{body_js}
-{body_after_lastjs}
 </body>
 </html>
 
+## RSS Feed template
+--- tpl_feed_rss ---
+<?xml version="1.0" encoding="UTF-8" ?>
+<rss version="2.0">
+<channel>
+	<title>{{meta.title}}</title>
+	<link>{{meta.link}}</link>
+	<description>{{meta.description}}</description>
+	
+	{loop:items as item}
+	<item>
+		<title>{{item.title}}</title>
+		<link>{{item.link}}</link>
+		<description><![CDATA[{{item.content}}]]></description>
+		<pubDate>{{item.published}}</pubDate>
+	</item>
+	{endloop}
+</channel>
+</rss>
 
-## Full about page component
---- tpl_about_page ---
-<!DOCTYPE html>
-<html lang="{lang}">
-<head>
-<meta charset="UTF-8">
-<link rel="alternate" type="application/xml" title="{page_title}" href="{feedlink}">
-<title>{post_title}</title>
-{after_title}
-{stylesheets}
-{meta_tags}
-</head>
-<body class="{body_classes}" {extra}>
-{body_before}
-<div class="{about_classes}">
-<article class="{about_wrap_classes}">
-{body}
-</article>
-</div>
-{body_after}
-{body_before_lastjs}
-{body_js}
-{body_after_lastjs}
-</body>
-</html>
+## Atom Feed template
+--- tpl_feed_atom ---
+<?xml version="1.0" encoding="UTF-8" ?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+	<title>{{meta.title}}</title>
+	<id>{{meta.link}}</id>
+	<updated>{{meta.updated}}</updated>
+	<link href="{{meta.link}}" rel="self" />
+	
+	{loop:items as item}
+	<entry>
+		<title>{{item.title}}</title>
+		<id>{{item.id}}</id>
+		<link href="{{item.link}}" />
+		<updated>{{item.updated}}</updated>
+		<published>{{item.published}}</published>
+		{if:item.author}<author><name>{{item.author}}</name></author>{endif}
+		{loop:item.categories as cat}
+			<category term="{{cat}}" />
+		{endloop}
+		<content type="html"><![CDATA[{{item.content}}]]></content>
+	</entry>
+	{endloop}
+</feed>
+
+## General link tag
+--- tpl_linktag ---
+<link
+	{if:link.rel}rel="{{link.rel}}"{endif}
+	{if:link.href}href="{{link.href}}"{endif}
+	{if:link.type}type="{{link.type}}"{endif}
+	{if:link.media}media="{{link.media}}"{endif}
+	{if:link.crossorigin}crossorigin="{{link.crossorigin}}"{endif}
+	{if:link.integrity}integrity="{{link.integrity}}"{endif}
+	{if:link.hreflang}hreflang="{{link.hreflang}}"{endif}
+	{if:link.sizes}sizes="{{link.sizes}}"{endif}
+	{if:link.as}as="{{link.as}}"{endif}
+	{if:link.referrerpolicy}referrerpolicy="{{link.referrerpolicy}}"{endif}
+	
+	{loop:link.data as val key="k"} data-{{k}}="{{val}}" {endloop} />
+
+# Meta HTML
+--- tpl_metatag ---
+<meta
+	{if:tag.name}name="{{tag.name}}"{endif}
+	{if:tag.property}property="{{tag.property}}"{endif}
+	{if:tag.http_equiv}http-equiv="{{tag.http_equiv}}"{endif}
+	{if:tag.charset}charset="{{tag.charset}}"{endif}
+	{if:tag.itemprop}itemprop="{{tag.itemprop}}"{endif}
+	{if:tag.content}content="{{tag.content}}"{endif}
+	{if:tag.scheme}scheme="{{tag.scheme}}"{endif}
+	
+	{loop:tag.data as val key="k"} data-{{k}}="{{val}}" {endloop} />
+
+# JavaScript tag
+--- tpl_jstag ---
+<script src="{{js.src}}"
+	{if:js.async}async{endif}
+	{if:js.defer}defer{endif}
+	{if:js.module}type="module"{endif}
+	{if:js.crossorigin}crossorigin="{{js.crossorigin}}"{endif}
+	{if:js.integrity}integrity="{{js.integrity}}"{endif}
+	{if:js.referrerpolicy}referrerpolicy="{{js.referrerpolicy}}"{endif}
+	
+	{loop:js.data as val key="k"} data-{{k}}="{{val}}" {endloop} ></script>
 
 
 ## Page footer component
@@ -187,33 +283,6 @@ define( 'TEMPLATES', <<<HTML
 	value="{lang:forms:search:button}">{after_search_button}
 	</fieldset>
 </form>{after_search_form}
-
-
-## Generic error page
---- tpl_error_page ---
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{lang:errors:error} {code} - {page_title}</title>
-<link rel="stylesheet" href="{home}style.css">
-</head>
-<body>
-<header>
-<div class="content">
-	<h1><a href="{home}">{page_title}</a></h1>
-	<p>{tagline}</p>
-</div>
-</header>
-<main>
-<div class="content">
-{body}
-<p>{lang:errors:returnhome}</p>
-</div>
-</main>
-</body>
-</html>
 
 
 ## No posts to dipsplay
@@ -451,34 +520,6 @@ define( 'TEMPLATES', <<<HTML
 {lang:nav:home}
 
 
-## Feed index template
---- tpl_feed ---
-<?xml version="1.0" encoding="UTF-8" ?>
-<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
-<channel>
-	<title>{page_title}</title>
-	<link>{home}</link>
-	<description><![CDATA[{tagline}]]></description>
-	<atom:link href="{path}" rel="self" type="application/rss+xml" />
-	<pubDate>{date_gen}</pubDate>
-	{body}
-</channel>
-</rss>
-
-
-## Feed item template
---- tpl_item ---
-<item>
-	<title>{title}</title>
-	<link>{permalink}</link>
-	<pubDate>{date_rfc}</pubDate>
-	<guid isPermaLink="true">{permalink}</guid>
-	<description><![CDATA[
-	{body}
-	]]></description>
-</item>
-
-
 
 ##
 ##  Table formatting
@@ -642,6 +683,11 @@ define( 'TEMPLATES', <<<HTML
 		src="https://playeur.com/embed/{src}?t={time}" 
 		loading="lazy" allowfullscreen></iframe>
 </div>
+
+## Done
+--- tpl_done ---
+<!-- done -->
+
 
 HTML
 ); // End of templates
@@ -811,7 +857,7 @@ final class Errors {
 			401, 403	=> 'Access denied',
 			404		=> 'Page not found',
 			405		=> 'Method not allowed',
-			default	=>
+			default		=>
 			'An unexpected error occurred. Please try again later.'
 		};
 		die( $msg );
@@ -2707,10 +2753,10 @@ final class Sanitize {
 	 *  @return string 
 	 */
 	public static function normalize( string $text ) : string {
+		$text = static::bland( $text );
 		if ( Util::missing( 'normalizer_normalize' ) ) { return $text; }
 		
-		$normal = 
-		\normalizer_normalize( static::bland( $text ), \Normalizer::FORM_C );
+		$normal = \normalizer_normalize( $text, \Normalizer::FORM_C );
 		
 		return ( false === $normal ) ? $text : $normal;
 	}
@@ -7419,12 +7465,15 @@ class Template extends Instance {
 	/**
 	 *  Main template constructor
 	 *  
+	 *  @param Logger		$logger		Event logger
 	 *  @param HookRegistry		$registery	Main hook system for template-based callables
+	 *  @param Language		$language	Translations and placeholders
 	 *  @param array		$extend		Extended template placeholder patterns
 	 */
 	public function __construct( 
 		private readonly	Logger		$logger,
 		private	readonly	HookRegistry	$registry, 
+		private readonly	Language	$lang,
 		private 		array		$extend		= []
 	) {
 		$this->patterns = \array_merge( static::PRESET_PATTERNS, $extend );
@@ -7437,6 +7486,7 @@ class Template extends Instance {
 		$container	??= Container::instance();
 		$logger		= $container->get( Logger::class );
 		$registry	= $container->get( HookRegistry::class );
+		$lang		= $container->get( Language::class );
 		$extend		??= [];
 		
 		return new static( $logger, $registry, $extend );
@@ -8246,6 +8296,8 @@ class Template extends Instance {
 			$template = $this->resolve_nodes( $template, $resolvers, $context );
 		}
 		
+		// Replace translation placeholders
+		$template	= $this->lang->parse( $template );
 		return $this->hooks( $template, $context );
 	}
 	
@@ -11854,25 +11906,57 @@ final class Main {
 #[HookContainer]
 class ErrorHooks {
 	
+	public function __construct(
+		private readonly HookRegistry $hooks
+	) {}
+	
 	/**
-	 *  Standalone error page
+	 *  Templated HTML error wrapper
+	 *  
+	 *  @example 
+	 *  An exception page
+	 *  return $this->hooks->run( 'error.render', false, [
+	 *  	'code'		=> 500,
+	 *  	'title'		=> 'Server Error',
+	 *  	'message'	=> $exception->getMessage(),
+	 *  ] );
 	 */
-	const ERROR_PAGE	=<<<HTML
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{{code}} - {{page_title}}</title>
-</head>
-<body>
-<h1>{{code}} - {{page_title}}</h1>
-<p>{{body}}</p>
-<p><a href="{{back}}">Back</a> | <a href="{{search}}">Search</a></p>
-<small>Requested URI: {{uri}}</small>
-</body>
-</html>
-HTML;
+	#[Hook( name : 'error.render', priority : 1 )]
+	public function render( string $event, HookResult $result, array $args ) : never {
+		$code		= $args['code']		?? 500;
+		$title		= $args['title']	?? 'Server Error';
+		$message	= $args['message']	?? 'An unexpected error occurred.';
+		
+		$uri		= Sanitize::uri( ( string ) ( $args['uri']	?? ( $result->data['uri'] ?? '') ) );
+		$back		= Sanitize::uri( ( string ) ( $args['back']	?? '/' ) );
+		$search		= Sanitize::uri( ( string ) ( $args['search']	?? '/search' ) );
+		
+		$template	= Template::create();
+		$html		= 
+		$template->parse( 'tpl_error', [ 
+			'error' => [
+				'code'		=> $code,
+				'title'		=> $title,
+				'message'	=> $message,
+				'uri'		=> $uri,
+				'back'		=> $back,
+				'search'	=> $search
+			]
+		] );
+		
+		$response	= 
+		PageResponse::create(
+			code		: $code,
+			headers		: $args['headers'] ?? [],
+			body		: $html
+		);
+		
+		$response->html(
+			status		: $code,
+			headers		: $args['headers'] ?? [],
+			html		: $html
+		);
+	}
 	
 	/**
 	 *  Output wraper
@@ -11895,28 +11979,25 @@ HTML;
 		
 		// Sending body?
 		if ( null !== $body ) {
-			$raw		= $args['uri'] ?? null;
-			$clean		= 
-			( null === $raw ) ? '' : ( Sanitize::uri( $raw ) ?? '' );
+			$args	= 
+			\array_merge( $args, [
+				'code'		=> $code,
+				'title'		=> $title,
+				'message'	=> $message,
+				'headers'	=> $headers,
+				'uri'		=> $args['uri']		?? '',
+				'back'		=> $args['back']	?? '/',
+				'search'	=> $args['search']	?? '/search'
+			] );
 			
-			$template	= Template::create();
-			$vars	= [
-				'code'			=> $code,
-				'uri'			=> $clean,
-				'back'			=> $args['back'] ?? '/',
-				'search'		=> $args['search'] ?? '/search',
-				'page_title'		=> $title,
-				'body'			=> $message
-			];
-			$body = $template->parse( static::ERROR_PAGE, $vars );
+			$result = $this->hooks->run( 'error.render', false, $args ); // Should exit via response
 		}
 		
+		// HEAD, OPTIONS etc... responses
 		$response	= 
 		PageResponse::create( code : $code, headers : $headers, body : $body );
-
-		( null === $body ) 
-			? $response->page( code : $code, content : $body )
-			: $response->html( status : $code, headers : $headers, html : $body );
+		
+		$response->page( code : $code, content : $body );
 	}
 	
 	#[Hook( name : 'error_bad_request', priority : 1 )]
@@ -11924,9 +12005,9 @@ HTML;
 		$this->response( 
 			args	: $args, 
 			code	: 400, 
-			title	: $result->data['title'] ?? 'Bad Request', 
-			message	: $result->data['message'] ?? 'Invalid request.',
-			headers	: $result->data['headers'] ?? []
+			title	: $result->data['title']	?? 'Bad Request', 
+			message	: $result->data['message']	?? 'Invalid request.',
+			headers	: $result->data['headers']	?? []
 		);
 	}
 	
@@ -11935,10 +12016,10 @@ HTML;
 		$this->response( 
 			args	: $args, 
 			code	: 401, 
-			title	: $result->data['title'] ?? 'Not Authorized', 
-			message	: $result->data['message'] ?? 
+			title	: $result->data['title']	?? 'Not Authorized', 
+			message	: $result->data['message']	?? 
 				'Insufficient permissions to access resource.',
-			headers	: $result->data['headers'] ?? []
+			headers	: $result->data['headers']	?? []
 		);
 	}
 	
@@ -11947,9 +12028,9 @@ HTML;
 		$this->response( 
 			args	: $args, 
 			code	: 403, 
-			title	: $result->data['title'] ?? 'Forbidden', 
-			message	: $result->data['message'] ?? 'Access to resource is restricted.',
-			headers	: $result->data['headers'] ?? []
+			title	: $result->data['title']	?? 'Forbidden', 
+			message	: $result->data['message']	?? 'Access to resource is restricted.',
+			headers	: $result->data['headers']	?? []
 		);
 	}
 	
@@ -11958,9 +12039,9 @@ HTML;
 		$this->response( 
 			args	: $args, 
 			code	: 404, 
-			title	: $result->data['title'] ?? 'Not Found', 
-			message	: $result->data['message'] ?? 'Requested resource not found.',
-			headers	: $result->data['headers'] ?? []
+			title	: $result->data['title']	?? 'Not Found', 
+			message	: $result->data['message']	?? 'Requested resource not found.',
+			headers	: $result->data['headers']	?? []
 		);
 	}
 	
@@ -11970,9 +12051,9 @@ HTML;
 		$this->response( 
 			args	: $args, 
 			code	: 405, 
-			title	: $result->data['titlte'] ?? 'Not Allowed', 
-			message	: $result->data['message'] ?? 'Request method not allowed.',
-			headers	: $result->data['headers'] ?? [ 'Allow' => 'GET, POST, HEAD, OPTIONS' ]
+			title	: $result->data['titlte']	?? 'Not Allowed', 
+			message	: $result->data['message']	?? 'Request method not allowed.',
+			headers	: $result->data['headers']	?? [ 'Allow' => 'GET, POST, HEAD, OPTIONS' ]
 		);
 	}
 	
@@ -11981,9 +12062,9 @@ HTML;
 		$this->response( 
 			args	: $args, 
 			code	: 414, 
-			title	: $result->data['title'] ?? 'Invalid URI', 
-			message	: $result->data['message'] ?? 'The request path cannot be processed',
-			headers	: $result->data['headers'] ?? []
+			title	: $result->data['title']	?? 'Invalid URI', 
+			message	: $result->data['message']	?? 'The request path cannot be processed',
+			headers	: $result->data['headers']	?? []
 		);
 	}
 	
@@ -11992,9 +12073,9 @@ HTML;
 		$this->response( 
 			args	: $args, 
 			code	: 416, 
-			title	: $result->data['title'] ?? 'Range Not Satisfiable', 
-			message	: $result->data['message'] ?? 'Invalid file range requested',
-			headers	: $result->data['headers'] ?? []
+			title	: $result->data['title']	?? 'Range Not Satisfiable', 
+			message	: $result->data['message']	?? 'Invalid file range requested',
+			headers	: $result->data['headers']	?? []
 		);
 	}
 	
@@ -12003,9 +12084,9 @@ HTML;
 		$this->response( 
 			args	: $args, 
 			code	: 419, 
-			title	: $result->data['title'] ?? 'Expired', 
-			message	: $result->data['message'] ?? 'This form has expired',
-			headers	: $result->data['headers'] ?? []
+			title	: $result->data['title']	?? 'Expired', 
+			message	: $result->data['message']	?? 'This form has expired',
+			headers	: $result->data['headers']	?? []
 		);
 	}
 	
@@ -12014,10 +12095,10 @@ HTML;
 		$this->response( 
 			args	: $args, 
 			code	: 429, 
-			title	: $result->data['title'] ?? 'Too many requests', 
-			message	: $result->data['message'] ?? 
+			title	: $result->data['title']	?? 'Too many requests', 
+			message	: $result->data['message']	?? 
 				'Cannot process this many requests at this time',
-			headers	: $result->data['headers'] ?? []
+			headers	: $result->data['headers']	?? []
 		);
 	}
 	
@@ -12026,9 +12107,9 @@ HTML;
 		$this->response( 
 			args	: $args, 
 			code	: 500, 
-			title	: $result->data['title'] ?? 'Server Error', 
-			message	: $result->data['message'] ?? 'An unexpected error occurred.',
-			headers	: $result->data['headers'] ?? []
+			title	: $result->data['title']	?? 'Server Error', 
+			message	: $result->data['message']	?? 'An unexpected error occurred.',
+			headers	: $result->data['headers']	?? []
 		);
 	}
 }
@@ -12157,7 +12238,7 @@ class CacheHooks {
 	/**
 	 *  DB SQL
 	 */
-	const SQL	= [
+	public const SQL	= [
 		'select'	=>
 		"SELECT content, status_code, is_partial, dynamic_keys, expires_at 
 			FROM cache_pages WHERE realm = :realm AND uri = :uri LIMIT 1;",
@@ -12186,12 +12267,19 @@ class CacheHooks {
 	 */
 	private int $default_ttl;
 	
+	/**
+	 *  @var string Cache database name
+	 */
+	private readonly string $db_profile;
+	
 	public function __construct(
 		private readonly Config		$config,
 		private readonly Database	$dbh
 	) {
 		$this->default_ttl	= 
 		( int ) $config->setting( 'cache_ttl', 3600, 'int' );
+		
+		$this->db_profile	= 'cache';
 	}
 	
 	/**
@@ -12201,11 +12289,10 @@ class CacheHooks {
 	 *  @param string	$uri		Current cache URI from router or hook
  	 */
 	private function update_hit_db( string $realm, string $uri ) : void {
-		$dbh->result_exec(
+		$this->dbh->result_exec(
 			sql	: static::SQL['update'],
-			profile	:'cache',
-			params	: [ 'realm' => $realm, 'uri' => $uri ],
-			rtype	: ''
+			profile	: $this->db_profile,
+			params	: [ 'realm' => $realm, 'uri' => $uri ]
 		);
 	}
 	
@@ -12219,7 +12306,7 @@ class CacheHooks {
 		
 		$this->dbh->result_exec(
 			sql	: $sql,
-			profile	: 'cache',
+			profile	: $this->db_profile,
 			params	: $params
 		);
 	}
@@ -12266,7 +12353,7 @@ class CacheHooks {
 		];
 	}
 	
-	#[Hook( name : 'cache_lookup', priority : 1 )]
+	#[Hook( name : 'cache.lookup', priority : 1 )]
 	public function lookup( string $event, HookResult $result, array $args ) : HookResult {
 		$uri	= $args['uri']		?? null;
 		if ( null === $uri ) { return $result; }
@@ -12277,7 +12364,7 @@ class CacheHooks {
 		$row	= 
 		$dbh->result_exec( 
 			sql	: $sql, 
-			profile	: 'cache', 
+			profile	: $this->db_profile, 
 			params	: [
 				'realm' => $realm, 
 				'uri'	=> $uri
@@ -12305,7 +12392,7 @@ class CacheHooks {
 		if ( $is_partial && !$req_partial ) {
 			return $result->with_data([ 'cache_hit' => false ]);
 		}
-
+		
 		$page		= $is_partial ? 'partial_content' : 'page_content';
 		$this->update_hit_db( $realm, $uri );
 		return $result->with_data( [
@@ -12318,16 +12405,297 @@ class CacheHooks {
 		] );
 	}
 	
-	#[Hook( name : [ 'cache_insert_full', 'cache_insert_partial' ], priority : 1 )]
+	#[Hook( name : [ 'cache.insert_full', 'cache.insert_partial' ], priority : 1 )]
 	public function cache_insert( string $event, HookResult $result, array $args ) : HookResult {
 		$is_partial	= 'cache_insert_partial' === $event;
 		
 		$params		= $this->build_params( $is_partial, $result, $args );
 		if ( null === $params ) { return $result; }
-
-		$key		= $is_partial ? 'cache_partial_written' : 'cache_written';
+		
+		$key		= $is_partial ? 'cache_partial_written' : 'cache_full_written';
 		$this->insert_cache_db( $params );
 		return $result->with_data( [ $key => true ] );
+	}
+}
+
+
+/**
+ *  @class Render on-page components
+ */
+#[HookContainer]
+class PageAssetHooks {
+	#[Hook( name : 'page.add_feed', priority: 1 )]
+	public function add_feed( string $event, HookResult $result, array $args ) : HookResult {
+		$feeds		= $result->data['page']['feeds'] ?? [];
+		$feeds[]	= [
+			'type'	=> $args['type']  ?? 'application/xml',
+			'title'	=> $args['title'] ?? '',
+			'href'	=> $args['href']  ?? ''
+		];
+		
+		return $result->with_data( [
+			'page'	=> 
+			\array_merge( $result->data['page'] ?? [], [
+				'feeds'	=> $feeds
+			] )
+		]);
+	}
+	
+	/**
+	 *  Add link tag details
+	 *  
+	 *  @example 
+	 *  Stylesheet:
+	 *  $this->registry->run( 'page.add_head_link', false, [
+	 *  	'rel'	=> 'stylesheet',
+	 *  	'href'	=> '/theme/style.css'
+	 *  ] );
+	 *  
+	 *  Translation:
+	 *  $this->registry->run( 'page.add_head_link', false, [
+	 *  	'rel'		=> 'alternate',
+	 *  	'hreflang'	=> 'fr',
+	 *  	'href'		=> '/fr/'
+	 *  ] );
+	 *  
+	 *  RSS feed:
+	 *  $this->registry->run( 'page.add_head_link', false, [
+	 *  	'rel	=> 'alternate',
+	 *  	'type'	=> 'application/rss+xml',
+	 *  	'title'	=> 'RSS Feed',
+	 *  	'href'	=> '/feed/rss'
+	 *  ] );
+	 */
+	#[Hook( name : [ 'page.add_head_link', 'page.add_body_link' ], priority: 1 )]
+	public function add_link( string $event, HookResult $result, array $args ) : HookResult {
+		$key = ( $event === 'page.add_head_link')
+			? 'head_links'
+			: 'body_links';
+			
+		$links		= $result->data['page'][$key] ?? [];
+		$links[]	= $args;
+		return $result->with_data( [
+			'page'	=> 
+			\array_merge( $result->data['page'] ?? [], [ $key => $links ] )
+		]);
+	}
+	
+	/**
+	 *  Add meta tags to page
+	 *  
+	 *  @example
+	 *  Charset:
+	 *  $this->registry->run( 'page.add_meta', true [ 'charset' => 'UTF-8' ] );
+	 *  
+	 *  Canonical:
+	 *  $this->registry->run( 'page.add_meta', [
+	 *  	'name'		=> 'canonical',
+	 *  	'content'	=> $post['canonical_url']
+	 *  ] );
+	 *  
+	 *  OpenGraph:
+	 *  $this->registry->run( 'page.add_meta', true, [ 
+	 *  	'property'	=> 'og:title',
+	 *  	'content'	=> $post['title']
+	 *  ] );
+	 *  
+	 *  Custom details:
+	 *  $this->registry->( 'page.add_meta', true, [
+	 *  	'name'		=> 'theme',
+	.*   	'content'	=> 'dark',
+	 *  	'data'		=> [
+	 *  		'generated'	=> 'true',
+	 *  		'page-type'	=> 'post'
+	 *  	]
+	 *  ] );
+	 */
+	#[Hook( name : 'page.add_meta', priority : 1 )]
+	public function add_meta( string $event, HookResult $result, array $args ) : HookResult {
+		$meta	= $result->data['page']['meta_tags'] ?? [];
+		$meta[]	= $args;
+		
+		return $result->with_data( [
+			'page'	=> 
+			\array_merge($result->data['page'] ?? [], [
+				'meta_tags' => $meta
+			] )
+		] );
+	}
+	
+	/**
+	 *  Add javascript tag details to page
+	 *  
+	 *  @example 
+	 *  $registry->run( 'page.add_head_js', false, [
+	 *  	'src'			=> '/theme/js/app.js',
+	 *  	'async'			=> true,
+	 *  	'defer'			=> false,
+	 *  	'module'		=> false,
+	 *  	'crossorigin'		=> 'anonymous',
+	 *  	'integrity'		=> 'sha384-...',
+	 *  	'referrerpolicy'	=> 'no-referrer',
+	 *  	'data'			=> [
+	 *  		'page-type'	=> 'post',
+	 *  		'wysiwyg'	=> 'enabled'
+	 *  	]
+	 *  ] );
+	 */
+	#[Hook( name : [ 'page.add_head_js', 'page.add_body_js' ], priority : 1 )]
+	public function add_js( string $event, HookResult $result, array $args ) : HookResult {
+		$key		= 
+		( 'page.add_head_js' === $event ) 
+			? 'head_js'
+			: 'body_js';
+		
+		$js	= $result->data['page'][$key] ?? [];
+		$js[]	= $args;
+		return $result->with_data( [
+			'page'	=> \array_merge( $result->data['page'] ?? [], [ $key => $js ] )
+		] );
+	}
+	
+	#[Hook( name : 'page.add_body_class', priority: 1 )]
+	public function add_body_class( string $event, HookResult $result, array $args ) : HookResult {
+		$classes	= $result->data['page']['body_classes'] ?? '';
+		$classes	.= ' ' . $args['class'];
+		
+		return $result->with_data( [
+			'page'	=> 
+			\array_merge( $result->data['page'] ?? [], [
+				'body_classes' => \trim( $classes )
+			] )
+		] );
+	}
+	
+	#[Hook( name : 'page.add_extra', priority : 1 )]
+	public function add_extra( string $event, HookResult $result, array $args ) : HookResult {
+		$extra		= $result->data['page']['extra'] ?? '';
+		$extra		.= ' ' . $args['attr'];
+		
+		return $result->with_data( [
+			'page'	=> 
+			\array_merge( $result->data['page'] ?? [], [ 'extra' => \trim( $extra ) ] )
+		] );
+	}
+	
+	#[Hook( name : 'page.body_before', priority : 1 )]
+	public function body_before( string $event, HookResult $result, array $args ) : HookResult {
+		return $result->with_data( [
+			'page'	=> 
+			\array_merge( $result->data['page'] ?? [], [
+				'body_before' => $args['html']
+			] )
+		] );
+	}
+	
+	#[Hook( name : 'page.body_after', priority : 1 )]
+	public function body_after( string $event, HookResult $result, array $args ) : HookResult {
+		return $result->with_data( [
+			'page'	=> 
+			\array_merge( $result->data['page'] ?? [], [
+				'body_after' => $args['html']
+			] )
+		] );
+	}
+}
+
+
+/**
+ *  @class HTML page builder
+ */
+#[HookContainer]
+class PageRenderHooks {
+	public function __construct(
+		private readonly Config $config
+	) {}
+	
+	#[Hook( name : 'page.render', priority : 100 )]
+	public function render( string $event, HookResult $result, array $args ) : HookResult {
+		$body		= $result->data['html']		?? '';
+		$head_js	= $result->data['head_js']	?? [];
+		$body_js	= $result->data['body_js']	?? [];
+		
+		$title		= 
+		$result->data['title']		?? 
+		$args['title']			?? 
+		$result->data['post']['title']	?? '';
+		
+		$lang = 
+		$result->data['lang']		?? 
+		$args['lang']			?? 
+		$this->config->setting( 'lang', 'en-US' );
+		
+		$body_classes = 
+		$result->data['body_classes']	?? 
+		$args['body_classes']		?? '';
+		
+		return $result
+			->with_data( [
+				'page' => [
+					'title'		=> $title,
+					'lang'		=> $lang,
+					'body_classes'	=> $body_classes,
+					'body'		=> $body
+				]
+			] )
+			->with_template( 'tpl_page' );
+	}
+}
+
+/**
+ *  @class Syndication feed data builder
+ */
+#[HookContainer]
+class FeedHooks {
+	#[Hook( name : 'feed.collect', priority: 1 )]
+	public function collect( string $event, HookResult $result, array $args ) : HookResult {
+		$items		= $result->data['feed_items'] ?? [];
+		$items[]	= [
+			'title'		=> $args['title'],
+			'link'		=> $args['link'],
+			'content'	=> $args['content'],
+			'published'	=> $args['published'],
+			'updated'	=> $args['updated']	?? null,
+			'author'	=> $args['author']	?? null,
+			'categories'	=> $args['categories']	?? [],
+			'id'		=> $args['id']		?? null
+		];
+		
+		return $result->with_data( [ 'feed_items' => $items ] );
+	}
+	
+	#[Hook( name : 'feed.meta', priority : 1 )]
+	public function meta( string $event, HookResult $result, array $args ) : HookResult {
+		return $result->with_data( [
+			'feed_meta' => [
+				'title'		=> $args['title'],
+				'description'	=> $args['description'],
+				'link'		=> $args['link'],
+				'lang'		=> $args['lang'] ?? 'en-US'
+			]
+		] );
+	}
+}
+
+
+/**
+ *  @class Syndication display output helper
+ */
+#[HookContainer]
+class FeedRenderHooks {
+	
+	#[Hook( name : 'feed.render', priority: 1 )]
+	public function render( string $event, HookResult $result, array $args ) : HookResult {
+		$meta	= $result->data['feed_meta']	?? [];
+		$items	= $result->data['feed_items']	?? [];
+		$type	= $args['type'] ?? 'rss';
+		$result	= $result->with_data( [ 'meta'  => $meta, 'items' => $items ] );
+		
+		return match( $type ) {
+			'atom'	=> $result->with_template( 'tpl_feed_atom' ),
+			'json'	=> $result->with_template( 'tpl_feed_json' ),
+			default	=> $result->with_template( 'tpl_feed_rss' )
+		};
 	}
 }
 
@@ -12735,530 +13103,6 @@ class Bare {
 		
 		die( 'Bare index' );
 	}
-}
-
-
-
-/**
- *  Template helpers
- */
-
-/**
- *  Website and relative path root path given a URL prefix
- *  Defaults to home link
- *  
- *  @param string	$path		Event route label
- *  @param string	$default	Fallback event route
- *  @return string
- */
-function pageRoutePath( ?string $path = null, ?string $default = null ) : string {
-	static $urls	= [];
-	
-	$path		??= '';
-	
-	if ( isset( $urls[$path] ) ) {
-		return $urls[$path];
-	}
-	
-	// Empty path? Use home link
-	if ( empty( $path ) ) {
-		$urls[$path] = getRoot(); 
-		return $urls[$path];
-	}
-	
-	$rt	= eventRoutePrefix( $path, $default ?? $path );
-	
-	// Avoid placeholders E.G. :user, :page, :tag etc...
-	$st	= strstr( $rt, ':', true );
-	$urls[$path]	= getRoot() . 
-		( ( false === $st ) ? $rt : $st );
-	
-	return $urls[$path];
-}
-
-/**
- *  Create home navigation link
- *  
- *  @return string
- */
-function navHome() : string {
-	static $home;
-	if ( isset( $home ) ) {
-		return $home;
-	}
-	
-	$url	= pageRoutePath();
-	hook( [ 'homelink', [ 'url' => $url ] ] );
-	$html	= hook_html( 'homelink' );
-	if ( !empty( $html ) ) {
-		$home = $html;
-		return $html;
-	}
-	
-	$home	= 
-	render( template( 'tpl_home_link' ), [ 
-		'url'	=> $url, 
-		'text'	=> template( 'tpl_home' )
-	] );
-	
-	return $home;
-}
-
-/**
- *  Create next/previous pagination links
- *  
- *  @param int		$page		Current page index
- *  @param string	$prefix		Relative path prefix added to links
- *  @param array	$posts		Array of entries
- *  @return string
- */
-function paginate( int $page, string $prefix, array $posts ) : string {
-	$plimit	= config( 'page_limit', 20, 'int' );
-	$c	= count( $posts );
-	
-	hook( [ 'paginate', [ 
-		'page'		=> $page, 
-		'limit'		=> $plimit, 
-		'prefix'	=> $prefix, 
-		'posts'		=> $posts, 
-		'count'		=> $c,
-		'type'		=> 'nextprev'
-	] ] );
-	
-	$html	= hook_html( 'paginate' );
-	if ( !empty( $html ) ) {
-		return $html;
-	}
-	
-	if ( $c < $plimit ) {
-		return '';
-	}
-	
-	$out	= '';
-	if ( $page > 1 ) {
-		$pm1	= $page - 1;
-		$p	= ( $pm1 > 1 )? 
-				( $prefix . 'page' . $pm1 ) : $prefix;
-		$out	.= 
-		render( template( 'tpl_prevlink' ), [ 
-			'url'	=> $p,
-			'text'	=> template( 'tpl_previous' )
-		] ); 
-	}
-	
-	if ( $c >= $plimit ) {
-		$out	.=
-		render( template( 'tpl_nextlink' ), [ 
-			'url'	=> $prefix . 'page'. ( $page + 1 ),
-			'text'	=> template( 'tpl_next' )
-		] ); 
-	}
-	
-	return 
-	render( template( 'tpl_page_nextprev' ), [ 'links' => $out ] );
-}
-
-/**
- *  Navigation link formatter
- *  
- *  @param string	$wrap		Link wrapper template
- *  @param mixed	$def		Link JSON definition
- *  @return string
- */
-function renderNavLinks(
-	string		$wrap,
-			$def
-) {
-	$links	= \is_array( $def ) ? $def : 
-			Util::json_udecode( $def )[ 'links'] ?? [];
-	
-	$out	= '';
-	$tpl	= template( 'tpl_page_nav_link' );
-	foreach ( $links as $v ) {
-		$out	.= render( $tpl, $v );
-	}
-	
-	// Replace any home link references
-	$out	= render( $out, [ 
-		'home'		=> pageRoutePath(),
-		'feedlink'	=> pageRoutePath( 'feed' )
-	] );
-	
-	// Return language replaced
-	return render( $wrap, [ 'links' => $out ] );
-}
-
-/**
- *  Footer template rendering helper
- *  
- *  @return string
- */
-function pageFooter() : string {
-	// Footer with home link set
-	$links	= config( 'footer_links', [], 'json' );
-	$flinks	= config( 'default_footer_links', $links );
-	return 
-	render( template( 'tpl_page_footer' ), [ 
-		'footer_links'=> 
-			renderNavLinks( 
-				template( 'tpl_footernav_wrap' ), 
-				$flinks
-			),
-		'home'		=> pageRoutePath(),
-		'feedlink'	=> pageRoutePath( 'feed' )
-	] );
-}
-
-/**
- *  Load and change each placeholder into a key
- *  
- *  @return array
- */
-function loadClasses() : array {
-	$cls	= setting( 'default_classes', \DEFAULT_CLASSES, 'json' );
-	// Trigger class load hook
-	hook( [ 'loadcssclasses', [ 'classes' => $cls ] ] );
-	
-	// Intercept extra classes and/or existing class replacements
-	$sent	= hook_array( 'loadcssclasses' )['classes'] ?? [];
-	if ( !empty( $sent ) ) {
-		$cls	= \array_merge( $cls, $sent );
-	}
-	
-	$cv	= [];
-	
-	// Add new or appened classes while removing duplicates
-	foreach( $cls as $k => $v ) {
-		$cv['{' . $k . '}'] = 
-			\implode( ' ', Text::unique_terms( Sanitize::bland( $v, true ) ) );
-	}
-	return $cv;
-}
-
-/**
- *  Get or override render store pairs
- *  
- *  @param string	$area	Template store placeholder area
- *  @param array	$modify	New placeholder replacements
- *  @return array
- */ 
-function rsettings( string $area, array $modify = [] ) : array {
-	static $store = [];
-		
-	if ( !isset( $store[$area] ) ) {
-		switch( $area ) {
-			case 'classes':
-				$store['classes']	= loadClasses();
-				break;
-				
-			case 'styles':
-				$s	= config( 'default_stylesheets', [] );
-				$s	= \is_array( $s ) ? $s : 
-				linePresets( 
-					'stylesheets', 
-					'style_limit', 
-					\STYLE_LIMIT, 
-					$s
-				);
-				
-				// Merge plugin stylesheets
-				hook( [ 'stylesloaded', [ 'styles' => $s ] ] );
-				$store['styles'] = 
-				hook_array( 'stylesloaded' )['styles'] ?? $s;
-				
-				break;
-				
-			case 'scripts':
-				$s	= config( 'default_scripts', [] );
-				$s	= \is_array( $s ) ? $s : 
-				linePresets( 
-					'scripts', 
-					'script_limit', 
-					\SCRIPT_LIMIT,
-					$s
-				);
-				
-				// Merge plugin script files
-				hook( [ 'scriptsloaded', [ 'scripts' => $s ] ] );
-				$store['scripts'] = 
-				hook_array( 'scriptsloaded' )['scripts'] ?? $s;
-				
-				break;
-			
-			case 'meta':
-				// Load custom meta tags
-				$meta	= config( 'default_meta', [] );
-				$meta	= 
-					\is_string( $meta ) ? Util::json_udecode( $meta ) : 
-						[ 'meta' => $meta ];
-				
-				// Merge plugin meta tags
-				hook( [ 'metaloaded', [ 'meta' => $meta ] ] );
-				$store['meta'] = 
-				hook_array( 'metaloaded' )['meta'] ?? $meta;
-				
-				break;
-			
-			default:
-				$store[$area]	= [];
-		}
-	}
-	
-	if ( empty( $modify ) ) {
-		return $store[$area];
-	}
-	
-	$store[$area] = 
-	\array_unique( \array_merge( $store[$area], $modify ) );
-	
-	return $store[$area];
-}
-
-/**
- *  Get all the CSS classes of the given render segment
- *  
- *  @param string	$name	CSS applicable area
- *  @return array
- */
-function getClasses( string $name ) : array {
-	$cls	= rsettings( 'classes' );
-	$n	= '{' . Sanitize::bland( $name, true ) . '}';
-	$va	= [];
-	foreach( $cls as $k => $v ) {
-		if ( 0 != \strcmp( $n , $k ) ) {
-			continue;
-		}
-		$va	= Text::unique_terms( $v );
-		break;
-	}
-	
-	return $va;
-}
-
-/**
- *  Overwrite the CSS class(es) of a render segment
- *  
- *  @param string	$name	CSS applying segment name
- *  @param string	$value	CSS new CSS parameters
- */
-function setClass( string $name, string $value ) {
-	rsettings( 
-		'classes', 
-		[ '{' . Sanitize::bland( $name, true ) . '}' => Sanitize::bland( $value, true ) ] 
-	);
-}
-
-/**
- *  Add a CSS class to render segment
- *  
- *  @param string	$name	CSS applying segment name
- *  @param string	$value	New CSS classes
- */
-function addClass( string $name, string $value ) {
-	$vls	= 
-	\preg_split( 
-		'/\s+/', $value, -1, \PREG_SPLIT_NO_EMPTY 
-	);
-	
-	$cls	= \array_merge( getClasses( $name ), $vls );
-	
-	setClass( $name, \implode( ' ', \array_unique( $cls ) ) );
-}
-
-/**
- *  Remove a CSS class from the segment's class list
- *  
- *  @param string	$name	CSS segment name
- *  @param string	$value	Removing class(es)
- */
-function removeClass( string $name, string $value ) {
-	$vls	= 
-	\preg_split( 
-		'/\s+/', $value, -1, \PREG_SPLIT_NO_EMPTY 
-	);
-	
-	$cls	= \array_diff( getClasses( $name ), $vls );
-	setClass( $name, \implode( ' ', \array_unique( $cls ) ) );
-}
-
-/**
- *  URL and associated nonce extraction helper
- *  
- *  @param string	$path	URL|nonce formatted string
- *  @return array
- */
-function splitUrlNonce( string $path ) : array {
-	if ( false === \strpos( $path, '|' ) ) {
-		return [ 'url' => \trim( $path ), 'nonce' => '' ];
-	}
-	
-	$u	= \strstr( $r, '|', true );
-	$n	= \strstr( $r, '|' );
-	return [ 
-		'url'	=> ( false === $n ) ? '' : \trim( $u ), 
-		'nonce'	=> ( false === $n ) ? '' : \trim( $n, '| ' )
-	];
-}
-
-/**
- *  Special tag rendering helper (scripts, links etc...)
- *  
- *  @param string	$tpl	Rendering template
- *  @param string	$label	Region placeholder
- *  @param string	$tag	Tag replacement template
- *  @param string	$region	Region setting name
- *  @return string
- */
-function regionTags(
-	string		$tpl,
-	string		$label,
-	string		$tag, 
-	string		$region 
-) : string {
-	$rg	= rsettings( $region );
-	$rgo	= '';
-	
-	switch( $region ) {
-		// Render meta tags
-		case 'meta':
-			$i = config( 'meta_limit', 15, 'int' );
-			foreach ( $rg['meta'] ?? [] as $k => $v ) {
-				if ( $i < 0 ) {
-					break;
-				}
-				$rgo .= render( $tag, $v );
-				$i--;
-			}
-			break;
-		
-		default:
-			foreach( $rg as $r ) {
-				$rgo .= 
-				render( $tag, splitUrlNonce( $r ) );
-			}
-	
-	}
-	
-	return \strtr( $tpl, [ $label => $rgo ] );
-}
-
-/**
- *  Append values to placeholder terms used in templates
- *  
- *  @param array	$region		Placeholder > value pair
- */
-function setRegion( array $region = [] ) {
-	static $presets = [];
-	
-	if ( empty( $region ) ) {
-		return $presets;
-	}
-	
-	foreach ( $region as $k => $v ) {
-		$presets[$k] = ( $presets[$k] ?? '' ) . $v;
-	}
-}
-
-/**
- *  Find template {regions} set in the HTML
- *  Template regions must consist of letters, underscores, and no spaces
- *  
- *  @param string	$tpl	Raw HTML template without content yet
- *  @return array
- */
-function findTplRegions( string $tpl ) : array {
-	if ( \preg_match_all( '/(?<=\{)([a-z_]+)(?=\})/i', $tpl, $m ) ) {
-		return $m[0];
-	}
-	return [];
-}
-
-/**
- *  Apply region preset content to placeolders in the given template
- *  
- *  @param string	$tpl	Page template
- *  @return string
- */
-function renderRegions( string $tpl ) : string {
-	
-	// Stylesheets, JavaScript, and Meta tags
-	$tpl	= 
-	regionTags( $tpl, '{stylesheets}', \TPL_STYLE_TAG, 'styles' );
-	
-	// Use nonced script tag template if that setting is enabled
-	$tpl	= 
-	config( 'nonced_scripts', 0, 'bool' ) ?
-	regionTags( $tpl, '{body_js}', \TPL_SCRIPT_NONCE_TAG, 'scripts' ) : 
-	regionTags( $tpl, '{body_js}', \TPL_SCRIPT_TAG, 'scripts' );
-	
-	$tpl	= 
-	regionTags( $tpl, '{meta_tags}', \TPL_META_TAG, 'meta' );
-	
-	$sa	= config( 'asset_dir', 'assets/' );
-	return \strtr( $tpl, [ '{shared_assets}' => $sa ] );
-}
-
-/**
- *  Format template with classes, assets, and language parameters
- *  
- *  @param string	$tpl	Rendering template
- *  @param array	$input	Placeholder replacements
- *  @param bool		$full	Complete render including regions if true
- *  @return string
- */
-function render(
-	string	$tpl,
-	array	$input	= [],
-	bool	$full		= false 
-) : string {
-	static $cache	= [];
-	static $regions	= [];
-	$key		= hash( 'sha1', ( string ) $full . $tpl );
-	
-	// Check cache
-	if ( !isset( $cache[$key] ) ) {
-		// Full render?
-		$tpl		= $full ? 
-			parseLang( renderRegions( $tpl ) ) : 
-			parseLang( $tpl );
-		
-		// Apply component classes
-		$cache[$key]	= 
-		\strtr( $tpl, rsettings( 'classes' ) );
-		
-		// Find render regions
-		$regions[$key]	= findTplRegions( $cache[$key] );
-	}
-	
-	// Always set defaults
-	$input['home']		= $input['home']	?? pageRoutePath();
-	$input['feedlink']	= $input['feedlink']	?? pageRoutePath( 'feed' );
-	$input['plugin_assets']	= 
-		$input['plugin_assets'] ?? 
-		Text::slash_path( config( 'plugin_asset_dir', 'plugins/' ), true );
-	
-	$out		= [];
-	
-	// Set content in regions or place empty string
-	foreach( $regions[$key] as $k => $v ) {
-		// Set render content or clear it
-		$out['{' . $v .'}'] =  $input[$v] ?? '';
-	}
-	
-	// Template render  event
-	hook( [ 'templaterender', [ 
-		'template'	=> $tpl,
-		'input'		=> $input,
-		'placeholders'	=> $out 
-	] ] );
-	
-	$out	= hook_array( 'templaterender', $out );
-	
-	// Parse appended
-	$tpl		= parseLang( \strtr( $cache[$key], $out ) );
-	
-	// Finally set classes again
-	return \strtr( $tpl, rsettings( 'classes' ) );
 }
 
 
