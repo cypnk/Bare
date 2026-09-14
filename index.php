@@ -19,10 +19,17 @@ define( 'PATH',		\realpath( \dirname( __FILE__ ) ) . \DIRECTORY_SEPARATOR );
 
 // Main storage directory. Must be writable.
 // *nix		: chmod -R 0755 /path/to/cache
-// macOS	: chmod -R go-rw /path/to/cache
+// macOS	: chmod -R a-x,u=rwX,go=rX /path/to/cache
 define( 'STORAGE_DIR',	PATH . 'cache' . \DIRECTORY_SEPARATOR );
 // Use this instead if you keep the cache outside the web root.
 // define( 'STORAGE_DIR',	\realpath( \dirname( __FILE__, 2 ) ) . \DIRECTORY_SEPARATOR . 'cache' . \DIRECTORY_SEPARATOR );
+
+// Non-writable folder to serve static files. Must be readable.
+// *nix		: chmod -R 0644 /path/to/assets
+// macOS	: chmod -R a-x,u=rw,go=r /path/to/assets
+define( 'ASSET_DIR', PATH . 'assets' . \DIRECTORY_SEPARATOR );
+// Use this instead if you keep static files outside the web root.
+// define( 'ASSET_DIR',	\realpath( \dirname( __FILE__, 2 ) ) . \DIRECTORY_SEPARATOR . 'assets' . \DIRECTORY_SEPARATOR );
 
 
 /**
@@ -12174,6 +12181,13 @@ class FileHooks {
 	private function check_request( string $path, bool $dosend, array $args ) : void {
 		// Trim leading slash
 		$path	= \preg_replace( '/^\//', '', $path );
+		$cpath	= Sanitize::path_traversal( $path );
+		if ( $path !== $cpath ) { return; }
+		
+		// Try core static file directory first
+		$base	= Text::slash_path( \ASSET_DIR, true );
+		$fpath	= $base . $path;
+		if ( \file_exists( $fpath ) ) { $this->file_send( $fpath ); }
 		
 		$fpath	= $this->config->setting( 'file_dir', Storage::base() ) . $path;
 		if ( \file_exists( $fpath ) ) { $this->file_send( $fpath ); }
@@ -12848,11 +12862,11 @@ class NavigationHooks {
 		$page		= ( int ) ( $args['page'] ?? 1 );
 		$total		= ( int ) ( $args['total'] ?? 1 );
 		
+		$base		= $result->data['nav_root']	?? '';
 		$has_more	= $result->data['archive_has_more'] ?? false;
 		
-		$base		= '';
 		if ( 'nav.archive.pagination' === $event ) {
-			$base		= "/archive/$year";
+			$base	.= "/archive/$year";
 			if ( $month ) { $base .= "/$month"; }
 			if ( $day ) { $base .= "/$day"; }
 		}
@@ -12878,7 +12892,8 @@ class PostRenderHooks {
 	public function __construct(
 		private readonly Config		$config,
 		private readonly Database	$dbh,
-		private readonly Language	$lang
+		private readonly Language	$lang,
+		private readonly HookRegistry	$hooks
 	) {
 		$this->db_profile = 'bare';
 	}
@@ -12889,7 +12904,7 @@ class PostRenderHooks {
 		if ( !$post ) { return $result; }
 		
 		$tags	= 
-		$this->hooks->run( 'tag.parse', false [
+		$this->hooks->run( 'tag.parse', false, [
 			'tag_slugs'	=> $result->data['tag_slugs'] ?? '',
 			'tag_terms'	=> $result->data['tag_terms'] ?? ''
 		] )->data['tags'] ?? [];
