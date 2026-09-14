@@ -209,57 +209,82 @@ a:hover{ color: #2c81ba }
 	{loop:js.data as val key="k"} data-{{k}}="{{val}}" {endloop} ></script>
 
 
-## Page footer component
---- tpl_page_footer ---
-<footer class="{footer_classes}">
-<div class="{footer_wrap_classes}">{footer_links}</div>
-</footer>
+## Page navigation 
+--- tpl_navigation ---
+<nav class="{{nav.classes}}">
+<ul>{loop:nav.items as item}<li class="{{item.classes}}{if:item.active} active{endif}"><a href="{{item.href}}">{{item.label}}</a></li>{endloop}</ul>
+</nav>
 
 
 ## General page heading
 --- tpl_page_heading ---
-{before_page_heading}<header class="{heading_classes}">
-<div class="{heading_wrap_classes}">
-{heading_before}
-<h1 class="{heading_h_classes}">
-	<a href="{home}" class="{heading_a_classes}">{page_title}</a>
+{before_page_heading}
+<header class="{{heading.classes.heading}}">
+<div class="{{heading.classes.wrap}}">
+{{heading.before}}
+<h1 class="{{heading.classes.title}}">
+	<a href="{{heading.home}}" class="{{heading.classes.title_link}}">{{heading.title}}</a>
 </h1>
-<p class="{tagline_classes}">{tagline}</p>
-{main_links}
-<div class="{search_form_wrap_classes}">{search_form}</div>
-{heading_after}
+<p class="{{heading.classes.tagline}}">{{heading.tagline}}</p>
+{template:tpl_navigation links="{{heading.links}}"}
+<div class="{{heading.classes.search_wrap}}">
+	{template:tpl_search_form search="{{search_form}}"}
+</div>
+{{heading.after}}
 </div>
 </header>{after_page_heading}
 
 
-## Home page specific heading
---- tpl_home_heading ---
-{before_home_heading}<header class="{heading_classes}">
-<div class="{heading_wrap_classes}">
-<h1 class="{heading_h_classes}">
-	<a href="{home}" class="{heading_a_classes}">{page_title}</a>
-</h1>
-<p class="{tagline_classes}">{tagline}</p>
-{home_links}
-<div class="{search_form_wrap_classes}">{search_form}</div>
-{heading_after}
+## Page footer component
+--- tpl_page_footer ---
+<footer class="{{footer.classes.block}}">
+<div class="{{footer.classes.wrap}}">
+	{hook:nav.footer}
 </div>
-</header>{after_home_heading}
+</footer>
 
 
-## About page specific heading
---- tpl_about_heading ---
-{before_about_heading}<header class="{heading_classes}">
-<div class="{heading_wrap_classes}">{before_heading_h}
-<h1 class="{heading_h_classes}">
-	<a href="{home}" class="{heading_a_classes}">{page_title}</a>
-</h1>{after_heading_h}
-<p class="{tagline_classes}">{tagline}</p>
-{about_links}
-<div class="{search_form_wrap_classes}">{search_form}</div>
-{heading_after}
-</div>
-</header>{after_about_heading}
+## Archive and index pagination
+-- tpl_pagination --
+<nav class="pagination">
+	{if:prev_page}
+	<a class="prev" href="{{base_url}}/page{{prev_page}}">
+		&larr; {lang:archive:previous}
+	</a>
+	{endif}
+	
+	{if:next_page}
+	<a class="next" href="{{base_url}}/page{{next_page}}">
+		{lang:archive:next} &rarr;
+	</a>
+	{endif}
+	
+	{if:!prev_page && !next_page}
+		<span>{lang:archive:no_more_pages}</span>
+	{endif}
+</nav>
+
+
+## Next/Previous post pagination on single posts
+-- tpl_nextprev --
+<nav class="post-nav">
+{hook:post.next_prev(post_id="{{post.id}}")}
+
+{if:prev_post}
+<a class="prev-post" href="{{prev_post.post_path}}">&larr; {{prev_post.title}}</a>
+{endif}
+
+{if:next_post}
+<a class="next-post" href="{{next_post.post_path}}">{{next_post.title}} &rarr;</a>
+{endif}
+
+{if:!prev_post && !next_post}
+<span>{lang:links:no_navigation}</span>
+{endif}
+
+{endhook}
+</nav>
+
 
 
 ## Form anti-XSRF hidden inputs (required on all forms)
@@ -271,15 +296,16 @@ a:hover{ color: #2c81ba }
 
 ## Search form
 --- tpl_search_form ---
-{before_search_form}<form action="{home}" method="get" 
-	class="{form_classes} {search_form_classes}">
-	<fieldset class="{search_fieldset_classes}">
-{before_search_input}<input type="search" name="find" 
-	placeholder="{lang:forms:search:placeholder}" 
-	class="{input_classes} {search_input_classes}" 
-	required>{after_search_input} 
-{before_search_button}
-<input type="submit" class="{submit_classes} {search_button_classes}" 
+{before_search_form}<form action="{{search.action}}" 
+	method="{{search.method}}"
+	class="{{search.classes.form}}">
+	<fieldset class="{{search.classes.fieldset}}">
+{before_search_input}<input type="search" name="find"
+	placeholder="{{search.placeholder}}"
+	class="{{search.classes.input}}"
+	required>{after_search_input}
+{before_search_button}<input type="submit"
+	class="{{search.classes.button}}"
 	value="{lang:forms:search:button}">{after_search_button}
 	</fieldset>
 </form>{after_search_form}
@@ -294,51 +320,87 @@ a:hover{ color: #2c81ba }
 
 ## General post template
 --- tpl_post ---
-{before_post}
-<article class="{post_classes}">{before_full_post}
-	<div class="{post_wrap_classes}">{before_post_heading}
-	<header class="{post_heading_classes}">
-	<div class="{post_heading_wrap_classes}">
-		<h2 class="{post_heading_h_classes}">
-			<a href="{permalink}" class="{post_heading_a_classes}">{title}</a>
-		</h2>
-		<time datetime="{date_utc}"
-			class="{post_pub_classes}">{date_stamp}</time> {read_time}
+{hook:post.before_block}
+<article class="{{post.classes.block}}">{hook:post.before}
+	<div class="{{post.classes.wrap}}">{hook:post.before_heading}
+		<header class="{{post.classes.heading}}">
+			<div class="{{post.classes.heading_wrap}}">
+				<h2 class="{{post.classes.title}}">
+					<a href="{{post.permalink}}" class="{{post.classes.title_link}}">{{post.title}}</a>
+				</h2>
+				<time datetime="{{post.date_utc}}" class="{{post.classes.pub}}">{{post.date_stamp}}</time>
+				{if:read_time}<span class="{{post.classes.readtime}}">{read_time}</span>{endif}
+			</div>
+		</header>
+		{hook:post.before_body}
+		<div class="{{post.classes.body_wrap}}">
+			<div class="{{post.classes.body}}">{{post.post_content}}</div>
+			<div class="{{post.classes.tags}}">
+				<nav class="{{post.classes.tag_wrap}}">
+					<span class="{{post.classes.tag_heading}}">{lang:headings:tags}</span>
+					<ul class="{{post.classes.tag_ul}}">
+						{loop:post.tags as tag}
+						<li><a href="/tags/{{tag.slug}}">{{tag.term}}</a></li>
+						{endloop}
+					</ul>
+				</nav>
+			</div>
+		</div>
+		
+		{hook:search.related_posts(post_id="{{post.id}}")}
+		<p>{lang:post:no_related}</p>
+		{endhook}
+		<nav class="{{post.classes.nextprev}}">
+			{hook:post.next_prev(post_id="{{post.id}}")}
+			<span>{lang:links:no_navigation}</span>
+			{endhook}
+		</nav>
+	{hook:post.after_body}
 	</div>
-	</header>{before_post_body}
-	<div class="{post_body_wrap_classes}">
-		<div class="{post_body_content_classes}">{body}</div>
-		<div class="{post_body_tag_classes}">{tags}</div>
-	</div>{after_post_body}
-	</div>{after_full_post}
-</article>{after_post}
+{hook:post.after}
+</article>{hook:post.after_block}
+
+
+## Post index item
+--- tpl_post_item ---
+{hook:post.before_item}
+<article class="{{post.classes.block}}">{hook:post.before}
+	<div class="{{post.classes.wrap}}">{hook:post.before_heading}
+		<header class="{{post.classes.heading}}">
+			<div class="{{post.classes.heading_wrap}}">
+				<h2 class="{{post.classes.title}}">
+					<a href="{{post.permalink}}" class="{{post.classes.title_link}}">{{post.title}}</a>
+				</h2>
+				<time datetime="{{post.date_utc}}" class="{{post.classes.pub}}">{{post.date_stamp}}</time>
+				{if:read_time}<span class="{{post.classes.readtime}}">{read_time}</span>{endif}
+			</div>
+		</header>{hook:post.before_body}
+		<div class="{{post.classes.body_wrap}}">
+			<div class="{{post.classes.body}}">{{post.post_content}}</div>
+			<div class="{{post.classes.tags}}">
+				<nav class="{{post.classes.tag_wrap}}">
+					<span class="{{post.classes.tag_heading}}">{lang:headings:tags}</span>
+					<ul class="{{post.classes.tag_ul}}">
+						{loop:post.tags as tag}
+						<li><a href="/tags/{{tag.slug}}">{{tag.term}}</a></li>
+						{endloop}
+					</ul>
+				</nav>
+			</div>
+		</div>
+	{hook:post.after_body}
+	</div>
+{hook:post.after}
+</article>{hook:post.after_item}
 
 
 ## Post on full listing indexes
---- tpl_index_post ---
-{before_index_post}
-<article class="{post_idx_wrap_classes}">{before_item_post}
-	<div class="{post_idx_wrap_classes}">{before_index_post_heading}
-	<header class="{post_idx_heading_classes}">
-	<div class="{post_idx_heading_wrap_classes}">
-		<h2 class="{post_idx_heading_h_classes}">
-			<a href="{permalink}" class="{post_idx_heading_a_classes}">{title}</a>
-		</h2>
-		<time datetime="{date_utc}"
-			class="{post_idx_pub_classes}">{date_stamp}</time> {read_time}
-	</div>
-	</header>{after_index_post_heading}
-	<div class="{post_idx_body_wrap_classes}">
-		<div class="{post_idx_body_content_classes}">{body}</div>
-		<div class="{post_idx_body_tag_classes}">{tags}</div>
-	</div>
-	</div>
-{after_item_post}</article>{after_index_post}
+--- tpl_post_index ---
+{loop:index.posts as post}
+    {template:tpl_post_item post="{{post}}"}
+{endloop}
 
 
-## Reading time for each post
---- tpl_read_time ---
-<span class="readtime">{lang:headings:readtime}</span>
 
 
 ## Post tag container on index pages
@@ -348,23 +410,10 @@ a:hover{ color: #2c81ba }
 	<ul class="{tag_index_ul_classes}">{tags}</ul></nav>
 
 
-## Single post page tag container
---- tpl_tagwrap ---
-<nav class="{tag_wrap_classes}">
-	<span class="{tag_heading_classes}">{lang:headings:tags}</span> 
-	<ul class="{tag_ul_classes}">{tags}</ul></nav>
-
-
 ## Main navigation menu link container
 --- tpl_mainnav_wrap ---
 <nav class="{main_nav_classes}"><ul>{links}</ul></nav>
 
-
-## Footer link container
---- tpl_footernav_wrap ---
-<nav class="{footer_nav_classes}">
-<ul class="{footer_ul_classes}">{links}</ul>
-</nav>
 
 
 ## Link for main homepage link on navigation menues
@@ -385,57 +434,6 @@ a:hover{ color: #2c81ba }
 </li>
 
 
-## Individual tag link wrapper
---- tpl_taglink ---
-<li class="{tag_item_classes}">
-	<a href="{url}" class="{tag_item_a_classes}">{text}</a>
-</li>
-
-
-## Pagination link navigation wrapper
---- tpl_page_nav_link ---
-<li class="{nav_link_classes}">
-	<a href="{url}" class="{nav_link_a_classes}">{text}</a>
-</li>
-
-
-## Preview page previous link
---- tpl_np_prevlink ---
-<li class="{nextprev_prev_classes}">
-	&lt; <a href="{url}" class="{nextprev_prev_a_classes}">{text}</a>
-</li>
-
-
-## Preview page next link
---- tpl_np_nextlink ---
-<li class="{nextprev_next_classes}">
-	<a href="{url}" class="{nextprev_next_a_classes}">{text}</a> &gt;
-</li>
-
-
-## Pagination Previous page link
---- tpl_prevlink ---
-<li class="{nav_prev_classes}">
-	&lt; <a href="{url}" class="{nav_prev_a_classes}">{text}</a>
-</li>
-
-
-## Pagination Next page link
---- tpl_nextlink ---
-<li class="{nav_next_classes}">
-	<a href="{url}" class="{nav_next_a_classes}">{text}</a> &gt;
-</li>
-
-
-## Next/Previous pagination wrapper
---- tpl_page_nextprev ---
-<div class="{nextprev_wrap_classes}">
-	<nav class="{nextprev_nav_classes}">
-		<ul class="{nextprev_ul_classes}">{links}</ul>
-	</nav>
-</div>
-
-
 ## Previously published and next, chronological page preview wrapper
 --- tpl_siblingnav ---
 <div class="{sibling_wrap_classes}">
@@ -453,7 +451,6 @@ a:hover{ color: #2c81ba }
 		<ul class="{related_ul_classes}">{links}</ul>
 	</nav>
 </div>
-
 
 ## Index page post listing wrapper
 --- tpl_index_wrap ---
@@ -12609,6 +12606,10 @@ class PageRenderHooks {
 		private readonly Config $config
 	) {}
 	
+	/**
+	 *  @example
+	 *  $result = $this->hooks->run('page.render', false, $result->data );
+	 */
 	#[Hook( name : 'page.render', priority : 100 )]
 	public function render( string $event, HookResult $result, array $args ) : HookResult {
 		$body		= $result->data['html']		?? '';
@@ -12696,6 +12697,288 @@ class FeedRenderHooks {
 			'json'	=> $result->with_template( 'tpl_feed_json' ),
 			default	=> $result->with_template( 'tpl_feed_rss' )
 		};
+	}
+}
+
+
+/**
+ *  @class On-page special sections
+ */
+#[HookContainer]
+class PageComponentHooks {
+	/**
+	 *  @example
+	 *  $result = $this->hooks->run( 'page.heading', true, [
+	 *  	'title'		=> $page_title,
+	 *  	'tagline'	=> $site_tagline,
+	 *  	'home'		=> '/',
+	 *  ] );
+	 */
+	#[Hook( name : 'page.heading', priority : 1 )]
+	public function heading( string $event, HookResult $result, array $args ) : HookResult {
+		$heading = $result->data['heading'] ?? [];
+		
+		$heading = \array_merge( $heading, [
+			'title'		=> $args['title']	?? 'Untitled',
+			'tagline'	=> $args['tagline']	?? '',
+			'home'		=> $args['home']	?? '/',
+			'before'	=> $args['before'] 	?? '',
+			'after'		=> $args['after']	?? '',
+			
+			'classes'	=> \array_merge( $heading['classes'] ?? [], [
+				'heading'	=> $args['heading_class']	?? '',
+				'wrap'		=> $args['wrap_class']		?? '',
+				'title'		=> $args['title_class']		?? '',
+				'title_link'	=> $args['title_link_class']	?? '',
+				'tagline'	=> $args['tagline_class']	?? '',
+				'search_wrap'	=> $args['search_wrap_class']	?? ''
+			] )
+		] );
+		return $result->with_data([ 'heading' => $heading ] );
+	}
+
+	#[Hook(name: 'page.footer', priority: 50)]
+	public function footer(string $event, HookResult $result, array $args): HookResult {
+		$footer = [
+			'classes' => [
+				'block'	=> $args['footer_block_class'] ?? '',
+				'wrap'	=> $args['footer_wrap_class']  ?? ''
+			]
+		];
+		return $result->with_data(['footer' => $footer]);
+	}
+
+	/**
+	 *  @example
+	 *  $result = $this->hooks->run('page.search_form', false, [
+	 *  	'action' => '/search'
+	 *  ] );
+	 */
+	#[Hook( name : 'page.search_form', priority : 1 )]
+	public function search_form(string $event, HookResult $result, array $args): HookResult {
+		$search = [
+			'action'	=> $args['action'] ?? '/',
+			'method'	=> 'get',
+			'placeholder'	=> $args['placeholder'] ?? 'Search...',
+			'classes' => [
+				'form'		=> $args['form_class']		?? '',
+				'fieldset'	=> $args['fieldset_class']	?? '',
+				'input'		=> $args['input_class']		?? '',
+				'button'	=> $args['button_class']	?? ''
+			]
+		];
+		
+		return $result->with_data( [ 'search_form' => $search ] );
+	}
+}
+
+
+/**
+ *  @class Configuration-based site location navigation
+ */
+#[HookContainer]
+class NavigationHooks {
+	
+	private array $nav_config;
+	
+	public function __construct(
+		private readonly Config		$config,
+		private readonly Template	$template
+	) {
+		$this->nav_config = [
+			'main_links'	=> $this->config->setting( 'main_links' ),
+			'about_links'	=> $this->config->setting( 'about_links' ),
+			'footer_links'	=> $this->config->setting( 'footer_links' ),
+		];
+	}
+	
+	/**
+	 *  Send link data through template
+	 *  
+	 *  @param array	$links	Raw link list from config
+	 *  @param array	$vars	Placeholder replacements
+	 *  @return array
+	 */
+	private function build_items( array $links, array $vars ) : array {
+		$items = [];
+		foreach ( $links as $link ) {
+			// Parse raw strings as templates
+			$href	= $this->template->parse( $link['url'], $vars );
+			$label	= $this->template->parse( $link['text'], $vars );
+			
+			$items[] = [
+				'label'		=> $label,
+				'href'		=> $href,
+				'active'	=> false,
+				'classes'	=> 'nav-item'
+			];
+		}
+		return $items;
+	}
+	
+	#[Hook( name : [ 'nav.main', 'nav.about', 'nav.footer' ], priority : 1 )]
+	public function render( string $event, HookResult $result, array $args ) : HookResult {
+		// TODO: Make these route and config based relative paths
+		$vars = [
+			'home'		=> $args['home']	?? '/',
+			'feedlink'	=> $args['feedlink']	?? '/feed',
+		];
+		
+		$param	= 
+		match( $event ) {
+			'nav.about'	=> [ 'about_links', 'nav_about' ],
+			'nav.footer'	=> [ 'footer_links', 'nav_footer' ],
+			default		=> [ 'main_links', 'nav_main' ]
+		};
+		
+		$items = $this->build_items( $this->nav_config[$param[0] ], $vars);
+		return $result->with_data( [
+			"{$param[1]}" => [
+				'items'		=> $items,
+				'classes'	=> "nav {$param[1]}"
+			]
+		] );
+	}
+	
+	#[Hook( name : [ 'nav.index.pagination', 'nav.archive.pagination' ], priority : 1 )]
+	public function pagination( string $event, HookResult $result, array $args ) : HookResult {
+		$year		= $args['year']			?? null;
+		$month		= $args['month']		?? null;
+		$day		= $args['day']			?? null;
+		$page		= ( int ) ( $args['page'] ?? 1 );
+		$total		= ( int ) ( $args['total'] ?? 1 );
+		
+		$has_more	= $result->data['archive_has_more'] ?? false;
+		
+		$base		= '';
+		if ( 'nav.archive.pagination' === $event ) {
+			$base		= "/archive/$year";
+			if ( $month ) { $base .= "/$month"; }
+			if ( $day ) { $base .= "/$day"; }
+		}
+		
+		return $result
+			->with_data( [
+				'base_url'	=> $base,
+				'prev_page'	=> $page > 1 ? $page - 1 : null,
+				'next_page'	=> $has_more ? $page + 1 : null
+			] )
+			->with_template( 'tpl_pagination' );
+	}
+}
+
+
+/**
+ *  @class Post, page index, and archive rendering helpers
+ */
+#[HookContainer]
+class PostRenderHooks {
+	private readonly string $db_profile;
+	
+	public function __construct(
+		private readonly Config		$config,
+		private readonly Database	$dbh,
+		private readonly Language	$lang
+	) {
+		$this->db_profile = 'bare';
+	}
+	
+	#[Hook( name : 'post.render_single', priority : 1 )]
+	public function render_single( string $event, HookResult $result, array $args ) : HookResult {
+		$post = $result->data['post'] ?? null;
+		if ( !$post ) { return $result; }
+		
+		$tags	= 
+		$this->hooks->run( 'tag.parse', false [
+			'tag_slugs'	=> $result->data['tag_slugs'] ?? '',
+			'tag_terms'	=> $result->data['tag_terms'] ?? ''
+		] )->data['tags'] ?? [];
+
+		$tags	= $tag_result->data['tags'] ?? [];
+		$post['permalink']  = "/post/" . $post['path'];
+		
+		// TODO: Timezone offset
+		$post['date_utc']	= date( 'c', \strtotime( $post['published'] ) );
+		$post['date_stamp']	= date('F j, Y', strtotime($post['published']));
+		
+		$read			= ( int ) ( $args['read_time'] ?? 1 );
+		
+		$phrase			= $this->lang->term( 'headings:readtime', '{time} minutes' );
+		$post['read_time']	= \strtr( $prhase, [ '{time}' => $read ] );
+		
+		// Merge CSS classes
+		$post['classes']	= $result->data['post']['classes'] ?? [];
+		
+		$html			= 
+		$this->templates->render( 'tpl_post', [
+			'post'	=> $post,
+			'tags'	=> $tags
+		] );
+		
+		return $result->with_data( [
+			'post_rendered'	=> true,
+			'post'		=> $post,
+			'tags'		=> $tags,
+			'html'		=> $html
+		] );
+	}
+	
+	#[Hook( name : 'post.render_index', priority : 1 )]
+	public function render_index( string $event, HookResult $result, array $args ) : HookResult {
+		$posts	= 
+		$result->data['posts_recent']		?? 
+			$result->data['posts_by_tag']	?? 
+			$result->data['archive_posts']	?? [];
+		
+		if ( !$posts ) { return $result; }
+		
+		$html	= 
+		$this->templates->render( 'tpl_post_index', [
+			'posts' => $posts
+		] );
+		
+		return $result->with_data( [
+			'index_rendered'	=> true,
+			'html'			=> $html
+		] );
+	}
+	
+	#[Hook( name : 'post.render_archive', priority : 1 )]
+	public function render_archive( string $event, HookResult $result, array $args): HookResult {
+		$posts	= $result->data['archive_posts'] ?? [];
+		
+		$html	= 
+		$this->templates->render( 'tpl_post_archive', [
+			'archive_title'	=> $args['archive_title']	?? '',
+			'year'		=> $args['year']		?? null,
+			'month'		=> $args['month']		?? null,
+			'day'		=> $args['day']			?? null,
+			'archive_posts'	=> $posts
+		] );
+		
+		return $result->with_data( [
+			'archive_rendered'	=> true,
+			'html'			=> $html
+		] );
+	}
+	
+	#[Hook( name : 'post.render_tag_list', priority : 1 )]
+	public function render_tag_list( string $event, HookResult $result, array $args ) : HookResult {
+		$posts	= $result->data['posts_by_tag']	?? [];
+		$slug	= $args['tag']			?? '';
+		
+		$html	=
+	 	$this->templates->render( 'tpl_tag_index', [
+			'tag'	=> $slug,
+			'posts'	=> $posts
+		] );
+		
+		return $result
+			->with_data( [
+				'tag_list_rendered'	=> true,
+				'html'			=> $html
+			] )
+			->with_template( 'tpl_archive' );
 	}
 }
 
@@ -14983,49 +15266,6 @@ function previewLink(
 }
 
 /**
- *  Render next/previous post details
- *  
- *  @param string	$path	Current post permalink path
- *  @return string
- */
-function getSiblings( string $path ) : string {
-	$res	= 
-	db_result_exec( 
-		"SELECT * FROM post_siblings WHERE post_path = :path", 
-		'bare',
-		[ ':path' => Text::slash_path( $path ) ]
-	);
-	
-	hook( [ 'getsiblings', [
-		'posts'	=> $res,
-		'path'	=> $path
-	] ] );
-	
-	$out	= hook_html( 'getsiblings' );
-	if ( !empty( $out ) ) {
-		return $out;
-	}
-	
-	if ( empty( $res ) ) {
-		return '';
-	}
-	$out = '';
-	$p = $res[0];
-	
-	if ( !empty( $p['prev_path'] ) ) {
-		$out .= previewLink( $p['prev_path'], 'prev' );	
-	}
-	
-	if ( !empty( $p['next_path'] ) ) {
-		$out .= previewLink( $p['next_path'], 'next' );	
-	}
-	
-	return render( 
-		template( 'tpl_siblingnav' ), [ 'links' => $out ] 
-	);
-}
-
-/**
  *  Get posts related to current one by content
  *  
  *  @param string	$path	Current post permalink path
@@ -15111,41 +15351,6 @@ function getRelated( string $path ) : string {
 		template( 'tpl_relatednav' ), 
 		[ 'links' => \implode( '', $out ) ] 
 	);	
-}
-
-/**
- *  Aggregate post body depending on summary level
- *  
- *  @param array	$res	Post data results
- *  @return array
- */
-function collectBody( array $res ) : array {
-	if ( empty( $res ) ) {
-		return [];
-	}
-	$slvl	= setting( 'summary_level', \SUMMARY_LEVEL, 'int' );
-	$posts	= [];
-	switch( $slvl ) {
-		case 1: 
-			foreach( $res as $r ) {
-				$posts[] = 
-				empty( $r['post_summary'] ) ?
-					$r['post_view'] : $r['post_summary'];
-			}
-			break;
-		
-		case 2: 
-			foreach( $res as $r ) {
-				$posts[] = $r['post_summary'];
-			}
-			break;
-			
-		default: 
-			foreach( $res as $r ) {
-				$posts[] = $r['post_view'];
-			}
-	}
-	return $posts;
 }
 
 
@@ -15244,126 +15449,6 @@ function loadStaticPage( string	$page ) : array {
 	$path	= Text::slash_path( $page );
 	
 	return loadText( $pdir . $path );
-}
-
-/**
- *  Show homepage or archive depending on whether home.md page is in POST_DIR
- */
-function showHome( string $event, array $hook, array $params ) {
-	$post	= loadStaticPage( 'home.md' );
-	
-	// No homepage found
-	if ( empty( $post ) ) {
-		// Passthrough to showArchive
-		return;	
-	}
-	
-	internalState( 'homeFound', true );
-	hook( [ 'showhomepage', [
-		'home'	=> $post,
-		'params'=> $params
-	] ] );
-	
-	// Override home content if hook was rendered
-	sendOverride( 'showhomepage' );
-	$links	= config( 'main_links', [], 'json' );
-	staticPage( 'home', '/', $links, $post );
-}
-
-/**
- *  View about page and other custom content
- */
-function showAbout( string $event, array $hook, array $params ) {
-	$path	= $params['tree'] ?? 'main'; // Sub about page or main
-	$apath	= eventRoutePrefix( 'aboutview', 'about' ) . '/' . $path . '.md';
-	$post	= loadStaticPage( $apath );
-	
-	// No about found
-	if ( empty( $post ) ) {
-		sendNotFound();
-	}
-	
-	internalState( 'aboutFound', true );
-	hook( [ 'showaboutpage', [
-		'path'	=> $path,
-		'file'	=> $apath,
-		'about'	=> $post,
-		'params'=> $params
-	] ] );
-	
-	// Override about content if hook was rendered
-	sendOverride( 'showaboutpage' );
-	
-	// Fallback to preset about
-	$links = config( 'about_links', [], 'json' );
-	staticPage( 'about', '/about/' . $path, $links, $post );
-}
-
-/**
- *  Archived posts by date
- */
-function showArchive( string $event, array $hook, array $params ) {
-	if ( internalState( 'homeFound' ) ) {
-		return;
-	}
-	
-	// If full index needs to be reloaded
-	if ( internalState( 'prepareIndex' ) ) {
-		shutdown( 'loadIndex' );
-	}
-	
-	$page	= ( int ) ( $params['page'] ?? 1 );
-	
-	hook( [ 'showarchiveprep', [
-		'params'	=> $params,
-		'page'		=> $page
-	] ] );
-	
-	// Override content if hook already rendered
-	sendOverride( 'showarchiveprep' );
-	
-	$prefix	= '';
-	$s	= '/';
-	$stamp	= null;
-	$date	= [];
-	
-	$slvl	= setting( 'summary_level', \SUMMARY_LEVEL, 'int' );
-	
-	// Full archive
-	if ( empty( $params['year'] ) ) {
-		$posts	= loadPosts( $page, '', false, $slvl );
-		$prefix	= Text::slash_path( pageRoutePath(), true );
-	
-	// Starting from year?
-	} else {
-		// Filter dates
-		$date	= enforceDates( $params );
-		$stamp	= $date[0] . $s;
-		
-		// Including month?
-		if ( !empty( $params['month'] ) ) {
-			// Including day?
-			$stamp	.= 
-			empty( $params['day'] ) ?
-				$date[1] : $date[1] . $s . $date[2];
-		}
-		$stamp	= \trim( $stamp, $s ) . $s;
-		$prefix	= Text::slash_path( pageRoutePath(), true ) . $stamp;
-		$posts	= loadPosts( $page, $stamp, false, $slvl );
-	}
-	
-	hook( [ 'showarchive', [
-		'params'	=> $params,
-		'date'		=> $date,
-		'page'		=> $page,
-		'stamp'		=> $stamp ?? '',
-		'prefix'	=> $prefix
-	] ] );
-	
-	sendOverride( 'showarchive' );
-	
-	// Display archive
-	formatIndex( $prefix, $page, $posts );
 }
 
 /**
@@ -15484,138 +15569,6 @@ function showSearch( string $event, array $hook, array $params ) {
 	
 	// Display search
 	formatIndex( $prefix, $page, collectBody( $res ) );
-}
-
-
-/**
- *  Syndication feed
- */
-function showFeed( string $event, array $hook, array $params ) {
-	if ( internalState( 'prepareIndex' ) ) {
-		loadIndex();
-	}
-	
-	$slvl	= config( 'summary_level', 0, 'int' );
-	$posts	= loadPosts( 1, '', true, $slvl );
-	if ( empty( $posts ) ) {
-		sendNotFound();
-	}
-	
-	$ptitle	= config( 'page_title', config_default_title() );
-	$psub	= config( 'page_sub', config_default_desc() );
-	
-	// Send to render hook
-	hook( [ 'feedrender', [  
-		'title'		=> $ptitle,
-		'subtitle'	=> $psub,
-		'date'		=> [],
-		'posts'		=> $posts
-	] ] );
-	
-	// Send result if hook returned content
-	sendOverride( 'feedrender', true );
-	$req	= Container::instance()->get( 'Request' );
-	$tpl	= [
-		'page_title'	=> $ptitle,
-		'tagline'	=> $psub,
-		'home'		=> $req->origin,
-		'path'		=> $req->url,
-		'date_gen'	=> Util::rfc_date(),
-		'body'		=> \implode( '', $posts )
-	];
-	
-	page_send( 200, render( template( 'tpl_feed' ), $tpl ), true, true );
-}
-
-/**
- *  View single post
- */
-function showPost( string $event, array $hook, array $params ) {
-	if ( internalState( 'prepareIndex' ) ) {
-		loadIndex();
-	}
-	
-	$date	= enforceDates( $params );
-	$title	= '';
-	$s	= '/';
-	$path	= $date[0] . $s .  $date[1] . $s . $date[2] . $s . 
-			\ltrim( $params['slug'] ?? '', $s );
-	
-	// Check publication date
-	$pub		= getPub( $path );
-	if ( !checkPub( $pub ) ) {
-		sendNotFound();
-	}
-	
-	$post	= loadPost( $title, $path );
-	
-	if ( empty( $post ) ) {
-		sendNotFound();
-	}
-	
-	// Related and sibling post settings
-	$sib	= 
-	config( 'show_siblings', 1, 'int' ) 
-		? getSiblings( $path ) : '';
-	
-	$rel	= 
-	config( 'show_related', 1, 'int' ) 
-		? getRelated( $path ) : '';
-	
-	$ptitle	= config( 'page_title', config_default_title() );
-	$psub	= config( 'page_sub', config_default_desc() );
-	
-	// Send to render hook
-	hook( [ 'postrender', [ 
-		'post'		=> $post, 
-		'title'		=> $title,
-		'posttitle'	=> $ptitle,
-		'subtitle'	=> $psub,
-		'path'		=> $path,
-		'siblings'	=> $sib,
-		'related'	=> $rel
-	] ] );
-	
-	// Send result if hook returned content
-	sendOverride( 'postrender' );
-	
-	// Default post render
-	$links		= config( 'main_links', [], 'json' );
-	$mlinks		= setting( 'default_main_links', $links );
-	$heading	= 
-	hook_wrap( 
-		'beforepostpageheading',
-		'afterpostpageheading',
-		template( 'tpl_page_heading' ), [
-			'page_title'	=> $ptitle,
-			'tagline'	=> $psub,
-			
-			// Navigation links
-			'main_links'	=> 
-			renderNavLinks( template( 'tpl_mainnav_wrap' ), $mlinks ),
-			
-			// Search form
-			'search_form'	=> searchForm()
-		] 
-	);
-	
-	$page_t	= 
-	hook_wrap( 
-		'beforepostpage',
-		'afterpostpage',
-		template( 'tpl_full_page' ), [
-			'page_title'	=> $ptitle,
-			'post_title'	=> $title . ' - ' . $ptitle,
-			'lang'		=> config( 'language', config_default_lang() ),
-			'home'		=> pageRoutePath(),
-			'body_before'	=> $heading,
-			'body'		=> $post,
-			'body_after'	=> $sib . $rel . pageFooter()
-		], 
-		true 
-	);
-	
-	page_send( 200, $page_t, true );
 }
 
 
