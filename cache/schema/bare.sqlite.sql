@@ -19,65 +19,12 @@ BEGIN
 		WHERE id = NEW.id;
 END;
 
--- Cache tables
-CREATE TABLE caches (
-	id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
-	cache_id TEXT NOT NULL COLLATE NOCASE, 
-	ttl INTEGER NOT NULL, 
-	content TEXT NOT NULL COLLATE NOCASE, 
-	expires DATETIME DEFAULT NULL,
-	created DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, 
-	updated DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);-- --
-
-CREATE UNIQUE INDEX idx_caches_on_cache_id ON caches ( cache_id ASC );-- --
-CREATE INDEX idx_caches_on_expires ON caches ( expires DESC )
-	WHERE expires IS NOT NULL;-- --
-CREATE INDEX idx_caches_on_created ON caches ( created ASC );-- --
-CREATE INDEX idx_caches_on_updated ON caches ( updated );-- --
-
--- Cache triggers
-CREATE TRIGGER cache_after_insert AFTER INSERT ON caches FOR EACH ROW 
-BEGIN
-	-- Generate expiration
-	UPDATE caches SET 
-		expires = datetime( 
-			( strftime( '%s','now' ) + NEW.ttl ), 
-			'unixepoch' 
-		) WHERE rowid = NEW.rowid;
-	
-	-- Clear expired data
-	DELETE FROM caches WHERE 
-		strftime( '%s', expires ) < 
-		strftime( '%s', updated ) AND expires IS NOT NULL;
-END;-- --
-
--- Change only update period when TTL is empty
-CREATE TRIGGER cache_after_update AFTER UPDATE ON caches FOR EACH ROW 
-WHEN NEW.updated = OLD.updated AND NEW.ttl = 0
-BEGIN
-	UPDATE caches SET updated = CURRENT_TIMESTAMP 
-		WHERE rowid = NEW.rowid;
-END;-- --
-
--- Change expiration period when TTL exists
-CREATE TRIGGER cache_after_update_ttl AFTER UPDATE ON caches FOR EACH ROW 
-WHEN NEW.updated = OLD.updated AND NEW.ttl <> 0
-BEGIN
-	-- Change expiration
-	UPDATE caches SET updated = CURRENT_TIMESTAMP, 
-		expires = datetime( 
-			( strftime( '%s','now' ) + NEW.ttl ), 
-			'unixepoch' 
-		) WHERE rowid = NEW.rowid;
-END;-- --
-
 -- Post content
 CREATE TABLE posts(
 	id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
 	post_path TEXT NOT NULL COLLATE NOCASE,
 	post_view TEXT NOT NULL COLLATE NOCASE,
-	post_bare TEXT NOT NULL COLLATE NOCASE, 
+	post_content TEXT NOT NULL COLLATE NOCASE, 
 	post_summary TEXT DEFAULT '' COLLATE NOCASE, 
 	post_type TEXT DEFAULT '' COLLATE NOCASE, 
 	updated DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -120,51 +67,15 @@ BEGIN
 END;-- --
 
 -- Searching
-CREATE VIRTUAL TABLE post_search 
-	USING fts4( body, tokenize=unicode61 );-- --
-
-CREATE TRIGGER post_insert AFTER INSERT ON posts FOR EACH ROW 
-BEGIN
-	INSERT INTO post_search( docid, body ) 
-		VALUES ( NEW.id, NEW.post_bare );
-END;-- --
+CREATE VIRTUAL TABLE post_search USING fts5(
+	post_id UNINDEXED,
+	title,
+	body,
+	tags,
+	tokenize = 'unicode61 remove_diacritics 2'
+);-- --
 
 CREATE TRIGGER post_before_update BEFORE UPDATE ON posts FOR EACH ROW
 BEGIN
 	DELETE FROM post_tags WHERE post_id = OLD.id;
 END;-- --
-
-CREATE TRIGGER post_update AFTER UPDATE ON posts FOR EACH ROW 
-BEGIN
-	UPDATE post_search SET body = NEW.post_bare 
-		WHERE docid = NEW.id;
-END;-- --
-
-CREATE TRIGGER post_delete BEFORE DELETE ON posts FOR EACH ROW 
-BEGIN
-	DELETE FROM post_search WHERE docid = OLD.id;
-	DELETE FROM post_tags WHERE post_id = OLD.id;
-END;-- --
-
-
--- Post info for sibling posts
-CREATE VIEW post_siblings AS SELECT DISTINCT 
-	p.post_path AS post_path, 
-	( SELECT post_path FROM posts prev
-		WHERE prev.published IS NOT NULL AND
-			strftime( '%s', prev.published ) <= 
-			strftime( '%s', p.published ) 
-			AND prev.post_path IS NOT p.post_path
-			ORDER BY prev.published DESC LIMIT 1 
-	) AS prev_path, 
-	
-	-- Next published sibling
-	( SELECT post_path FROM posts nxt 
-		WHERE nxt.published IS NOT NULL AND 
-			strftime( '%s', nxt.published ) > 
-			strftime( '%s', p.published ) 
-			AND nxt.post_path IS NOT p.post_path
-			ORDER BY nxt.published ASC LIMIT 1 
-	) AS next_path
-	
-	FROM posts p;
