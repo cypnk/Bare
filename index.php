@@ -225,7 +225,7 @@ a:hover{ color: #2c81ba }
 
 ## General page heading
 --- tpl_page_heading ---
-{before_page_heading}
+{hook:page.before_heading}
 <header class="{{heading.classes.heading}}">
 <div class="{{heading.classes.wrap}}">
 {{heading.before}}
@@ -235,24 +235,26 @@ a:hover{ color: #2c81ba }
 <p class="{{heading.classes.tagline}}">{{heading.tagline}}</p>
 {template:tpl_navigation links="{{heading.links}}"}
 <div class="{{heading.classes.search_wrap}}">
-	{template:tpl_search_form search="{{search_form}}"}
+	{hook:page.search_form}
 </div>
 {{heading.after}}
 </div>
-</header>{after_page_heading}
+</header>{hook:page.after_heading}
 
 
 ## Page footer component
 --- tpl_page_footer ---
+{hook:footer.before_block}
 <footer class="{{footer.classes.block}}">
 <div class="{{footer.classes.wrap}}">
 	{hook:nav.footer}
 </div>
-</footer>
+</footer>{hook:footer.after_block}
 
 
 ## Archive and index pagination
 -- tpl_pagination --
+{hook:page.before_pagination}
 <nav class="pagination">
 	{if:prev_page}
 	<a class="prev" href="{{base_url}}/page{{prev_page}}">
@@ -269,11 +271,12 @@ a:hover{ color: #2c81ba }
 	{if:!prev_page && !next_page}
 		<span>{lang:archive:no_more_pages}</span>
 	{endif}
-</nav>
+</nav>{hook:page.after_pagination}
 
 
 ## Next/Previous post pagination on single posts
 -- tpl_nextprev --
+{hook:post.before_nextprev}
 <nav class="post-nav">
 {hook:post.next_prev(post_id="{{post.id}}")}
 
@@ -290,32 +293,32 @@ a:hover{ color: #2c81ba }
 {endif}
 
 {endhook}
-</nav>
+</nav>{hook:post.after_nextprev}
 
 
 
 ## Form anti-XSRF hidden inputs (required on all forms)
 --- tpl_input_xsrf ---
-<input type="hidden" name="nonce" value="{nonce}">
-<input type="hidden" name="token" value="{token}">
-<input type="hidden" name="meta" value="{meta}">
+{if:form.nonce}<input type="hidden" name="nonce" value="{{form.nonce}}">{endif}
+{if:form.nonce}<input type="hidden" name="token" value="{{form.token}}">{endif}
+{if:form.nonce}<input type="hidden" name="meta" value="{{form.meta}}">{endif}
 
 
 ## Search form
 --- tpl_search_form ---
-{before_search_form}<form action="{{search.action}}" 
+{hook:search.before_form}<form action="{{search.action}}" 
 	method="{{search.method}}"
 	class="{{search.classes.form}}">
 	<fieldset class="{{search.classes.fieldset}}">
-{before_search_input}<input type="search" name="find"
-	placeholder="{{search.placeholder}}"
+{hook:search.before_input}<input type="search" name="find"
+	placeholder="{lang:forms:search_placeholder}"
 	class="{{search.classes.input}}"
-	required>{after_search_input}
-{before_search_button}<input type="submit"
+	required>{hook:search.after_input}
+{hook:search.before_button}<input type="submit"
 	class="{{search.classes.button}}"
-	value="{lang:forms:search:button}">{after_search_button}
+	value="{lang:forms:search:button}">{hook:search.after_button}
 	</fieldset>
-</form>{after_search_form}
+</form>{hook:search.after_form}
 
 
 ## No posts to dipsplay
@@ -403,11 +406,10 @@ a:hover{ color: #2c81ba }
 
 ## Post on full listing indexes
 --- tpl_post_index ---
+{hook:index.before_posts}
 {loop:index.posts as post}
     {template:tpl_post_item post="{{post}}"}
-{endloop}
-
-
+{endloop}{hook:index.after_posts}
 
 
 ## Post tag container on index pages
@@ -430,10 +432,6 @@ a:hover{ color: #2c81ba }
 </li>
 
 
-## Standard link on navigation menus
---- tpl_link ---
-<li><a href="{url}">{text}</a></li>
-
 ## Individual post link wrapper on archive indexes
 --- tpl_index_taglink ---
 <li class="{tag_index_item_classes}">
@@ -451,13 +449,23 @@ a:hover{ color: #2c81ba }
 
 
 ## Related posts wrapper on single post views
---- tpl_relatednav ---
-<div class="{related_wrap_classes}">
-	<h3 class="{related_h_classes}">{lang:headings:related}</h3>
-	<nav class="{related_nav_classes}">
-		<ul class="{related_ul_classes}">{links}</ul>
+--- tpl_related_posts ---
+<div class="{{post.classes.related_wrap}}">
+	<h3 class="{{post.classes.related_h}}">{lang:headings:related}</h3>
+	<nav class="{{post.classes.related_nav}}">
+		<ul class="{{post.classes.related_ul}}">
+			{loop:posts as post}
+			<li class="{{post.classes.related_item}}">
+				<a href="{{post.permalink}}" class="{{post.classes.related_link}}">
+					<span class="{{post.classes.related_title}}">{{post.title}}</span>
+					<time datetime="{{post.date_utc}}" class="{{post.classes.related_pub}}">{{post.date_stamp}}</time>
+				</a>
+			</li>
+			{endloop}
+		</ul>
 	</nav>
 </div>
+
 
 ## Index page post listing wrapper
 --- tpl_index_wrap ---
@@ -7497,6 +7505,20 @@ class Template extends Instance {
 	}
 	
 	/**
+	 *  Class placeholder to default class name helper
+	 *  
+	 *  @param array	$classes	Sent class replacements
+	 *  @param array	$keys		Class placeholder keys
+	 */
+	public static function extract_classes( array $classes, array $keys ) : array {
+		$out	= [];
+		foreach ( $keys as $key ) {
+			$out[$key]	= $classes[$key] ?? '';
+		}
+		return $out;
+	}
+	
+	/**
 	 *  Core template processing expressions
 	 *  
 	 *  @param string	$key		Match pattern key
@@ -12727,62 +12749,98 @@ class PageComponentHooks {
 	 *  	'tagline'	=> $site_tagline,
 	 *  	'home'		=> '/',
 	 *  ] );
+	 *  
+	 *  Or in-template:
+	 *  {hook:page.heading}
 	 */
 	#[Hook( name : 'page.heading', priority : 1 )]
 	public function heading( string $event, HookResult $result, array $args ) : HookResult {
-		$heading = $result->data['heading'] ?? [];
+		$heading	= $result->data['heading'] ?? ( $args['heading'] ?? [] );
+		$classes 	= $heading['classes'] ?? ( $args['classes'] ?? [] );
 		
-		$heading = \array_merge( $heading, [
+		$heading	= 
+		\array_merge( $heading, [
 			'title'		=> $args['title']	?? 'Untitled',
 			'tagline'	=> $args['tagline']	?? '',
 			'home'		=> $args['home']	?? '/',
-			'before'	=> $args['before'] 	?? '',
-			'after'		=> $args['after']	?? '',
 			
-			'classes'	=> \array_merge( $heading['classes'] ?? [], [
-				'heading'	=> $args['heading_class']	?? '',
-				'wrap'		=> $args['wrap_class']		?? '',
-				'title'		=> $args['title_class']		?? '',
-				'title_link'	=> $args['title_link_class']	?? '',
-				'tagline'	=> $args['tagline_class']	?? '',
-				'search_wrap'	=> $args['search_wrap_class']	?? ''
-			] )
+			'classes'	=> 
+			Template::extract_classes(
+				$classes,
+				[
+					'heading',
+					'wrap',
+					'title',
+					'title_link',
+					'tagline',
+					'search_wrap'
+				]
+			)
 		] );
-		return $result->with_data([ 'heading' => $heading ] );
+		return $result
+			->with_data( [ 'heading' => $heading ] )
+			->with_template( 'tpl_page_heading' );
 	}
-
-	#[Hook(name: 'page.footer', priority: 50)]
-	public function footer(string $event, HookResult $result, array $args): HookResult {
-		$footer = [
-			'classes' => [
-				'block'	=> $args['footer_block_class'] ?? '',
-				'wrap'	=> $args['footer_wrap_class']  ?? ''
-			]
-		];
-		return $result->with_data(['footer' => $footer]);
+	
+	#[Hook( name : 'page.footer', priority : 1 )]
+	public function footer( string $event, HookResult $result, array $args ) : HookResult {
+		$footer		= $result->data['footer'] ?? ( $args['footer'] [] );
+		$classes	= $footer['classes'] ?? ( $args['classes'] ?? [] );
+		
+		$footer		= 
+		\array_merge( $footer, 
+			'classes'	=> 
+			Template::extract_classes( $classes, [ 'block', 'wrap' ] )
+	 	] );
+		return $result
+			->with_data( [ 'footer' => $footer ] )
+			->with_template( 'tpl_page_footer' );
 	}
 
 	/**
 	 *  @example
-	 *  $result = $this->hooks->run('page.search_form', false, [
+	 *  $result = $this->hooks->run( 'page.search_form', false, [
 	 *  	'action' => '/search'
 	 *  ] );
+	 *  
+	 *  Or in-template:
+	 *  {hook:page.search_form}
 	 */
 	#[Hook( name : 'page.search_form', priority : 1 )]
 	public function search_form(string $event, HookResult $result, array $args): HookResult {
-		$search = [
-			'action'	=> $args['action'] ?? '/',
-			'method'	=> 'get',
-			'placeholder'	=> $args['placeholder'] ?? 'Search...',
-			'classes' => [
-				'form'		=> $args['form_class']		?? '',
-				'fieldset'	=> $args['fieldset_class']	?? '',
-				'input'		=> $args['input_class']		?? '',
-				'button'	=> $args['button_class']	?? ''
-			]
-		];
+		$search		= $result->data['search_form'] ?? ( $args['search_form'] ?? [] );
+		$classes	= $search['classes'] ?? ( $args['classes'] ?? [] );
 		
-		return $result->with_data( [ 'search_form' => $search ] );
+		$search		=
+		\array_merge( $search, [
+			'action'	=> $args['action'] ?? ( $search['action'] ?? '/' ),
+			'method'	=> $args['method'] ?? ( $search['method'] ?? 'get' ),
+			'classes'	=> 
+			Template::extract_classes( $classes, [
+				'form',
+				'fieldset',
+				'input',
+				'button',
+			] )
+		] );
+		
+		return $result
+			->with_data( [ 'search' => $search ] )
+			->with_template( 'tpl_search_form' );
+	}
+	
+	#[Hook( name : 'form.xsrf', priority : 1 )]
+	public function xsrf( string $event, HookResult $result, array $args ) : HookResult {
+		$form	= $result->data['form'] ?? ( $args['form'] ?? [] );
+		
+		// If no XSRF fields exist, output nothing
+		if (
+			empty( $form['nonce'] )	&&
+			empty( $form['token'] )	&&
+			empty( $form['meta'] )
+		) { return $result; }
+		
+		return $result->with_template( 'tpl_input_xsrf' );
 	}
 }
 
@@ -12913,8 +12971,9 @@ class PostRenderHooks {
 		$post['permalink']  = "/post/" . $post['path'];
 		
 		// TODO: Timezone offset
+		$fmt			= $this->config->setting( 'date_format', 'F j, Y' );
 		$post['date_utc']	= date( 'c', \strtotime( $post['published'] ) );
-		$post['date_stamp']	= date('F j, Y', strtotime($post['published']));
+		$post['date_stamp']	= date( $fmt, \strtotime( $post['published'] ) );
 		
 		$read			= ( int ) ( $args['read_time'] ?? 1 );
 		
@@ -12922,20 +12981,17 @@ class PostRenderHooks {
 		$post['read_time']	= \strtr( $prhase, [ '{time}' => $read ] );
 		
 		// Merge CSS classes
+		// TODO: Use Template::extract_classes()
 		$post['classes']	= $result->data['post']['classes'] ?? [];
 		
-		$html			= 
-		$this->templates->render( 'tpl_post', [
-			'post'	=> $post,
-			'tags'	=> $tags
-		] );
-		
-		return $result->with_data( [
-			'post_rendered'	=> true,
-			'post'		=> $post,
-			'tags'		=> $tags,
-			'html'		=> $html
-		] );
+		return $result
+			->with_data( [
+				'post_rendered'	=> true,
+				'post'		=> $post,
+				'tags'		=> $tags,
+				'html'		=> $html
+			] )
+			->with_template( 'tpl_post' );
 	}
 	
 	#[Hook( name : 'post.render_index', priority : 1 )]
@@ -12947,53 +13003,11 @@ class PostRenderHooks {
 		
 		if ( !$posts ) { return $result; }
 		
-		$html	= 
-		$this->templates->render( 'tpl_post_index', [
-			'posts' => $posts
-		] );
-		
-		return $result->with_data( [
-			'index_rendered'	=> true,
-			'html'			=> $html
-		] );
-	}
-	
-	#[Hook( name : 'post.render_archive', priority : 1 )]
-	public function render_archive( string $event, HookResult $result, array $args): HookResult {
-		$posts	= $result->data['archive_posts'] ?? [];
-		
-		$html	= 
-		$this->templates->render( 'tpl_post_archive', [
-			'archive_title'	=> $args['archive_title']	?? '',
-			'year'		=> $args['year']		?? null,
-			'month'		=> $args['month']		?? null,
-			'day'		=> $args['day']			?? null,
-			'archive_posts'	=> $posts
-		] );
-		
-		return $result->with_data( [
-			'archive_rendered'	=> true,
-			'html'			=> $html
-		] );
-	}
-	
-	#[Hook( name : 'post.render_tag_list', priority : 1 )]
-	public function render_tag_list( string $event, HookResult $result, array $args ) : HookResult {
-		$posts	= $result->data['posts_by_tag']	?? [];
-		$slug	= $args['tag']			?? '';
-		
-		$html	=
-	 	$this->templates->render( 'tpl_tag_index', [
-			'tag'	=> $slug,
-			'posts'	=> $posts
-		] );
-		
 		return $result
 			->with_data( [
-				'tag_list_rendered'	=> true,
-				'html'			=> $html
+				'posts' => $posts
 			] )
-			->with_template( 'tpl_archive' );
+			->with_template( 'tpl_post_index' );
 	}
 }
 
@@ -13883,18 +13897,6 @@ function cutSlug( string $path ) : string {
 }
 
 /**
- *  Get published date from path
- *  
- *  @return string
- */
-function getPub( $path ) : string {
-	$path	= \ltrim( $path, '/' );
-	$fr	= cutSlug( $path );
-	
-	return Util::utc( empty( $fr ) ? 'now' : $fr );
-}
-
-/**
  *  Check if publication time is before current time
  *  This function relies on date_default_timezone_set being 'UTC'
  *  
@@ -13951,118 +13953,6 @@ function postCached( $path ) : bool {
 	);
 	
 	return empty( $res ) ? false : true; 
-}
-
-/**
- *  Parse current post's type or send default type
- */
-function extractType( array $find ) : string {
-	static $fmt;
-	$fmt ??= Container::instance()->get( 'Format' );
-	
-	return 
-	Text::lowercase( $fmt->label( 
-		$find['label'] ?? 
-		Container::instance()->get( 'Config' )->setting( 'post_type', \POST_TYPE )
-	) );
-}
-
-/**
- *  Initialize core features and append any hook features
- *  
- *  @return array
- */
-function initPostFeatures( array $post ) : array {
-	static $markers;
-	if ( !isset( $markers ) ) {
-		$markers = getMarkers();
-	}
-	
-	$summ	= $markers[':all'] ?? '(?<all>.+)';
-	$tags	= $markers[':tags'] ?? '(?<tags>[\pL\pN\s_\,\-]{1,255})';
-	$label	= $markers[':label'] ?? '(?<label>[\pL\pN\s_\-]{1,30})';
-	
-	$features	= [
-		'summmary' => [
-			'search'	=> '/^summary\s?\:' . $summ . '/isu',
-			'filter'	=> 'extractSummary'
-		],
-		
-		'tags' => [
-			'search'	=> '/^tags\s?\:' . $tags . '/is',
-			'filter'	=> 'extractTags'
-		],
-		
-		'type' => [
-			'search'	=> '/^type\s?\:' . $label . '/is',
-			'filter'	=> 'extractType'
-		],
-		
-		'meta' => [
-			'search'	=> '/^meta\s?\:' . $label . '/isu',
-			'filter'	=> 'extractMeta'
-		]
-	];
-	
-	// Send feature extraction initialization to hook
-	hook( [ 'postfeatureinit', [ 
-		'post'		=> $post,
-		'features'	=> $features
-	] ] );
-	
-	// Intercept feature extras
-	$sent	= 
-	hook_array( 'postfeatureinit' )['features'] ?? [];
-	
-	return empty( $sent ) ? 
-		$features : \array_merge( $features, $sent );
-}
-
-/**
- *  Core post feature extractor
- *  
- *  @param array	$post	Main post content
- *  @param int		$flines	Feature search number of lines
- *  @return array
- */
-function postFeatures( array &$post, int $flines ) : array {
-	static $features;
-	
-	// Core feature presets: summary and tags
-	if ( !isset( $features ) ) {
-		$features = initPostFeatures( $post );
-	}
-	
-	// Send feature extraction to hook
-	hook( [ 'postfeatures', [ 
-		'post'		=> $post,
-		'features'	=> $features
-	] ] );
-	
-	// Intercept feature extraction, if available
-	$sent	= hook_array( 'postfeatures' );
-	if ( !empty( $sent ) ) {
-		return $sent;
-	}
-	
-	// Default features
-	$found	= [];
-	$filter	= '';
-	foreach( $features as $k => $v ) {
-		$find = 
-		extractFeature( 
-			$post, $v['search'], ( $v['lines'] ?? $flines )
-		);
-		if ( !empty( $find ) ) {
-			$filter		= $v['filter'];
-			$found[$k]	= 
-			( \is_callable( $filter ) ? 
-				$filter( $find ) : $find 
-			) ?? '';
-		}
-	}
-	
-	return $found;
 }
 
 /**
