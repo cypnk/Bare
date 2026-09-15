@@ -12924,7 +12924,7 @@ class NavigationHooks {
 		$has_more	= $result->data['archive_has_more'] ?? false;
 		
 		if ( 'nav.archive.pagination' === $event ) {
-			$base	.= "/archive/$year";
+			$base	.= "/$year";
 			if ( $month ) { $base .= "/$month"; }
 			if ( $day ) { $base .= "/$day"; }
 		}
@@ -13008,6 +13008,721 @@ class PostRenderHooks {
 				'posts' => $posts
 			] )
 			->with_template( 'tpl_post_index' );
+	}
+}
+
+
+/**
+ *  @class Content searching hooks
+ */
+#[HookContainer]
+class PostSearchHooks {
+	
+	/**
+	 *  Content database profile
+	 */
+	private readonly string $db_profile;
+	
+	public const SQL	= [
+	'insert_search'		=>
+		"INSERT INTO post_search ( post_id, title, body, tags )
+		VALUES ( :id, :title, :body, :tags )",
+	
+	'update_search'		=>
+		"UPDATE post_search
+			SET title = :title, body  = :body, tags  = :tags
+			WHERE post_id = :id",
+	
+	'content_search'	=> 
+		'SELECT p.id AS id, p.post_content AS post_content, 
+			GROUP_CONCAT( t.term ) AS terms 
+			FROM posts p
+			LEFT JOIN post_tags pt ON p.id = pt.post_id
+			LEFT JOIN tags t ON pt.tag_slug = t.slug
+			WHERE p.id = :id
+			GROUP BY p.id;',
+	
+	'update_search_tags'	=> 
+		"UPDATE post_search SET tags = :tags WHERE post_id = :id",
+	
+	'delete_search'		=> 
+		"DELETE FROM post_search WHERE post_id = :id",
+	
+	'select_related'	=>
+		"SELECT p.*, ps.title as title, bm25( ps ) AS rank
+			FROM post_search ps
+			JOIN posts p ON ps.rowid = p.id
+			WHERE post_search MATCH :query
+				AND p.id != :id
+				ORDER BY rank
+				LIMIT :limit"
+	];
+	
+	/**
+	 *  Search constructor
+	 *  
+	 *  @param Config		$config		Configuration settings
+	 *  @param Database		$dbh		Content storage
+	 *  @param Language		$lang		Translation and localization
+	 */
+	public function __construct(
+		private readonly Config		$config,
+		private readonly Database	$dbh,
+		private readonly Language	$lang
+	) {
+		$this->db_profile	= 'bare';
+	}
+	
+	#[Hook( name : 'search.insert_post', priority : 1 )]
+	public function insert( string $event, HookResult $result, array $args ) : HookResult {
+		$post = $result->data['post'] ?? null;
+		if ( !$post ) { return $result; }
+		
+		$tags = $result->data['tags'] ?? [];
+		$this->dbh->result_exec(
+			sql	: static::SQL['insert_search'],
+			profile	: $this->db_profile,
+			params : [
+				'id'	=> $post['id'],
+				'title' => $post['title'],
+				'body'	=> $post['post_content'],
+				'tags'	=> \implode( ',', \array_column( $tags, 'slug' ) )
+			]
+		);
+		
+		return $result->with_data( [ 'search_inserted' => true ] );
+	}
+	
+	#[Hook( name : 'search.update_post', priority : 1 )]
+	public function update( string $event, HookResult $result, array $args ) : HookResult {
+		$post = $result->data['post'] ?? null;
+		if ( !$post ) {	return $result;	}
+		
+		$tags = $result->data['tags'] ?? [];
+		
+		$this->dbh->result_exec(
+			sql	: static::SQL['update_search'],
+			profile	: $this->db_profile,
+			params 	: [
+				'id'	=> $post['id'],
+				'title'	=> $post['title'],
+				'body'	=> $post['post_content'],
+				'tags'	=> \implode( ',', \array_column( $tags, 'slug ' ) )
+			]
+		);
+		
+		return $result->with_data( [ 'search_updated' => true ] );
+	}
+	
+	#[Hook( name: 'search.update_tags', priority : 1 )]
+	public function update_tags( string $event, HookResult $result, array $args ) : HookResult {
+		$post = $result->data['post'] ?? null;
+		if ( !$post ) {	return $result;	}
+		
+		$tags = $result->data['tags'] ?? [];
+		
+		$this->dbh->result_exec(
+			sql	: static::SQL['update_search_tags'],
+			profile	: $this->db_profile,
+			params	: [
+				'id'	=> $post['id'],
+				'tags'	=> \implode( ',', \array_column( $tags, 'slug' ) )
+			]
+		);
+		
+		return $result->with_data( [ 'search_tags_updated' => true ] );
+	}
+	
+	#[Hook( name : 'search.delete_post', priority : 1 )]
+	public function delete( string $event, HookResult $result, array $args ) : HookResult {
+		$post = $result->data['post'] ?? null;
+		if ( !$post ) {	return $result;	}
+		
+		// Remove from FTS
+		$this->dbh->result_exec(
+			sql	: static::SQL['delete_search'],
+			profile	: $this->db_profile,
+			params	: [ 'id' => $post['id'] ]
+		);
+		return $result->with_data( [ 'search_deleted' => true ] );
+	}
+	
+	#[Hook( name : 'search.related_posts', priority : 1 ) ]
+	public function related( string $event, HookResult $result, array $args ) : HookResult {
+		$post_id	= $args['params']['post_id'] ?? null;
+		if ( !$post_id ) { return $result; }
+		
+		$rows	= $this->dbh->result_exec(
+			sql	: static::SQL['content_search'],
+			profile	: $this->db_profile,
+			params	: [ 'id' => $post_id ],
+			rtype	: 'results'
+		);
+		
+		if ( !$rows ) { return $result; }
+		$post	= $rows[0];
+		
+		$query	= 
+		$this->lang->filter_common_words( 
+			( $post['terms'] ?? '' ) . 
+			$post['post_content'], false 
+		);
+		
+		$rel	= $this->config->setting( 'related_limit', 5, 'int' );
+		$rows	= 
+		$this->dbh->result_exec(
+			sql	: static::SQL['select_related'],
+			profile	: $this->db_profile,
+			params	: [
+				'query' => $query,
+				'id'	=> $post['id'],
+				'limit'	=> $rel
+			],
+			rtype	: 'results'
+		);
+		
+		if ( !$rows ) { return $result; }
+		
+		$context = [
+			'posts'	=> $rows,
+			'post'	=> [
+				'classes'	=> 
+				Template::extract_classes(
+					$result->data['post']['classes'] ?? [],
+					[
+						'related_wrap',
+						'related_h',
+						'related_nav',
+						'related_ul',
+						'related_item',
+						'related_link',
+						'related_title',
+						'related_pub'
+					]
+				)
+			]
+		];
+		
+		return $result->with_html(
+			$this->registry->render( 'tpl_related_posts', $context )
+		);
+	}
+}
+
+
+/**
+ *  @class Tagging and sorting events
+ */
+#[HookContainer]
+class PostTagHooks {
+	
+	private readonly string $db_profile;
+	
+	public const SQL = [
+	'insert_tag'		=> 
+		"INSERT INTO tags ( slug, term )
+		VALUES ( :slug, :term ) 
+		ON CONFLICT( slug ) DO NOTHING",
+	
+	'insert_post_tag'	=>
+		"INSERT INTO post_tags ( post_id, tag_slug )
+		VALUES ( :post_id, :slug )
+		ON CONFLICT( post_id, tag_slug ) DO NOTHING",
+	
+	'delete_by_tag'	=>
+		"DELETE FROM post_tags WHERE post_id = :post_id AND tag_slug = :slug",
+		
+	'delete_by_post'	=>
+		"DELETE FROM post_tags WHERE post_id = :post_id",
+	
+	'select_by_tag'		=>
+		"SELECT p.*,
+		GROUP_CONCAT( t.slug ) AS tag_slugs,
+		GROUP_CONCAT( t.term ) AS tag_terms
+		
+		FROM posts p
+		JOIN post_tags pt ON p.id = pt.post_id
+		JOIN tags t ON pt.tag_slug = t.slug
+		WHERE pt.tag_slug = :slug
+			GROUP BY p.id
+			ORDER BY p.published DESC"
+	];
+	
+	/**
+	 *  Tag constructor
+	 *  
+	 *  @param Config		$config		Configuration settings
+	 *  @param Database		$dbh		Content storage
+	 */
+	public function __construct(
+		private readonly Config		$config,
+		private readonly Database	$dbh
+	) {
+		$this->db_profile	= 'bare';
+	}
+	
+	private function apply_post_tags( int $post_id, array $tags ) {
+		foreach ( $tags as $tag ) {
+			$slug = Util::slug( $tag );
+			
+			// Insert tag if missing
+			$this->dbh->result_exec(
+				sql	: static::SQL['insert_tag'],
+				profile	: $this->db_profile,
+				params	: [
+					'slug'		=> $slug,
+					'term'		=> $tag
+				]
+			);
+			
+			// Apply tag to post
+			$this->dbh->result_exec(
+				sql	: static::SQL['insert_post_tag'],
+				profile : $this->db_profile,
+				params	: [
+					'post_id'	=> $post_id,
+					'slug'		=> $slug
+				]
+			);
+		}
+	}
+	
+	private function process( string $slugs, string $terms ) : array {
+		$slug_list = \explode( ',', $slugs );
+		$term_list = \explode( ',', $terms );
+		
+		$tags = [];
+		foreach ( $slug_list as $i => $slug ) {
+			if ( '' === $slug ) { continue; }
+			$tags[] = [
+				'slug' => $slug,
+				'term' => $term_list[$i] ?? $slug
+			];
+		}
+		return $tags;
+	}
+	
+	#[Hook( name : 'tag.parse', priority: 1 )]
+	public function parse( string $event, HookResult $result, array $args ) : HookResult {
+		$slugs = $args['tag_slugs'] ?? $result->data['tag_slugs'] ?? '';
+		$terms = $args['tag_terms'] ?? $result->data['tag_terms'] ?? '';
+		
+		if ( !$slugs || !$terms ) { return $result->with_data( [ 'tags' => [] ] ); }
+		
+		$tags	= $this->process( $slugs, $terms );
+		return $result->with_data( [ 'tags' => $tags ] );
+	}
+	
+	#[Hook( name : 'tag.parse_archive', priority : 1 )]
+	public function parse_archive( string $event, HookResult $result, array $args ) : HookResult {
+		$posts	= $result->data['archive_posts'] ?? [];
+		if ( !$posts) { return $result; }
+		
+		foreach ( $posts as &$post ) {
+			$slugs = $post['tag_slugs'] ?? '';
+			$terms = $post['tag_terms'] ?? '';
+			
+			if ( !$slugs ) {
+				$post['tags'] = [];
+				continue;
+			}
+			$post['tags'] = $this->process( $slugs, $terms );
+		}
+		
+		return $result->with_data( [ 'archive_posts' => $posts ] );
+	}
+	
+	#[Hook( name : [ 'tag.apply', 'tags.apply' ], priority : 1 )]
+	public function apply( string $event, HookResult $result, array $args ) : HookResult {
+		$post_id	= $args['params']['post_id'] ?? $result->data['post']['id'] ?? null;
+		$tags		= $args['params']['tags'] ?? $result->data['tags'] ?? [];
+		
+		if ( !$post_id || empty( $tags ) ) { return $result; }
+		
+		$this->apply_post_tags( ( int ) $post_id, ( array ) $tags);
+		
+		return $result;
+	}
+	
+	#[Hook( name : 'tag.remove', priority : 1 )]
+	public function remove( string $event, HookResult $result, array $args ) : HookResult {
+		$post_id	= $args['params']['post_id'] ?? null;
+		$slug		= $args['params']['slug'] ?? null;
+		
+		if ( !$post_id || !$slug ) { return $result; }
+		
+		$this->dbh->result_exec(
+			sql	: static::SQL['delete_by_post'],
+			profile	: $this->db_profile,
+			params	: [
+				'post_id'	=> $post_id,
+				'slug'		=> $slug
+			]
+		);
+		
+		return $result->with_data( [ 'tag_removed' => true ] );
+	}
+	
+	#[Hook( name : 'tag.replace', priority : 1 )]
+	public function replace( string $event, HookResult $result, array $args ) : HookResult {
+		$post_id	= $result->data['post']['id'] ?? null;
+		$new_tags	= $args['params']['tags'] ?? null;
+
+		if ( !$post_id || !$new_tags ) { return $result; }
+		
+		// Remove all existing tags
+		$this->dbh->result_exec(
+			sql	: static::SQL['delete_by_tag'],
+			profile	: $this->db_profile,
+			params	: [ 'post_id' => $post_id ]
+		);
+		
+		// Apply new tags
+		$this->apply_post_tags( $post_id, $new_tags );
+		return $result->with_data( [ 'tags_replaced' => true ] );
+	}
+}
+
+
+/**
+ *  @class Content entry handling
+ */
+#[HookContainer]
+class PostHooks {
+	
+	/**
+	 *  Content database profile
+	 */
+	private readonly string $db_profile;
+	
+	public const SQL = [
+	'select'		=>
+		"SELECT p.*,
+			GROUP_CONCAT(t.slug) AS tag_slugs,
+			GROUP_CONCAT(t.term) AS tag_terms
+			
+		FROM posts p
+		LEFT JOIN post_tags pt ON p.id = pt.post_id
+		LEFT JOIN tags t ON pt.tag_slug = t.slug
+		WHERE p.published IS NOT NULL
+			GROUP BY p.id
+			ORDER BY p.published DESC
+			LIMIT :limit OFFSET :offset;",
+	
+	'select_by_path'	=>
+		"SELECT p.*, 
+		GROUP_CONCAT( t.slug ) AS tag_slugs,
+		GROUP_CONCAT( t.term ) AS tag_terms
+		
+		FROM posts p 
+		LEFT JOIN post_tags pt ON p.id = pt.post_id
+		LEFT JOIN tags t ON pt.tag_slug = t.slug
+		WHERE p.post_path = :path GROUP BY p.id LIMIT 1",
+	
+	'select_next_post'	=>
+		"SELECT id, post_path, title, published 
+		FROM posts 
+		WHERE published > :published
+			ORDER BY published ASC
+			LIMIT 1",
+	
+	'select_prev_post'	=> 
+		"SELECT id, post_path, title, published
+		FROM posts
+		WHERE published < :published
+			ORDER BY published DESC
+			LIMIT 1",
+	
+	'insert_post'		=>
+		"INSERT INTO posts ( post_path, post_content, post_type, published )
+		VALUES ( :path, :content, :type, :published ) 
+		ON CONFLICT( post_path ) 
+		DO UPDATE SET 
+			post_content	= excluded.post_content
+			post_type	= excluded.post_type
+			published	= excluded.published;",
+	
+	'update_post'		=>
+		"UPDATE posts SET
+			post_path	= :path,
+			post_content	= :content,
+			post_type	= :type,
+			published	= :published
+		 WHERE id = :id",
+	
+	'delete_post'		=> "DELETE FROM posts WHERE id = :id",
+	
+	'list_recent'		=>
+		"SELECT * FROM posts
+		WHERE published IS NOT NULL
+		ORDER BY published DESC
+			LIMIT :limit",
+		
+	'archive'		=> 
+		"SELECT p.*,
+			GROUP_CONCAT(t.slug) AS tag_slugs,
+			GROUP_CONCAT(t.term) AS tag_terms 
+			FROM posts p
+			LEFT JOIN post_tags pt ON p.id = pt.post_id
+			LEFT JOIN tags t ON pt.tag_slug = t.slug
+			WHERE {where} p.published IS NOT NULL
+			GROUP BY p.id
+			ORDER BY p.published DESC
+			LIMIT :limit OFFSET :offset"
+	];
+	
+	/**
+	 *  Page constructor
+	 *  
+	 *  @param Config		$config		Configuration settings
+	 *  @param Database		$dbh		Content storage
+	 *  @param HookRegistry		$registry	Event runner
+	 */
+	public function __construct(
+		private readonly Config		$config,
+		private readonly Database	$dbh,
+		private readonly HookRegistry	$registry
+	) {
+		$this->db_profile	= 'bare';
+	}
+	
+	private function select_for_archive( ?int $year, ?int $month, ?int $day ) : string {
+		$where = [];
+		if ( null !== $year ) { $where[]	= "strftime( '%Y', p.published ) = :year"; }
+		if ( null !== $month ) { $where[]	= "strftime( '%m', p.published ) = :month"; }
+		if ( null !== $day ) { $where[]		= "strftime( '%d', p.published ) = :day"; }
+		
+		$sql = \implode( ' AND ', $where );
+		if ( !empty( $sql ) ) { $sql .= ' AND'; }
+		
+		return \strtr( static::SQL['archive'], [ '{where}' => $sql ] );
+	}
+	
+	/**
+	 *  Lookup post by full archive path
+	 */
+	#[Hook( name : 'post.lookup', priority : 10 )]
+	public function lookup( string $event, HookResult $result, array $args ) : HookResult {
+		$path	= $args['path'] ?? null;
+		if ( !$path ) { return $result; }
+		
+		$rows	= 
+		$this->dbh->result_exec(
+			sql	: static::SQL['select_by_path'],
+			profile	: $this->db_profile,
+			params	: [ 'path' => $path ],
+			rtype	: 'results'
+		);
+		
+		if ( empty( $rows ) ) { 
+			return $result->with_data( [ 'post_found' => false ] ); 
+		}
+		
+		$post	= $rows[0];
+		
+		return $result->with_data( [
+			'post_found'	=> true,
+			'post'		=> $post,
+			'tag_slugs'	=> $post['tag_slugs'],
+			'tag_terms'	=> $post['tag_terms'],
+		] );
+	}
+	
+	#[Hook( name : 'post.archive_lookup', priority : 1 )]
+	public function archive_lookup( string $event, HookResult $result, array $args ) : HookResult {
+		$year	= $args['year']		?? null;
+		$month	= $args['month']	?? null;
+		$day	= $args['day']		?? null;
+		$limit	= $args['limit']	?? 10;
+		$page	= $args['page'] 	?? 1;
+		
+		$offset	= ( $page - 1 ) * $limit;
+		$sql	= $this->select_for_archive( $year, $month, $day );
+		$rows	= 
+		$this->dbh->result_exec(
+			sql	: $sql,
+			profile	: $this->db_profile,
+			params	: [
+				'year'		=> $year,
+				'month'		=> $month,
+				'day'		=> $day,
+				'limit'		=> $limit,
+				'offset'	=> $offset
+			],
+			rtype	: 'results'
+		);
+		
+		return $result->with_data( [ 'archive_posts' => $rows ] );
+	}
+	
+	/**
+	 *  New post
+	 */
+	#[Hook( name : 'post.create', priority : 10 )]
+	public function create( string $event, HookResult $result, array $args ): HookResult {
+		$path		= $args['path']		?? null;
+		$content	= $args['content']	?? null;
+		
+		if ( !$path || !$content ) { return $result; }
+		
+		$type		= $args['type']		?? '';
+		$published	= $args['published']	?? null;
+		
+		$id		= 
+		$this->dbh->result_exec(
+			sql	: static::SQL['insert_post'],
+			profile	: $this->db_profile,
+			params	: [
+				'path'		=> $path,
+				'content'	=> $content,
+				'type'		=> $type,
+				'published'	=> $published
+			],
+			rtype	: 'insert'
+		);
+		
+		return $result->with_data( [
+			'post_created'	=> true,
+			'post_id'	=> $id,
+			'post'		=> [
+				'id'		=> $id,
+				'post_path' 	=> $path,
+				'post_type'	=> $type,
+				'post_content'	=> $content,
+				'published' 	=> $published,
+				'title'		=> $args['title'] ?? ''
+			],
+			'tags'		=> $args['tags'] ?? []
+		] );
+	}
+	
+	/**
+	 *  Modify post
+	 */
+	#[Hook( name: 'post.update', priority: 1 )]
+	public function update( string $event, HookResult $result, array $args ) : HookResult {
+		
+		$post		= $result->data['post'] ?? null;
+		if ( !$post ) { return $result; }
+		
+		$path		= $args['path']		?? $post['post_path'];
+		$content	= $args['content']	?? $post['post_content'];
+		$type		= $args['type']		?? $post['post_type'];
+		$published	= $args['published']	?? $post['published'];
+		
+		$this->dbh->result_exec(
+			sql	: static::SQL['update_post'],
+			profile	: $this->db_profile,
+			params	: [
+				'id'		=> $post['id'],
+				'path'		=> $path,
+				'content'	=> $content,
+				'type'		=> $type,
+				'published'	=> $published
+			]
+		);
+		
+		return $result->with_data( [
+			'post_updated'	=> true,
+			'post'		=> [
+				'id'		=> $post['id'],
+				'post_path'	=> $path,
+				'post_type'	=> $type,
+				'post_content'	=> $content,
+				'published'	=> $published,
+				'title'		=> $args['title'] ?? $post['title']
+			],
+			'tags'		=> $args['tags'] ?? $result->data['tags'] ?? []
+		] );
+	}
+	
+	/**
+	 *  Remove post
+	 */
+	#[Hook( name : 'post_delete', priority : 1 )]
+	public function delete( string $event, HookResult $result, array $args ) : HookResult {
+		
+		$post = $result->data['post'] ?? null;
+		if ( !$post ) { return $result; }
+		$post_id	= ( int ) $post['id'];
+		
+		$this->dbh->result_exec(
+			sql	: static::SQL['delete_post'],
+			profile	: $this->db_profile,
+			params	: [ 'id' => $post_id ]
+		);
+		
+		return $result->with_data( [ 'post_deleted' => true, 'post_id' => $post_id ] );
+	}
+	
+	/**
+	 *  Recent posts (front page, feed etc...)
+	 */
+	#[Hook( name : 'post_list_recent', priority : 1 )]
+	public function list_recent( string $event, HookResult $result, array $args ) : HookResult {
+		$limit	= $args['limit'] ?? 10;
+		$rows	= 
+		$this->dbh->result_exec(
+			sql	: static::SQL['list_recent'],
+			profile	: $this->db_profile,
+			params	: [ 'limit' => $limit ],
+			rtype	: 'results'
+		);
+		
+		return $result->with_data( [ 'posts_recent' => $rows ] );
+	}
+	
+	/**
+	 *  Posts by tag
+	 */
+	#[Hook( name : 'post_list_by_tag', priority : 1 )]
+	public function list_by_tag( string $event, HookResult $result, array $args ) : HookResult {
+		$slug	= $args['tag'] ?? null;
+		if ( !$slug ) { return $result; }
+		
+		$rows	= 
+		$this->dbh->result_exec(
+			sql	: static::SQL['select_by_tag'],
+			profile	: $this->db_profile,
+			params	: [ 'slug' => $slug ],
+			rtype	: 'results'
+		);
+		
+		return $result->with_data( [
+			'posts_by_tag' => $rows
+		] );
+	}
+	
+	#[Hook( name : 'post.next_prev', priority : 1 )]
+	public function next_prev(string $event, HookResult $result, array $args): HookResult {
+		$post	= $result->data['post'] ?? null;
+		if ( !$post ) { return $result; }
+		
+		$published = $post['published'];
+		
+		// Previous post
+		$prev = $this->dbh->result_exec(
+			sql	: static::SQL['select_prev_post'],
+			profile	: $this->db_profile,
+			params	: [ 'published' => $published ],
+			rtype	: 'row'
+		);
+		
+		// Next post
+		$next = $this->dbh->result_exec(
+			sql	: static::SQL['select_next_post'],
+			profile	: $this->db_profile,
+			params	: ['published' => $published],
+			rtype	: 'row'
+		);
+		
+		// Nothing to page?
+		if ( !$prev && !$next ) { return $result; }
+		
+		return $result->with_data( [
+			'prev_post' => $prev,
+			'next_post' => $next
+		] );
 	}
 }
 
@@ -13133,224 +13848,6 @@ class Bare {
 		return $result
 			->with_data( $tpl_data )
 			->with_template( 'tpl_index_post' );
-	}
-	
-	/**
-	 *  Content entry discovery and parsing
-	 */
-	
-	/**
-	 *  Process entry extension, defaults to ''.md'
-	 *  
-	 *  @return string
-	 */
-	private function entry_ext() : string {
-		static $ext;
-		$ext		??= '.' . 
-		\ltrim( \strtolower( $this->config->setting( 'entry_ext', 'md' ) ), '.' );
-		
-		return $ext;
-	}
-	
-	/**
-	 *  Load entries
-	 *  
-	 *  @param string	$base	Search directory
-	 *  @return array
-	 */
-	private function entry_files( string $base ) : array {
-		$iterator = Storage::files_as_iterator( $base );
-		if ( empty( $iterator ) ) { return []; }
-		
-		$files	= [];
-		$ext	= $this->entry_ext();
-		$eext	= \ltrim( $ext, '.' );
-		$rext	= '/^.+\.' . $eext  . '$/i';
-		$filter	= 
-		new \CallbackFilterIterator(
-			$iterator,
-			fn( $finfo ) => 
-				$finfo->isFile()	&& 
-				$finfo->getSize() > 0	&& 
-				0 === \strcasecmp( $eext, $finfo->getExtension() )
-		);
-		
-		foreach ( $filter as $finfo ) {
-			$files[] = [
-				'slug'		=> $finfo->getBasename( $ext ),
-				'path'		=> $finfo->getPathname(),
-				'mtime'		=> $finfo->getMTime(),
-			];
-		}
-		
-		return $files;
-	}
-	
-	/**
-	 *  Process metadata from a given line as an array
-	 *  
-	 *  @param string	$line	Raw line entry
-	 *  @param array	$meta	Metadata storage
-	 *  @return			True if this line contained metadata
-	 */
-	private function entry_meta( string $line, array &$meta ) : bool {
-		if ( \str_contains( $line, ':' ) ) { return false; }
-		
-		[ $key, $value ] = \array_map( 'trim', \explode( ':', $line, 2 ) );
-		if ( '' === $key  ) { return false; }
-		
-		$value		??= '';
-		$key		=  \strtolower( $key );
-		
-		if ( isset( $meta[$key] ) ) {
-			$meta[$key]	= ( array ) $meta[$key];
-			$meta[$key][]	= $value;
-			return true;
-		}
-		
-		$meta[$key]	= $value;
-		return true;
-	}
-	
-	/**
-	 *  Load file information, including metadata
-	 *  
-	 *  @param string	$path	Full file location
-	 *  @return array
-	 */
-	private function entry_import( string $path ) : ?array {
-		if ( @!\is_readable( $path ) ) { return null; }
-		
-		$raw	= @\file( $path, \FILE_IGNORE_NEW_LINES );
-		if ( false === $raw ) { return null; }
-		
-		$raw	= Text::trim_lines( $raw );
-		if ( empty( $raw ) ) { return null; }
-		
-		$meta	= [];
-		$start	= 0;	// Body start
-		
-		$lines	= ( int ) $this->config->setting( 'entry_meta_lines', 6 );
-		$rcount	= count( $raw );
-		$mcount	= \min( $lines, $rcount );
-		
-		// Top metadata
-		for ( $i = 1; $i < $mcount; $i++ ) {
-			$line	= \trim( $raw[$i] );
-			if ( '' === $line ) {
-				$start = $i + 1;
-				break;
-			}
-			
-			if ( $this->entry_meta( $line, $meta ) ) { continue; }
-			
-			$start = $i;
-			break;
-		}
-		
-		// Bottom metadata
-		$cut	= $rcount;
-		for ( $i = $rcount - 1; $i >= $start; $i-- ) {
-			$line	= \trim( $raw[$i] );
-			if ( '' === $line ) { continue; }
-			
-			if ( $this->entry_meta( $line, $meta ) ) {
-				$cut = $i;
-				continue;
-			}
-			
-			break;
-		}
-		
-		// Ensure title exists at least as the first line, if not explicitly set
-		if ( !isset( $meta['title'] ) ) {
-			if ( isset( $raw[0] ) ) {
-				$meta['title']	= \trim( \array_shift( $raw ) );
-				$start		= \max( 0, $start - 1 );
-				$cut		= \max( 0, $cut - 1 );
-			} else {
-				$meta['title'] = 
-				$this->language->term( 'untitled', '(Untitled)' );
-			}
-		}
-		
-		// Path as slug
-		$meta['slug']	= \pathinfo( $path, \PATHINFO_FILENAME );
-
-		$text		= \array_slice( $raw, $start, $cut - $start );
-		$text		= Text::trim_lines( $text );
-		$body		= \implode( "\n", $text );
-		
-		return [ 'meta' => $meta, 'body' => $body ];
-	}
-	
-	/**
-	 *  Post stamp date formatting helper
-	 *  
-	 *  @param array	$post	Populated stamp in year, month, day format
-	 */
-	private function entry_date( array $post ) : \DateTime {
-		return new \DateTime( "{$post['year']}-{$post['month']}-{$post['day']} 00:00:00" );
-	}
-	
-	/**
-	 *  Paged entry index with detailed info
-	 *  
-	 *  @param string	$dir	Search directory
-	 *  @param DateTime	$start	Starting date for archive
-	 *  @param DateTime	$end	Ending date for archive
-	 *  @param int		$page	Current page index, defaults to 1
-	 *  @param int		$limit	Maximum number of files
-	 *  @return array
-	 */
-	private function entry_index( string $dir, \DateTime $start, \DateTime $end, int $page, int $limit ) : array {
-		$files	= $this->entry_files( $dir );
-		if ( empty( $files ) ) { 
-			return [
-				'entries'	=> [],
-				'total_entries'	=> 0,
-				'total_pages'	=> 1,
-			]; 
-		}
-
-		$files	= 
-		\array_filter(
-			$files,
-			fn( $p ) => $this->entry_date( $p ) >= $start && $this->entry_date( $p ) < $end
-		);
-		
-		// Nothing in this date range?
-		if ( empty( $files ) ) {
-			return [
-				'entries'	=> [],
-				'total_entries'	=> 0,
-				'total_pages'	=> 1,
-			];
-		}
-		
-		// Sort newest -> oldest
-		usort( $files, fn( $a, $b ) => $b['mtime'] <=> $a['mtime'] );
-		
-		$page	= \min( 1, $page );
-		$total	= count( $files );
-		$pcount	= \max( 1, ( int ) \ceil( $total / $limit ) );
-		
-		// Paginate
-		$offset	= ( $page - 1 ) * $limit;
-		$slice	= \array_slice( $files, $offset, $limit );
-		
-		// Load only the entries needed for this page
-		$entries = 
-		\array_values( \array_filter(
-			\array_map( fn( $f ) => $this->entry_import( $f['path'] ), $slice ),
-			fn( $e ) => $e !== null
-		) );
-		
-		return [
-			'entries'	=> $entries,
-			'total_entries'	=> $total,
-			'total_pages'	=> $pcount,
-		];
 	}
 	
 	#[Route( pattern : '/{year:int}/{month:int}/{day:int}/page{page:int}?', method : 'get' )]
@@ -13718,146 +14215,6 @@ function filterDir( $path, ?string $root = null ) {
 }
 
 /**
- *  Reset currently stored post in cache
- */
-function refreshPost(
-	string		$path, 
-	string		$summ, 
-	string		$type, 
-	string		$out, 
-	string		$pub, 
-	array		$tags, 
-	int		$mtime 
-) {
-	$db		= db_get( 'bare' );
-	// Post delete statement
-	$dstm		= 
-	db_stmt( $db, 'DELETE FROM posts WHERE post_path = :path' );
-	
-	// Post insertion statement
-	$pstm		= 
-	db_stmt( $db, 
-		"INSERT OR IGNORE INTO posts( 
-			post_path, post_view, post_bare, post_summary, 
-			post_type, updated, published 
-		) 
-		VALUES ( :path, :pview, :bare, :summary, :type, :updated, :pub );" 
-	);
-	
-	// Select post statement
-	$sstm		=
-	db_stmt( $db, 'SELECT id FROM posts WHERE post_path = :perm LIMIT 1;' );
-	
-	// Post tag association statement
-	$tstm		= 
-	db_stmt( $db, 
-		"INSERT OR IGNORE INTO post_tags( post_id, tag_slug ) 
-		VALUES ( :id, :tag );"
-	);
-	
-	// Tag insertion statement
-	$istm		= 
-	db_stmt( $db, 
-		"INSERT OR IGNORE INTO tags( slug, term ) 
-		VALUES ( :slug, :term );" 
-	);
-	
-	
-	if ( $db->beginTransaction() ) {
-		// Carry out delete
-		$dstm->execute( [':path' => $path ] );
-		$dstm->closeCursor();
-		
-		// Insert post again
-		insertPost( $pstm, $path, $summ, $type, $out, $pub, $mtime );
-		
-		// Add any new tags
-		insertTags( $istm, $tags );
-		
-		// Apply tags if they've changed
-		applyTags( $sstm, $tstm, $path, $tags );
-		
-		$db->commit();
-	} else {
-		shutdown(
-			'logError',
-			'Error starting DB transaction in refreshPost()'
-		);
-	}
-}
-
-/**
- *  Get single post data
- *  
- *  @param stirng	$title		Post title (first line)
- *  @param string	$path		Post publication permalink
- *  @param bool		$nocache	Don't cache this post
- *  @param string	$custom		Custom post type extension
- *  @return string
- */
-function loadPost(
-	string	&$title,
-	string	$path, 
-	bool	$nocache	= false,
-	string	$custom		= ''
-) {
-	$title	= '';
-	$summ	= '';
-	$type	= '';
-	$rtime	= 0;
-	$ext	= empty( $custom ) ? '.md' : '.' . $custom;
-	$ppath	= config( 'post_dir', Storage::base() ) . $path . $ext;
-	
-	$data	= loadText( $ppath );
-	
-	if ( empty( $data ) ) {
-		return '';
-	}
-	
-	$pub	= getPub( $path );
-	$fline	= setting( 'feature_lines', \FEATURE_LINES, 'int' );
-	$tpl	= template( 'tpl_post' );
-	hook( [ 'formatpostprep', [ 
-		'feed'		=> false, 
-		'template'	=> $tpl,
-		'fline'		=> $fline,
-		'nocache'	=> $nocache,
-		'custom'	=> $custom
-	] ] );
-	
-	$tags	= [];
-	$out	= 
-	formatPost( $title, $tags, $summ, $type, $rtime, $data, $path, $tpl, 0, 
-		$fline, false, $custom );
-	
-	// If index has not been run before this function was called...
-	if ( !internalState( 'indexRun' ) && !$nocache ) {
-		$mtime	= \filemtime( $ppath );
-		
-		// filemtime() failed?
-		if ( false === $mtime ) {
-			if ( !postCached( $path ) ) {
-				shutdown( 'loadIndex' );
-			}
-			return $out;
-		}
-		
-		// If post was modified since it's pub date...
-		if ( postModified( $path, $mtime ) ) {
-			$pub	= getPub( $path );
-			shutdown( 
-				'refreshPost', 
-				[ $path, $summ, $type, $out, $pub, $tags, $mtime ]
-			);
-		} elseif ( !postCached( $path ) ) {
-			shutdown( 'loadIndex' );
-		}
-	}
-	
-	return $out;
-}
-
-/**
  *  Get timezone offset from currently configured timezone 
  *  or default to 'America/New_York'
  *  
@@ -13913,720 +14270,6 @@ function checkPub( $pub ) : bool {
 	}
 	
 	return false;
-}
-
-/**
- *  Check if post was modified after its publish time
- *  
- *  @return bool
- */
-function postModified( $path, $mtime ) : bool {
-	$res = 
-	db_result_exec( 
-		"SELECT updated FROM posts 
-			WHERE post_path = :path", 
-		'bare',
-		[ ':path' => Text::slash_path( $path ) ]
-	);
-	
-	if ( empty( $res ) ) {
-		return true;
-	}
-	
-	// Remove fine resolution issues
-	$ft = \strtotime( Util::utc( $res[0]['updated'] ) );
-	$mt = \strtotime( Util::utc( $mtime ) );
-	
-	return ( $mt > $ft ) ? false : true;
-}
-
-/**
- *  Check if post exists in cache
- */
-function postCached( $path ) : bool {
-	$res = 
-	db_result_exec( 
-		"SELECT id FROM posts WHERE post_path = :path
-			LIMIT 1;", 
-		'bare',
-		[ ':path' => Text::slash_path( $path ) ]
-	);
-	
-	return empty( $res ) ? false : true; 
-}
-
-/**
- *  Insert formatted tags into cache
- */
-function insertTags( \PDOStatement $stm, array $tags ) : bool {
-	$st = false;
-	foreach( $tags as $pair ) {
-		$st	= 
-		$stm->execute( [ 
-			':slug' => $pair['slug'], 
-			':term' => $pair['term'] 
-		] ) || $st;
-	}
-	
-	$stm->closeCursor();
-	return $st;
-}
-
-/**
- *  Associate post with given tags
- */
-function applyTags( 
-	\PDOStatement	$sstm, 
-	\PDOStatement	$tstm, 
-	string		$perm, 
-	array		$tags 
-) : bool {
-	$id = 0;
-	
-	if ( $sstm->execute( [ ':perm' => $perm ] ) ) {
-		$res	= $sstm->fetchAll();
-		$sstm->closeCursor();
-		
-		$id	= ( int ) ( $res[0]['id'] ?? 0 );
-	} else { 
-		return false; 
-	}
-	
-	if ( empty( $id ) ) {
-		return false;
-	}
-	
-	$st = false;
-	foreach( $tags as $pair ) {
-		$st	= 
-		$tstm->execute( [
-			':id'	=> $id,
-			':tag'	=> $pair['slug']
-		] ) || $st;
-	}
-	$tstm->closeCursor();
-	
-	return $st;
-}
-
-
-/**
- *  Check if this is a post file (ends in ".md")
- */
-function isPost( $file, string $custom = '' ) : bool {
-	// Skip directories
-	if ( $file->isDir() ) {
-		return false;
-	}
-	if ( $ext = $file->getExtension() ) {
-		return empty( $custom ) ? 
-			( 0 == \strcasecmp( $ext, 'md' ) ) : 
-			( 0 == \strcasecmp( $ext, $custom ) );
-	}
-	return false;	
-}
-
-/**
- *  Load all published posts on file and extract properties
- *  
- *  @param int		$page	Current page index
- *  @param string	$prefix	Link prefix
- *  @param bool		$feed	Specify if this is a syndication feed
- *  @param int		$slvl	Summary display level
- *  @param bool		$igpub	Ignore published date check
- *  @param string	$custom	Custom post type
- *  @return array
- */
-function loadPosts(
-	int	$page	= 1,
-	string	$prefix	= '',
-	bool	$feed	= false,
-	int	$slvl	= 0,
-	bool	$igpub	= false, 
-	string	$custom	= ''
-) : array {
-	$it	= getPosts( $prefix );
-	if ( empty( $it ) ) {
-		return [];
-	}
-	
-	$i	= 0;
-	$posts	= [];
-	
-	// Pagination prep
-	$plimit	= setting( 'page_limit', \PAGE_LIMIT, 'int' );
-	$start	= ( $page - 1 ) * $plimit;
-	$end	= $start + $plimit;
-	
-	$title	= '';
-	$tpl	= $feed ? template( 'tpl_item' ) : template( 'tpl_index_post' );
-	$fline	= setting( 'feature_lines', \FEATURE_LINES, 'int' );
-	
-	hook( [ 'formatpostprep', [ 
-		'feed'		=> $feed, 
-		'template'	=> $tpl
-	] ] );
-	
-	// Find the about view path to skip
-	$about	= '/' . eventRoutePrefix( 'aboutview', 'about' ) . '/';
-	
-	// Find home path to skip
-	$pdir	= config( 'post_dir', Storage::base() );
-	$home	= $pdir . 'home.md';
-	$pbc	= false;
-	
-	foreach( $it as $file ) {
-		
-		// Check if it's a post
-		if ( !isPost( $file, $custom ) ) {
-			continue;
-		}
-		
-		// We're at the offset limit
-		if ( $i >= $end ) {
-			break;
-		}
-		$raw		= $file->getRealPath();
-		$path		= filterDir( $raw );
-		if ( empty( $path ) ) {
-			continue;
-		}
-		
-		// Skip homepage
-		if ( false !== strpos( $raw, $home ) ) {
-			continue;
-		}
-		
-		// Skip about page(s)
-		if ( false !== strpos( $raw, $about ) ) {
-			continue;
-		}
-		
-		$pub		= getPub( $path );
-		$pbc		= checkPub( $pub ) || $igpub;
-		
-		// We're below offset
-		if ( $i >= $start && $pbc ) {
-			$data		= loadText( $raw );
-			if ( empty( $data ) || false === $data ) {
-				continue;
-			}
-			
-			$summ		= '';
-			$tags		= [];
-			$type		= '';
-			$rtime		= 0;
-			$posts[$path]	= 
-			formatPost( 
-				$title, $tags, $summ, $type, $rtime, $data, 
-				$path, $tpl, $slvl, $fline, false, $custom
-			);
-		}
-		
-		// Increment number of entries if published
-		if ( $pbc ) {
-			$i++;
-		}
-	}
-	return $posts;
-}
-
-/**
- *  Insert post data into cache database using given statement 
- *  
- *  @param PDOStatement $pstm		PDO SQLite statement
- *  @param string	$path		Post permalink
- *  @param string	$summ		Summary or abstract
- *  @param string	$type		Post render type
- *  @param string	$out		Formatted post data
- *  @param string	$pub		Post publication date
- *  @param int		$mtime		File modified time
- *  @return bool			True on success
- */
-function insertPost(
-	\PDOStatement	$pstm, 
-	string		$path, 
-	string		$summ,
-	string		$type, 
-	string		$out, 
-	string		$pub, 
-	int		$mtime 
-) : bool {
-	$params = [
-		':path'		=> Text::slash_path( $path ), 
-		':pview'	=> $out, 
-		':bare'		=> \strip_tags( $out ), 
-		':summary'	=> $summ, 
-		':type'		=> $type,		
-		':updated'	=> Util::utc( $mtime ), 
-		':pub'		=> $pub
-	];
-	
-	if ( $pstm->execute( $params ) ) {
-		$pstm->closeCursor();
-		return true;
-	}
-	$pstm->closeCursor();
-	shutdown( 'logError', 'Error inserting post ' . $path );
-	return false;
-}
-
-/**
- *  Set rendering mode to regular post or 
- *  
- *  @param bool	$feed	Rendering mode is RSS feed if true (defaults to false)
- *  @return bool
- */
-function postIsFeed( bool $feed = false ) : bool {
-	static $st;
-	if ( isset( $st ) ) {
-		return $st;
-	}
-	
-	$st = $feed;
-	return $st;	
-}
-
-/**
- *  Prepare posts for rendering by setting render mode
- */
-function formatPostPrep( string $event, array $hook, array $params ) {
-	postIsFeed( ( bool ) ( $params['feed'] ?? false ) );
-}
-
-/**
- *  Load all published posts into database cache
- *  
- *  @param int		$start	Return starting page index
- *  @param int		$limit	Maximum number of posts to return
- *  @param bool		$igpub	Ignore publish date
- *  @param string	$custom	Custom post type
- *  @return array
- */
-function loadIndex(
-	int	$start	= 0, 
-	int	$limit	= 0,
-	bool	$igpub	= false, 
-	string	$custom	= ''
-) : array {
-	$it	= getPosts();
-	if ( empty( $it ) ) {
-		return [];
-	}
-	$lastDir	= '';
-	$posts		= [];
-	
-	// Prepare cache insertion for tags
-	$db		= db_get( 'bare' );
-	
-	// Tag insertion statement
-	$istm		= 
-	db_stmt( $db, 
-	"INSERT OR IGNORE INTO tags( slug, term ) 
-		VALUES ( :slug, :term );" 
-	);
-	
-	// Post insertion statement
-	$pstm		= 
-	db_stmt( $db, 
-		"INSERT OR IGNORE INTO posts( 
-			post_path, post_view, post_bare, post_summary, 
-			post_type, updated, published 
-		) 
-		VALUES ( :path, :pview, :bare, :summary, :type, :updated, :pub );" 
-	);
-	
-	// Select post statement
-	$sstm		=
-	db_stmt( $db, 
-		"SELECT id FROM posts WHERE post_path = :perm LIMIT 1;"
-	);
-	
-	// Post tag association statement
-	$tstm		= 
-	db_stmt( $db, 
-		"REPLACE INTO post_tags( post_id, tag_slug ) 
-		VALUES ( :id, :tag );"
-	);
-	
-	// Returns are limited by page and index?
-	$limited	= ( $limit > 0 ) ? true : false;
-	$i		= 0;
-	$j		= 0;
-	
-	$fline		= setting( 'feature_lines', \FEATURE_LINES, 'int' );
-	$tpl		= template( 'tpl_post' );
-	
-	// Find the about view path to skip
-	$about	= '/' . eventRoutePrefix( 'aboutview', 'about' ) .'/';
-	
-	
-	if ( $db->beginTransaction() ) {
-		// Success
-	} else {
-		logError( 'Error starting DB transaction in loadIndex()' );
-		die();
-	}
-	
-	foreach( $it as $file ) {
-		$raw	= $file->getRealPath();
-		$path	= filterDir( $raw );
-		if ( empty( $path ) ) {
-			continue;
-		}
-		
-		// Skip about page(s)
-		if ( false !== strpos( $raw, $about ) ) {
-			continue;
-		}
-		
-		// Already added?
-		if ( \array_key_exists( $path, $posts ) ) {
-			continue;
-		}
-		
-		// Check if it's a post
-		if ( !isPost( $file, $custom ) ) {
-			continue;
-		}
-		
-		// Not in published range?
-		$pub		= getPub( $path );
-		if ( !checkPub( $pub ) && !$igpub ) {
-			continue;
-		}
-		
-		// No post content?
-		$post		= loadText( $raw );
-		if ( empty( $post ) || false == $post ) {
-			continue;
-		}
-		
-		// Create archive directory (by year)
-		$lastDir	= \ltrim( $path, '/' );
-		$lastDir	= 
-		( false === \strpos( $lastDir, '/' ) ) ? 
-			$lastDir : \substr( $lastDir, 0, \strpos( $lastDir, '/' ) );
-		
-		if ( !isset( $posts[$lastDir] ) ) {
-			$posts[$lastDir]	= [];
-		}
-		
-		// Updated date
-		$mtime		= \filemtime( $raw );
-		if ( false === $mtime ) {
-			$mtime = time();
-		}
-			
-		$summ		= '';
-		$tags		= [];
-		$type		= '';
-		$rtime		= 0;
-		
-		// Apply metadata
-		metadata( $title, $perm, $pub, $post, $path );
-		
-		// Load formatted and process features
-		$out		= 
-		formatPost( 
-			$title, $tags, $summ, $type, $rtime, $post, 
-			$path, $tpl, 0, $fline, true, $custom
-		);
-		
-		// Arrange index for presentation
-		
-		// Limited index?
-		if ( $limited ) {
-			if ( $i >= $start && $j <= $limit ) {
-				$posts[$lastDir][] = 
-				formatMeta( $title, $type, $pub, $path, $rtime, $tags, 
-					true, $custom );
-				$j++;
-			}
-		
-		// Full index?
-		} else {
-			$posts[$lastDir][] = 
-			formatMeta( $title, $type, $pub, $path, $rtime, $tags, 
-				true, $custom );
-		}
-		
-		// Create tags and cache page info
-		insertPost( $pstm, $perm, $summ, $type, $out, $pub, $mtime );
-		insertTags( $istm, $tags );
-		applyTags( $sstm, $tstm, $perm, $tags );
-		
-		$i++;
-	}
-	
-	// Commit new posts, new tags, or post-tag relationships
-	$db->commit();
-	
-	// Cleanup
-	$istm	= null;
-	$pstm	= null;
-	$sstm	= null;
-	$tstm	= null;
-	
-	internalState( 'indexRun', true );
-	return \array_filter( $posts );
-}
-
-/**
- *  Extract and filter metadata
- */
-function metadata( &$title, &$perm, $pub, $post, $path ) {
-	static $fmt;
-	$fmt	??= Container::instance()->get( 'Format' );
-	
-	// Get the title from the first line
-	$title	= $fmt->title( \array_shift( $post ) );
-	
-	// Convert pubdate and slug to permalink
-	$perm	= dateSlug( \basename( $path ), $pub );
-}
-
-/**
- *  Apply tag template
- */
-function formatTags( array $tags, bool $index = false ) : string {
-	// Render plugin installed?
-	hook( [ 'formattags', [ 
-		'tags'	=> $tags,
-		'index'	=> $index
-	] ] );
-	$html	= hook_html( 'formattags' );
-	if ( !empty( $html ) ) {
-		return $html;
-	}
-	
-	// No tags in this post?
-	if ( empty( $tags ) ) {
-		return '';
-	}
-	
-	$out	= '';
-	$r	= getRoot();
-	$ttpl	= $index ? template( 'tpl_index_taglink' ) : template( 'tpl_taglink' );
-	$wtpl	= $index ? template( 'tpl_index_tagwrap' ) : template( 'tpl_tagwrap' );
-	foreach( $tags as $t ) {
-		$out .= 
-		render( 
-			$ttpl, 
-			[
-				'url'	=> $r . 'tags/' . $t['slug'],
-				'text'	=> $t['term']
-			] 
-		);
-	}
-	
-	return render( $wtpl, [ 'tags' => $out ] );
-}
-
-/**
- *  Checks if the given post type will have its read time calculated
- *  
- *  @param string	$type	Post content type, default should be READTIME_TYPES
- *  @return bool
- */
-function hasReadTime( string $type ) : bool {
-	static $rtypes;
-	if ( !isset( $rtypes ) ) {
-		$rtt		= setting( 'readtime_types', \READTIME_TYPES );
-		$default	= Util::trimmed_list( $rtt, true );
-		
-		// Send to hook for additional types
-		hook( [ 'hasreadtime', [ 'types' => $default ] ] );
-		
-		$rtypes		= 
-		hook_array( 'hasreadtime' )['types'] ?? $default;
-	}
-	
-	return \in_array( $type, $rtypes, true );
-}
-
-/**
- *  Apply post data to template placeholders
- */
-
-/**
- *  Apply post data to template placeholders
- *  
- *  @param string	$title		Formatted post title
- *  @param string	$type		Post content type, defaults to POST_TYPE
- *  @param string	$pub		Publication datetime stamp
- *  @param string	$path		Post permalink and URL slug
- *  @param int		rtime		Reading time in minutes
- *  @param bool		$index		Post formatting should match an index listing if true
- *  @param string	$custom		Custom post type extension (without .)
- *  @return array
- *  
- */
-function formatMeta( 
-	string	$title,
-	string	$type,
-	string	$pub, 
-	string	$path, 
-	int	$rtime, 
-	array	$tags		= [], 
-	bool	$index		= false, 
-	string	$custom		= '' 
-) : array {
-	hook( [ 'formatmeta', [ 
-		'type'		=> $type, 
-		'title'		=> $title, 
-		'published'	=> $pub, 
-		'path'		=> $path, 
-		'readtime'	=> $rtime,
-		'tags'		=> $tags,
-		'index'		=> $index,
-		'custom'	=> $custom
-	] ] );
-	
-	$sent	= hook_array( 'formatmeta' );
-	if (  !empty( $sent ) ) {
-		return $sent;
-	}
-	
-	// Individual customization hooks
-	hook( [ 'formattitle',		[ 'title'	=> $title ] ] );
-	hook( [ 'formatpublished',	[ 'pub'		=> $pub ] ] );
-	
-	// Format read time, if appropriate
-	$read	= 
-	hasReadTime( $type ) ? 
-		hook_wrap( 
-			'beforereadtime',
-			'afterreadtime',
-			template( 'tpl_read_time' ), 
-			[ 'time' => $rtime ]
-		) : '';
-	hook( [ 'formatreadtime',	[ 'read'	=> $read ] ] );
-	
-	return [
-		'title'		=> hook_string( 'formattitle', $title ),
-		'date_utc'	=> $pub,
-		'date_rfc'	=> Util::rfc_date( $pub ),
-		'date_stamp'	=> hook_string( 'formatpublished', dateNice( $pub ) ),
-		'read_time'	=> hook_string( 'formatreadtime', $read ),
-		'tags'		=> formatTags( $tags, $index ),
-		'permalink'	=> 
-		Container::instance()->get( 'Request' )->origin . dateSlug( \basename( $path ), $pub )
-	];
-}
-
-/**
- *  Apply post template, if post exists and published
- *  
- *  @param string	$title		Formatted post title to send back
- *  @param array	$tags		Filtered category tags
- *  @param string	$summ		Post summary as HTML
- *  @param string	$type		Post content type, defaults to POST_TYPE
- *  @param int		$rtime		Reading time in minutes
- *  @param array	$post		Post content, after features extracted, as an array of lines
- *  @param string	$path		Post permalink including page slug
- *  @param string	$tpl		Display template used to format this post
- *  @param int		$slvl		Summary and post body display level
- *  @param int		$fline		Number of lines to search for features in this post
- *  @param bool		$index		This post is formatted for display on an index if true
- *  @param string	$custom		Custom post type which will be used as its extension
- *  @return string
- */
-function formatPost(
-	string	&$title,
-	array	&$tags,
-	string	&$summ,
-	string	&$type, 
-	int	&$rtime, 
-	array	$post,
-	string	$path,
-	string	$tpl,
-	int	$slvl,
-	int	$fline,
-	bool	$index		= false,
-	string	$custom		= ''
-) : string {
-	static $lang_sets;
-	
-	// Check for post validity
-	if ( count( $post ) < 3 ) {
-		return '';
-	}
-	$pub	= getPub( $path );
-	
-	// Process features
-	$feat	= postFeatures( $post, $fline );
-	
-	// Core features
-	$tags	= $feat['tags'] ?? [];
-	$summ	= $feat['summary'] ?? '';
-	$type	= $feat['type'] ?? \POST_TYPE;
-	$meta	= $feat['meta'] ?? [];
-	
-	// Apply metadata
-	metadata( $title, $perm, $pub, $post, $path );
-	
-	// Everything else after the first line is the body
-	$post	= \array_slice( $post, 1 );
-	$body	= 
-	format_body( 
-		value		: \implode( "\n", $post ), 
-		prefix		: pageRoutePath(),
-		use_fmt		: true,
-		override	: hook_array( 'markdownfilter' )['filters'] ?? null,
-		custom		: hook_array( 'hostedembeds', [] )['hosted'] ?? null
-	);
-	
-	// Calculate read time, if appropriate, from formatted body
-	if ( !isset( $lang_sets ) ) {
-		$lang_sets	= config( 'lang_read_times', [] );
-		hook( [ 'readingtime', [ 'sets' => $lang_sets ] ] );
-	}
-	$rtime	= hasReadTime( $type ) ? language_read_time( $body, $lang_sets ) : 0;
-	
-	hook( [ 'formatpost', [ 
-		'type'		=> $type,	// Post type
-		'title'		=> $title,	// Post main title
-		'tags'		=> $tags,	// Array of tags
-		'permalink'	=> $perm,	// Permalink
-		'published'	=> $pub,	// Publish date
-		'readtime'	=> $rtime,	// Estimated reading time
-		'summary'	=> $summ,	// Formatted post summary
-		'body'		=> $body,	// Formatted post body
-		'slevel'	=> $slvl,	// Summary level
-		'features'	=> $feat,	// Any extra features
-		'fline'		=> $fline,	// Feature search lines
-		'meta'		=> $meta,	// Custom metadata
-		'index'		=> $index,	// Post being rendered on archive index
-		'template'	=> $tpl,	// Given template
-		'custom'	=> $custom	// Custom post type
-	] ] ) ;
-	
-	$html	= hook_html( 'formatpost' );
-	
-	// If the hook rendered this post, send it back
-	if ( !empty( $html ) ) {
-		return $html;
-	}
-	
-	// Format metadata
-	$data		= 
-	formatMeta( $title, $type, $pub, $perm, $rtime, $tags, $index, $custom );
-	
-	switch( $slvl ) {
-		case 1:
-			$data['body'] = empty( $summ ) ? $body : $summ;
-			break;
-			
-		case 2:
-			$data['body'] = $summ;
-			break;
-			
-		default: 
-			$data['body'] = $body;
-	}
-	
-	return render( $tpl, $data );
 }
 
 /**
@@ -14735,98 +14378,6 @@ function filterRequest( string $event, array $hook, array $params ) {
 	return 
 	\array_merge( $hook, \filter_var_array( $params, $filter ) );
 }
-
-/**
- *  Format index views for archives and tags
- *  
- *  @param string	$prefix		Pagination page path prefix
- *  @param int		$page		Current page index
- *  @param array	$post		Collection of entries
- *  @param bool		$cache		Cache output result with current URI
- */
-function formatIndex( 
-	string	$prefix, 
-	int	$page		= 1, 
-	array	$posts		= [], 
-	bool	$cache		= true 
-) {
-	
-	// Don't cache if no posts found
-	$cache	= empty( $posts ) ? false : $cache;
-	$ptitle	= config( 'page_title', config_default_title() );
-	$psub	= config( 'page_sub', config_default_desc() );
-	
-	// Use the render plugin if added
-	hook( [ 'renderindex', [ 
-		'prefix'	=> $prefix,
-		'title'		=> $ptitle,
-		'subtitle'	=> $psub,
-		'posts'		=> $posts,
-		'page'		=> $page,
-		'cache'		=> $cache
-	] ] ) ;
-	
-	// Plugin rendered? Send rendered index
-	sendOverride( 'renderindex' );
-	
-	// Default handler
-	$links		= config( 'main_links', [], 'json' );
-	$mlinks		= setting( 'default_main_links', $links );
-	$heading	= 
-	hook_wrap( 
-		'beforepostindexheading',
-		'afterpostindexheading',
-		template( 'tpl_page_heading' ), [
-			'page_title'	=> $ptitle,
-			'tagline'	=> $psub,
-			
-			// Navigation links
-			'main_links'	=> 
-			renderNavLinks( template( 'tpl_mainnav_wrap' ), $mlinks ),
-			
-			// Search form
-			'search_form'	=> searchForm()
-		] 
-	);
-	
-	$tpl = [
-		'post_title'	=> $ptitle,
-		'page_title'	=> $ptitle,
-		'lang'		=> config( 'language', config_default_lang() ),
-		'home'		=> pageRoutePath(),
-		'body_before'	=> $heading
-	];
-	
-	if ( empty( $posts ) ) {
-		// No posts message with home link set
-		$tpl['body']		= 
-		render( 
-			template( 'tpl_noposts' ), 
-			[ 'home'	=> pageRoutePath() ] 
-		);
-		$tpl['body_after']	= 
-		render( template( 'tpl_page_nextprev' ), [ 'links' => navHome() ] );
-	} else {
-		$tpl['body']		= \implode( '', $posts );
-		$tpl['body_after']	= 
-		paginate( $page, $prefix, $posts );
-	}
-	
-	$tpl['body_after']	.= pageFooter();
-	
-	$page_t	= 
-	hook_wrap( 
-		'beforepostindex',
-		'afterpostindex',
-		template( 'tpl_full_page'), 
-		$tpl, 
-		true 
-	);
-	
-	// Send results
-	page_send( 200, $page_t, $cache );
-}
-
 
 
 /**
