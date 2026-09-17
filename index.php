@@ -49,11 +49,7 @@ define( 'TEMPLATES', <<<HTML
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
 <title>{{page.title}}</title>
-{loop:page.feeds as feed}
-	{template:tpl_alternate feed="{{feed}}"}
-{endloop}
 
 {loop:page.meta_tags as tag}
 	{template:tpl_metatag tag="{{tag}}"}
@@ -61,6 +57,10 @@ define( 'TEMPLATES', <<<HTML
 
 {loop:page.head_links as link}
 	{template:tpl_linktag link="{{link}}"}
+{endloop}
+
+{loop:page.feeds as feed}
+	{template:tpl_linktag feed="{{feed}}"}
 {endloop}
 
 {loop:page.head_js as js}
@@ -218,28 +218,30 @@ a:hover{ color: #2c81ba }
 
 ## Page navigation 
 --- tpl_navigation ---
-<nav class="{{nav.classes}}">
-<ul>{loop:nav.items as item}<li class="{{item.classes}}{if:item.active} active{endif}"><a href="{{item.href}}">{{item.label}}</a></li>{endloop}</ul>
+<nav class="{{nav.classes.wrap}}">
+<ul class="{{nav.classes.ul}}">{loop:nav.items as item}
+	<li class="{{nav.classes.item}}{if:item.active} active{endif}">
+		<a href="{{nav.classes.link}}">{{item.label}}</a></li>{endloop}</ul>
 </nav>
 
 
 ## General page heading
 --- tpl_page_heading ---
+{hook:page.before_heading_block}
+<header class="{{page.classes.heading}}">
+<div class="{{page.classes.h_wrap}}">
 {hook:page.before_heading}
-<header class="{{heading.classes.heading}}">
-<div class="{{heading.classes.wrap}}">
-{{heading.before}}
-<h1 class="{{heading.classes.title}}">
+<h1 class="{{page.classes.title}}">
 	<a href="{{heading.home}}" class="{{heading.classes.title_link}}">{{heading.title}}</a>
 </h1>
-<p class="{{heading.classes.tagline}}">{{heading.tagline}}</p>
+<p class="{{page.classes.tagline}}">{{heading.tagline}}</p>
 {template:tpl_navigation links="{{heading.links}}"}
 <div class="{{heading.classes.search_wrap}}">
 	{hook:page.search_form}
 </div>
-{{heading.after}}
+{hook:page.after_heading}
 </div>
-</header>{hook:page.after_heading}
+</header>{hook:page.after_heading_block}
 
 
 ## Page footer component
@@ -323,7 +325,7 @@ a:hover{ color: #2c81ba }
 
 ## No posts to dipsplay
 --- tpl_noposts ---
-<div class="{no_posts_wrap}">
+<div class="{{post.classes.none_wrap}}">
 	<p>{lang:errors:noposts}</p>
 </div>
 
@@ -345,18 +347,20 @@ a:hover{ color: #2c81ba }
 		{hook:post.before_body}
 		<div class="{{post.classes.body_wrap}}">
 			<div class="{{post.classes.body}}">{{post.post_content}}</div>
-			<div class="{{post.classes.tags}}">
-				<nav class="{{post.classes.tag_wrap}}">
-					<span class="{{post.classes.tag_heading}}">{lang:headings:tags}</span>
-					<ul class="{{post.classes.tag_ul}}">
-						{loop:post.tags as tag}
-						<li><a href="/tags/{{tag.slug}}">{{tag.term}}</a></li>
-						{endloop}
-					</ul>
-				</nav>
-			</div>
 		</div>
-		
+		<div class="{{post.classes.tags.wrap}}">
+			<nav class="{{post.classes.tags.nav}}">
+				<span class="{{post.classes.tags.heading}}">{lang:headings:tags}</span>
+				<ul class="{{post.classes.tags.ul}}">
+					{loop:post.tags as tag}
+					<li class="{{post.classes.tags.item}}">
+						<a href="/tags/{{tag.slug}}"
+							classes="{{post.classes.tags.link}}">{{tag.term}}</a>
+					</li>
+					{endloop}
+				</ul>
+			</nav>
+		</div>
 		{hook:search.related_posts(post_id="{{post.id}}")}
 		<p>{lang:post:no_related}</p>
 		{endhook}
@@ -387,16 +391,19 @@ a:hover{ color: #2c81ba }
 		</header>{hook:post.before_body}
 		<div class="{{post.classes.body_wrap}}">
 			<div class="{{post.classes.body}}">{{post.post_content}}</div>
-			<div class="{{post.classes.tags}}">
-				<nav class="{{post.classes.tag_wrap}}">
-					<span class="{{post.classes.tag_heading}}">{lang:headings:tags}</span>
-					<ul class="{{post.classes.tag_ul}}">
-						{loop:post.tags as tag}
-						<li><a href="/tags/{{tag.slug}}">{{tag.term}}</a></li>
-						{endloop}
-					</ul>
-				</nav>
-			</div>
+		</div>
+		<div class="{{post.classes.tags.wrap}}">
+			<nav class="{{post.classes.tags.nav}}">
+				<span class="{{post.classes.tags.heading}}">{lang:headings:tags}</span>
+				<ul class="{{post.classes.tags.ul}}">
+					{loop:post.tags as tag}
+					<li class="{{post.classes.tags.item}}">
+						<a href="/tags/{{tag.slug}}"
+							classes="{{post.classes.tags.link}}">{{tag.term}}</a>
+					</li>
+					{endloop}
+				</ul>
+			</nav>
 		</div>
 	{hook:post.after_body}
 	</div>
@@ -441,24 +448,31 @@ a:hover{ color: #2c81ba }
 
 ## Previously published and next, chronological page preview wrapper
 --- tpl_siblingnav ---
-<div class="{sibling_wrap_classes}">
-	<nav class="{sibling_nav_classes}">
-		<ul class="{sibling_nav_ul_classes}">{links}</ul>
+<div class="{{post.classes.siblings.wrap}}">
+	<nav class="{{post.classes.sibling.nav}}">
+		<ul class="{{post.classes.sibling.ul}}">
+			{loop:post.siblings as sibling}
+				<li class="{{post.classes.siblings.item}}">
+					<a href="{{sibling.permalink}}" 
+						class="{{post.classes.siblings.link">{{sibling.title}}</a>
+				</li>
+			{endloop}
+		</ul>
 	</nav>
 </div>
 
 
 ## Related posts wrapper on single post views
 --- tpl_related_posts ---
-<div class="{{post.classes.related_wrap}}">
-	<h3 class="{{post.classes.related_h}}">{lang:headings:related}</h3>
-	<nav class="{{post.classes.related_nav}}">
-		<ul class="{{post.classes.related_ul}}">
+<div class="{{post.classes.related.wrap}}">
+	<h3 class="{{post.classes.related.h}}">{lang:headings:related}</h3>
+	<nav class="{{post.classes.related.nav}}">
+		<ul class="{{post.classes.related.ul}}">
 			{loop:posts as post}
-			<li class="{{post.classes.related_item}}">
-				<a href="{{post.permalink}}" class="{{post.classes.related_link}}">
-					<span class="{{post.classes.related_title}}">{{post.title}}</span>
-					<time datetime="{{post.date_utc}}" class="{{post.classes.related_pub}}">{{post.date_stamp}}</time>
+			<li class="{{post.classes.related.item}}">
+				<a href="{{post.permalink}}" class="{{post.classes.related.link}}">
+					<span class="{{post.classes.related.title}}">{{post.title}}</span>
+					<time datetime="{{post.date_utc}}" class="{{post.classes.related.pub}}">{{post.date_stamp}}</time>
 				</a>
 			</li>
 			{endloop}
@@ -467,10 +481,12 @@ a:hover{ color: #2c81ba }
 </div>
 
 
-## Index page post listing wrapper
+## Archive ndex page listing wrapper
 --- tpl_index_wrap ---
-<div class="{post_index_wrap_classes}">
-	<ul class="{post_index_ul_wrap_classes}">{items}</ul>
+<div class="{{post.classes.index.wrap}}">
+	<ul class="{{post.classes.index.ul}}">
+		
+	</ul>
 </div>
 
 
@@ -704,6 +720,85 @@ a:hover{ color: #2c81ba }
 HTML
 ); // End of templates
 
+
+// CSS class paceholders
+define( 'TEMPLATE_CLASSES', <<<JSON
+{ 
+	"nav"	: {
+		"classes" : {
+			"wrap"	: "",
+			"ul"	: "",
+			"item"	: "",
+			"link"	: ""
+		}
+	},
+	"page"	: {
+		"classes"	: {
+			"heading"	: "",
+			"h_wrap"	: "content",
+			"block"		: "",
+			"title"		: "",
+			"title_link"	: "",
+			"tagline"	: ""
+		}
+	},
+	"search" : {
+		"classes"	: {
+			"form"		: "",
+			"input"		: "",
+			"button"	: ""
+		}
+	},
+	"post" : {
+		"classes" : { 
+			"index"	: {
+				"wrap"	: "content",
+				"ul"	: "index"
+			}, 
+			"siblings" : {
+				"wrap"	: "content",
+				"nav"	: "siblings",
+				"ul"	: "",
+				"item"	: "",
+				"link"	: ""
+			},
+			"tags"	: {
+				"wrap"		: "",
+				"nav"		: "tags",
+				"heading"	: "",
+				"ul"		: "tags",
+				"item"		: "",
+				"link"		: ""
+			},
+			"related" : {
+				"wrap"	: "",
+				"h"	: "",
+				"nav"	: "",
+				"ul"	: "",
+				"item"	: "",
+				"link"	: "",
+				"title"	: "",
+				"pub"	: ""
+			},
+			"block"		: "",
+			"wrap"		: "",
+			"pub"		: "",
+			"body_wrap"	: "content",
+			"readtime"	: "readtime",
+			"heading_wrap"	: "content",
+			"related_wrap"	: "related",
+			"related_ul"	: "related",
+			"none_wrap"	: "content"
+		}
+	},
+	"footer" : {
+		"classes" : {
+			"wrap"		: "content"
+		}
+	}
+}
+JSON
+);
 
 
 /**********************************************************************
@@ -4963,6 +5058,17 @@ class Response extends Instance {
 	}
 	
 	/**
+	 *  Set expires header
+	 *  
+	 *  @param int	$ttl	Expiration Time to Live in seconds
+	 */
+	public function set_expires( int $ttl ) {
+		$this->headers['Cache-Control']	= "max-age={$ttl}";
+		$this->headers['Expires']	= 
+			\gmdate( 'D, d M Y H:i:s', time() + $ttl ) . ' GMT';
+	}
+	
+	/**
 	 *  Output response header builder
 	 *  
 	 *  @param array	$headers	Set headers
@@ -7445,6 +7551,11 @@ class Template extends Instance {
 	 */
 	private array $patterns;
 	
+	/**
+	 *  @var array Placeholder default css classes
+	 */
+	private array $classes;
+	
 	public const PRESET_PATTERNS	= [
 		'loop'		=> 
 		'/\{loop:(?P<label>\w+)(?:\s+as\s+(?P<alias>\w+))?\}'
@@ -7488,7 +7599,8 @@ class Template extends Instance {
 		private readonly	Language	$lang,
 		private 		array		$extend		= []
 	) {
-		$this->patterns = \array_merge( static::PRESET_PATTERNS, $extend );
+		$this->patterns	= \array_merge( static::PRESET_PATTERNS, $extend );
+		$this->classes	= $this->template_classes();
 	}
 	
 	public static function create(
@@ -8014,6 +8126,19 @@ class Template extends Instance {
 	}
 	
 	/**
+	 *  Preload default CSS classes
+	 */
+	private function template_classes() : array {
+		$raw	= 
+		\defined( 'TEMPLATE_CLASSES' )
+			? ( string ) \constant( 'TEMPLATE_CLASSES' )
+			: '{}';
+		
+		$json	= Util::json_udecode( $raw );
+		return Util::placeholders( $json );
+	}
+	
+	/**
 	 *  Load predefined static template from constant
 	 *  
 	 *  @return array
@@ -8324,6 +8449,8 @@ class Template extends Instance {
 		
 		// Replace translation placeholders
 		$template	= $this->lang->parse( $template );
+		// CSS clases
+		$template	= \strtr( $template, $this->classes );
 		return $this->hooks( $template, $context );
 	}
 	
@@ -11949,6 +12076,8 @@ class ErrorHooks {
 	 */
 	#[Hook( name : 'error.render', priority : 1 )]
 	public function render( string $event, HookResult $result, array $args ) : never {
+		// TODO: Make this language selection dependent
+		
 		$code		= $args['code']		?? 500;
 		$title		= $args['title']	?? 'Server Error';
 		$message	= $args['message']	?? 'An unexpected error occurred.';
@@ -13728,6 +13857,378 @@ class PostHooks {
 
 
 /**
+ *  @class Import existing text-file posts into database
+ */
+#[HookContainer]
+class PostImportHooks {
+	
+	/**
+	 *  Import constructor
+	 *  
+	 *  @param Config		$config		Configuration settings
+	 *  @param Database		$dbh		Content storage
+	 */
+	public function __construct(
+		private readonly Config		$config,
+		private readonly Database	$dbh
+	) {
+		$this->db_profile = 'bare';
+	}
+	
+	/**
+	 *  Process entry extension, defaults to '.md'
+	 *  
+	 *  @return string
+	 */
+	private function entry_ext() : string {
+		static $ext;
+		$ext		??= '.' . 
+		\ltrim( \strtolower( $this->config->setting( 'entry_ext', 'md' ) ), '.' );
+		
+		return $ext;
+	}
+	
+	/**
+	 *  Load entries
+	 *  
+	 *  @param string	$base	Search directory
+	 *  @return array
+	 */
+	private function entry_files( string $base ) : array {
+		$iterator = Storage::files_as_iterator( $base );
+		if ( empty( $iterator ) ) { return []; }
+		
+		$files	= [];
+		$ext	= $this->entry_ext();
+		$eext	= \ltrim( $ext, '.' );
+		$rext	= '/^.+\.' . $eext  . '$/i';
+		$filter	= 
+		new \CallbackFilterIterator(
+			$iterator,
+			fn( $finfo ) => 
+				$finfo->isFile()	&& 
+				$finfo->getSize() > 0	&& 
+				0 === \strcasecmp( $eext, $finfo->getExtension() )
+		);
+		
+		foreach ( $filter as $finfo ) {
+			$files[] = [
+				'slug'		=> $finfo->getBasename( $ext ),
+				'path'		=> $finfo->getPathname(),
+				'mtime'		=> $finfo->getMTime(),
+			];
+		}
+		
+		return $files;
+	}
+	
+	/**
+	 *  Process metadata from a given line as an array
+	 *  
+	 *  @param string	$line	Raw line entry
+	 *  @param array	$meta	Metadata storage
+	 *  @return			True if this line contained metadata
+	 */
+	private function entry_meta( string $line, array &$meta ) : bool {
+		if ( \str_contains( $line, ':' ) ) { return false; }
+		
+		[ $key, $value ] = \array_map( 'trim', \explode( ':', $line, 2 ) );
+		if ( '' === $key  ) { return false; }
+		
+		$value		??= '';
+		$key		=  \strtolower( $key );
+		
+		if ( isset( $meta[$key] ) ) {
+			$meta[$key]	= ( array ) $meta[$key];
+			$meta[$key][]	= $value;
+			return true;
+		}
+		
+		$meta[$key]	= $value;
+		return true;
+	}
+	
+	/**
+	 *  Load file information, including metadata
+	 *  
+	 *  @param string	$path	Full file location
+	 *  @return array
+	 */
+	private function entry_import( string $path ) : ?array {
+		if ( @!\is_readable( $path ) ) { return null; }
+		
+		$raw	= @\file( $path, \FILE_IGNORE_NEW_LINES );
+		if ( false === $raw ) { return null; }
+		
+		$raw	= Text::trim_lines( $raw );
+		if ( empty( $raw ) ) { return null; }
+		
+		$meta	= [];
+		$start	= 0;	// Body start
+		
+		$lines	= ( int ) $this->config->setting( 'entry_meta_lines', 6 );
+		$rcount	= count( $raw );
+		$mcount	= \min( $lines, $rcount );
+		
+		// Top metadata
+		for ( $i = 1; $i < $mcount; $i++ ) {
+			$line	= \trim( $raw[$i] );
+			if ( '' === $line ) {
+				$start = $i + 1;
+				break;
+			}
+			
+			if ( $this->entry_meta( $line, $meta ) ) { continue; }
+			
+			$start = $i;
+			break;
+		}
+		
+		// Bottom metadata
+		$cut	= $rcount;
+		for ( $i = $rcount - 1; $i >= $start; $i-- ) {
+			$line	= \trim( $raw[$i] );
+			if ( '' === $line ) { continue; }
+			
+			if ( $this->entry_meta( $line, $meta ) ) {
+				$cut = $i;
+				continue;
+			}
+			
+			break;
+		}
+		
+		// Ensure title exists at least as the first line, if not explicitly set
+		if ( !isset( $meta['title'] ) ) {
+			if ( isset( $raw[0] ) ) {
+				$meta['title']	= \trim( \array_shift( $raw ) );
+				$start		= \max( 0, $start - 1 );
+				$cut		= \max( 0, $cut - 1 );
+			} else {
+				$meta['title'] = 
+				$this->language->term( 'untitled', '(Untitled)' );
+			}
+		}
+		
+		// Path as slug
+		$meta['slug']	= \pathinfo( $path, \PATHINFO_FILENAME );
+
+		$text		= \array_slice( $raw, $start, $cut - $start );
+		$text		= Text::trim_lines( $text );
+		$body		= \implode( "\n", $text );
+		
+		return [ 'meta' => $meta, 'body' => $body ];
+	}
+	
+	/**
+	 *  Post stamp date formatting helper
+	 *  
+	 *  @param array	$post	Populated stamp in year, month, day format
+	 */
+	private function entry_date( array $post ) : \DateTime {
+		return new \DateTime( "{$post['year']}-{$post['month']}-{$post['day']} 00:00:00" );
+	}
+	
+	/**
+	 *  Paged entry index with detailed info
+	 *  
+	 *  @param string	$dir	Search directory
+	 *  @param DateTime	$start	Starting date for archive
+	 *  @param DateTime	$end	Ending date for archive
+	 *  @param int		$page	Current page index, defaults to 1
+	 *  @param int		$limit	Maximum number of files
+	 *  @return array
+	 */
+	private function entry_index( string $dir, \DateTime $start, \DateTime $end, int $page, int $limit ) : array {
+		$files	= $this->entry_files( $dir );
+		if ( empty( $files ) ) { 
+			return [
+				'entries'	=> [],
+				'total_entries'	=> 0,
+				'total_pages'	=> 1,
+			]; 
+		}
+		
+		$files	= 
+		\array_filter(
+			$files,
+			fn( $p ) => 
+			$this->entry_date( $p ) >= $start && $this->entry_date( $p ) < $end
+		);
+		
+		// Nothing in this date range?
+		if ( empty( $files ) ) {
+			return [
+				'entries'	=> [],
+				'total_entries'	=> 0,
+				'total_pages'	=> 1,
+			];
+		}
+		
+		// Sort newest -> oldest
+		\usort( $files, fn( $a, $b ) => $b['mtime'] <=> $a['mtime'] );
+		
+		$page	= \min( 1, $page );
+		$total	= count( $files );
+		$pcount	= \max( 1, ( int ) \ceil( $total / $limit ) );
+		
+		// Paginate
+		$offset	= ( $page - 1 ) * $limit;
+		$slice	= \array_slice( $files, $offset, $limit );
+		
+		// Load only the entries needed for this page
+		$entries = 
+		\array_values( \array_filter(
+			\array_map( fn( $f ) => $this->entry_import( $f['path'] ), $slice ),
+			fn( $e ) => $e !== null
+		) );
+		
+		return [
+			'entries'	=> $entries,
+			'total_entries'	=> $total,
+			'total_pages'	=> $pcount,
+		];
+	}
+	
+	/**
+	 *  Extract date from /year/month/day/slug format or default to published field
+	 *  
+	 *  @param array	$meta	Imported file metadata
+	 *  @param string	$path	File path on disk
+	 *  @return string|null
+	 */
+	private function extract_pub( array $meta, string $path ) : string|null {
+		$published	= $meta['published'] ?: null;
+		if ( $published ) { return $published; }
+		
+		$parts		= \explode( \DIRECTORY_SEPARATOR, $path );
+		$count		= count( $parts );
+		
+		$year 		= $parts[$count - 4] ?? null;
+		$month		= $parts[$count - 3] ?? null;
+		$day		= $parts[$count - 2] ?? null;
+		
+		return ( $year && $month && $day ) 
+			? "{$year}-{$month}-{$day} 00:00:00" // Midnight on the same day
+			: null;
+	}
+	
+	/**
+	 *  Scan directory and collect files
+	 */
+	#[Hook( name : 'post.import_scan', priority : 1 )]
+	public function import_scan( string $event, HookResult $result, array $args ) : HookResult {
+		$base = $args['base'] ?? null;
+		if ( !$base ) {
+			return $result->with_data( [ 'import_scan' => false ] );
+		}
+		
+		$files = $this->entry_files( $base );
+		
+		return $result->with_data( [
+			'import_scan'	=> true,
+			'import_files'	=> $files
+		] );
+	}
+	
+	/**
+	 *  Parse metadata + body for each file
+	 */
+	#[Hook( name: 'post.import_parse', priority : 1 )]
+	public function parse_imported( string $event, HookResult $result, array $args ) : HookResult {
+		
+		$files = $result->data['import_files'] ?? [];
+		if ( !$files ) { return $result; }
+		
+		$parsed = [];
+		
+		foreach ( $files as $file ) {
+			$entry = $this->entry_import( $file['path'] );
+			if ( !$entry ) { continue; }
+			
+			$meta		= $entry['meta'];
+			$body		= $entry['body'];
+			$published	= $this->extract_pub( $meta, $file['path'] );
+			
+			$parsed[]	= [
+				'slug'		=> $meta['slug'],
+				'title'		=> $meta['title'],
+				'tags'		=> $meta['tags'] ?? [],
+				'content'	=> $body,
+				'published'	=> $published,
+				'path'		=> $file['path']
+			];
+		}
+		
+		return $result->with_data( [
+			'import_parsed'		=> true,
+			'import_entries'	=> $parsed
+		] );
+	}
+	
+	/**
+	 *  Bulk insert posts to database
+	 */
+	#[Hook( name : 'post.import_insert_posts', priority : 1 )]
+	public function insert_posts( string $event, HookResult $result, array $args ) : HookResult {
+		$entries = $result->data['import_entries'] ?? [];
+		if ( !$entries ) { return $result; }
+		$inserted = [];
+
+		foreach ( $entries as $entry ) {
+			$post_path	= 
+			$entry['published']
+				? "/{$entry['published']}/{$entry['slug']}"
+				: "/{$entry['slug']}";
+			
+			$id		= 
+			$this->dbh->result_exec(
+				sql	: PageHooks::SQL['insert_post'],
+				profile	: $this->db_profile,
+				params	: [
+					'path'		=> $post_path,
+					'content'	=> $entry['content'],
+					'type'		=> 'blogpost',
+					'published'	=> $entry['published']
+				],
+				rtype: 'insert'
+			);
+
+			$inserted[]	= [
+				'id'	=> $id,
+				'slug'	=> $entry['slug'],
+				'tags'	=> $entry['tags']
+			];
+		}
+		
+		return $result->with_data( [
+			'import_posts_inserted'	=> true,
+			'import_post_ids'	=> $inserted
+		] );
+	}
+	
+	/**
+	 *  Insert new tags + apply tags to posts
+	 */
+	#[Hook( name : 'post.import_tags', priority : 1 )]
+	public function import_tags( string $event, HookResult $result, array $args ) : HookResult {
+		$posts = $result->data['import_post_ids'] ?? [];
+		if ( !$posts ) { return $result; }
+		
+		foreach ( $posts as $post ) {
+			$post_id	= ( int ) $post['id'];
+			$tags		= ( array ) ( $post['tags'] ?? [] ); 
+			apply_post_tags( $post_id, $tags );
+		}
+		
+		return $result->with_data( [
+			'import_tags_applied' => true
+		] );
+	}
+}
+
+
+/**
  *  Main Bare plugin
  */
 #[Plugin( name: 'Bare', priority : 1000 ) ]
@@ -13744,32 +14245,33 @@ class Bare {
 	/**
 	 *  @var Language Translation and localization settings
 	 */
-	private readonly Language $language;
+	private readonly Language	$language;
 	
 	/**
 	 *  @var HookRegistry Event runner
 	 */
-	private readonly HookRegistry $hooks;
-	
+	private readonly HookRegistry	$hooks;
+
 	public function __construct( 
 		private readonly Info		$info,
 		private readonly Plugin		$meta, 
 		private readonly Container	$container
 	) {
-		$this->config	= $this->container->get( Config::class );
-		$this->language	= $this->container->get( Language::class );
-		$this->hooks	= $this->container->get( HookRegistry::class );
+		$this->config		= $this->container->get( Config::class );
+		$this->language		= $this->container->get( Language::class );
+		$this->hooks		= $this->container->get( HookRegistry::class );
 		
-		$asset_dir	= $info->fields['asset_dir']	?? 'assets/';
-		$data_dir	= $info->fields['data_dir']	?? 'data/';
+		$asset_dir		= $info->fields['asset_dir']	?? 'assets/';
+		$data_dir		= $info->fields['data_dir']	?? 'data/';
 		
-		$base_dir 	= 
+		$base_dir 		= 
 		\is_callable( $asset_dir )
 			? $asset_dir()
 			: $asset_dir;
 		
-		$dir		= $this->config->setting( 'asset_dir', $base_dir ); // Build on default
-		$dir		= \rtrim( $dir, '/\\' ) . \DIRECTORY_SEPARATOR;
+		$dir			= 
+		$this->config->setting( 'asset_dir', $base_dir ); // Build on default
+		$dir			= \rtrim( $dir, '/\\' ) . \DIRECTORY_SEPARATOR;
 		
 		// Register plugin directories for auto-discovery
 		$this->registry->run( 'register_directories', true, [
@@ -13791,63 +14293,17 @@ class Bare {
 			is_cached	: $is_cached
 		);
 	}
-	
-	#[Hook( name : 'post_index_render', priority: 10 ) ]
-	public function post_index( string $event, HookResult $result, array $args ) : HookResult {
-		static $tpl_data;
-		// TODO: Preload custom classes
-		$tpl_data ??= [ 'post_index_wrap_classes' => '', 'post_index_ul_wrap_classes' => '' ];
-		
-		return $result
-			->with_data( $tpl_data )
-			->with_template( 'tpl_index_wrap' );
-	}
-	
-	#[Hook( name : 'no_posts_render', priority: 10 ) ]
-	public function no_posts( string $event, HookResult $result, array $args ) : HookResult {
-		return $result
-			->with_data( [ 'no_posts_wrap' => '' ] )
-			->with_template( 'tpl_noposts' );
-	}
-	
-	#[Hook( name : 'post_full_render', priority: 10 ) ]
-	public function post_full( string $event, HookResult $result, array $args ) : HookResult {
-		static $tpl_data;
-		$tpl_data	??= [
-			'post_classes'			=> '',
-			'post_wrap_classes'		=> '',
-			'post_heading_classes'		=> '',
-			'post_heading_wrap_classes'	=> '',
-			'post_heading_h_classes'	=> '',
-			'post_heading_a_classes'	=> '',
-			'post_sub_classes'		=> '',
-			'post_body_wrap_classes'	=> '',
-			'post_body_content_classes'	=> '',
-			'post_body_tag_classes'		=> ''
-		];
-		
-		return $result
-			->with_data( $tpl_data )
-			->with_template( 'tpl_post' );
-	}
-	
-	#[Hook( name : 'post_idx_item_render', priority: 10 ) ]
-	public function post_item( string $event, HookResult $result, array $args ) : HookResult {
-		static $tpl_data;
-		$tpl_data	??= [
-			'post_idx_wrap_classes'		=> '',
-			'post_idx_classes'		=> '',
-			'post_idx_heading_classes'	=> '',
-			'post_idx_heading_h_classes'	=> '',
-			'post_idx_heading_a_classes'	=> '',
-			'post_idx_pub_classes'		=> '',
-			'post_idx_body_wrap_classes'	=> '',
-			'post_idx_body_tag_classes'	=> ''
-		];
-		
-		return $result
-			->with_data( $tpl_data )
-			->with_template( 'tpl_index_post' );
+
+	private function render_404( string $details ) {
+		$result		= 
+		$this->registry->run( 'error.render', false, [
+			'code'		=> 404,
+			
+			// TODO: Make this language based
+			'message'	=> 'The requested page could not be found.',
+			'details'	=> $details
+		] );
+		return $result->html; // Should exit
 	}
 	
 	#[Route( pattern : '/{year:int}/{month:int}/{day:int}/page{page:int}?', method : 'get' )]
@@ -13861,10 +14317,7 @@ class Bare {
 		
 		$dir	= $this->config->setting( 'post_dir', Storage::base() );
 		$limit	= $this->config->setting( 'post_limit', 10 );
-		
-		$posts	= $this->entry_index( $dir, $start, $end, $page, $limit );
-		\var_dump( $posts ); // Test
-		
+		// TODO: Bare archive hooks
 		die( 'Bare archive' );
 	}
 	
@@ -14173,15 +14626,7 @@ function hostPathMatch( string $host, string $path ) : bool {
 	return false;
 }
 
-/**
- *  Set expires header
- */
-function setCacheExp( int $ttl ) {
-	\header( 'Cache-Control: max-age=' . $ttl, true );
-	\header( 'Expires: ' . 
-		\gmdate( 'D, d M Y H:i:s', time() + $ttl ) . 
-		' GMT', true );
-}
+
 
 
 /**
