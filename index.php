@@ -7195,8 +7195,9 @@ class HookHandler {
 class HookRegistry {
 	
 	public function __construct(
-		private array $handlers	= [],
-		private array $output	= []
+		public readonly	Template	$template,
+		private		array		$handlers	= [],
+		private		array		$output		= []
 	) {}
 	
 	/**
@@ -7261,7 +7262,21 @@ class HookRegistry {
 			
 			// Merge with previous results
 			if ( null !== $stage && $stage instanceof HookResult ) {
-				$result = $result->merge( $stage );
+				$result	= $result->merge( $stage );
+				
+				// The stage had a template?
+				$html	= 
+				( $result->template )
+					? $this->template->parse( $result->template, $result->data )
+					: $result->get_html();
+				
+				// Append fragments
+				foreach ( $result->fragments() as $frag ) {
+					$html .= $frag;
+				}
+				
+				// Update running HTML
+				$result = $result->with_html( $html );
 			}
 		}
 
