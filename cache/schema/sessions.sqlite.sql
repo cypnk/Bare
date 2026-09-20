@@ -20,17 +20,18 @@ BEGIN
 END;
 
 CREATE TABLE IF NOT EXISTS sessions (
-	session_id TEXT PRIMARY KEY DEFAULT ( hex( randomblob( 16 ) ) ), 
-	user_id INTEGER,
-	content TEXT NOT NULL COLLATE NOCASE,
+	basename TEXT NOT NULL,
+	session_id TEXT NOT NULL, 
+	session_ip TEXT,
+	session_data TEXT NOT NULL COLLATE NOCASE,
 	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	expires_at TIMESTAMP
+	expires_at TIMESTAMP,
+	PRIMARY KEY ( basename, session_id )
 ) WITHOUT ROWID;
-CREATE INDEX idx_session_user ON sessions ( user_id ) 
-	WHERE user_id IS NOT NULL;
+CREATE INDEX idx_session_user ON sessions ( session_ip ) 
+	WHERE session_ip IS NOT NULL;
 CREATE INDEX idx_session_created ON sessions ( created_at );
 CREATE INDEX idx_session_updated ON sessions ( updated_at );
 CREATE INDEX idx_session_expires ON sessions ( expires_at )
 	WHERE expires_at IS NOT NULL;
-
