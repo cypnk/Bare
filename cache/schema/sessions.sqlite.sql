@@ -21,7 +21,8 @@ END;
 
 CREATE TABLE IF NOT EXISTS sessions (
 	basename TEXT NOT NULL,
-	session_id TEXT NOT NULL, 
+	session_id TEXT NOT NULL,
+	user_id INTEGER,
 	session_ip TEXT,
 	session_data TEXT NOT NULL COLLATE NOCASE,
 	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -29,7 +30,9 @@ CREATE TABLE IF NOT EXISTS sessions (
 	expires_at TIMESTAMP,
 	PRIMARY KEY ( basename, session_id )
 ) WITHOUT ROWID;
-CREATE INDEX idx_session_user ON sessions ( session_ip ) 
+CREATE INDEX idx_session_user ON sessions ( user_id ) 
+	WHERE user_id IS NOT NULL;
+CREATE INDEX idx_session_ip ON sessions ( session_ip ) 
 	WHERE session_ip IS NOT NULL;
 CREATE INDEX idx_session_created ON sessions ( created_at );
 CREATE INDEX idx_session_updated ON sessions ( updated_at );
