@@ -7067,12 +7067,17 @@ class HookResult {
 	 */
 	private array $blocks		= [];
 	
+	private Template	$template;
+	
 	public function __construct(
 		public ?string	$html		= null,
 		public ?string	$template	= null,
 		public array	$data		= [],
-		public array	$meta		= []
-	) {}
+		public array	$meta		= [],
+		public array	$errors		= []
+	) {
+		$this->template	= Container::instance()->get( Template::class );
+	}
 	
 	public function with_html( string $html ) : self {
 		$clone			= clone $this;
@@ -7083,6 +7088,8 @@ class HookResult {
 	public function with_template( string $template ) : self {
 		$clone			= clone $this;
 		$clone->template	= $template;
+		$clone->html		= 
+			$this->template->render( $template, $this->data );
 		return $clone;
 	}
 	
@@ -7129,6 +7136,12 @@ class HookResult {
 	public function add_block( string $name, string $html ) : self {
 		$clone			= clone $this;
 		$clone->blocks[$name][]	= $html;
+		return $clone;
+	}
+	
+	public function add_error( string $msg ) : self {
+		$clone			= clone $this;
+		$clone->errors[]	= $msg;
 		return $clone;
 	}
 	
@@ -12823,6 +12836,7 @@ class PageRenderHooks {
 	}
 }
 
+
 /**
  *  @class Syndication feed data builder
  */
@@ -12869,10 +12883,10 @@ class FeedRenderHooks {
 	public function render( string $event, HookResult $result, array $args ) : HookResult {
 		$meta	= $result->data['feed_meta']	?? [];
 		$items	= $result->data['feed_items']	?? [];
-		$type	= $args['type'] ?? 'rss';
+		$ftype	= $args['type']			?? 'rss';
 		$result	= $result->with_data( [ 'meta'  => $meta, 'items' => $items ] );
 		
-		return match( $type ) {
+		return match( $ftype ) {
 			'atom'	=> $result->with_template( 'tpl_feed_atom' ),
 			'json'	=> $result->with_template( 'tpl_feed_json' ),
 			default	=> $result->with_template( 'tpl_feed_rss' )
@@ -12951,7 +12965,7 @@ class PageComponentHooks {
 	 *  {hook:page.search_form}
 	 */
 	#[Hook( name : 'page.search_form', priority : 1 )]
-	public function search_form(string $event, HookResult $result, array $args): HookResult {
+	public function search_form( string $event, HookResult $result, array $args ) : HookResult {
 		$search		= $result->data['search_form'] ?? ( $args['search_form'] ?? [] );
 		$classes	= $search['classes'] ?? ( $args['classes'] ?? [] );
 		
@@ -12972,7 +12986,48 @@ class PageComponentHooks {
 			->with_data( [ 'search' => $search ] )
 			->with_template( 'tpl_search_form' );
 	}
+}
+
+
+/**
+ *  @class User input forms, field processing and rendering
+ */
+#[HookContainer] 
+class FormComponentHooks {
 	
+	private function __construct(
+		private readonly Config		$config,
+		private readonly Forms		$forms,
+		private readonly HookRegistry	$registry
+	) {}
+	
+	private function default_tpl( HookResult $result, string $tpl ) : string {
+		return $result->data[$tpl] ?? ( $args[$tpl] ?? $tpl );
+	}
+	
+	/**
+	 *  Generate anti-XSRF token, nonce, and other initialization data
+	 */
+	#[Hook( name : 'form.init', priority : 1 )]
+	public function init( string $event, HookResult $result, array $args ) : HookResult {
+		$form_name	= $args['name']		?? 'generic';
+		$method		= $args['method']	?? 'post';
+		
+		$token		= $this->forms->set_token( $form_name, $method );
+		return $result->add_data( [
+			'form' => [
+				'name'  => $form_name,
+				'method'=> $method,
+				'nonce' => $token['nonce'],
+				'token' => $token['token'],
+				'meta'  => ''  // TODO
+			]
+		] );
+	}
+	
+	/**
+	 *  Inject anti-Cross-Site-Request Forgery token and metadata 
+	 */
 	#[Hook( name : 'form.xsrf', priority : 1 )]
 	public function xsrf( string $event, HookResult $result, array $args ) : HookResult {
 		$form	= $result->data['form'] ?? ( $args['form'] ?? [] );
@@ -12985,6 +13040,140 @@ class PageComponentHooks {
 		) { return $result; }
 		
 		return $result->with_template( 'tpl_input_xsrf' );
+	}
+	
+	/**
+	 *  Form input generator. Uses 'form.field.type' format where type = the input
+	 *  
+	 *  @example 
+	 *  A text input hook
+	 *  #[Hook(name: 'form.field.text', priority: 1)]
+	 *  public function field_text(string $event, HookResult $result, array $args): HookResult {
+	 *  	return $result->with_template('tpl_field_text');
+	 *  }
+	 *  
+	 *  Possible HTML template for a text input
+	 *  <div class="{{forms.classes.field}} {{forms.classes.text_field}}">
+	 *  	<label for="{{field.id}}" class="{{forms.classes.text_label}}">{{field.label}}</label>
+	 *  	<input type="text" id="{{field.id}}" name="{{field.name}}" class={{fields.classes.text}}
+	 *  		value="{{field.value}}" class="{{field.classes.input}}">
+	 *  </div>
+	 *  
+	 *  Possible HTML template for a select input
+	 *  <div class="{{forms.classes.field}} {{forms_classes.select_field}}">
+	 *  	<label for="{{field.id}}" class="{{forms.classes.select_label}}>{{field.label}}</label>
+	 *  		<select id="{{field.id}}" name="{{field.name}}" class="{{fields.classes.select}}">
+	 *  		{foreach:field.options}
+	 *  		<option value="{{option.value}}" {if:option.selected}selected{endif}>{{option.label}}</option>
+	 *  		{endforeach}
+	 *  		</select>
+	 *  </div>
+	 */
+	#[Hook( name : 'form.field_items', priority : 1 )]
+	public function field_items( string $event, HookResult $result, array $args ) : HookResult {
+		$form	= $result->data['form'] ?? [];
+		$fields	= $form['fields'] ?? [];
+		if ( empty( $form ) || empty( $fields ) ) { return $result; }
+		
+		$html = '';
+		foreach ( $fields as $field ) {
+			// Field-specific hook ( defaults to text )
+			$ftype	= $field['type'] ?? 'text';
+			$html	.= 
+			$this->registry->run( 
+				name		: "form.field.{$ftype}", 
+				is_cached 	: false, 
+				args		: [ 'field' => $field ] 
+			)->get_html();
+		}
+		return $result->append_html( $html );
+	}
+	
+	/**
+	 *  Render form input fields from template(s)
+	 *   
+	 *  @example
+	 *  {hook:form.before}
+	 *  	<form action="{{form.action}}" method="{{form.method}}">
+	 *  		{hook:form.xsrf}
+	 *  		{hook:form.fields}
+	 *  		{hook:form.errors}
+	 *  		<button type="submit">{{form.submit_label}}</button>
+	 *  	</form>
+	 *  {hook:form.after}
+	 */
+	#[Hook( name : 'form.fields', priority : 1 )]
+	public function fields( string $event, HookResult $result, array $args ) : HookResult {
+		return $result->with_template( $this->default_tpl( $result, 'tpl_form_fields' ) );
+	}
+	
+	/**
+	 *  Render validation error info
+	 */
+	#[Hook( name : 'form.errors', priority : 1 )]
+	public function errors( string $event, HookResult $result, array $args ) : HookResult {
+		$errors = $result->data['form']['errors'] ?? [];
+		if ( !$errors ) { return $result; }
+		
+		return $result->with_template( $this->default_tpl( $result, 'tpl_form_errors' ) );
+	}
+	
+	/**
+	 *  Render succcess message(s), if any
+	 */
+	#[Hook( name : 'form.success', priority : 1 )]
+	public function success( string $event, HookResult $result, array $args ) : HookResult {
+		if ( !( $result->data['form']['success'] ?? false ) ) { 
+			return $result; 
+		}
+		
+		return $result->with_template( $this->default_tpl( $result, 'tpl_form_success' );
+	}
+	
+	/**
+	 *  Validate anti-XSRF measures and pass along additional form data
+	 */
+	#[Hook( name : 'form.validate', priority : 1 )]
+	public function validate( string $event, HookResult $result, array $args ) : HookResult { 
+		$form	= $result->data['form']	?? [];
+		$method	= $form['method'] 	?? 'get';
+		
+		$input	= $this->forms->get_token( $method );
+		$status	= $this->forms->form_validate(
+			$form['name'],
+			$method,
+			$input['nonce']		?? '',
+			$input['token']		?? '',
+			$form['required']	?? []
+		);
+		
+		return $result->add_data( [ 'form' => \array_merge( $form, $status ) ]);
+	}
+	
+	/**
+	 *  Run custom form handler(s)
+	 */
+	#[Hook( name: 'form.process', priority : 1 )]
+	public function process( string $event, HookResult $result, array $args ) : HookResult {
+		$form = $result->data['form'] ?? [];
+		
+		if ( !( $form['valid'] ?? false ) ) { return $result; }
+		
+		$handler = $args['handler'] ?? null; // Callback
+		if ( $handler && \is_callable( $handler ) ) {
+			$output = $handler( $form, $args );
+			return $result->add_data( [ 'form' => \array_merge( $form, $output ) ] );
+		}
+		
+		return $result;
+	}
+	
+	/**
+	 *  Render final form output
+	 */
+	#[Hook( name : 'form.render', priority: 1 )]
+	public function render( string $event, HookResult $result, array $args ) : HookResult { 
+		return $result->with_template( $this->default_tpl( $result, 'tpl_form' ) );
 	}
 }
 
@@ -13091,6 +13280,11 @@ class NavigationHooks {
 class PostRenderHooks {
 	private readonly string $db_profile;
 	
+	public const CSS_CLASSES	= [
+		'block', 'wrap', 'heading', 'heading_wrap', 'title',
+		'title_link', 'pub', 'readtime', 'body_wrap', 'nextprev'
+	];
+	
 	public function __construct(
 		private readonly Config		$config,
 		private readonly Database	$dbh,
@@ -13102,17 +13296,18 @@ class PostRenderHooks {
 	
 	#[Hook( name : 'post.render_single', priority : 1 )]
 	public function render_single( string $event, HookResult $result, array $args ) : HookResult {
+		
 		$post = $result->data['post'] ?? null;
 		if ( !$post ) { return $result; }
 		
-		$tags	= 
+		$tags			= 
 		$this->hooks->run( 'tag.parse', false, [
 			'tag_slugs'	=> $result->data['tag_slugs'] ?? '',
 			'tag_terms'	=> $result->data['tag_terms'] ?? ''
 		] )->data['tags'] ?? [];
 
-		$tags	= $tag_result->data['tags'] ?? [];
-		$post['permalink']  = "/post/" . $post['path'];
+		$tags			= $tag_result->data['tags'] ?? [];
+		$post['permalink'] 	??= $post['path'];
 		
 		// TODO: Timezone offset
 		$fmt			= $this->config->setting( 'date_format', 'F j, Y' );
@@ -13125,15 +13320,16 @@ class PostRenderHooks {
 		$post['read_time']	= \strtr( $prhase, [ '{time}' => $read ] );
 		
 		// Merge CSS classes
-		// TODO: Use Template::extract_classes()
-		$post['classes']	= $result->data['post']['classes'] ?? [];
+		$classes		= 
+		$post['classes'] ?? $result->data['post']['classes'] ?? ( $args['classes'] ?? [] );
 		
 		return $result
 			->with_data( [
 				'post_rendered'	=> true,
 				'post'		=> $post,
 				'tags'		=> $tags,
-				'html'		=> $html
+				'html'		=> $html,
+				'classes'	=> Template::extract_classes( $classes, static::CSS_CLASSES )
 			] )
 			->with_template( 'tpl_post' );
 	}
@@ -13167,7 +13363,11 @@ class PostSearchHooks {
 	 */
 	private readonly string $db_profile;
 	
-	public const SQL	= [
+	public const CSS_CLASSES	= [
+		'wrap', 'h', 'nav', 'ul', 'item', 'link', 'title', 'pub'
+	];
+	
+	public const SQL		= [
 	'insert_search'		=>
 		"INSERT INTO post_search ( post_id, title, body, tags )
 		VALUES ( :id, :title, :body, :tags )",
@@ -13326,24 +13526,18 @@ class PostSearchHooks {
 		);
 		
 		if ( !$rows ) { return $result; }
+		$classes		= 
+		$post['classes']['related']				?? 
+			$result->data['post']['classes']['related']	?? 
+			( $args['classes']['related'] ?? [] );
 		
 		$context = [
 			'posts'	=> $rows,
 			'post'	=> [
-				'classes'	=> 
-				Template::extract_classes(
-					$result->data['post']['classes'] ?? [],
-					[
-						'related_wrap',
-						'related_h',
-						'related_nav',
-						'related_ul',
-						'related_item',
-						'related_link',
-						'related_title',
-						'related_pub'
-					]
-				)
+				'classes'	=> [
+					'related' => 
+					Template::extract_classes( $classes, static::CSS_CLASSES )
+				]
 			]
 		];
 		
@@ -14025,9 +14219,12 @@ class PostImportHooks {
 			}
 		}
 		
+		// Ensure tags key exists
+		$meta['tags']	??= [];
+		
 		// Path as slug
 		$meta['slug']	= \pathinfo( $path, \PATHINFO_FILENAME );
-
+		
 		$text		= \array_slice( $raw, $start, $cut - $start );
 		$text		= Text::trim_lines( $text );
 		$body		= \implode( "\n", $text );
@@ -14106,16 +14303,12 @@ class PostImportHooks {
 	}
 	
 	/**
-	 *  Extract date from /year/month/day/slug format or default to published field
+	 *  Path-to-date helper
 	 *  
-	 *  @param array	$meta	Imported file metadata
-	 *  @param string	$path	File path on disk
+	 *  @param string	$path		Procesing path in 'year/month/date' format
 	 *  @return string|null
 	 */
-	private function extract_pub( array $meta, string $path ) : string|null {
-		$published	= $meta['published'] ?: null;
-		if ( $published ) { return $published; }
-		
+	private function extract_path_pub( string $path ) : string|null {
 		$parts		= \explode( \DIRECTORY_SEPARATOR, $path );
 		$count		= count( $parts );
 		
@@ -14129,11 +14322,25 @@ class PostImportHooks {
 	}
 	
 	/**
+	 *  Extract date from /year/month/day/slug format or default to published field
+	 *  
+	 *  @param array	$meta	Imported file metadata
+	 *  @param string	$path	File path on disk
+	 *  @return string|null
+	 */
+	private function extract_pub( array $meta, string $path ) : string|null {
+		$published	= $meta['published'] ?: null;
+		return ( $published )
+			? $this->extract_path_pub( $published )
+			: $this->extract_path_pub( $path );
+	}
+	
+	/**
 	 *  Scan directory and collect files
 	 */
 	#[Hook( name : 'post.import_scan', priority : 1 )]
 	public function import_scan( string $event, HookResult $result, array $args ) : HookResult {
-		$base = $args['base'] ?? null;
+		$base		= $args['base'] ?? null;
 		if ( !$base ) {
 			return $result->with_data( [ 'import_scan' => false ] );
 		}
@@ -14161,17 +14368,18 @@ class PostImportHooks {
 			$entry = $this->entry_import( $file['path'] );
 			if ( !$entry ) { continue; }
 			
+			$core		= [ 'title' => '', 'slug' => '', 'tags' => '' ];
 			$meta		= $entry['meta'];
 			$body		= $entry['body'];
 			$published	= $this->extract_pub( $meta, $file['path'] );
-			
 			$parsed[]	= [
 				'slug'		=> $meta['slug'],
 				'title'		=> $meta['title'],
-				'tags'		=> $meta['tags'] ?? [],
+				'tags'		=> $meta['tags'],
 				'content'	=> $body,
 				'published'	=> $published,
-				'path'		=> $file['path']
+				'path'		=> $file['path'],
+				'meta'		=> \array_diff_key( $meta, $core );
 			];
 		}
 		
