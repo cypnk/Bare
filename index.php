@@ -1934,7 +1934,7 @@ final class Util {
 			if ( '' === $term ) { continue; }
 			
 			$quality	= 1.0;
-			if ( \preg_match('/q=([0-9.]+)/i', $params, $match ) ) {
+			if ( \preg_match( '/q=([0-9.]+)/i', $params, $match ) ) {
 				$quality = ( float ) $match[1];
 			}
 			
@@ -14483,13 +14483,13 @@ class SessionCookieConfig {
 		private readonly Request $request
 	) {}
 	
-	#[Hook( name: 'session.cookie.config', priority: 1 )]
-	public function config( string $event, HookResult $result, array $args): HookResult {
+	#[Hook( name : 'session.cookie.config', priority : 1 )]
+	public function config( string $event, HookResult $result, array $args ) : HookResult {
 		// Resolve cookie parameters
 		$path		= 
 		$args['cookie_path'] ?? (
 			$result->data['cookie_path'] ?? 
-			$this->config->setting('cookie_path', '/')
+			$this->config->setting( 'cookie_path', '/' )
 		);
 		
 		// Custom realm or default to request domain
@@ -14543,7 +14543,7 @@ class SessionCookieInit {
 		private readonly Request  $request
 	) {}
 	
-	#[Hook( name: 'session.cookie.init', priority: 1)]
+	#[Hook( name : 'session.cookie.init', priority : 1)]
 	public function init( string $event, HookResult $result, array $args ) : HookResult {
 		// Resolve cookie name
 		$name	= 
@@ -14565,7 +14565,7 @@ class SessionCookieInit {
 		// Normalize session ID
 		$session_id = null;
 		if ( $raw && \is_string( $raw ) ) {
-			if ( \preg_match('/^[A-Za-z0-9,-]{16,}$/', $raw)) {
+			if ( \preg_match( '/^[A-Za-z0-9,-]{16,}$/', $raw ) ) {
 				$session_id = $raw;
 			}
 		}
@@ -14578,7 +14578,7 @@ class SessionCookieInit {
 			'basename'	=> $basename,
 			'cookie_raw'	=> $raw,
 			'session_id'	=> $session_id,
-			'cookie_valid'	=> null !== $session_id
+			'cookie_valid'	=> ( null !== $session_id )
 		]);
 	}
 }
@@ -14675,7 +14675,7 @@ class SessionCookieDelete {
 	) {}
 	
 	#[Hook( name : 'session.cookie.delete', priority : 60 )]
-	public function delete(string $event, HookResult $result, array $args): HookResult {
+	public function remove( string $event, HookResult $result, array $args ) : HookResult {
 		// Resolve cookie name
 		$name =
 		$result->data['cookie_name'] ?? (
@@ -14996,9 +14996,9 @@ class SessionDestroy {
 	 *  $registry->run( 'session.destroy', false, [] );
 	 */
 	public function __construct(
-		private readonly Config   $config,
-		private readonly Database $dbh,
-		private readonly Sessions $sessions
+		private readonly	Config		$config,
+		private readonly	Database	$dbh,
+		private readonly	Sessions	$sessions
 	) {
 		$this->sess_db_profile	= 
 			$this->config->setting( 'sess_db_profile', 'sessions' );
@@ -15218,7 +15218,7 @@ class SessionRefresh {
 	#[Hook( name : 'session.refresh.update', priority : 20 )]
 	public function update( string $event, HookResult $result, array $args ) : HookResult {
 		if (
-			!empty( $result->data['session_regenerate'] ) 	||
+			!empty( $result->data['session_regenerate'] )	||
 			!empty( $result->data['session_expired'] )	|| 
 			!empty( $result->data['session_invalid'] )
 		) {
@@ -15286,8 +15286,8 @@ class SessionLifecycle {
 		$result		= $result->add_data( [ 'basename' => $basename ] );
 		
 		// Initialize and refresh, if needed
-		$result = $this->hooks->run( 'session.validate.init', $result->data );
-		$result = $this->hooks->run( 'session.refresh.init', $result->data );
+		$result = $this->hooks->run( 'session.validate.init', false, $result->data );
+		$result = $this->hooks->run( 'session.refresh.init', false, $result->data );
 		
 		// If no session_id, nothing else to do
 		if ( empty( $result->data['session_id'] ) ) {
@@ -15297,36 +15297,36 @@ class SessionLifecycle {
 		}
 		
 		// Load and validate session
-		$result = $this->hooks->run( 'session.validate.load', $result->data );
-		$result = $this->hooks->run( 'session.validate.check', $result->data );
+		$result = $this->hooks->run( 'session.validate.load', false, $result->data );
+		$result = $this->hooks->run( 'session.validate.check', false, $result->data );
 		
 		// If invalid or expired, stop
 		if ( empty( $result->data['valid'] ) ) {
-			return $this->hooks->run( 'session.validate.finish', $result->data)
+			return $this->hooks->run( 'session.validate.finish', false, $result->data )
 				->add_data( [ 'lifecycle' => 'INVALID' ] );
 		}
 		
 		// Refresh, if needed
-		$result = $this->hooks->run( 'session.refresh.validate', $result->data );
+		$result = $this->hooks->run( 'session.refresh.validate', false, $result->data );
 		
 		// If expired or invalid during refresh, stop here
 		if (
 			!empty( $result->data['session_expired'] ) ||
 			!empty( $result->data['session_invalid'] )
 		) {
-			return $this->hooks->run( 'session.refresh.finish', $result->data )
+			return $this->hooks->run( 'session.refresh.finish', false, $result->data )
 				->add_data( [ 'lifecycle' => 'EXPIRED' ] );
 		}
 		
 		// Regenerate, if needed
-		$result = $this->hooks->run( 'session.refresh.regenerate', $result->data );
+		$result = $this->hooks->run( 'session.refresh.regenerate', false, $result->data );
 		
 		// Touch to keep active, if needed
-		$result = $this->hooks->run( 'session.refresh.update', $result->data );
+		$result = $this->hooks->run( 'session.refresh.update', false, $result->data );
 		
 		// Cleanup
-		$result = $this->hooks->run( 'session.refresh.finish', $result->data );
-		$result = $this->hooks->run( 'session.validate.finish', $result->data );
+		$result = $this->hooks->run( 'session.refresh.finish', false, $result->data );
+		$result = $this->hooks->run( 'session.validate.finish', false, $result->data );
 		
 		return $result->add_data( [ 'lifecycle' => 'OK' ] );
 	}
@@ -15510,7 +15510,7 @@ class SessionForceLogout {
 		private readonly	Sessions	$sessions,
 		private readonly	Request		$request
 	) {
-		$this->sess_db_profile	= $this->config->setting('sess_db_profile', 'sessions');
+		$this->sess_db_profile	= $this->config->setting( 'sess_db_profile', 'sessions' );
 		$this->basename		= $this->request->host_ascii;
 	}
 	
@@ -15570,17 +15570,15 @@ class SessionForceLogout {
 		
 		foreach ( $result->data['sessions'] as $sid ) {
 			$this->dbh->result_exec(
-				sql: static::SQL['delete_session'],
-				profile: $this->sess_db_profile,
-				params: [ 'basename' => $basename, 'id' => $sid ]
+				sql	: static::SQL['delete_session'],
+				profile	: $this->sess_db_profile,
+				params	: [ 'basename' => $basename, 'id' => $sid ]
 			);
 			
 			$terminated[]	= $sid;
 		}
 		
-		return $result->add_data( [
-			'terminated_sessions' => $terminated
-		] );
+		return $result->add_data( [ 'terminated_sessions' => $terminated ] );
 	}
 	
 	/**
@@ -15599,9 +15597,111 @@ class SessionForceLogout {
 	#[Hook( name : 'session.force_logout.finish', priority : 100 )]
 	public function finish( string $event, HookResult $result, array $args ) : HookResult {
 		return $result->add_data( [
-			'user_id'			=> $result->data['user_id'] ?? null,
-			'terminated_sessions'		=> $result->data['terminated_sessions'] ?? [],
-			'forced'			 => true
+			'user_id'			=> $result->data['user_id']		?? null,
+			'terminated_sessions'		=> $result->data['terminated_sessions']	?? [],
+			'forced'			=> true
+		] );
+	}
+}
+
+
+/**
+ *  @class Bind selected user to a session ( plugin use )
+ */
+#[HookHandler]
+class SessionBindUser {
+	
+	/**
+	 *  @var string Session database name
+	 */
+	private readonly string $sess_db_profile;
+	
+	public const SQL = [
+		
+		// Check if session exists
+		'select_session' =>
+		"SELECT 1 FROM sessions WHERE session_id = :sid;",
+		
+		// Bind user to session
+		'update_session' =>
+		"UPDATE sessions
+		 SET user_id = :uid,
+			 updated_at = CURRENT_TIMESTAMP
+		 WHERE session_id = :sid;",
+	];
+	
+	/**
+	 *  @example 
+	 *  After login
+	 *  $registry->run( 'session.bind_user', true, [
+	 *  	'user_id' => $user_id
+	 *  ] );
+	 */
+	public function __construct(
+		private readonly Config   $config,
+		private readonly Database $dbh
+	) {
+		$this->sess_db_profile = $this->config->setting( 'sess_db_profile', 'sessions' );
+	}
+	
+	/**
+	 *  Initialize user binding
+	 */
+	#[Hook( name : 'session.bind_user.init', priority : 1 )]
+	public function init( string $event, HookResult $result, array $args ) : HookResult {
+		$user_id	= $args['user_id']	?? null;
+		$session_id	= $args['session_id']	?? session_id();
+		
+		if ( !$user_id ) { return $result->add_data( [ 'flag'		=> 'UIDFAIL' ] ); }
+		if ( !$session_id ) { return $result->add_data( [ 'flag'	=> 'SIDFAIL' ] ); }
+		
+		return $result->add_data( [
+			'user_id'	=> $user_id,
+			'session_id'	=> $session_id
+		] );
+	}
+	
+	#[Hook( name : 'session.bind_user.validate', priority : 5 )]
+	public function validate( string $event, HookResult $result, array $args ) : HookResult {
+		$flag		= $result->data['flag'] ?? '';
+		if ( $flag ) { return $result; }
+		
+		$session_id	= $result->data['session_id'] ?? null;
+		if ( !$session_id ) { return $result->add_data( [ 'flag' => 'SIDFAIL' ] ); }
+		
+		$exists		= 
+		$this->dbh->result_exec(
+			sql	: static::SQL['select_session'],
+			profile	: $this->sess_db_profile,
+			params	: [ 'sid' => $session_id ],
+			rtype	: 'column'
+		);
+		
+		if ( !$exists ) { return $result->add_data( [ 'flag' => 'SIDFAIL' ] ); }
+		return $result;
+	}
+	
+	
+	#[Hook( name : 'session.bind_user.update', priority : 10 )]
+	public function update( string $event, HookResult $result, array $args ) : HookResult {
+		$this->dbh->result_exec(
+			sql	: static::SQL['update_session'],
+			profile	: $this->sess_db_profile,
+			params	: [
+				'uid'	=> $result->data['user_id'],
+				'sid'	=> $result->data['session_id']
+			]
+		);
+		
+		return $result;
+	}
+	
+	#[Hook( name : 'session.bind_user.finish', priority : 100 )]
+	public function finish( string $event, HookResult $result, array $args ) : HookResult {
+		return $result->add_data( [
+			'bound'		=> true,
+			'user_id'	=> $result->data['user_id'],
+			'session_id'	=> $result->data['session_id']
 		] );
 	}
 }
@@ -15782,261 +15882,12 @@ function getRoot( bool $err = false ) : string {
 	return $root;
 }
 
-/**
- *  Send list of supported HTTP request methods
- */
-function getAllowedMethods( bool $arr = false ) {
-	$ap	= config( 'allow_post', 0, 'bool' );
-	if ( $arr ) {
-		return $ap ?  
-		[ 'get', 'post', 'head', 'options' ] : 
-		[ 'get', 'head', 'options' ];
-	}
-	
-	return $ap ? 
-	'GET, POST, HEAD, OPTIONS' : 'GET, HEAD, OPTIONS';
-}
-
-/**
- *  Send list of allowed methods in "Allow:" header
- */
-function sendAllowHeader() {
-	\header( 'Allow: ' . getAllowedMethods(), true );
-}
-
-/**
- *  Helper to generate header with protocol and message
- *  
- *  @param int		$code		HTTP Status code
- *  @param string	$msg		Header message
- */
-function protocolHeader( int $code, string $msg ) {
-	$prot = Container::instance()->get( 'Request' )->protocol;
-	\header( "$prot $code $msg", true );
-}
-
-/**
- *  Format available sites with default parameters
- *  
- *  @param array	$sites		Available sites
- *  @return array
- */
-function formatSites( array $sites ) : array {
-	if ( empty( $sites ) ) {
-		return [];
-	}
-	
-	$se = [];
-	foreach ( $sites as $host => $base ) {
-		// Skip if invalid hostname
-		if ( false === \filter_var( 
-			$host, 
-			\FILTER_VALIDATE_DOMAIN,
-			\FILTER_FLAG_HOSTNAME
-		) ) {
-			continue;
-		}
-		
-		// Add default site if empty
-		if ( empty( $base ) ) {
-			$base	= [
-				config( 
-					'default_basepath', 
-					\DEFAULT_BASEPATH, 
-					'json' 
-				)
-			];
-		}
-	
-		// Decode went wrong or setting is invalid
-		if ( !\is_array( $base ) ) {
-			continue;
-		}
-		
-		// Found sub sites
-		$f = [];
-		
-		// Set default sub parameters
-		foreach ( $base as $b ) {
-			if ( !\is_array( $b ) ) {
-				continue;
-			}
-			
-			// Slash basepath
-			$b['basepath'] = 
-				Text::slash_path( $b['basepath'] ?? '/' );
-		
-			// Set active mode if not set
-			$b['is_active']		??= 1;
-			
-			// Set maintenance mode
-			$b['is_maintenance']	??= 0;
-			
-			// Custom site settings, or default
-			$b['settings']		??= [];
-			$b['settings']		= 
-			\array_merge( [
-				'page_title'		=> config( 'page_title', config_default_title() ),
-				'page_sub'		=> config( 'page_sub', config_default_desc() ),
-				'page_limit'		=> config( 'page_limit', 12 ),
-				'language'		=> config( 'language', config_default_lang() )
-			], $b['settings'] );
-			$f[] = $b;
-		}
-		
-		// No valid sites?
-		if ( empty( $f ) ) {
-			continue;
-		}
-		// Append to enabled sites under this host
-		$se[$host] = $f;
-	}
-	
-	return $se;
-}
-
-/**
- *  Get whitelisted sites and associated paths
- *  
- *  @return array
- */
-function getSitesEnabled() : array {
-	static $sw;
-	if ( isset( $sw ) ) {
-		return $sw;
-	}
-	$sw	= formatSites( config( 'realms', [] ) );
-	
-	return $sw;
-}
-
-/**
- *  Host server name
- *  @return string
- */
-function getHost() : string {
-	static $host;
-	if ( isset( $host ) ) { return $host; }
-	
-	$sk	= getSitesEnabled();
-	$sw	= Util::trimmed_list( implode( ',', array_keys( $sk ) ), true );
-	$raw	= Container::instance()->get( 'Request' )->host;
-
-	$host	= isset( $sw[$raw] ) ? Text::lowercase( $raw ) : '';
-	
-	// Call host hook
-	hook( [ 'gethost', [
-		'host'		=> $host,
-		'white'		=> $sw,
-		'sets'		=> $sh,
-		'forward'	=> $fd
-	] ] );
-	
-	// Override if sent by plugin
-	$host	= hook_string( 'gethost', $host );
-	return $host;
-}
-
-/**
- *  Get whitelisted paths for current host
- *  
- *  @param string	$host	Current server host
- *  @return array
- */
-function getHostPaths( string $host ) : array {
-	static $paths	= [];
-	if ( !empty( $paths[$host] ) ) {
-		return $paths[$host];
-	}
-	$sp		= getSitesEnabled();
-	
-	$sa	= [];
-	$ss	= [];
-	foreach ( $sp[$host] as $s ) {
-		// Assume inactive site if not explicitly enabled
-		$a = ( bool ) ( $s['is_active'] ?? false );
-		
-		// Path based settings
-		$b = Text::slash_path( $s['basepath'] ?? '/' );
-		$ss[] = [ $b => $s['settings'] ?? [] ];
-		
-		if ( $a ) {
-			$sa[] = $b;
-		}
-	}
-	
-	\natcasesort( $sa );
-	$sa	= \array_unique( $sa, \SORT_STRING );
-	
-	hook( [ 'gethostpaths', [
-		'allpaths'	=> $sp,
-		'current'	=> $sa,
-		'settings'	=> $ss
-	] ] );
-	
-	$paths[$host]	= $sa;
-	return $paths[$host];
-}
-
-/**
- *  Check if the current host and path are in the whitelist
- *  
- *  @param string	$host		Server host name
- *  @param string	$path		Current URI
- *  @return bool
- */
-function hostPathMatch( string $host, string $path ) : bool {
-	$pm	= getHostPaths( $host );
-	
-	// Root folder is allowed?
-	if ( \in_array( '/', $pm, true ) ) {
-		return true;
-	}
-	
-	// Shortest matching allowed subfolder
-	$pe	= explode( '/', $path );
-	$px	= '';
-	foreach ( $pe as $k => $v ) {
-		$px .= Text::slash_path( $v );
-		if ( \in_array( $px, $pm, true ) ) {
-			return true;
-		}
-	}
-	return false;
-}
-
-
-
 
 /**
  *  Application
  */
 
 
-/**
- *  Verify if given directory path is a subfolder of root
- *  
- *  @param string	$path	Folder path to check
- *  @param string	$root	Full parent folder path
- *  @return string Empty if directory traversal or other issue found
- */
-function filterDir( $path, ?string $root = null ) {
-	$root ??= config( 'post_dir', POST_DIR );
-	if ( \strpos( $path, '..' ) ) {
-		return '';
-	}
-	
-	$lp	= \strlen( $root );
-	if ( \strlen( $path ) < $lp ) { 
-		return ''; 
-	}
-	$pos	= \strpos( $path, $root );
-	if ( false === $pos ) {
-		return '';
-	}
-	$path	= \substr( $path, $pos + $lp );
-	return \trim( $path ?? '' );
-}
 
 /**
  *  Get timezone offset from currently configured timezone 
@@ -16070,14 +15921,6 @@ function timeZoneOffset() : int {
 }
 
 /**
- *  Cut off path from the last index of '/', removing the page slug
- */
-function cutSlug( string $path ) : string {
-	return 
-	( string ) \substr( $path, 0, \strrpos( $path, '/' ) );
-}
-
-/**
  *  Check if publication time is before current time
  *  This function relies on date_default_timezone_set being 'UTC'
  *  
@@ -16094,641 +15937,6 @@ function checkPub( $pub ) : bool {
 	}
 	
 	return false;
-}
-
-/**
- *  Request filter event
- *  
- *  @param string	$event	Request event name
- *  @param array	$hook	Previous hook event data
- *  @param array	$params	Passed event data
- */
-function filterRequest( string $event, array $hook, array $params ) {
-	$now	= time();
-	$mpage	= config( 'max_page', 500, 'int' );
-	$ys		= config( 'year_start', 1900, 'int' );
-	$ye		= ( int ) \date( 'Y', $now );
-	
-	$filter	= [
-		'id'	=> [
-			'filter'	=> \FILTER_VALIDATE_INT,
-			'flags'		=> \FILTER_REQUIRE_SCALAR,
-			'options'	=> [
-				'min_range'	=> 1,
-				'default'	=> 0
-			]
-		],
-		'page'	=> [
-			'filter'	=> \FILTER_VALIDATE_INT,
-			'flags'		=> \FILTER_REQUIRE_SCALAR,
-			'options'	=> [
-				'min_range'	=> 1,
-				'max_range'	=> $mpage,
-				'default'	=> 1
-			]
-		],
-		'year'	=> [
-			'filter'	=> \FILTER_SANITIZE_NUMBER_INT,
-			'flags'		=> \FILTER_REQUIRE_SCALAR,
-			'options'	=> [
-				'min_range'	=> $ys,
-				'max_range'	=> $ye,
-				'default'	=> $ye
-			]
-		],
-		'month'	=> [
-			'filter'	=> \FILTER_SANITIZE_NUMBER_INT,
-			'flags'		=> \FILTER_REQUIRE_SCALAR,
-			'options'	=> [
-				'min_range'	=> 1,
-				'max_range'	=> 12,
-				'default'	=> 
-				( int ) \date( 'n', $now )
-			]
-		],
-		'day'	=> [
-			'filter'	=> \FILTER_SANITIZE_NUMBER_INT,
-			'flags'		=> \FILTER_REQUIRE_SCALAR,
-			'options'	=> [
-				'min_range'	=> 1,
-				'max_range'	=> 31,
-				'default'	=> 
-				( int ) \date( 'j', $now )
-			]
-		],
-		'tag'	=> [
-			'filter'	=> \FILTER_CALLBACK,
-			'options'	=> 
-			function( $v ) {
-				return \is_scalar( $v ) ? 
-					Sanitize::spaces( ( string ) $v ) : '';
-			}
-		],
-		'slug'	=> [
-			'filter'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
-			'flags'		=> \FILTER_REQUIRE_SCALAR,
-			'options'	=> [ 'default' => '' ]
-		],
-		'find'	=> [
-			'filter'	=> \FILTER_CALLBACK,
-			'options'	=> 
-			function( $v ) {
-				return \is_scalar( $v ) ? 
-					Sanitize::spaces( ( string ) $v ) : '';
-			}
-		],
-		'tree'	=> [
-			'filter'	=> \FILTER_CALLBACK,
-			'options'	=> 
-			function( $v ) {
-				return \is_scalar( $v ) ? 
-					Sanitize::url( ( string ) $v ) : '';
-			}
-		],
-		'token'	=> [
-			'filter'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
-			'flags'		=> \FILTER_REQUIRE_SCALAR
-		],
-		'nonce'	=> [
-			'filter'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
-			'flags'		=> \FILTER_REQUIRE_SCALAR
-		],
-		'meta'	=> [
-			'filter'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
-			'flags'		=> \FILTER_REQUIRE_SCALAR
-		]
-	];
-	
-	return 
-	\array_merge( $hook, \filter_var_array( $params, $filter ) );
-}
-
-
-/**
- *  User input and form processing
- */
-
-
-/**
- *  Data integrity session flag helper
- *  
- *  @param string	$reset		Renew the token flag if given
- *  @param string	$label		Token identity defaults to 'token'
- *  @return string
- */ 
-function tokenKey( bool $reset = false, string $label = 'token' ) : string {
-	sess_init();
-	if ( empty( $_SESSION[$label] ) || $reset ) {
-		$_SESSION[$label] = genId();
-	}
-	
-	return $_SESSION[$label];
-}
-
-/**
- *  Initiate anti-CSRF session flag holder
- */
-function initCSRFSession() : void {
-	sess_init();
-	if ( empty( $_SESSION['csrf'] ) ) {
-		$_SESSION['csrf'] = [];
-	}
-}
-
-/**
- *  Find form-specific anti-CSRF token
- *  
- *  @param string	$form	Per-session, form-specific, unique label
- *  @return string
- */
-function getCSRFToken( string $form ) : string {
-	initCSRFSession();
-	return $_SESSION['csrf'][$form] ?? '';
-}
-
-/**
- *  Generate an anti-CSRF token
- *  
- *  @param string	$form	Form label specific to the session token
- *  @return array
- */
-function setCSRFToken( string $form ) : array {
-	initCSRFSession();
-	
-	$key				= genId( 32 );
-	$nonce				= genId( 6 );
-	$_SESSION['csrf'][$form]	= $key;
-	
-	return [ 
-		'nonce'	=> $nonce, 
-		'token' => \hash_hmac( 'tiger160,4', $key, $nonce )
-	];
-}
-
-/**
- *  Verify anti-cross-site request forgery token
- *  
- *  @param string	$token	Raw token sent from user form
- *  @param string	$nonce	Nonce taken from user form
- *  @param string	$form	Form label specific to the session token
- *  @return string
- */
-function validateCSRFToken( string $token, string $nonce, string $form ) : bool {
-	
-	$ln	= strsize( $nonce );
-	$lt	= strsize( $token );
-	
-	// Sanity check
-	if ( 
-		$ln > 100 || 
-		$ln <= 10 || 
-		$lt > 350 || 
-		$lt <= 10
-	) {
-		return false;
-	}
-	
-	$key	= getCSRFToken( $form );
-	
-	return 
-	\hash_equals( $token, \hash_hmac( 'tiger160,4', $key, $nonce ) );
-}
-
-/**
- *  Generate a hash for meta data sent to HTML forms
- *  
- *  This function helps reduce tampering of metadata sent separately
- *  to the user via other hidden fields
- *  
- *  @example genMetaKey( [ 'id' => 12,'name' => 'DoNotChange' ] ); 
- *  
- *  @param array	$args	Form field names sent to generate key
- *  @param bool		$reset	Reset any prior token key if true
- *  @param bool		$enc	Encode to base64 if true (default)
- *  @return string
- */
-function genMetaKey( 
-	array	$data, 
-	bool	$reset	= false, 
-	bool	$enc	= true 
-) : string {
-	static $gen	= [];
-	
-	$params		= Util::json_uencode( $data );
-	$key		= \hash( 'tiger160,4', $params );
-	
-	if ( \array_key_exists( $key, $gen ) && !$reset ) {
-		return $enc ? \base64_encode( $gen[$key] ) : $gen[$key];
-	}
-	
-	$gen[$key]	= 
-	\hash( 'tiger160,4', $params . tokenKey( $reset, 'metadata' ), true );
-	
-	return $enc ? \base64_encode( $gen[$key] ) : $gen[$key];
-}
-
-/**
- *  Verify meta data key
- *  
- *  @param string	$key	Token key name
- *  @param array	$data	Original form field names sent to generate key
- *  @return bool		True if token matched
- */
-function verifyMetaKey( string $key, array $data ) : bool {
-	if ( empty( $key ) ) {
-		return false;
-	}
-	
-	$info	= \base64_decode( $key, true );
-	if ( false === $info ) {
-		return false;
-	}
-	
-	return \hash_equals( $info, genMetaKey( $data, false, false ) );
-}
-
-/**
- *  Generate form fields using templates and built-in cross-site protection
- *  
- *  @param string	$ftype		Input form type
- *  @param array	$meta		Fixed metadata which shouldn't be modified
- *  @param string	$previous	Return link to redirect after processing
- *  @return string
- */
-function genForm( 
-	string	$ftype, 
-	array	$meta		= [], 
-	string	$previous	= '' 
-) : string {
-	$csrf	= setCSRFToken( $ftype );
-	
-	// Populate anti-CSRF inputs
-	$xsrf	= 
-	\strtr( template( 'tpl_input_xsrf' ), [
-		'{token}'	=> $csrf['token'],
-		'{nonce}'	=> $csrf['nonce'],
-		'{return}'	=> $previous,
-		
-		// Default metadata to session token if none given
-		'{meta}'	=> 
-		empty( $meta ) ? 
-			genMetaKey( [ 'session' => tokenKey() ] ) : 
-			genMetaKey( $meta )
-	] );
-	
-	return 
-	\strtr( template( 'tpl_' . $ftype . '_form' ), [ '{xsrf}' => $xsrf ] );
-}
-
-/**
- *  Validate submitted form field against XSRF behavior
- *  
- *  @param string	$form		Unique form name per session to verify
- *  @param string	$itype		Data submission method
- *  @return bool
- */
-function validateForm( 
-	string	$form,
-	string	$itype, 
-	array	$fields	= [] 
-) : bool {
-	$data	= 
-	Sanitize::input_array( $itype, [
-		'token'	=> [
-			'filter'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
-			'flags'		=> \FILTER_REQUIRE_SCALAR
-		],
-		'nonce'	=> [
-			'filter'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
-			'flags'		=> \FILTER_REQUIRE_SCALAR
-		],
-		'meta'	=> [
-			'filter'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
-			'flags'		=> \FILTER_REQUIRE_SCALAR
-		]
-	] );
-	
-	if ( empty( $data['token'] ) || empty( $data['nonce'] ) ) {
-		return false;
-	}
-	
-	if ( validateCSRFToken( $data['token'], $data['nonce'], $form ) ) {
-		return 
-		empty( $fields ) ? 
-			true : verifyMetaKey( $data['meta'] ?? '', $fields );
-	}
-	
-	return false;
-}
-
-/**
- *  Render search form template
- *  
- *  @return string
- */
-function searchForm() : string {
-	// Send search form hook output
-	return
-	hook_wrap( 
-		'beforesearchform',
-		'afterearchform',
-		genForm( 'search', [ 'session' => 'none' ] ), 
-		[ 'session' => 'none' ]
-	);
-}
-
-/**
- *  Render search pagination path
- *  
- *  @param array	$data	Search page URL components
- *  @return string
- */
-function searchPagePath( array $data ) : string {
-	return Text::slash_path( pageRoutePath(), true ) . 
-		'?find=' . $data['find'] . '/';
-}
-
-
-/**
- *  Special handlers
- */
-
-/**
- *  Reload indexes on cache db creation
- */
-function reloadIndex( string $event, array $hook, array $params ) {
-	if ( !isset( $params['dbname'] ) ) {
-		return;
-	}
-	
-	// New cache database was created
-	if ( 0 == \strcmp( $params['dbname'], \CACHE_DATA ) ) {
-		internalState( 'prepareIndex', true );
-	}
-}
-
-/**
- *  Format preview info into link, return as rendered HTML or array
- *  
- *  @param string	$path		Post permalink
- *  @param string	$mode		Link render mode
- *  @param bool		$nr		Don't render template if true
- *  @return mixed
- */
-function previewLink( 
-	string		$path, 
-	string		$mode	= '', 
-	bool		$nr	= false 
-) {
-	$ppath	= config( 'post_dir', Storage::base() ) . $path. '.md';
-	$data	= loadText( $ppath );
-	if ( empty( $data ) ) {
-		return '';
-	}
-	
-	$title	= '';
-	$perm	= '';
-	$pub	= getPub( $path );
-	
-	metadata( $title, $perm, $pub, $data, $path );
-	
-	// Send to render hook
-	hook( [ 'previewlink', [
-		'permalink'	=> $perm,
-		'title'		=> $title,
-		'path'		=> $path,
-		'published'	=> $pub,
-		'mode'		=> $mode,
-		'render'	=> $nr,
-		'data'		=> $data
-	] ] );
-	
-	// Return hook result as array if not rendering
-	if ( $nr ) {
-		$out	= hook_array( 'previewlink' );
-		if ( !empty( $out ) ) {
-			return $out;
-		}
-	}  else {
-		$out	= hook_html( 'previewlink' );
-		if ( !empty( $out ) ) {
-			return $out;
-		}
-	}
-	
-	switch( $mode ) {
-		case 'prev':
-		case 'previous':
-			return
-			render( template( 'tpl_np_prevlink' ), [ 
-				'url'	=> $perm,
-				'text'	=> $title
-			] ); 
-			
-		case 'next':
-			return
-			render( template( 'tpl_np_nextlink' ), [ 
-				'url'	=> $perm,
-				'text'	=> $title
-			] ); 
-			
-		default: 
-			return $nr ? // Don't render?
-			[ 
-				'{url}'		=> $perm,
-				'{text}'	=> $title
-			] : 
-			render( template( 'tpl_link' ), [ 
-				'url'	=> $perm,
-				'text'	=> $title
-			] ); 
-	}
-}
-
-/**
- *  Get posts related to current one by content
- *  
- *  @param string	$path	Current post permalink path
- *  @return string
- */
-function getRelated( string $path ) : string {
-	$path	= Text::slash_path( $path );
-	$res	= 
-	db_result_exec( 
-		'SELECT post_bare FROM posts WHERE post_path = :path', 
-		'bare',
-		[ ':path' => $path ]
-	);
-	
-	if ( empty( $res ) ) {
-		return '';
-	}
-	
-	$text	= $res[0]['post_bare'] ?? '';
-	if ( empty( $text ) ) {
-		return '';
-	}
-	
-	$lines	= Text::split_lines( $text );
-	if ( empty( $lines ) ) {
-		return '';
-	}
-	
-	// Parse common words, excluding stop words
-	$words	= Language::instance()->filter_common_words( $lines, false );
-	
-	// Make search data with full title intact ( quotes removed )
-	$title	= \strtr( \current( $lines ), [ '"' => '' ] );
-	$data	= Language::instance()->search_phrase( '"' . $title . '" ' . $words );
-	$rlimit	= setting( 'related_limit', \RELATED_LIMIT, 'int' );
-	
-	// Search for related content excluding current post
-	$search	= 
-	db_result_exec( 
-		"SELECT DISTINCT post_path FROM (
-			SELECT 
-			posts.post_path AS post_path, 
-			matchinfo(post_search) AS rel
-			FROM post_search 
-			LEFT JOIN posts ON post_search.docid = posts.id 
-			WHERE post_search MATCH :find
-			ORDER BY rel DESC
-			LIMIT :limit
-		) WHERE post_path NOT IN ( :path ) 
-			GROUP BY post_path;",
-		'bare',
-		[ 
-			':find'		=> $data, 
-			':limit'	=> $rlimit,
-			':path'		=> $path
-		]
-	);
-	
-	if ( empty( $search ) ) {
-		return '';
-	}
-	
-	// Apply render
-	hook( [ 'getrelated', [ 
-		'search'	=> $search,
-		'title'		=> $title,
-		'limit'		=> $rlimit
-	] ] );
-	
-	$html	= hook_html( 'getrelated' );
-	if ( !empty( $html ) ) {
-		return $html;
-	}
-	
-	$out	= [];
-	foreach( $search as $p ) {
-		$out[] = 
-		previewLink( \trim( $p['post_path'] ) );
-	}
-	
-	return 
-	render( 
-		template( 'tpl_relatednav' ), 
-		[ 'links' => \implode( '', $out ) ] 
-	);	
-}
-
-
-/**
- *  Route actions
- */
-
-/**
- *  Static page display helper. E.G. for homepage or about
- *  
- *  @param string	$label		Page name 'home', 'about' etc...
- *  @param string	$path		Relative URL E.G. '/'
- *  @param array	$links		Default link definition (overridden by $label)
- *  @param array	$post		Page content as a list of lines
- *  @param bool		$forms		This page may contain forms (E.G. contact page)
- *  @param bool		$cache		Cache this page if true
- *  @param string	$lang		Override configured language
- */
-function staticPage( 
-	string	$label,
-	string	$path,
-	array	$links,
-	array	$post,
-	bool	$forms		= true,
-	bool	$cache		= true,
-	string	$lang		= ''
-) {
-	$ptitle	= config( 'page_title', config_default_title() );
-	$psub	= config( 'page_sub', config_default_desc() );
-	
-	// First line is the title, everything else is the body
-	$title	= Container::instance()->get( 'Format' )->title( \array_shift( $post ) );
-	$body	= html( \implode( "\n", $post ), pageRoutePath(), $forms );
-	
-	// Send to render hook
-	hook( [ $label . 'render', [ 
-		'title'		=> $title,
-		'posttitle'	=> $ptitle,
-		'subtitle'	=> $psub,
-		'body'		=> $body,
-		'path'		=> $path
-	] ] );
-	
-	// Send result if hook returned content
-	sendOverride( $label . 'render' );
-	
-	// Assemble page components
-	$slinks	= setting( 'default_' . $label . '_links', $links );
-	$heading = 
-	hook_wrap( 
-		'before' . $label . 'heading',
-		'after' . $label . 'heading',
-		template( 'tpl_' . $label . '_heading' ), [
-			'page_title'	=> $title,
-			'tagline'	=> $psub,
-			
-			// Navigation links
-			$label . '_links'	=> 
-			renderNavLinks( template( 'tpl_mainnav_wrap' ), $slinks ),
-			
-			// Search form
-			'search_form'	=> searchForm()
-		] 
-	);
-	
-	$page_t	= 
-	hook_wrap( 
-		'before' . $label . 'page',
-		'after' . $label . 'page',
-		template( 'tpl_' . $label . '_page' ) , [
-			'page_title'	=> $ptitle,
-			'post_title'	=> $title . ' - ' . $ptitle,
-			'lang'		=> 
-				empty( $lang ) ? 
-				setting( 'language', \LANGUAGE ) : $lang,
-			'home'		=> pageRoutePath(),
-			'feedlink'	=> pageRoutePath( 'feed' ),
-			'body_before'	=> $heading,
-			'body'		=> $body,
-			'body_after'	=> pageFooter()
-		], 
-		true 
-	);
-	
-	page_send( 200, $page_t, $cache );
-}
-
-/**
- *  Static page retrieval helper
- *  
- *  @param string	$page	Retrieval page path
- *  @return array
- */
-function loadStaticPage( string	$page ) : array {
-	$pdir	= config( 'post_dir', Storage::base() );
-	$path	= Text::slash_path( $page );
-	
-	return loadText( $pdir . $path );
 }
 
 /**
@@ -16850,492 +16058,6 @@ function showSearch( string $event, array $hook, array $params ) {
 	// Display search
 	formatIndex( $prefix, $page, collectBody( $res ) );
 }
-
-
-/**
- *  Rebuild index and cache output
- */
-function runIndex( string $event, array $hook, array $params ) {
-	// Pagination prep
-	$page	= ( int ) ( $params['page'] ?? 1 );
-	$ilimit	= config( 'index_limit', 60, 'int' );
-	$start	= ( $page - 1 ) * $ilimit;
-	
-	// Load index
-	$posts	= loadIndex( $start, $ilimit );
-	
-	if ( empty( $posts ) ) {
-		// No more posts
-		sendNotFound();
-	}
-	
-	$ptitle	= config( 'page_title', config_default_title() );
-	$psub	= config( 'page_sub', config_default_desc() );
-	
-	// Send to render hook
-	hook( [ 'indexrender', [ 
-		'posts'		=> $posts,
-		'title'		=> $ptitle,
-		'subtitle'	=> $psub
-	] ] );
-	
-	// Send result if hook returned content
-	sendOverride( 'indexrender' );
-	
-	// Default index render
-	$out	= '';
-	
-	$prefix	= Text::slash_path( pageRoutePath(), true ) . 'archive/';
-	$out	= '';
-	$pf	= '';
-	$plist	= [];
-	foreach( $posts as $k => $v ) {
-		// Archive year
-		$e = ( string ) $k;
-		$d = '';
-		if ( empty( $d ) && \is_numeric( $e ) ) {
-			$d	= $e;
-			$out	.= 
-			hook_wrap(
-				'beforepostitemheading',
-				'beforepostitemheading',
-				template( 'tpl_index_header' ), 
-				[ 'title' => $d ]
-			);
-		}
-		
-		// Post render
-		if ( is_array( $v ) ) {
-			foreach( $v as $p ) {
-				$pf		= 
-				hook_wrap(
-					'beforepostitem', 
-					'afterpostitem', 
-					template( 'tpl_index' ), 
-					$p 
-				);
-				$plist[]	= $pf;
-				$out		.= $pf;
-			}
-		}
-	}
-	
-	$out	= 
-	hook_wrap( 
-		'beforepostindex', 
-		'afterpostindex', 
-		template( 'tpl_index_wrap' ), 
-		[ 'items' => $out ] 
-	);
-
-	$links		= config( 'main_links', [], 'json' );
-	$mlinks		= setting( 'default_main_links', $links );
-	$heading	= 
-	hook_wrap( 
-		'beforearchiveheading',
-		'afterarchiveheading',
-		template( 'tpl_page_heading' ), [
-			'page_title'	=> $ptitle,
-			'tagline'	=> $psub,
-			
-			// Navigation links
-			'main_links'	=> 
-			renderNavLinks( template( 'tpl_mainnav_wrap' ), $mlinks ),
-			
-			// Search form
-			'search_form'	=> searchForm()
-		]
-	);
-	
-	$pages	= ( count( $plist ) < $ilimit ) ? 
-			'' : paginate( $page, $prefix, $plist );
-	$page_t	= 
-	hook_wrap( 
-		'beforearchiveindex',
-		'afterarchiveindex',
-		template( 'tpl_full_page' ), [
-			'page_title'	=> $ptitle,
-			'post_title'	=> $ptitle,
-			'lang'		=> config( 'language', config_default_lang() ),
-			'home'		=> pageRoutePath(),
-			'feedlink'	=> pageRoutePath( 'feed' ),
-			'body_before'	=> $heading,
-			'body'		=> $out,
-			'body_after'	=> $pages . pageFooter()
-		], 
-		true 
-	);
-	
-	page_send( 200, $page_t, true );
-}
-
-/**
- *  Settings validator that checks loaded/set configuration options
- *  
- *  @param string	$event		Should be 'checkconfig'
- *  @param array	$hook		Previous configuration settings
- *  @param array	$params		Current configuration
- */
-function checkConfig( string $event, array $hook, array $params ) {
-	$ye = ( int ) \date( 'Y' );
-	
-	$filter	= [
-		'page_title'	=> [
-			'filter'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
-			'flags'		=> \FILTER_REQUIRE_SCALAR
-		],
-		'page_sub'	=> [
-			'filter'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
-			'flags'		=> \FILTER_REQUIRE_SCALAR
-		],
-		'page_limit'	=> [
-			'filter'	=> \FILTER_VALIDATE_INT,
-			'flags'		=> \FILTER_REQUIRE_SCALAR,
-			'options'	=> [
-				'min_range'	=> 1,
-				'max_range'	=> 500,
-				'default'	=> 20
-			]
-		],
-		'index_limit'	=> [
-			'filter'	=> \FILTER_VALIDATE_INT,
-			'flags'		=> \FILTER_REQUIRE_SCALAR,
-			'options'	=> [
-				'min_range'	=> 1,
-				'max_range'	=> 500,
-				'default'	=> 60
-			]
-		],
-		'max_page' => [
-			'filter'	=> \FILTER_VALIDATE_INT,
-			'flags'		=> \FILTER_REQUIRE_SCALAR,
-			'options'	=> [
-				'min_range'	=> 1,
-				'max_range'	=> 5000,
-				'default'	=> 500
-			]
-		],
-		'max_url_size' => [
-			'filter'	=> \FILTER_VALIDATE_INT,
-			'flags'		=> \FILTER_REQUIRE_SCALAR,
-			'options'	=> [
-				'min_range'	=> 255,
-				'max_range'	=> 2048,
-				'default'	=> 512
-			]
-		],
-		'summary_level'	=> [
-			'filter'	=> \FILTER_VALIDATE_INT,
-			'flags'		=> \FILTER_REQUIRE_SCALAR,
-			'options'	=> [
-				'min_range'	=> 0,
-				'max_range'	=> 2,
-				'default'	=> 0
-			]
-		],
-		'feature_lines'	=> [
-			'filter'	=> \FILTER_VALIDATE_INT,
-			'flags'		=> \FILTER_REQUIRE_SCALAR,
-			'options'	=> [
-				'min_range'	=> 1,
-				'max_range'	=> 10,
-				'default'	=> 5
-			]
-		],
-		'timezone'	=> [
-			'filter'	=> \FILTER_SANITIZE_SPECIAL_CHARS,
-			'flags'		=> 
-				\FILTER_REQUIRE_SCALAR	|
-				\FILTER_FLAG_STRIP_LOW	| 
-				\FILTER_FLAG_STRIP_HIGH	| 
-				\FILTER_FLAG_STRIP_BACKTICK,
-			'options' => [
-				'default' => config_default_tz()
-			]
-		],
-		
-		// Date formatting
-		'date_nice'	=> [
-			'filter'	=> \FILTER_SANITIZE_SPECIAL_CHARS,
-			'flags'		=> 
-				\FILTER_REQUIRE_SCALAR	|
-				\FILTER_FLAG_STRIP_LOW	| 
-				\FILTER_FLAG_STRIP_HIGH	| 
-				\FILTER_FLAG_STRIP_BACKTICK 
-		],
-		
-		// Safe file extensions
-		'ext_whitelist'	=> [
-			'filter'	=> \FILTER_SANITIZE_SPECIAL_CHARS,
-			'flags'		=> 
-				\FILTER_FLAG_STRIP_LOW	| 
-				\FILTER_FLAG_STRIP_HIGH	| 
-				\FILTER_FLAG_STRIP_BACKTICK | 
-				\FILTER_REQUIRE_ARRAY
-		],
-		
-		// Mail sender address
-		'mail_from'	=> [
-			'filter'	=> \FILTER_VALIDATE_EMAIL,
-			'flags'		=> 
-				\FILTER_REQUIRE_SCALAR	|
-				\FILTER_FLAG_EMAIL_UNICODE,
-			'options'	=> [ 'default'	=> '' ]
-		],
-		
-		// Mail receiver list
-		'mail_whitelist'=> [
-			'filter'	=> \FILTER_VALIDATE_EMAIL,
-			'flags'		=> 
-				\FILTER_REQUIRE_ARRAY	|
-				\FILTER_FLAG_EMAIL_UNICODE
-		],
-		
-		// Post tagging
-		'tag_limit'	=> [
-			'filter'	=> \FILTER_VALIDATE_INT,
-			'flags'		=> \FILTER_REQUIRE_SCALAR,
-			'options'	=> [
-				'min_range'	=> 1,
-				'max_range'	=> 50,
-				'default'	=> 20
-			]
-		],
-		
-		// Cache settings
-		'cache_ttl'	=> [
-			'filter'	=> \FILTER_VALIDATE_INT,
-			'flags'		=> \FILTER_REQUIRE_SCALAR,
-			'options'	=> [
-				'min_range'	=> 300,
-				'max_range'	=> 604800,
-				'default'	=> 3600
-			]
-		],
-		
-		// Database connection timeout
-		'data_timeout'	=> [
-			'filter'	=> \FILTER_VALIDATE_INT,
-			'flags'		=> \FILTER_REQUIRE_SCALAR,
-			'options'	=> [
-				'min_range'	=> 1,
-				'max_range'	=> 60,
-				'default'	=> 5
-			]
-		],
-		
-		// Pagination
-		'year_start'	=> [
-			'filter'	=> \FILTER_VALIDATE_INT,
-			'flags'		=> \FILTER_REQUIRE_SCALAR,
-			'options'	=> [
-				'min_range'	=> 1900,
-				'max_range'	=> $ye,
-				'default'	=> 1990
-			]
-		],
-		
-		// Related and sibling display
-		'related_limit'	=> [
-			'filter'	=> \FILTER_VALIDATE_INT,
-			'flags'		=> \FILTER_REQUIRE_SCALAR,
-			'options'	=> [
-				'min_range'	=> 1,
-				'max_range'	=> 20,
-				'default'	=> 5
-			]
-		],
-		'show_siblings'	=> [
-			'filter'	=> \FILTER_VALIDATE_INT,
-			'flags'		=> \FILTER_REQUIRE_SCALAR,
-			'options'	=> [
-				'min_range'	=> 0,
-				'max_range'	=> 1,
-				'default'	=> 1
-			]
-		],
-		'show_related'	=> [
-			'filter'	=> \FILTER_VALIDATE_INT, 
-			'flags'		=> \FILTER_REQUIRE_SCALAR, 
-			'options'	=> [
-				'min_range'	=> 0,
-				'max_range'	=> 1,
-				'default'	=> 1
-			]
-		],
-		'readtime_types'=> [
-			'filter'	=> \FILTER_SANITIZE_SPECIAL_CHARS,
-			'flags'		=> 
-				\FILTER_REQUIRE_SCALAR	|
-				\FILTER_FLAG_STRIP_LOW	| 
-				\FILTER_FLAG_STRIP_HIGH	| 
-				\FILTER_FLAG_STRIP_BACKTICK,
-			'options' => [
-				'default' => \READTIME_TYPES
-			]
-		],
-		'plugins_enabled'=> [
-			'filter'	=> \FILTER_SANITIZE_SPECIAL_CHARS,
-			'flags'		=> 
-				\FILTER_FLAG_STRIP_LOW	| 
-				\FILTER_FLAG_STRIP_HIGH	| 
-				\FILTER_FLAG_STRIP_BACKTICK | 
-				\FILTER_REQUIRE_ARRAY
-		],
-		
-		'sites_enabled'=> [
-			'filter'	=> \FILTER_CALLBACK,
-			'options'	=> 
-			function( $v ) {
-				return 
-				\is_array( $v ) ? 
-					formatSites( $v ) : [];
-			}
-		], 
-		
-		// URL Markers
-		'route_mark'=> [
-			'filter'	=> \FILTER_CALLBACK,
-			'options'	=> 
-			function( $v ) {
-				return Util::json_uarray( $v );
-			}
-		], 
-		
-		// Log rollover size
-		'max_log_size'	=> [
-			'filter'	=> \FILTER_VALIDATE_INT,
-			'flags'		=> \FILTER_REQUIRE_SCALAR,
-			'options'	=> [
-				'min_range'	=> 1024,
-				'max_range'	=> 5000000,
-				'default'	=> 5000000
-			]
-		],
-		
-		// Search stop words
-		'stop_words'=> [
-			'filter'	=> \FILTER_SANITIZE_SPECIAL_CHARS,
-			'flags'		=> \FILTER_REQUIRE_ARRAY
-		], 
-		
-		// Session settings
-		'session_bytes'	=> [
-			'filter'	=> \FILTER_VALIDATE_INT,
-			'options'	=> [
-				'min_range'	=> 12,
-				'max_range'	=> 36,
-				'default'	=> 16
-			]
-		],
-		'session_exp' => [
-			'filter'	=> \FILTER_VALIDATE_INT,
-			'options'	=> [
-				'min_range'	=> 300,
-				'max_range'	=> 3600,
-				'default'	=> 3600
-			]
-		],
-		
-		// Form settings
-		'token_bytes'	=> [
-			'filter'	=> \FILTER_VALIDATE_INT,
-			'options'	=> [
-				'min_range'	=> 8,
-				'max_range'	=> 64,
-				'default'	=> 12
-			]
-		],
-		'nonce_hash'	=> [
-			'filter'	=> 
-				\FILTER_SANITIZE_SPECIAL_CHARS,
-			'flags'	=> 
-				\FILTER_FLAG_STRIP_LOW	| 
-				\FILTER_FLAG_STRIP_HIGH	| 
-				\FILTER_FLAG_STRIP_BACKTICK 
-		],
-		
-		// Scurity and error settings
-		'skip_local'	=> [
-			'filter'	=> \FILTER_VALIDATE_INT,
-			'options'	=> [
-				'min_range'	=> 0,
-				'max_range'	=> 1,
-				'default'	=> 1
-			]
- 		],
-		'allow_post'	=> [
-			'filter'	=> \FILTER_VALIDATE_INT,
-			'options'	=> [
-				'min_range'	=> 0,
-				'max_range'	=> 1,
-				'default'	=> 0
-			]
-		],  
-		'frame_whitelist'=> [
-			'filter'	=> \FILTER_CALLBACK,
-			'flags'		=> \FILTER_REQUIRE_ARRAY,
-			'options'	=> 'Sanitize::url'
-		], 
-		
-		// Templating settings
-		'asset_dir'	=> [
-			'filter'	=> \FILTER_VALIDATE_URL,
-			'options'	=> [ 'default' => 'assets/' ],
-		],
-		'plugin_asset_dir'	=> [
-			'filter'	=> \FILTER_VALIDATE_URL,
-			'options'	=> [ 'default' => 'plugins/' ],
-		],
-		'style_limit'	=> [
-			'filter'	=> \FILTER_VALIDATE_INT,
-			'options'	=> [
-				'min_range'	=> 1,
-				'max_range'	=> 50,
-				'default'	=> 10
-			]
-		],
-		'script_limit'	=> [
-			'filter'	=> \FILTER_VALIDATE_INT,
-			'options'	=> [
-				'min_range'	=> 1,
-				'max_range'	=> 50,
-				'default'	=> 10
-			]
-		],
-		'meta_limit'	=> [
-			'filter'	=> \FILTER_VALIDATE_INT,
-			'options'	=> [
-				'min_range'	=> 1,
-				'max_range'	=> 50,
-				'default'	=> 10
-			]
-		]
-	];
-	
-	// Filter passed params, leaving out unset ones
-	$data			= 
-	\filter_var_array( $params, $filter, false );
-	
-	$fmt = Container::instance()->get( 'Format' );
-	if ( !empty( $data['ext_whitelist'] ) ) {
-		$data['ext_whitelist']	= 
-			$fmt->whitelists( $data['ext_whitelist'], true );
-	}
-	
-	if ( isset( $data['nonce_hash'] ) ) {
-		$data['nonce_hash']	= 
-		hashAlgo( ( string ) $data['nonce_hash'], \NONCE_HASH );
-	}
-
- 	if ( isset( $data['plugins_enabled'] ) ) {
-		$data['plugins_enabled'] = 
-			\array_filter( $data['plugins_enabled'], 'Sanitize::sdir' );
- 	}
-	
-	return \array_merge( $hook, $data );
-}
-
 
 // Start application
 $main	= new Main();
