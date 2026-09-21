@@ -10504,6 +10504,22 @@ final class Database extends Instance {
 	}
 	
 	/**
+	 *  Generate SQL for a timestamp + TTL value for direct string insertion
+	 */
+	public function ttl_sql( \PDO $dbh, int $ttl ) : string {
+		$driver = $this->get_driver( $dbh );
+		return match( $driver ) {
+			'sqlite'	=> "strftime( '%s','now' ) + {$ttl}",
+			'mysql'		=> "UNIX_TIMESTAMP() + {$ttl}",
+			'pgsql'		=> "EXTRACT(EPOCH FROM NOW())::bigint + {$ttl}",
+			//'sqlsrv'	=> "DATEDIFF(second, '1970-01-01', GETUTCDATE()) + {$ttl}"
+			default		=> 
+				throw new 
+				\RuntimeException( "Unsupported DB driver: {$driver}" )
+		};
+	}
+	
+	/**
 	 *  Database profile settings from config JSON file
 	 *  
 	 *  @param PDO		$dbh		PDO Database handle
@@ -11071,13 +11087,13 @@ class Sessions extends Instance {
 	 *  
 	 *  @param Config	$config		Main configuration
 	 *  @param Log		$logger		Status logger
-	 *  @param Database	$data		Persistent storage
+	 *  @param Database	$dbh		Persistent storage
 	 *  @param Request	$request	Current client HTTP request
 	 */
 	public function __construct(
 		public readonly	Config		$config,
 		public readonly	Log		$logger,
-		public readonly	Database	$data,
+		public readonly	Database	$dbh,
 		public readonly	Request		$request
 	) {}
 	
@@ -11086,7 +11102,7 @@ class Sessions extends Instance {
 		$logger		= $container->get( Log::class );
 		$config		= $container->get( Config::class );
 		$request	= $container->get( Request::class );
-		$data		= $container->get( Database::class );
+		$dbh		= $container->get( Database::class );
 		
 		return new static( $config, $logger, $data, $request );
 	}
@@ -11121,9 +11137,9 @@ class Sessions extends Instance {
 	 *  @return string
 	 */
 	public function read( $session_id ) {
-		$dbh	= $this->data->get( 'sessions' );
+		$db	= $this->dbh->get( 'sessions' );
 		$stmt	= 
-		$dbh->prepare(
+		$db->prepare(
 		"SELECT session_data FROM sessions
 			WHERE session_id = :id
 			AND ( expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP )
@@ -11144,10 +11160,10 @@ class Sessions extends Instance {
 	 *  @return bool
 	 */
 	public function write( $session_id, $data ) {
-		$dbh	= $this->data->get( 'sessions' );
+		$db	= $this->dbh->get( 'sessions' );
 		
-		return $this->data->with_transaction( 
-				$dbh, function( \PDO $dbh ) 
+		return $this->dbh->with_transaction( 
+				$db, function( \PDO $dbh ) 
 					use ( $session_id, $data ) {
 			$stmt	= 
 			$dbh->prepare(
@@ -11189,9 +11205,9 @@ class Sessions extends Instance {
 	 *  @return bool
 	 */
 	public function destroy( $session_id ) {
-		$dbh	= $this->data->get( 'sessions' );
-		return $this->data->with_transaction( 
-				$dbh, function( \PDO $dbh ) 
+		$db	= $this->dbh->get( 'sessions' );
+		return $this->dbh->with_transaction( 
+				$db, function( \PDO $dbh ) 
 					use ( $session_id ) {
 			$stmt	=
 			$dbh->prepare( "DELETE FROM sessions WHERE session_id = :id" );
@@ -11207,9 +11223,9 @@ class Sessions extends Instance {
 	 *  @return bool
 	 */
 	public function gc( $maxlifetime ) {
-		$dbh	= $this->data->get( 'sessions' );
+		$db	= $this->dbh->get( 'sessions' );
 		
-		return $this->data->with_transaction( $dbh, function( \PDO $dbh ) {
+		return $this->dbh->with_transaction( $db, function( \PDO $dbh ) {
 			return $dbh->exec(
 				"DELETE FROM sessions
 					WHERE expires_at IS NOT NULL
@@ -11225,18 +11241,19 @@ class Sessions extends Instance {
 	 *  @return bool
 	 */
 	public function update_timestamp( $session_id, $data ) {
-		$dbh	= $this->data->get( 'sessions' );
-	
-		return $this->data->with_transaction( 
-				$dbh, function( \PDO $dbh ) 
-					use ( $session_id, $data ) {
+		$db	= $this->dbh->get( 'sessions' );
+		$exp	= $this->dbh->ttl_sql( $db, 3600 );
+		$sql	= 
+		"UPDATE sessions
+			SET expires_at = {expires}, 
+			data = :data
+			WHERE session_id = :id";
+			
+		return $this->dbh->with_transaction( 
+				$db, function( \PDO $dbh ) 
+					use ( $session_id, $data, $exp, $sql ) {
 			$stmt	=
-			$dbh->prepare( 
-			"UPDATE sessions
-				SET expires_at = DATETIME('now', '+1 hour'), 
-				data = :data
-				WHERE session_id = :id"
-			);
+			$dbh->prepare( \strtr( $sql, [ '{expires}' => $exp ] ) );
 			
 			return $stmt->execute( [ 
 				':id'	=> $session_id, 
@@ -11310,16 +11327,10 @@ class Sessions extends Instance {
 			}
 		}
 		
-		$exp	= time() + ( int ) $this->config->setting( 'session_regen', 1800 );
-		if ( !isset( $_SESSION['session_regen'] ) ) {
-			$_SESSION['session_regen'] = $exp;
-			return;
-		}
-		
-		if ( time() > ( int ) $_SESSION['session_regen'] ) {
-			\session_regenerate_id( true );
-			$_SESSION['session_regen'] = $exp;
-		}
+		// Run refresh hook
+		$this->hooks->run( 'session.refresh', true, [
+			'basename'	=> $this->basename
+		] );
 	}
 }
 
@@ -14451,6 +14462,404 @@ class PostImportHooks {
 		return $result->with_data( [
 			'import_tags_applied' => true
 		] );
+	}
+}
+
+
+/**
+ *  @class Update session expiration on activity
+ */
+#[HookHandler]
+class SessionTouch {
+	
+	/**
+	 *  @var string Session database name
+	 */
+	private readonly string $sess_db_profile;
+	
+	/**
+	 *  @var int Session expiration
+	 */
+	private readonly int $session_ttl;
+	
+	public const SQL = [
+		// Update timestamps only
+		'touch_session' =>
+		"UPDATE sessions SET expires_at = {expires}, 
+			 updated_at = {updated}
+		WHERE session_id = :sid;",
+	];
+	
+	/**
+	 *  @example
+	 *  $registry->run( 'session.touch', false, [] );
+	 */
+	public function __construct(
+		private readonly	Config		$config,
+		private readonly	Database	$dbh
+	) {
+		$this->sess_db_profile	= 
+			$this->config->setting( 'sess_db_profile', 'sessions' );
+		
+		$this->session_ttl	= 
+			$this->config-setting( 'sesssion_ttl', 3600, 'int' );
+	}
+	
+	/**
+	 *  Initialize session touch
+	 */
+	#[Hook( name : 'session.touch.init', priority : 1 )]
+	public function init( string $event, HookResult $result, array $args ) : HookResult {
+		$session_id	= \session_id();
+		if ( !$session_id ) {
+			return $result->add_error( 'session.touch.init Called with no active session' );
+		}
+		
+		return $result->add_data( [ 'session_id' => $session_id ] );
+	}
+	
+	/** 
+	 *  Update expires_at
+	 */
+	#[Hook( name : 'session.touch.update', priority : 10 )]
+	public function update( string $event, HookResult $result, array $args ) : HookResult {
+		$session_id	= $result->data['session_id'] ?? null;
+		if ( null === $session_id ) { return $result; }
+		
+		$db		= $this->dbh->get( $this->sess_db_profile );
+		$sql		= 
+		\strtr( static::SQL['touch_session'], [
+			'{expires}'	=> $this->dbh->ttl_sql( $db, $this->session_ttl ),
+			'{updated}'	=> $this->dbh->ttl_sql( $db, 0 )
+		] );
+		
+		$this->dbh->result_exec(
+			sql	: $sql,
+			profile	: $this->sess_db_profile,
+			params	:  [ 'sid' => $session_id ]
+		);
+		
+		return $result->add_data( [ 'session_expires' => time() + $this->session_ttl ] );
+	}
+	
+	/**
+	 *  Finalize session touch hook
+	 */
+	#[Hook( name : 'session.touch.finish', priority : 100 )]
+	public function finish( string $event, HookResult $result, array $args ) : HookResult {
+		$session_id	= $result->data['session_id'] ?? null;
+		if ( null === $session_id ) { return $result; }
+		
+		return $result->add_data( [
+			'session_id'	=> $session_id,
+			'touched'	=> true,
+			'ttl'		=> $this->ession_ttl
+		]);
+	}
+}
+
+
+/**
+ *  @class End session and delete session data
+ */
+#[HookHandler]
+class SessionDestroy {
+	
+	/**
+	 *  @var string Session database name
+	 */
+	private readonly string $sess_db_profile;
+	
+	public const SQL = [
+		
+		// Check if session exists
+		'select_session' =>
+		"SELECT 1 FROM sessions WHERE session_id = :id;",
+		
+		// Delete session
+		'delete_session' =>
+		"DELETE FROM sessions WHERE session_id = :id;",
+	];
+	
+	/**
+	 *  @example
+	 *  $registry->run( 'session.destroy', false, [] );
+	 */
+	public function __construct(
+		private readonly Config   $config,
+		private readonly Database $dbh,
+		private readonly Sessions $sessions
+	) {
+		$this->sess_db_profile	= 
+			$this->config->setting( 'sess_db_profile', 'sessions' );
+	}
+	
+	/**
+	 *  Initialize destroy stage
+	 */
+	#[Hook( name : 'session.destroy.init', priority : 1 )]
+	public function init( string $event, HookResult $result, array $args ) : HookResult {
+		$session_id	= $args['session_id'] ?? session_id();
+		if ( null === $session_id ) { return $result; }
+		
+		return $result->add_data( [
+			'session_id' 		=> $session_id,
+			'session_destroyed'	=> true
+		] );
+	}
+	
+	/**
+	 *  Validate session 
+	 */
+	#[Hook( name : 'session.destroy.validate', priority : 5 )]
+	public function validate( string $event, HookResult $result, array $args ) : HookResult {
+		$session_id	= $result->data['session_id'] ?? null;
+		if ( null === $session_id ) { return $result; }
+		
+		$exists = 
+		$this->dbh->result_exec(
+			sql	: static::SQL['select_session'],
+			profile	: $this->sess_db_profile,
+			params	: [ 'id' => $session_id ],
+			rtype	: 'column'
+		);
+		
+		// Already deleted?
+		if ( !$exists ) { return $result->add_error( 'Session not found' ); }
+		
+		return $result;
+	}
+	
+	/**
+	 *  Delete sesssion by ID
+	 */
+	#[Hook( name : 'session.destroy.delete', priority : 10 )]
+	public function remove( string $event, HookResult $result, array $args ) : HookResult {
+		$session_id	= $result->data['session_id'] ?? null;
+		if ( null === $session_id ) { return $result; }
+		
+		$this->dbh->result_exec(
+			sql	: static::SQL['delete_session'],
+			profile	: $this->sess_db_profile,
+			params	: [ 'id' => $session_id ]
+		);
+		
+		// Destroy PHP session
+		$this->sessions->off();
+		
+		return $result;
+	}
+	
+	/**
+	 *  Finalize session ending
+	 */
+	#[Hook( name : 'session.destroy.finish', priority : 100 )]
+	public function finish( string $event, HookResult $result, array $args ) : HookResult {
+		return $result->add_data( [
+			'destroyed'	=> true,
+			'session_id'	=> $result->data['session_id']
+		] );
+	}
+}
+
+
+/**
+ *  @class Reinitialize or start session with fresh ID
+ */
+#[HookHandler]
+class SessionRefresh {
+	
+	/**
+	 *  @var string Session database name
+	 */
+	private readonly string $sess_db_profile;
+	
+	/**
+	 *  @var string Current host
+	 */
+	private readonly string $basename;
+	
+	public const SQL = [
+		
+		// Check if session exists
+		'select_session' =>
+		"SELECT * FROM sessions WHERE basename = :basename AND session_id = :id;",
+		
+		// Update session expiration
+		'update_session'	=> 
+		"UPDATE sessions SET expires_at = {expires}, updated_at = {updated}
+			WHERE basename = :basename AND session_id = :id;",
+		
+		// Regenerate session
+		'refresh_session'=> 
+		"UPDATE sessions SET session_id = :new_id,
+			expires_at = {expires},
+			updated_at = {updated}
+		WHERE basename = :basename AND session_id = :old_id;"
+	];
+	
+	public function __construct(
+		private readonly Config   $config,
+		private readonly Database $dbh,
+		private readonly Sessions $sessions,
+		private readonly Request  $request
+	) {
+		$this->sess_db_profile	= $this->config->setting( 'session_profile', 'sessions' );
+		$this->basename		= 
+		\idn_to_ascii( 
+			$this->request->host, 
+			\IDNA_DEFAULT, 
+			\INTL_IDNA_VARIANT_UTS46 
+		);
+	}
+	
+	#[Hook( name : 'session.refresh.init', priority : 1 )]
+	public function init( string $event, HookResult $result, array $args ) : HookResult {
+		return $result->add_data( [
+			'old_session_id'	=> \session_id(),
+			'basename'		=> 
+			$args['basename'] ?? $this->basename
+		] );
+	}
+	
+	#[Hook( name : 'session.refresh.validate', priority : 5 )]
+	public function validate( string $event, HookResult $result, array $args ) : HookResult {
+		$old_id		= $result->data['old_session_id'] ?? null;
+		if ( null === $old_id ) { return $result; }
+		
+		$basename	= $result->data['basename'] ?? ( $args['basename'] ?? $this->basename );
+		$row		= 
+		$this->dbh->result_exec(
+			sql	: static::SQL['select_session'],
+			profile	: $this->sess_db_profile,
+			params	: [ 
+				'basename'	=> $basename,
+				'id'		=> $old_id
+			],
+			rtype	: 'row'
+		);
+		
+		if ( !$row ) { 
+			return $result->add_data( [ 'session_invalid' => true ] );
+		}
+		
+		$now		= time();
+		$expires	= ( int ) $row['expires_at'];
+		if( $now >= $expires ) {
+			return $result->add_data( [ 
+				'session_invalid'	=> true,
+				'session_expired'	=> true 
+			] );
+		}
+		
+		$updated	= ( int ) $row['updated_at'];
+		$regen_int	= $this->config->setting( 'session_regen', 1800, 'int' );
+		if ( $now >= ( $updated + $regen_int ) ) {
+			return $result->add_data( [ 
+				'session_regenerate'	=> true 
+			] );
+		}
+		
+		return $result->add_data( [ 'session_refresh' => true ] );
+	}
+	
+	/**
+	 *  Regenerate session ID
+	 */
+	#[Hook( name : 'session.refresh.regenerate', priority : 10 )]
+	public function regenerate( string $event, HookResult $result, array $args ) : HookResult {
+		if ( 
+			empty( $result->data['session_regenerate'] ) || 
+			!empty( $result->data['session_invalid'] )
+		) {
+			return $result;
+		}
+		
+		$old_id	= $result->data['old_session_id'] ?? null;
+		if ( null === $old_id ) { return $result; }
+		
+		\session_regenerate_id( true );
+		
+		$basename	= $result->data['basename'] ?? ( $args['basename'] ?? $this->basename );
+		$new_id 	= \session_id();
+		$db		= $this->dbh->get( $this->sess_db_profile );
+		
+		$sql		= 
+		\strtr( static::SQL['refresh_session'], [
+			'{expires}'	=> $this->dbh->ttl_sql( $db, $this->session_ttl ),
+			'{updated}'	=> $this->dbh->ttl_sql( $db, 0 )
+		] );
+		
+		$this->dbh->result_exec(
+			sql	: $sql,
+			profile : $this->sess_db_profile,
+			params  : [
+				'basename'	=> $basename,
+				'old_id'	=> $old_id,
+				'new_id'	=> $new_id
+			]
+		);
+		
+		return $result->add_data( [
+			'new_session_id'	=> $new_id,
+			'session_expires'	=> time() + $this->session_ttl,
+			'session_regenerated'	=> true
+		] );
+	}
+	
+	/**
+	 *  Validate session row
+	 */
+	#[Hook(name: 'session.refresh.update', priority: 20)]
+	public function update( string $event, HookResult $result, array $args): HookResult {
+		if (
+			!empty( $result->data['session_regenerate'] ) 	||
+			!empty( $result->data['session_expired'] )	|| 
+			!empty( $result->data['session_invalid'] )
+		) {
+			return $result;
+		}
+		
+		$old_id	= $result->data['old_session_id'] ?? null;
+	 	if ( null === $old_id ) { return $result; }
+		
+		$db	= $this->dbh->get( $this->sess_db_profile );
+		$sql	= 
+		\strtr( static::SQL['update_session'], [
+			'{expires}' => $this->dbh->ttl_sql( $db, $this->session_ttl ),
+			'{updated}' => $this->dbh->ttl_sql( $db, 0 )
+		] );
+		
+		$this->dbh->result_exec(
+			sql	: $sql,
+			profile	: $this->sess_db_profile,
+			params	: [
+				'basename'	=> $this->basename,
+				'id'		=> $old_id
+			]
+		);
+		
+		return $result->add_data([
+			'session_expires'	=> time() + $this->session_ttl,
+			'session_updated'	=> true
+		]);
+	}
+	
+	#[Hook(name: 'session.refresh.finish', priority: 100)]
+	public function finish( string $event, HookResult $result, array $args): HookResult {
+		if ( 
+			empty( $result->data['old_session_id'] ) &&
+			empty( $result->data['new_session_id'] ) 
+		) {
+			return $result;
+		}
+		
+		return $result->add_data( [
+			'refreshed'		=> true,
+			'old_session_id'	=> $result->data['old_session_id'],
+			'new_session_id'	=> 
+			$result->data['new_session_id'] ?? $result->data['old_session_id']
+		]);
 	}
 }
 
