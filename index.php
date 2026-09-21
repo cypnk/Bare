@@ -4338,19 +4338,24 @@ final class Logger extends Instance {
  */
 final class Request extends Instance {
 	/**
-	 *  @var string		$id		Unique sortable identifier
+	 *  @var string Unique sortable identifier
 	 */
 	public readonly string	$id;
 	
 	/**
-	 *  @var string		$tiemstamp	ISO 8601 format timestamp
+	 *  @var string ISO 8601 format timestamp
 	 */
 	public readonly string	$timestamp;
-
+	
 	/**
-	 *  @var array		$canonical_ip	Core IP data from forwarded headers
+	 *  @var array Core IP data from forwarded headers
 	 */
-	private array		$canonical_ip;
+	private		array	$canonical_ip;
+	
+	/**
+	 *  ASCII converted hostname
+	 */
+	public readonly	string	$host_ascii;
 	
 	public function __construct(
 		public readonly string		$method,
@@ -4371,6 +4376,12 @@ final class Request extends Instance {
 			\bin2hex( \random_bytes( 32 ) );
 		
 		$this->timestamp	= date( 'c' );
+		$this->host_ascii	= 
+		\idn_to_ascii( 
+			$this->host, 
+			\IDNA_DEFAULT, 
+			\INTL_IDNA_VARIANT_UTS46 
+		);
 	}
 	
 	public static function create(
@@ -9914,6 +9925,17 @@ final class Router extends Instance {
 	}
 	
 	public function dispatch( string $method, string $uri ) : void {
+		$registry	= $this->container->get( HookRegistry::class );
+		
+		// Configure sesion and cookie settings
+		$registry->run( 'session.cookie.config' );
+		
+		$this->container->get( Sessions::class )->init();
+		
+		$registry->run( 'session.cookie.init' );
+		$registry->run( 'session.lifecycle' );
+		$registry->run( 'session.cookie.set' );
+		
 		$path	= \parse_url( $uri, \PHP_URL_PATH );
 		$path	= \rtrim( $path, '/' ) ?: '/';
 
@@ -11181,15 +11203,8 @@ class Sessions extends Instance {
 					expires_at	= excluded.expires_at"
 			);
 			
-			$host	= 
-			\idn_to_ascii( 
-				$this->request->host, 
-				\IDNA_DEFAULT, 
-				\INTL_IDNA_VARIANT_UTS46 
-			);
-			
 			return $stmt->execute( [
-				':basename'	=> Text::lowercase( $host ),
+				':basename'	=> $this->request->host_ascii,
 				':id'		=> $session_id,
 				':uid'		=> $_SESSION['user']['user_id'] ?? null,
 				':ip'		=> $this->request->ip( true ),
@@ -11278,15 +11293,6 @@ class Sessions extends Instance {
 	 */
 	public function init() : void {
 		static $start;
-		static $params;
-		
-		$params	??= 
-		\session_set_cookie_params( [
-			'httponly'	=> true, 
-			'secure'	=> $this->request->is_tls, 
-			'samesite'	=> 'Strict', 
-			'path'		=> $this->config->setting( 'cookie_path', '/' ), 
-		] );
 		
 		$start	??= 
 		\session_set_save_handler( 
@@ -12586,7 +12592,7 @@ class CacheHooks {
 		
 		// Expiration check
 		if ( !empty( $cache['expires_at'] ) ) {
-			$exp	= \strtotime( $row['expires_at'] );
+			$exp	= ( int ) $row['expires_at'];
 			if ( false !== $exp && $exp <= \time() ) {
 				return $result->with_data([ 'cache_hit' => false ]);
 			}
@@ -14467,6 +14473,410 @@ class PostImportHooks {
 
 
 /**
+ *  @class Session cookie base settings
+ */
+#[HookHandler]
+class SessionCookieConfig {
+	
+	public function __construct(
+		private readonly Config  $config,
+		private readonly Request $request
+	) {}
+	
+	#[Hook( name: 'session.cookie.config', priority: 1 )]
+	public function config( string $event, HookResult $result, array $args): HookResult {
+		// Resolve cookie parameters
+		$path		= 
+		$args['cookie_path'] ?? (
+			$result->data['cookie_path'] ?? 
+			$this->config->setting('cookie_path', '/')
+		);
+		
+		// Custom realm or default to request domain
+		$domain		=
+		$args['cookie_domain'] ?? (
+			$result->data['cookie_domain'] ?? 
+			$this->request->host
+		);
+		
+		// Always set secure when over TLS
+		$is_secure 	=
+		$args['cookie_secure'] ?? (
+			$result->data['cookie_secure'] ?? 
+		 	$this->request->is_tls
+		);
+		
+		// This shouldn't be changed unless there's a very good reason
+		$is_same	=
+		$args['cookie_samesite'] ?? (
+			$result->data['cookie_samesite'] ?? 
+			$this->config->setting( 'cookie_samesite', 'Strict' )
+		);
+		
+		// Apply PHP cookie defaults
+		\session_set_cookie_params( [
+			'path'		=> $path,
+			'domain'	=> $domain,
+			'secure'	=> $is_secure,
+			'httponly'	=> true,
+			'samesite'	=> $is_same
+		] );
+		
+		// Store resolved values for downstream hooks
+		return $result->add_data([
+			'cookie_path'		=> $path,
+			'cookie_domain'		=> $domain,
+			'cookie_secure'		=> $is_secure,
+			'cookie_samesite'	=> $is_same
+		]);
+	}
+}
+
+
+/**
+ *  @class Cookie and session handling
+ */
+#[HookHandler]
+class SessionCookieInit {
+	public function __construct(
+		private readonly Config   $config,
+		private readonly Request  $request
+	) {}
+	
+	#[Hook( name: 'session.cookie.init', priority: 1)]
+	public function init( string $event, HookResult $result, array $args ) : HookResult {
+		// Resolve cookie name
+		$name	= 
+		$args['cookie_name'] ?? ( 
+			$result->data['cookie_name'] ?? 
+			$this->config->setting( 'cookie_name', 'SID' ) 
+		);
+		
+		// Resolve basename ( ASCII host )
+		$basename	=
+		$args['basename'] ?? ( 
+			$result->data['basename'] ?? 
+			$this->request->host_ascii
+		);
+		
+		// Read raw cookie value 
+		$raw = $_COOKIE[$name] ?? null;
+		
+		// Normalize session ID
+		$session_id = null;
+		if ( $raw && \is_string( $raw ) ) {
+			if ( \preg_match('/^[A-Za-z0-9,-]{16,}$/', $raw)) {
+				$session_id = $raw;
+			}
+		}
+		
+		// Populate pipeline
+		return $result->add_data( [
+			'cookie_name'	=> $name,
+			'cookie_path'	=> $path,
+			'cookie_domain'	=> $domain,
+			'basename'	=> $basename,
+			'cookie_raw'	=> $raw,
+			'session_id'	=> $session_id,
+			'cookie_valid'	=> null !== $session_id
+		]);
+	}
+}
+
+
+/**
+ *  @class Set custom cookie via lifcycle
+ */
+#[HookHandler]
+class SessionCookieSet {
+	
+	public function __construct(
+		private readonly Config  $config,
+		private readonly Request $request
+	) {}
+	
+	#[Hook( name : 'session.cookie.set', priority : 50 )]
+	public function set( string $event, HookResult $result, array $args ) : HookResult {
+		// Resolve cookie name
+		$name	=
+		$result->data['cookie_name'] ?? ( 
+			$args['cookie_name'] ?? 
+			$this->config->setting( 'cookie_name', 'SID' )
+		);
+		
+		// Resolve cookie parameters ( from cookie.config )
+		$path		= $result->data['cookie_path']		?? '/';
+		$domain		= $result->data['cookie_domain']	?? $this->request->host;
+		$is_secure	= $result->data['cookie_secure']	?? $this->request->is_tls;
+		$is_same	= $result->data['cookie_samesite']	?? 'Strict';
+		
+		// Check session ID to write
+		$session_id	= $result->data['session_id'] ?? null;
+
+		// Check if lifecycle marked session invalid
+		$invalid	= $result->data['session_invalid'] ?? false;
+
+		// If invalid, delete cookie
+		if ( $invalid ) {
+			\setcookie( $name, '', [
+				'expires'	=> time() - 3600,
+				'path'		=> $path,
+				'domain'	=> $domain,
+				'secure'	=> $is_secure,
+				'httponly'	=> true,
+				'samesite'	=> $is_same
+			] );
+			
+			return $result->add_data( [ 'cookie_written' => false ] );
+		}
+		
+		// If no session, nothing to write
+		if ( !$session_id ) {
+			return $result->add_data( [ 'cookie_written' => false ] );
+		}
+		
+		// If cookie already matches, do nothing 
+		$raw	= $result->data['cookie_raw'] ?? null;
+		if ( $raw === $session_id ) {
+			return $result->add_data( [ 'cookie_written' => false ] );
+		}
+		
+		// Write the custom session cookie 
+		\setcookie(
+			$name,
+			$session_d,
+			[
+				'expires'	=> $result->data['expires_at'] ?? 0,
+				'path'		=> $path,
+				'domain'	=> $domain,
+				'secure'	=> $is_secure,
+				'httponly'	=> true,
+				'samesite'	=> $is_same
+			]
+		);
+		
+		return $result->add_data([
+			'cookie_written'	=> true,
+			'cookie_value'		=> $session_id
+		] );
+	}
+}
+
+
+/**
+ *  @class Remove session cookie data
+ */
+#[HookHandler]
+class SessionCookieDelete {
+	
+	public function __construct(
+		private readonly	Config	$config,
+		private readonly	Request	$request
+	) {}
+	
+	#[Hook( name : 'session.cookie.delete', priority : 60 )]
+	public function delete(string $event, HookResult $result, array $args): HookResult {
+		// Resolve cookie name
+		$name =
+		$result->data['cookie_name'] ?? (
+			$args['cookie_name'] ?? 
+			$this->config->setting( 'cookie_name', 'SID' )
+		);
+		
+		// Resolve cookie parameters (from cookie.config)
+		$path		= $result->data['cookie_path']		?? '/';
+		$domain		= $result->data['cookie_domain']	?? $this->request->host_ascii;
+		$is_secure	= $result->data['cookie_secure']	?? $this->request->is_tls;
+		$is_same	= $result->data['cookie_samesite']	?? 'Strict';
+		
+		// Delete the cookie
+		\setcookie( $name, '', [
+			'expires'	=> time() - 3600,
+			'path'		=> $path,
+			'domain'	=> $domain,
+			'secure'	=> $is_secure,
+			'httponly'	=> true,
+			'samesite'	=> $is_same
+		] );
+		
+		return $result->add_data( [ 'cookie_deleted' => true ] );
+	}
+}
+
+
+/**
+ *  @class Session parameter integrity check helpers
+ */
+#[HookHandler]
+class SessionValidate {
+	
+	/**
+	 *  @var string Session database name
+	 */
+	private readonly string $sess_db_profile;
+	
+	/**
+	 *  @var string Current host
+	 */
+	private readonly string $basename;
+	
+	public const SQL = [
+		// Load session row
+		'select_session' =>
+		"SELECT user_id, expires_at, updated_at, basename, session_ip
+			FROM sessions WHERE basename = :basename 
+				AND session_id = :sid LIMIT 1;",
+	];
+	
+	public function __construct(
+		private readonly Config   $config,
+		private readonly Database $dbh,
+		private readonly Request  $request
+	) {
+		$this->sess_db_profile	= $this->config->setting( 'sess_db_profile', 'sessions' );
+		$this->basename		= $this->request->host_ascii;
+	}
+	
+	/**
+	 *  Session validation initialization
+	 */
+	#[Hook( name : 'session.validate.init', priority : 1 )]
+	public function init( string $event, HookResult $result, array $args ) : HookResult {
+		$session_id	= \session_id();
+		
+		// No active session to validate
+		if ( !$session_id ) { return $result; }
+		
+		$basename	= 
+		$result->data['basename'] ?? ( $args['basename'] ?? $this->basename );
+		return $result->add_data( [
+			'session_id'	=> $session_id,
+			'basename'	=> $basename,
+			'require_user'	=> $args['require_user'] ?? false // User required?
+		] );
+	}
+	
+	/**
+	 *  Load session data
+	 */
+	#[Hook( name : 'session.validate.load', priority: 10)]
+	public function load( string $event, HookResult $result, array $args ) : HookResult {
+		$session_id	= $result->data['session_id'] ?? null;
+		if ( null === $session_id ) { return $result; }
+		
+		$basename	= 
+		$result->data['basename'] ?? ( $args['basename'] ?? $this->basename );
+		
+		$row		= 
+		$this->dbh->result_exec(
+			sql	: static::SQL['select_session'],
+			profile	: $this->sess_db_profile,
+			params	: [ 'basename' => $basename, 'sid' => $session_id ],
+			rtype	: 'row'
+		);
+		
+		if ( !$row ) { return $result; }
+		
+		return $result->add_data( [ 'db_session' => $row ] );
+	}
+	
+	/**
+	 *  Check data validation
+	 */
+	#[Hook( name : 'session.validate.check', priority : 20 )]
+	public function check( string $event, HookResult $result, array $args ) : HookResult {
+		$row	= $result->data['db_session'] ?? null;
+		if ( null === $row || !\is_array( $row ) ) { return $result; }
+		
+		// Check expiration, if present
+		if ( 
+			!empty( $row['expires_at'] )			&& 
+			( int ) $row['expires_at'] <= time() 
+		) { 
+			return $result->add_data( [
+				'valid'	=> false,
+				'flag'	=> 'EXPIRED'
+			] ); 
+		}
+		
+		// If route requires authentication ( in plugins )
+		$req		= $result->data['require_user'] ?? null;
+		$user_id	= $row['user_id'] ?? null;
+		
+		$result		= 
+		$result->add_data( [
+			'expires_at'	=> $row['expires_at'],
+			'updated_at'	=> $row['updated_at'],
+			'basename'	=> $row['basename'],
+			'session_ip'	=> $row['session_ip']
+		] );
+		
+		// No user needed? Send as-is
+		if ( !$req ) {
+			return $result->add_data( [
+				'valid'		=> true,
+				'user_id'	=> $user_id
+			] );
+		}
+		
+		return match( true ) {
+			// Must be bound to a user
+			empty( $user_id )	=>
+			$result->add_data( [
+				'valid'		=> false,
+				'user_id'	=> null,
+				'flag'		=> 'NOUSER'
+			] ),
+			
+			// Must have user payload
+			( 
+				!isset( $_SESSION['user'] ) 			||
+				$user_id != $_SESSION['user']['user_id'] 
+			)			=> 
+			$result->add_data( [
+				'valid'		=> false,
+				'user_id'	=> null,
+				'flag'		=> 'NODATA'
+			] ),
+			
+			// Must have privilege map, even if empty
+			( !isset( $_SESSION['user']['privileges'] ) 
+						=>
+			$result->add_data( [ 
+				'valid'		=> false , 
+				'user_id'	=> $user_id,
+				'flag'		=> 'NOPRIV'
+			] ),
+			
+			default		=> 
+			$result->add_data( [ 
+				'valid' => true , 
+				'user_id' => $user_id 
+			] )
+		};
+	}
+	
+	/**
+	 *  Finish validation
+	 */
+	#[Hook( name : 'session.validate.finish', priority : 100 )]
+	public function finish( string $event, HookResult $result, array $args ) : HookResult {
+		// Fill empty
+		return $result->add_data( [
+			'session_id'	=> $result->data['session_id'],
+			'flag'		=> $result->data['flag']	?? 'NONE',
+			'valid'		=> $result->data['valid']	?? false,
+			'user_id'	=> $result->data['user_id']	?? null,
+			'expires_at'	=> $result->data['expires_at']	?? null,
+			'updated_at'	=> $result->data['updated_at']	?? null,
+			'basename'	=> $result->data['basename']	?? null,
+			'session_ip'	=> $result->data['session_ip']	?? null
+		]);
+	}
+}
+
+
+/**
  *  @class Update session expiration on activity
  */
 #[HookHandler]
@@ -14502,7 +14912,7 @@ class SessionTouch {
 			$this->config->setting( 'sess_db_profile', 'sessions' );
 		
 		$this->session_ttl	= 
-			$this->config-setting( 'sesssion_ttl', 3600, 'int' );
+			$this->config-setting( 'session_ttl', 3600, 'int' );
 	}
 	
 	/**
@@ -14631,7 +15041,7 @@ class SessionDestroy {
 	}
 	
 	/**
-	 *  Delete sesssion by ID
+	 *  Delete session by ID
 	 */
 	#[Hook( name : 'session.destroy.delete', priority : 10 )]
 	public function remove( string $event, HookResult $result, array $args ) : HookResult {
@@ -14699,18 +15109,13 @@ class SessionRefresh {
 	];
 	
 	public function __construct(
-		private readonly Config   $config,
-		private readonly Database $dbh,
-		private readonly Sessions $sessions,
-		private readonly Request  $request
+		private readonly	Config		$config,
+		private readonly	Database	$dbh,
+		private readonly	Sessions	$sessions,
+		private readonly	Request		$request
 	) {
-		$this->sess_db_profile	= $this->config->setting( 'session_profile', 'sessions' );
-		$this->basename		= 
-		\idn_to_ascii( 
-			$this->request->host, 
-			\IDNA_DEFAULT, 
-			\INTL_IDNA_VARIANT_UTS46 
-		);
+		$this->sess_db_profile	= $this->config->setting( 'sess_db_profile', 'sessions' );
+		$this->basename		= $this->request->host_ascii;
 	}
 	
 	#[Hook( name : 'session.refresh.init', priority : 1 )]
@@ -14810,8 +15215,8 @@ class SessionRefresh {
 	/**
 	 *  Validate session row
 	 */
-	#[Hook(name: 'session.refresh.update', priority: 20)]
-	public function update( string $event, HookResult $result, array $args): HookResult {
+	#[Hook( name : 'session.refresh.update', priority : 20 )]
+	public function update( string $event, HookResult $result, array $args ) : HookResult {
 		if (
 			!empty( $result->data['session_regenerate'] ) 	||
 			!empty( $result->data['session_expired'] )	|| 
@@ -14845,8 +15250,8 @@ class SessionRefresh {
 		]);
 	}
 	
-	#[Hook(name: 'session.refresh.finish', priority: 100)]
-	public function finish( string $event, HookResult $result, array $args): HookResult {
+	#[Hook( name : 'session.refresh.finish', priority : 100 )]
+	public function finish( string $event, HookResult $result, array $args ) : HookResult {
 		if ( 
 			empty( $result->data['old_session_id'] ) &&
 			empty( $result->data['new_session_id'] ) 
@@ -14860,6 +15265,344 @@ class SessionRefresh {
 			'new_session_id'	=> 
 			$result->data['new_session_id'] ?? $result->data['old_session_id']
 		]);
+	}
+}
+
+
+/**
+ *  @class Unified basic session lifecycle
+ */
+#[HookHandler]
+class SessionLifecycle {
+	
+	public function __construct(
+		private readonly	HookRegistry	$hooks,
+		private readonly	Request		$request
+	) {}
+	
+	#[Hook( name : 'session.lifecycle', priority : 1 )]
+	public function lifecycle( string $event, HookResult $result, array $args ) : HookResult {
+		$basename	= $args['basename'] ?? ( $result->data['basename'] ?? $this->basename );
+		$result		= $result->add_data( [ 'basename' => $basename ] );
+		
+		// Initialize and refresh, if needed
+		$result = $this->hooks->run( 'session.validate.init', $result->data );
+		$result = $this->hooks->run( 'session.refresh.init', $result->data );
+		
+		// If no session_id, nothing else to do
+		if ( empty( $result->data['session_id'] ) ) {
+			return $result->add_data( [
+				'lifecycle' => 'NOSESSION'
+			] );
+		}
+		
+		// Load and validate session
+		$result = $this->hooks->run( 'session.validate.load', $result->data );
+		$result = $this->hooks->run( 'session.validate.check', $result->data );
+		
+		// If invalid or expired, stop
+		if ( empty( $result->data['valid'] ) ) {
+			return $this->hooks->run( 'session.validate.finish', $result->data)
+				->add_data( [ 'lifecycle' => 'INVALID' ] );
+		}
+		
+		// Refresh, if needed
+		$result = $this->hooks->run( 'session.refresh.validate', $result->data );
+		
+		// If expired or invalid during refresh, stop here
+		if (
+			!empty( $result->data['session_expired'] ) ||
+			!empty( $result->data['session_invalid'] )
+		) {
+			return $this->hooks->run( 'session.refresh.finish', $result->data )
+				->add_data( [ 'lifecycle' => 'EXPIRED' ] );
+		}
+		
+		// Regenerate, if needed
+		$result = $this->hooks->run( 'session.refresh.regenerate', $result->data );
+		
+		// Touch to keep active, if needed
+		$result = $this->hooks->run( 'session.refresh.update', $result->data );
+		
+		// Cleanup
+		$result = $this->hooks->run( 'session.refresh.finish', $result->data );
+		$result = $this->hooks->run( 'session.validate.finish', $result->data );
+		
+		return $result->add_data( [ 'lifecycle' => 'OK' ] );
+	}
+}
+
+
+/**
+ *  @class Clear sessions of a user except current session
+ */
+#[HookHandler]
+class SessionTerminateOther {
+	
+	/**
+	 *  @var string Session database name
+	 */
+	private readonly string $sess_db_profile;
+	
+	/**
+	 *  @var string Current host
+	 */
+	private readonly string $basename;
+	
+	public const SQL = [
+		// Load all active sessions for a user
+		'select_sessions' =>
+		"SELECT session_id
+		 FROM sessions
+		 WHERE user_id = :uid AND basename = :basename AND 
+		 	( expires_at IS NULL OR expires_at > {stamp} );",
+		
+		// Delete a session
+		'delete_session' =>
+		"DELETE FROM sessions WHERE basename = :basename AND session_id {ids};",
+	];
+	
+	public function __construct(
+		private readonly Config		$config,
+		private readonly Database	$dbh,
+		private readonly Request	$request
+	) {
+		$this->sess_db_profile = $this->config->setting( 'sess_db_profile', 'sessions' );
+		$this->basename		= $this->request->host_ascii;
+	}
+	
+	/**
+	 *  Initialize session terminate
+	 */
+	#[Hook( name : 'session.terminate_other.init', priority : 1 )]
+	public function init( string $event, HookResult $result, array $args ) : HookResult {
+		$user_id	= $args['user_id']	?? null;
+		$session_id	= $args['session_id']	?? \session_id();
+		if ( null === $user_id || !$session_id ) { return $result; }
+		
+		$basename	= 
+		$result->data['basename'] ?? ( $args['basename'] ?? $this->basename );
+		
+		return $result->add_data( [
+			'user_id'	=> $user_id,
+			'session_id'	=> $session_id,
+			'basename'	=> $basename
+		]);
+	}
+	
+	/**
+	 *  Load all active sessions for user
+	 */
+	#[Hook( name : 'session.terminate_other.load', priority : 10 )]
+	public function load( string $event, HookResult $result, array $args ) : HookResult {
+		$user_id	= $result->data['user_id']	?? null;
+		$basename	= $result->data['basename']	?? null;
+		$session_id	= $result->data['session_id']	?? null;
+		if ( null === $user_id || null === $basename ) { return $result; }
+
+		$db		= $this->dbh->get( $this->sess_db_profile );
+		$sql		= 
+		\strtr( static::SQL['select_sessions'], [ 
+			'{stamp}' => $this->dbh->ttl_sql( $db, 0 )
+		] );
+		
+		$sessions	= 
+		$this->dbh->result_exec(
+			sql	: $sql,
+			profile	: $this->sess_db_profile,
+			params	: [ 
+				'uid'		=> $user_id, 
+				'basename'	=> $basename
+			],
+			rtype	: 'results'
+		);
+		
+		$session_ids = \array_column( $sessions, 'session_id' );
+		if ( null !== $session_id ) {
+			$session_ids	= 
+			\array_values( 
+				\array_filter( $session_ids, fn( $sid ) => $sid !== $session_id ) 
+			);
+		}
+		
+		return $result->add_data( [
+			'all_sessions' => $session_ids
+		] );
+	}
+	
+	/**
+	 *  Terminate all sessions except currently active one
+	 */
+	#[Hook( name : 'session.terminate_other.delete', priority : 20 )]
+	public function delete( string $event, HookResult $result, array $args ) : HookResult {
+		$sessions	= $result->data['all_sessions'] ?? [];
+		$basename	= $result->data['basename']	?? null;
+		
+		if ( empty( $sessions ) || null === $basename ) { return $result; }
+		
+		$db		= $this->dbh->get( $this->sess_db_profile );
+		$this->dbh->with_transaction( 
+				$db, function( \PDO $dbh ) 
+					use ( $sessions, $basename ) {
+			
+			$params	= [];
+			$psql	= Database::params_in( $params, $sessions );
+			$sql	= \strtr( static::SQL['delete_session'], [ '{ids}' => $psql ] );
+			$stmt	= $dbh->prepare( $sql );
+			
+			$params[':basename'] = $basename;
+			$stmt->execute( $params );
+		} );
+		
+		return $result->add_data( [
+			'term_sessions' => $sessions
+		] );
+	}
+	
+	/**
+	 *  Finish exclusive session delete
+	 */
+	#[Hook( name : 'session.terminate_other.finish', priority : 100 )]
+	public function finish( string $event, HookResult $result, array $args ) : HookResult {
+		if ( empty( $result->data['user_id'] ) ) {
+			return $result;
+		}
+		
+		return $result->add_data( [
+			'user_id'	=> $result->data['user_id'],
+			'session_id'	=> $result->data['session_id'],
+			'term_sessions'	=> $result->data['term_sessions'] ?? []
+		] );
+	}
+}
+
+
+/**
+ *  @class Delete all sessions for user under basename
+ */
+#[HookHandler]
+class SessionForceLogout {
+	
+	/**
+	 *  @var string Session database name
+	 */
+	private readonly string $sess_db_profile;
+	
+	/**
+	 *  @var string Current host
+	 */
+	private readonly string $basename;
+	
+	public const SQL = [
+		// Load all sessions for a user (active or expired)
+		'select_sessions' =>
+		"SELECT session_id FROM sessions
+			WHERE basename = :basename AND user_id = :uid;",
+		
+		// Delete a session
+		'delete_session' =>
+		"DELETE FROM sessions WHERE basename = :basename AND session_id = :id;",
+	];
+	
+	public function __construct(
+		private readonly	Config		$config,
+		private readonly	Database	$dbh,
+		private readonly	Sessions	$sessions,
+		private readonly	Request		$request
+	) {
+		$this->sess_db_profile	= $this->config->setting('sess_db_profile', 'sessions');
+		$this->basename		= $this->request->host_ascii;
+	}
+	
+	/**
+	 *  Initialize force logout
+	 */
+	#[Hook( name : 'session.force_logout.init', priority : 1 )]
+	public function init( string $event, HookResult $result, array $args ) : HookResult {
+		$user_id	= $args['user_id'] ?? null;
+		
+		// No user to logout?
+		if ( !$user_id ) { return $result; }
+		
+		$basename	= 
+		$result->data['basename'] ?? ( $args['basename'] ?? $this->basename );
+		return $result->add_data( [ 'user_id' => $user_id, 'basename' => $basename ] );
+	}
+	
+	/**
+	 *  Load active sessions for this user
+	 */
+	#[Hook( name : 'session.force_logout.load', priority : 10 )]
+	public function load( string $event, HookResult $result, array $args ) : HookResult {
+		$user_id	= $result->data['user_id'] ?? null;
+		if( !$user_id ) { return $result; }
+		
+		$basename	= 
+		$result->data['basename'] ?? ( $args['basename'] ?? $this->basename );
+		
+		$sessions	= 
+		$this->dbh->result_exec(
+			sql	: static::SQL['select_sessions'],
+			profile	: $this->sess_db_profile,
+			params	: [ 'basename' => $basename, 'uid' => $user_id ],
+			rtype	: 'results'
+		);
+		
+		$session_ids	= \array_column( $sessions, 'session_id' );
+		
+		return $result->add_data( [
+			'sessions' => $session_ids
+		] );
+	}
+	
+	/**
+	 *  Remove all active sessions
+	 */
+	#[Hook( name : 'session.force_logout.delete', priority : 20 )]
+	public function logout(string $event, HookResult $result, array $args): HookResult {
+		$user_id	= $result->data['user_id'] ?? null;
+		if( !$user_id ) { return $result; }
+		
+		$basename	= 
+		$result->data['basename'] ?? ( $args['basename'] ?? $this->basename );
+		
+		$terminated	= [];
+		
+		foreach ( $result->data['sessions'] as $sid ) {
+			$this->dbh->result_exec(
+				sql: static::SQL['delete_session'],
+				profile: $this->sess_db_profile,
+				params: [ 'basename' => $basename, 'id' => $sid ]
+			);
+			
+			$terminated[]	= $sid;
+		}
+		
+		return $result->add_data( [
+			'terminated_sessions' => $terminated
+		] );
+	}
+	
+	/**
+	 *  Delete session
+	 */
+	#[Hook( name : 'session.force_logout.destroy_php', priority : 30 )]
+	public function destroy_php( string $event, HookResult $result, array $args ) : HookResult {
+		// Destroy PHP session entirely
+		$this->sessions->off();
+		return $result;
+	}
+	
+	/**
+	 *  Finish logout
+	 */
+	#[Hook( name : 'session.force_logout.finish', priority : 100 )]
+	public function finish( string $event, HookResult $result, array $args ) : HookResult {
+		return $result->add_data( [
+			'user_id'			=> $result->data['user_id'] ?? null,
+			'terminated_sessions'		=> $result->data['terminated_sessions'] ?? [],
+			'forced'			 => true
+		] );
 	}
 }
 
