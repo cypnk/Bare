@@ -10957,6 +10957,9 @@ final class Database extends Instance {
 			// Single column value
 			'column'	=> $ok ? $stmt->fetchColumn() : '', 
 			
+			// Single row
+			'row'		=> $ok ? $stmt->fetch() : null,
+			
 			// Success status
 			default		=> $ok
 		};
@@ -11149,11 +11152,11 @@ class Sessions extends Instance {
 			$stmt	= 
 			$dbh->prepare(
 				"INSERT INTO sessions (
-					basename, session_id, session_ip,
+					basename, session_id, user_id, session_ip,
 					session_data, expires_at
 				)
 				VALUES (
-					:basename, :id, :ip, :data,
+					:basename, :id, :uid, :ip, :data,
 						DATETIME( 'now', '+1 hour' )
 				) ON CONFLICT( basename, session_id )
 				DO UPDATE SET
@@ -11172,6 +11175,7 @@ class Sessions extends Instance {
 			return $stmt->execute( [
 				':basename'	=> Text::lowercase( $host ),
 				':id'		=> $session_id,
+				':uid'		=> $_SESSION['user']['user_id'] ?? null,
 				':ip'		=> $this->request->ip( true ),
 				':data'		=> $data
 			] );
