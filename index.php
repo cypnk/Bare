@@ -415,7 +415,7 @@ a:hover{ color: #2c81ba }
 --- tpl_post_index ---
 {hook:index.before_posts}
 {loop:index.posts as post}
-    {template:tpl_post_item post="{{post}}"}
+	{template:tpl_post_item post="{{post}}"}
 {endloop}{hook:index.after_posts}
 
 
@@ -4518,58 +4518,6 @@ class Response extends Instance {
 	}
 	
 	/**
-	 *  Check sent etag data against current file information for staleness
-	 *  
-	 *  @param string	$etag		Current file etag
-	 *  @param int		$mtime		File last modified time in seconds
-	 *  @param string	$client_etag	Client sent etag(s)
-	 *  @param int		$client_mtime	File last modified time sent by client
-	 *  @return bool
-	 */
-	public function check_not_modified(
-		string		$etag,
-		int		$mtime,
-		?string		$client_etag	= null,
-		?int		$client_mtime	= null
-	) : bool {
-		$etag		= \trim( $etag, " \t\n\r\0\x0B\"'" );
-		$etag_clean	= \trim( \ltrim( $etag, 'W/' ), "\"" );
-		
-		if ( null !== $client_etag && '' !== $client_etag ) {
-			$tags	= 
-			\array_map(
-				static function ( $tag ) {
-					$tag	= \trim( $tag, " \t\n\r\0\x0B\"'" );
-					if ( \str_starts_with( $tag, 'W/' ) ) {
-						$tag = \substr( $tag, 2 );
-					}
-					return $tag;
-				}, 
-				\explode( ',', $client_etag ) 
-			);
-			
-			if ( 1 === count( $tags ) && '*' === $tags[0] ) {
-				return true;
-			}
-			
-			if ( \in_array( $etag_clean, $tags, true ) ) {
-				return true;
-			}
-			
-			// Didn't match If-None-Match
-			return false;
-		}
-		
-		// Try If-Modified-Since
-		if ( null !== $client_mtime && $client_mtime > 0 ) {
-			if ( $mtime <= $client_mtime ) {
-				return true;
-			}
-		}
-		return false;
-	}
-	
-	/**
 	 *  Clean the output buffer without flushing
 	 *  
 	 *  @param bool		$ebuf		End buffers
@@ -4653,259 +4601,17 @@ class Response extends Instance {
 final class FileResponse extends Response {
 	
 	/**
-	 *  Create a file etag
-	 *  
-	 *  @param int		$size	File size in bytes
-	 *  @param int		$mtime	Last modified date in seconds
-	 *  @return string
-	 */
-	public function generate_etag( int $size, int $mtime ) : string {
-		$raw = @\sprintf( '%x-%x', $mtime, $size ) ?: '';
-		return "\"{$raw}\"";
-	}
-	
-	/**
-	 *  Static file metadata cache path
-	 *  
-	 *  @param string	$fpath File location on disk
-	 *  @return string
-	 */
-	private function meta_cache_path( string $fpath ) : string {
-		static $tmp;
-		
-		// Temporary directory within storage base
-		$tmp	??= Storage::base() . "/tmp/";
-		if ( !\is_dir( $tmp ) && !\mkdir( $tmp, 0777, true ) ) {
-			throw new 
-			\RuntimeException( "Failed to create cache directory: {$tmp}" );
-		}
-		
-		$hash	= \hash( 'sha256', $fpath );
-		return "{$tmp}/meta_{$hash}.cache.tmp";
-	}
-	
-	/**
-	 *  Get any cached metadata for a given file path
-	 *  
-	 *  @param string	$fpath	Location of file on disk
-	 *  @return mixed
-	 */
-	public function get_meta_cache( string $fpath ) : array|null {
-		$fcache	= $this->meta_cache_path( $fpath );
-		if ( !\is_readable( $fcache ) ) { return null; }
-		
-		try {
-			$data		= \file_get_contents( $fcache );
-			if ( false === $data ) { return null; }
-			
-			$meta		=
-			\json_decode(
-				json		: $data, 
-				associative	: true, 
-				depth		: 2, 
-				flags		: 
-					\JSON_INVALID_UTF8_IGNORE	| 
-					\JSON_THROW_ON_ERROR
-			);
-			
-			if ( !\is_array( $meta ) ) { return null; }
-			
-			if ( !isset( $meta['mtime'], $meta['content_length'] ) ) {
-				return null;
-			}
-			
-			$curr_mtime	= Storage::file_time( $fpath );
-			$curr_size	= Storage::file_size( $fpath );
-			
-		} catch ( \Throwable $e ) {
-			$this->logger->error( "Meta cache error: {$e->getMessage()}" );
-			return null;
-		}
-		
-		if (
-			$meta['mtime']		=== $curr_mtime && 
-			$meta['content_length']	=== $curr_size
-		) {
-			return $meta;
-		}
-		return null;
-	}
-	
-	/**
-	 *  Cache static file metadata
-	 *  
-	 *  @param string	$fpath	Location on disk
-	 *  @param array	$meta	File metadata
-	 */
-	public function save_meta_cache( string $fpath, array $meta ) : void {
-		$fcache	= $this->meta_cache_path( $fpath );
-		$tmp	= $fcache . '.' . \bin2hex( \random_bytes( 4 ) );
-		
-		try {
-			$data	= 
-			\json_encode( 
-				value	: $meta,
-				flags	: 
-					\JSON_UNESCAPED_SLASHES | 
-					\JSON_UNESCAPED_UNICODE | 
-					\JSON_THROW_ON_ERROR 
-			);
-			
-			// TODO: Move to storage_* functions
-			if ( false === \file_put_contents( $tmp, $data, \LOCK_EX ) ) {
-				throw new 
-				\RuntimeException( "Failed to write temp cache file" );
-			}
-			
-			if ( !\rename( $tmp, $fcache ) ) {
-				throw new 
-				\RuntimeException( "Failed to replace cache file" );
-			}
-		} catch ( \Throwable $e ) {
-			$this->logger->error( "Meta cache error: {$e->getMessage()}" );
-		}
-	}
-	
-	/**
-	 *  Generate static file metadata
-	 *  
-	 *  @param string	$path		Location on disk
-	 *  @param bool		$is_cached	Enable metadata caching and retreival
-	 *  @return array
-	 */
-	public function file_metadata( string $path, bool $is_cached = false ) : array {
-		static $cached = [];
-		$fpath	= @\realpath( $path ) ?: $path;
-		
-		if ( !@\is_file( $fpath ) ) {
-			throw new 
-			\RuntimeException( "File to be cached not found" );
-		}
-		
-		// File cache?
-		if ( $is_cached ) {
-			if ( isset( $cached[$fpath] ) ) {
-				return $cached[$fpath];
-			}
-			
-			$fcache	= $this->get_meta_cache( $fpath );
-			if ( \is_array( $fcache ) ) {
-				$cached[$fpath]	= $fcache;
-				return $fcache;
-			}
-		}
-		
-		$fsize	= Storage::file_size( $fpath );
-		$mtime	= Storage::file_time( $fpath );
-		$mime	= Storage::file_mime( $fpath );
-		
-		$etag	= $this->generate_etag( $fsize, $mtime );
-		$lmod	= \gmdate( 'D, d M Y H:i:s', $mtime ) . ' GMT';
-		
-		$meta	= [
-			'etag'			=> $etag,
-			'last_modified'		=> $lmod,
-			'content_type'		=> $mime,
-			'content_length'	=> $fsize,
-			'mtime'			=> $mtime
-		];
-		
-		if ( $is_cached ) {
-			$this->save_meta_cache( $fpath, $meta );
-			$cached[$fpath] = $meta;
-		}
-		return $meta;
-	}
-	
-	/**
-	 *  Generate file response headers
-	 *  
-	 *  @param string	$fpath		Location on disk
-	 *  @param bool		$wetag		Create weak prefix for etag
-	 *  @param bool		$size		Include file size
-	 *  @param bool		$stype		Include sending 'Content-Type'
-	 *  @return array
-	 */
-	public function file_headers(
-		string	$fpath,
-		bool	$wetag	= false,
-		bool	$size	= true,
-		bool	$stype	= true
-	) : array {
-		$meta		= $this->file_metadata( $fpath );
-		$prefix		= $wetag ? 'W/' : '';
-		$headers	= [
-			"ETag"		=> "{$prefix}{$meta['etag']}",
-			"Last-Modified"	=> $meta['last_modified']
-		];
-		
-		if ( $size ) { $headers["Content-Length"] = $meta['content_length']; }
-		if ( $stype ) { $headers["Content-Type"] = $meta['content_type']; }
-		
-		return $headers;
-	}
-	
-	/**
-	 *  Direct stream or otherwise output file
-	 *  
-	 *  @param array	$meta		File metadata
-	 *  @param resource	$handle		Opened file resource
-	 *  @param string	$fpath		Location on disk
-	 *  @param bool		$download	Force download if true
-	 */
-	public function file_stream(
-		array	$meta,
-			&$handle,
-		string	$fpath,
-		bool	$download	= false
-	) : void {
-		$headers	= [ "Accept-Ranges" => "bytes" ];
-		
-		if ( $download ) {
-			$headers["Content-Disposition"] = 
-			"attachment; filename=\"" . \basename( $fpath ) . "\"";
-		}
-		
-		$headers	= 
-		\array_merge(
-			$headers, 
-			$this->file_headers( $fpath, false, true, true ) 
-		);
-		
-		$this->code	= 200;
-		$this->headers	= \array_merge( $this->headers, $headers );
-		
-		// Output file headers, flush and end buffers
-		$this->status();
-		$this->emit_headers();
-		$this->flush_buffers( true );
-		
-		// Dump binary as-is, if minimum streaming size is not met
-		if ( $meta['content_length'] <= 65536 ) {
-			if ( \is_resource( $handle ) ) { \fpassthru( $handle ); } 
-			else { \readfile( $fpath ); }
-		} else {
-			while ( !\feof( $handle ) ) {
-				if ( \connection_aborted() ) { break; }
-				
-				echo \fread( $handle, 8192 );
-				\flush();
-			}
-		}
-	}
-	
-	/**
 	 *  Output requested range stream
 	 *  
-	 *  @param array	$meta		File metadata
 	 *  @param resource	$handle		Opened file resource
-	 *  @param string	$fpath		Location on disk
+	 *  @param array	$meta		File metadata
+	 *  @param array	$headers	Custom headers
 	 *  @param array	$ranges		List of streaming ranges in [ start, end ] format
 	 */
-	public function file_range(
-		array	$meta,
+	public function stream_ranges(
 			&$handle,
-		string	$fpath,
+		array	$meta,
+		array	$headers,
 		array	$ranges
 	) : void {
 		// Header boudary marker 
@@ -4916,9 +4622,9 @@ final class FileResponse extends Response {
 		\array_merge( [
 				"Content-Type"	=> "multipart/byteranges; boundary={$boundary}",
 				"Accept-Ranges"	=> "bytes"
-			], $this->file_headers( $fpath, true, false, false ) 
-		);
+		], $headers );
 		
+		$this->status();
 		$this->emit_headers();
 		$this->flush_buffers( true );
 		
@@ -4965,66 +4671,92 @@ final class FileResponse extends Response {
 		\flush();
 	}
 	
-	/**
-	 *  Main file response output
+	/** 
+	 *  Simple file sender
 	 *  
-	 *  @param string	$fpath		Location on disk
-	 *  @param bool		$download	Force download if true
-	 *  @param string	$client_etag	Client sent etag(s)
-	 *  @param int		$client_mtime	File last modified time sent by client
-	 *  @param array	$ranges		Requested ranges
+	 *  @param resource	$handle		Opened file resource
+	 *  @param array	$meta		File metadata
 	 */
-	public function send_file(
-		string	$fpath, 
-		bool	$download	= false, 
-		?string	$client_etag	= null,
-		?int	$client_mtime	= null,
-		?array	$ranges		= null
-	) : void {
+	private function stream_full( $handle, array $meta ) : void {
+		$this->status();
+		$this->emit_headers();
+		$this->flush_buffers( true );
 		
-		$meta		= $this->file_metadata( $fpath );
-		$etag		= $meta['etag'];
-		$mtime		= $meta['mtime'];
-		
-		// Not modified? Nothing to send
-		if ( $this->check_not_modified(
-			etag		: $etag, 
-			mtime		: $mtime, 
-			client_etag	: $client_etag, 
-			client_mtime	: $client_mtime 
-		) ) { 
-			$this->code	= 304;
-			$this->send_finish();
+		// Dump binary as-is, if minimum streaming size is not met
+		if ( $meta['content_length'] <= 65536 ) {
+			if ( \is_resource( $handle ) ) { \fpassthru( $handle ); } 
+		} else {
+			while ( !\feof( $handle ) ) {
+				if ( \connection_aborted() ) { break; }
+				
+				echo \fread( $handle, 8192 );
+				\flush();
+			}
 		}
+	}
+	
+	private function handle_stream_error( \Throwable $e ) : void {
+		$msg		= "File response error";
+		$this->logger->error( $msg . ": {$e->getMessage()}" );
+		
+		$this->code	= 500;
+		$this->status();
+		$this->emit_headers();
+		$this->flush_buffers(true);
+		echo $msg;
+	}
+	
+	/**
+	 *  Direct stream or otherwise output file
+	 *  
+	 *  @param string	$path		Location on disk
+	 *  @param array	$meta		File metadata
+	 *  @param resource	$handle		Opened file resource
+	 *  @param array	$headers	Preset file headers
+	 *  @param bool		$download	Force download if true
+	 *  @param array	$ranges		Optional streaming ranges
+	 */
+	public function stream_file(
+		string $path,
+		array $meta,
+		array $headers,
+		bool $download,
+		?array $ranges
+	): void {
+		
+		if ( empty( $headers ) ) {
+			$headers = [ "Accept-Ranges" => "bytes" ];
+		}
+		
+		if ( $download ) {
+			$headers["Content-Disposition"] = 
+			"attachment; filename=\"" . \basename( $fpath ) . "\"";
+		}
+		
+		$this->code	= $headers['status'] ?? 200;
+		$this->headers	= \array_merge( $this->headers, $headers );
 		
 		$this->ignore_abort();
 		$handle		= null;
-		
 		try {
-			$handle = Storage::file_open( $fpath );
+			$handle = Storage::file_open( $path );
 			if ( $ranges ) {
-				$this->file_range( $meta, $handle, $fpath, $ranges );
+				$this->stream_ranges( $handle, $meta, $ranges );
 			} else {
-				$this->file_stream( $meta, $handle, $fpath, $download );
+				$this->stream_full( $handle, $meta );
 			}
-			Storage::close_files( [ $handle ]);
-			
-		} catch( \Throwable $e ) {
-			$msg	= "File response error";
-			$this->logger->error( $msg . ": {$e->getMessage()}" );
-			
-			$this->code = 500;
-			$this->status();
-			$this->emit_headers();
-			$this->flush_buffers( true );
-			echo $msg;
+		} catch ( \Throwable $e ) {
+			$this->handle_stream_error( $e );
 		} finally {
-			if ( \is_resource( $handle ) ) { \fclose( $handle ); }
+			if ( \is_resource( \$handle ) ) {
+				\fclose($handle);
+			}
 		}
-		
+
 		exit();
 	}
 }
+
 
 /**
  *  @class Page handling
@@ -9152,7 +8884,7 @@ final class Router extends Instance {
 		
 		if ( !isset( $lookup[$name] ) ) {
 			throw new 
-			\RuntimeException( "Unknown route name: {$name}" );
+			\RuntimeException( "Unknown route name : {$name}" );
 		}
 		
 		$pattern = $lookup[$name]['pattern'];
@@ -9308,27 +9040,39 @@ final class Router extends Instance {
 		}
 	}
 	
-	/**
-	 *  Run file scan hooks
-	 *  
-	 *  @param string	$method		Current request method
-	 *  @param string	$path		Cleaned request path
-	 *  @return HookResult|null
-	 */
-	private function try_file_hooks( string $method, string $path ) : HookResult|null {
-		$registry	= $this->container->get( HookRegistry::class );
-		return match( $method ) {
-			'head'		=> $registry->run( 'try_file_head', false, [ 'path' => $path ] ),
-			'get'		=> $registry->run( 'try_file_get', false, [ 'path' => $path ] ),
-			'post'		=> $registry->run( 'try_file_post', false, [ 'path' => $path ] ),
-			'patch'		=> $registry->run( 'try_file_patch', false, [ 'path' => $path ] ),
-			'put'		=> $registry->run( 'try_file_put', false, [ 'path' => $path ] ),
-			default		=> null
-		};
+	public function request_dispatch( HookRegistry $registry ) : void {
+		$registry->run( 'request.init' );
+		$registry->run( 'request.normalize' );
+		$registry->run( 'request.forwarded' );
+		$registry->run( 'request.headers' );
+	}
+	
+	public function static_dispatch( HookRegistry $registry ) : void {
+		$registry->run( 'request.static_probe' );
+		$registry->run( 'static.resolve' );
+		$registry->run( 'static.authorize' );
+		$registry->run( 'static.meta' );
+		$registry->run( 'static.cache' );
+		$registry->run( 'static.not_modified' );
+		$registry->run( 'static.headers' );
+		$registry->run( 'static.serve' );
+		$registry->run( 'static.finalize' );
 	}
 	
 	public function dispatch( string $method, string $uri ) : void {
 		$registry	= $this->container->get( HookRegistry::class );
+		
+		// Request lifecycle
+		$this->request_dispatch( $registry );
+
+		// Static file check
+		$this->static_dispatch( $registry );
+		
+		// Other responses
+		$registry->run( 'request.context' );
+		
+		// Request class
+		$registry->run( 'request.finalize' );
 		
 		// Configure sesion and cookie settings
 		$registry->run( 'session.cookie.config' );
@@ -9341,11 +9085,6 @@ final class Router extends Instance {
 		
 		$path	= \parse_url( $uri, \PHP_URL_PATH );
 		$path	= \rtrim( $path, '/' ) ?: '/';
-
-		if ( '/' !== $path ) {
-			// Try some file hooks first
-			$this->try_file_hooks( $method, $path );
-		}
 		
 		$this->scan( $method, $path );
 	}
@@ -11723,128 +11462,6 @@ class ErrorHooks {
 
 
 /**
- *  @class Default file response hooks
- */
-#[HookContainer]
-class FileHooks {
-	private array $asset_dirs	= [];
-	private array $data_dirs	= [];
-	
-	public function __construct(
-		private readonly Config		$config,
-		private readonly HookRegistry	$registry
-	) {}
-	
-	/**
-	 *  File response helper
-	 *  
-	 *  @param string	$fpath		Found file path
-	 *  @param bool		$dosend		Output file, if true, or only send headers, if false
-	 *  @param array	$args		Hook event arguments
-	 */
-	private function file_send( string $fpath, bool $dosend, array $args ) : void {
-		
-		$container	= Container::instance();
-		$fsize		= Storage::file_size( $fpath );
-		
-		// Check if ranged request
-		$req		= $container->get( Request::class );
-		$ranged		= $req->is_ranged();
-		$frange 	= $req->range_header( $fsize );
-		
-		// Ranged request, but invalid ranges?
-		if ( $ranged && empty( $frange ) ) {
-			$this->registry->run( 'error_bad_range', true, $args );
-			return; // Hook should exit by now
-		}
-		
-		$response	= FileResponse::create( $container, 200 );
-		if ( !$dosend ) {
-			$headers	= 
-			$response->file_headers(
-				fpath	: $fpath,
-				wetag	: false,
-				size	: true,
-				stype	: true
-			);
-			$response->headers = \array_merge( $response->headers, $headers );
-			$response->send_finish();
-			return; // Response should exit by now
-		}
-		
-		$response->send_file(
-			fpath		: $fpath,
-			download	: false,
-			client_etag	: $req->none_match(),
-			client_mtime	: $req->modified_since(),
-			ranges		: empty( $frange ) ? null : $frange
-		);
-	}
-	
-	private function check_request( string $path, bool $dosend, array $args ) : void {
-		// Trim leading slash
-		$path	= \preg_replace( '/^\//', '', $path );
-		$cpath	= Sanitize::path_traversal( $path );
-		if ( $path !== $cpath ) { return; }
-		
-		// Try core static file directory first
-		$base	= Text::slash_path( \ASSET_DIR, true );
-		$fpath	= $base . $path;
-		if ( \file_exists( $fpath ) ) { $this->file_send( $fpath ); }
-		
-		$fpath	= $this->config->setting( 'file_dir', Storage::base() ) . $path;
-		if ( \file_exists( $fpath ) ) { $this->file_send( $fpath ); }
-		
-		// Try asset directories
-		foreach ( $this->asset_dirs as $dir ) {
-			$fpath = $dir . $path;
-			
-			// If found,send and end here
-			if ( \file_exists( $fpath ) ) { $this->file_send( $fpath ); }
-		}
-	}
-	
-	#[Hook( name : 'register_directories', priority : 1 )]
-	public function add_dir( string $event, HookResult $result, array $args ) : HookResult {
-		if ( !empty( $args['data_dir'] ) ) {
-			$dir = Text::slash_path( $args['data_dir'], true );
-			if ( !\in_array( $dir, $this->data_dirs ) ) {
-				$this->data_dirs[] = $dir;
-			}
-		}
-		
-		if ( !empty( $args['asset_dir'] ) ) {			
-			$dir = Text::slash_path( $args['asset_dir'], true );
-			if ( !\in_array( $dir, $this->asset_dirs ) ) {
-				$this->asset_dirs[] = $dir;
-			}
-		}
-		
-		return $result->with_data( [
-			'asset_dirs'	=> $this->asset_dirs,
-			'data_dirs'	=> $this->data_dirs
-		] );
-	}
-	
-	#[Hook( name : [ 'try_file_head', 'try_file_get' ], priority : 1 )]
-	public function file_scan( string $event, HookResult $result, array $args ) : HookResult {
-		$path	= $args['path'] ?? '';
-		
-		// Nothing to check?
-		if ( '' === $path ) { return $result; }
-		
-		$check	= match( $event ) {
-			'try_file_head'	=> $this->check_request( $path, false, $args ),
-			'try_file_get'	=> $this->check_request( $path, true, $args ),
-			default		=> $result
-		};
-		
-		return $check ?? $result;
-	}
-}
-
-
-/**
  *  @class Quick access cache
  */
 #[HookContainer]
@@ -12037,8 +11654,8 @@ class CacheHooks {
  *  @class Render on-page components
  */
 #[HookContainer]
-class PageAssetHooks {
-	#[Hook( name : 'page.add_feed', priority: 1 )]
+class PageAssets {
+	#[Hook( name : 'page.add_feed', priority : 1 )]
 	public function add_feed( string $event, HookResult $result, array $args ) : HookResult {
 		$feeds		= $result->data['page']['feeds'] ?? [];
 		$feeds[]	= [
@@ -12080,7 +11697,7 @@ class PageAssetHooks {
 	 *  	'href'	=> '/feed/rss'
 	 *  ] );
 	 */
-	#[Hook( name : [ 'page.add_head_link', 'page.add_body_link' ], priority: 1 )]
+	#[Hook( name : [ 'page.add_head_link', 'page.add_body_link' ], priority : 1 )]
 	public function add_link( string $event, HookResult $result, array $args ) : HookResult {
 		$key = ( $event === 'page.add_head_link')
 			? 'head_links'
@@ -12116,7 +11733,7 @@ class PageAssetHooks {
 	 *  Custom details:
 	 *  $this->registry->( 'page.add_meta', true, [
 	 *  	'name'		=> 'theme',
-	.*   	'content'	=> 'dark',
+	.*  	'content'	=> 'dark',
 	 *  	'data'		=> [
 	 *  		'generated'	=> 'true',
 	 *  		'page-type'	=> 'post'
@@ -12168,7 +11785,7 @@ class PageAssetHooks {
 		] );
 	}
 	
-	#[Hook( name : 'page.add_body_class', priority: 1 )]
+	#[Hook( name : 'page.add_body_class', priority : 1 )]
 	public function add_body_class( string $event, HookResult $result, array $args ) : HookResult {
 		$classes	= $result->data['page']['body_classes'] ?? '';
 		$classes	.= ' ' . $args['class'];
@@ -12218,7 +11835,7 @@ class PageAssetHooks {
  *  @class HTML page builder
  */
 #[HookContainer]
-class PageRenderHooks {
+class PageRendering {
 	public function __construct(
 		private readonly Config $config
 	) {}
@@ -12265,8 +11882,8 @@ class PageRenderHooks {
  *  @class Syndication feed data builder
  */
 #[HookContainer]
-class FeedHooks {
-	#[Hook( name : 'feed.collect', priority: 1 )]
+class Feeds {
+	#[Hook( name : 'feed.collect', priority : 1 )]
 	public function collect( string $event, HookResult $result, array $args ) : HookResult {
 		$items		= $result->data['feed_items'] ?? [];
 		$items[]	= [
@@ -12301,9 +11918,9 @@ class FeedHooks {
  *  @class Syndication display output helper
  */
 #[HookContainer]
-class FeedRenderHooks {
+class FeedRendering {
 	
-	#[Hook( name : 'feed.render', priority: 1 )]
+	#[Hook( name : 'feed.render', priority : 1 )]
 	public function render( string $event, HookResult $result, array $args ) : HookResult {
 		$meta	= $result->data['feed_meta']	?? [];
 		$items	= $result->data['feed_items']	?? [];
@@ -12323,7 +11940,7 @@ class FeedRenderHooks {
  *  @class On-page special sections
  */
 #[HookContainer]
-class PageComponentHooks {
+class PageComponents{
 	/**
 	 *  @example
 	 *  $result = $this->hooks->run( 'page.heading', true, [
@@ -12417,7 +12034,7 @@ class PageComponentHooks {
  *  @class User input forms, field processing and rendering
  */
 #[HookContainer] 
-class FormComponentHooks {
+class FormComponents {
 	
 	private function __construct(
 		private readonly Config		$config,
@@ -12471,7 +12088,7 @@ class FormComponentHooks {
 	 *  
 	 *  @example 
 	 *  A text input hook
-	 *  #[Hook(name: 'form.field.text', priority: 1)]
+	 *  #[Hook(name : 'form.field.text', priority : 1)]
 	 *  public function field_text(string $event, HookResult $result, array $args): HookResult {
 	 *  	return $result->with_template('tpl_field_text');
 	 *  }
@@ -12515,7 +12132,7 @@ class FormComponentHooks {
 	
 	/**
 	 *  Render form input fields from template(s)
-	 *   
+	 *  
 	 *  @example
 	 *  {hook:form.before}
 	 *  	<form action="{{form.action}}" method="{{form.method}}">
@@ -12577,7 +12194,7 @@ class FormComponentHooks {
 	/**
 	 *  Run custom form handler(s)
 	 */
-	#[Hook( name: 'form.process', priority : 1 )]
+	#[Hook( name : 'form.process', priority : 1 )]
 	public function process( string $event, HookResult $result, array $args ) : HookResult {
 		$form = $result->data['form'] ?? [];
 		
@@ -12595,7 +12212,7 @@ class FormComponentHooks {
 	/**
 	 *  Render final form output
 	 */
-	#[Hook( name : 'form.render', priority: 1 )]
+	#[Hook( name : 'form.render', priority : 1 )]
 	public function render( string $event, HookResult $result, array $args ) : HookResult { 
 		return $result->with_template( $this->default_tpl( $result, 'tpl_form' ) );
 	}
@@ -12606,7 +12223,7 @@ class FormComponentHooks {
  *  @class Configuration-based site location navigation
  */
 #[HookContainer]
-class NavigationHooks {
+class PageNavigation {
 	
 	private array $nav_config;
 	
@@ -12701,7 +12318,7 @@ class NavigationHooks {
  *  @class Post, page index, and archive rendering helpers
  */
 #[HookContainer]
-class PostRenderHooks {
+class PostRendering {
 	private readonly string $db_profile;
 	
 	public const CSS_CLASSES	= [
@@ -12780,7 +12397,7 @@ class PostRenderHooks {
  *  @class Content searching hooks
  */
 #[HookContainer]
-class PostSearchHooks {
+class PostSearching {
 	
 	/**
 	 *  Content database profile
@@ -12882,7 +12499,7 @@ class PostSearchHooks {
 		return $result->with_data( [ 'search_updated' => true ] );
 	}
 	
-	#[Hook( name: 'search.update_tags', priority : 1 )]
+	#[Hook( name : 'search.update_tags', priority : 1 )]
 	public function update_tags( string $event, HookResult $result, array $args ) : HookResult {
 		$post = $result->data['post'] ?? null;
 		if ( !$post ) {	return $result;	}
@@ -12976,7 +12593,7 @@ class PostSearchHooks {
  *  @class Tagging and sorting events
  */
 #[HookContainer]
-class PostTagHooks {
+class PostTags {
 	
 	private readonly string $db_profile;
 	
@@ -13064,7 +12681,7 @@ class PostTagHooks {
 		return $tags;
 	}
 	
-	#[Hook( name : 'tag.parse', priority: 1 )]
+	#[Hook( name : 'tag.parse', priority : 1 )]
 	public function parse( string $event, HookResult $result, array $args ) : HookResult {
 		$slugs = $args['tag_slugs'] ?? $result->data['tag_slugs'] ?? '';
 		$terms = $args['tag_terms'] ?? $result->data['tag_terms'] ?? '';
@@ -13150,7 +12767,7 @@ class PostTagHooks {
  *  @class Content entry handling
  */
 #[HookContainer]
-class PostHooks {
+class Posts {
 	
 	/**
 	 *  Content database profile
@@ -13361,7 +12978,7 @@ class PostHooks {
 	/**
 	 *  Modify post
 	 */
-	#[Hook( name: 'post.update', priority: 1 )]
+	#[Hook( name : 'post.update', priority : 1 )]
 	public function update( string $event, HookResult $result, array $args ) : HookResult {
 		
 		$post		= $result->data['post'] ?? null;
@@ -13493,7 +13110,7 @@ class PostHooks {
  *  @class Import existing text-file posts into database
  */
 #[HookContainer]
-class PostImportHooks {
+class PostImporting {
 	
 	/**
 	 *  Import constructor
@@ -13780,7 +13397,7 @@ class PostImportHooks {
 	/**
 	 *  Parse metadata + body for each file
 	 */
-	#[Hook( name: 'post.import_parse', priority : 1 )]
+	#[Hook( name : 'post.import_parse', priority : 1 )]
 	public function parse_imported( string $event, HookResult $result, array $args ) : HookResult {
 		
 		$files = $result->data['import_files'] ?? [];
@@ -13942,11 +13559,11 @@ class SessionCookieConfig {
 #[HookHandler]
 class SessionCookieInit {
 	public function __construct(
-		private readonly Config   $config,
-		private readonly Request  $request
+		private readonly	Config		$config,
+		private readonly	Request	$request
 	) {}
 	
-	#[Hook( name : 'session.cookie.init', priority : 1)]
+	#[Hook( name : 'session.cookie.init', priority : 1 )]
 	public function init( string $event, HookResult $result, array $args ) : HookResult {
 		// Resolve cookie name
 		$name	= 
@@ -14132,9 +13749,9 @@ class SessionValidate {
 	];
 	
 	public function __construct(
-		private readonly Config   $config,
-		private readonly Database $dbh,
-		private readonly Request  $request
+		private readonly	Config		$config,
+		private readonly	Database	$dbh,
+		private readonly	Request		$request
 	) {
 		$this->sess_db_profile	= $this->config->setting( 'sess_db_profile', 'sessions' );
 		$this->basename		= $this->request->host_ascii;
@@ -14162,7 +13779,7 @@ class SessionValidate {
 	/**
 	 *  Load session data
 	 */
-	#[Hook( name : 'session.validate.load', priority: 10)]
+	#[Hook( name : 'session.validate.load', priority : 10)]
 	public function load( string $event, HookResult $result, array $args ) : HookResult {
 		$session_id	= $result->data['session_id'] ?? null;
 		if ( null === $session_id ) { return $result; }
@@ -15041,8 +14658,8 @@ class SessionBindUser {
 	 *  ] );
 	 */
 	public function __construct(
-		private readonly Config   $config,
-		private readonly Database $dbh
+		private readonly	Config		$config,
+		private readonly	Database	$dbh
 	) {
 		$this->sess_db_profile = $this->config->setting( 'sess_db_profile', 'sessions' );
 	}
@@ -15115,6 +14732,9 @@ class SessionBindUser {
  */
 #[HookHandler]
 class RequestPhase {
+	
+	private array $asset_dirs	= [];
+	private array $data_dirs	= [];
 	
 	public function __construct() {}
 	
@@ -15237,6 +14857,65 @@ class RequestPhase {
 			'coarse_last'	=> $coarse_last,
 			'summary'	=> \array_merge_recursive( ...$parsed )
 		];
+	}
+	
+	/**
+	 *  Store special folders
+	 */
+	#[Hook( name : 'register_directories', priority : 1 )]
+	public function add_dir( string $event, HookResult $result, array $args ) : HookResult {
+		if ( !empty( $args['data_dir'] ) ) {
+			$dir = Text::slash_path( $args['data_dir'], true );
+			if ( !\in_array( $dir, $this->data_dirs ) ) {
+				$this->data_dirs[] = $dir;
+			}
+		}
+		
+		if ( !empty( $args['asset_dir'] ) ) {			
+			$dir = Text::slash_path( $args['asset_dir'], true );
+			if ( !\in_array( $dir, $this->asset_dirs ) ) {
+				$this->asset_dirs[] = $dir;
+			}
+		}
+		
+		return $result->with_data( [
+			'asset_dirs'	=> $this->asset_dirs,
+			'data_dirs'	=> $this->data_dirs
+		] );
+	}
+	
+	/**
+	 *  Try to resolve static file
+	 */
+	#[Hook( name : 'request.static_probe', priority : 10 )]
+	public function probe( string $event, HookResult $result, array $args ) : HookResult {
+		$norm = $result->data['request_norm'] ?? [];
+		if ( !$norm ) { return $result; }
+		$uri		= \ltrim( $norm['uri'], '/' );
+		
+		if ( '' === $uri ) { return $result; }
+		
+		// Prevent traversal
+		$safe_uri	= Sanitize::path_traversal( $uri );
+		if ( $safe_uri !== $uri ) { return $result; }
+		
+		$method		= $norm['effective_method'] ?? $norm['method'];
+		
+		// Only GET and HEAD should serve static files
+		if ( !\in_array( $method, [ 'get','head' ], true ) ) { return $result; }
+		
+		// Range allowed?
+		// TODO: Make this config based
+		$range_allowed = true;
+		
+		return $result->add_data( [
+			'request_static'	=> [
+				'method'		=> $method,
+				'uri'			=> $safe_uri,
+				'path_hint'		=> $safe_uri,
+				'is_candidate'		=> true
+			]
+		] );
 	}
 	
 	/**
@@ -15407,7 +15086,7 @@ class RequestPhase {
 	/**
 	 *  Handle forwarded data
 	 */
-	#[Hook( name: 'request.forwarded', priority : 20 )]
+	#[Hook( name : 'request.forwarded', priority : 20 )]
 	public function forwarded( string $event, HookResult $result, array $args ) : HookResult {
 		
 		$norm	= $result->data['request_norm'] ?? [];
@@ -15457,7 +15136,7 @@ class RequestPhase {
 	/**
 	 *  Parse sent headers
 	 */
-	#[Hook( name: 'request.headers', priority : 30 )]
+	#[Hook( name : 'request.headers', priority : 30 )]
 	public function headers( string $event, HookResult $result, array $args ) : HookResult {
 		
 		$norm = $result->data['request_norm'] ?? [];
@@ -15608,6 +15287,534 @@ class RequestPhase {
 		] );
 		
 		return $result->add_data( [ 'request' => $request ] );
+	}
+}
+
+
+/**
+ *  @class Static file request handling
+ */
+#[HookHandler]
+class StaticFile {
+	
+	public function __construct(
+		private readonly	Container	$container,
+		private readonly	Config		$config,
+		private readonly	HookRegistry	$registry
+	) {}
+	
+	/**
+	 *  Create a file etag
+	 *  
+	 *  @param int		$size	File size in bytes
+	 *  @param int		$mtime	Last modified date in seconds
+	 *  @return string
+	 */
+	public function generate_etag( int $size, int $mtime ) : string {
+		$raw = @\sprintf( '%x-%x', $mtime, $size ) ?: '';
+		return "\"{$raw}\"";
+	}
+	
+	/**
+	 *  Static file metadata cache path
+	 *  
+	 *  @param string	$fpath File location on disk
+	 *  @return string
+	 */
+	private function meta_cache_path( string $fpath ) : string {
+		static $tmp;
+		
+		// Temporary directory within storage base
+		$tmp	??= Storage::base() . "/tmp/";
+		if ( !\is_dir( $tmp ) && !\mkdir( $tmp, 0777, true ) ) {
+			throw new 
+			\RuntimeException( "Failed to create cache directory: {$tmp}" );
+		}
+		
+		$hash	= \hash( 'sha256', $fpath );
+		return "{$tmp}/meta_{$hash}.cache.tmp";
+	}
+	
+	/**
+	 *  Get any cached metadata for a given file path
+	 *  
+	 *  @param string	$fpath	Location of file on disk
+	 *  @return mixed
+	 */
+	public function get_meta_cache( string $fpath ) : array|null {
+		$fcache	= $this->meta_cache_path( $fpath );
+		if ( !\is_readable( $fcache ) ) { return null; }
+		
+		try {
+			$data		= \file_get_contents( $fcache );
+			if ( false === $data ) { return null; }
+			
+			$meta		=
+			\json_decode(
+				json		: $data, 
+				associative	: true, 
+				depth		: 2, 
+				flags		: 
+					\JSON_INVALID_UTF8_IGNORE	| 
+					\JSON_THROW_ON_ERROR
+			);
+			
+			if ( !\is_array( $meta ) ) { return null; }
+			
+			if ( !isset( $meta['mtime'], $meta['content_length'] ) ) {
+				return null;
+			}
+			
+			$curr_mtime	= Storage::file_time( $fpath );
+			$curr_size	= Storage::file_size( $fpath );
+			
+		} catch ( \Throwable $e ) {
+			$this->logger->error( "Meta cache error: {$e->getMessage()}" );
+			return null;
+		}
+		
+		if (
+			$meta['mtime']		=== $curr_mtime && 
+			$meta['content_length']	=== $curr_size
+		) {
+			return $meta;
+		}
+		return null;
+	}
+	
+	/**
+	 *  Cache static file metadata
+	 *  
+	 *  @param string	$fpath	Location on disk
+	 *  @param array	$meta	File metadata
+	 */
+	public function save_meta_cache( string $fpath, array $meta ) : void {
+		$fcache	= $this->meta_cache_path( $fpath );
+		$tmp	= $fcache . '.' . \bin2hex( \random_bytes( 4 ) );
+		
+		try {
+			$data	= 
+			\json_encode( 
+				value	: $meta,
+				flags	: 
+					\JSON_UNESCAPED_SLASHES | 
+					\JSON_UNESCAPED_UNICODE | 
+					\JSON_THROW_ON_ERROR 
+			);
+			
+			// TODO: Move to storage_* functions
+			if ( false === \file_put_contents( $tmp, $data, \LOCK_EX ) ) {
+				throw new 
+				\RuntimeException( "Failed to write temp cache file" );
+			}
+			
+			if ( !\rename( $tmp, $fcache ) ) {
+				throw new 
+				\RuntimeException( "Failed to replace cache file" );
+			}
+		} catch ( \Throwable $e ) {
+			$this->logger->error( "Meta cache error: {$e->getMessage()}" );
+		}
+	}
+	
+	/**
+	 *  Validate and process requested ranges for a given file size
+	 *  
+	 *  @param int		$fsize	Requested file size in bytes
+	 *  @param string	$range	Raw range header
+	 *  @return array
+	 */
+	public function range_header( int $fsize, string $range ) : array {
+		if ( empty( $range ) ) { return []; }
+		
+		$ranges	= [];
+		if ( !\preg_match( '/^bytes=/', $range ) ) { return $ranges; }
+		
+		[ $prefix, $value ] = 
+		\array_map( 'trim', \explode( '=', $range, 2 ) + [ '', '' ] );
+		
+		foreach ( \explode( ',', $value ) as $segment ) {
+			$segment = trim( $segment );
+			if ( empty( $segment ) ) { continue; }
+			
+			[ $start, $end ] = 
+			\array_map( 'trim', \explode( '-', $segment, 2 ) + [ '', '' ] );
+			
+			// Handle open-ended ranges
+			if ( $start === '' && \ctype_digit( $end ) ) {
+				$suffix	= min( $fsize, ( int ) $end );
+				$start	= $fsize - $suffix;
+				$end	= $fsize - 1;
+			} else {
+				$start	= $start === '' ? 0 : $start;
+				$end	= $end === '' ? $fsize - 1 : $end;
+			}
+			
+			if ( 
+				!\ctype_digit( ( string ) $start ) || 
+				!\ctype_digit( ( string ) $end ) 
+			) { continue; }
+			
+			$start		= ( int ) $start;
+			$end		= ( int ) $end;
+			
+			// Validate and normalize
+			if ( $start > $end || $start >= $fsize ) { continue; }
+			
+			$end		= \min( $end, $fsize - 1 );
+			$ranges[]	= [ $start, $end ];
+		}
+		
+		return Util::merge_ranges( $ranges );
+	}
+	
+	/**
+	 *  Check sent etag data against current file information for staleness
+	 *  
+	 *  @param string	$etag		Current file etag
+	 *  @param int		$mtime		File last modified time in seconds
+	 *  @param string	$client_etag	Client sent etag(s)
+	 *  @param int		$client_mtime	File last modified time sent by client
+	 *  @return bool
+	 */
+	public function check_not_modified(
+		string		$etag,
+		int		$mtime,
+		?string		$client_etag	= null,
+		?int		$client_mtime	= null
+	) : bool {
+		$etag		= \trim( $etag, " \t\n\r\0\x0B\"'" );
+		$etag_clean	= \trim( \ltrim( $etag, 'W/' ), "\"" );
+		
+		if ( null !== $client_etag && '' !== $client_etag ) {
+			$tags	= 
+			\array_map(
+				static function ( $tag ) {
+					$tag	= \trim( $tag, " \t\n\r\0\x0B\"'" );
+					if ( \str_starts_with( $tag, 'W/' ) ) {
+						$tag = \substr( $tag, 2 );
+					}
+					return $tag;
+				}, 
+				\explode( ',', $client_etag ) 
+			);
+			
+			if ( 1 === count( $tags ) && '*' === $tags[0] ) {
+				return true;
+			}
+			
+			if ( \in_array( $etag_clean, $tags, true ) ) {
+				return true;
+			}
+			
+			// Didn't match If-None-Match
+			return false;
+		}
+		
+		// Try If-Modified-Since
+		if ( null !== $client_mtime && $client_mtime > 0 ) {
+			if ( $mtime <= $client_mtime ) {
+				return true;
+			}
+		}
+		return false;
+	}
+	
+	/**
+	 *  Check for file on disk
+	 */
+	#[Hook( name : 'static.resolve', priority : 20 )]
+	public function resolve( string $event, HookResult $result, array $args ) : HookResult {
+		$probe = $result->data['request_static'] ?? null;
+		if ( !$probe ) { return $result; }
+		
+		if ( !$probe['is_candidate'] ) { return $result; }
+		
+		$path		= $probe['path_hint'];
+		
+		// Try core static file directory first
+		$base		= Text::slash_path( \ASSET_DIR, true );
+		$fpath		= $base . $path;
+		
+		if ( \file_exists( $fpath ) ) {
+			$fpath	= @\realpath( $fpath ) ?: $fpath;
+			if ( !@\is_file( $fpath ) ) {
+				throw new 
+				\RuntimeException( "Unable to resolve file" );
+			}
+			return $result->add_data( [ 'static_resolved' => $fpath ] );
+		}
+		
+		// Configured static file directory
+		$config		= $this->config->setting( 'file_dir', Storage::base() );
+		$fpath		= $config . $path;
+		if ( \file_exists( $fpath ) ) {
+			return $result->add_data( [ 'static_resolved' => $fpath ] );
+		}
+		
+		// Try asset directories
+		$asset_dirs	= $result->data['asset_dirs'] ?? [];
+		foreach ( $asset_dirs as $dir ) {
+			$fpath = $dir . $path;
+			
+			// If found, send path
+			if ( \file_exists( $fpath ) ) {
+				return $result->add_data( [ 'static_resolved' => $fpath ] );
+			}
+		}
+		
+		return $result; // Not found
+	}
+	
+	/**
+	 *  TODO: Permissions checks
+	 */
+	#[Hook( name : 'static.authorize', priority : 30 )]
+	public function authorize( string $event, HookResult $result, array $args ) : HookResult {
+		
+		$probe = $result->data['request_static'] ?? null;
+		if ( !$probe ) { return $result; }
+		// TODO: Private path magic E.G. session checking via plugins etc...
+		/*
+			$session = $result->data['session'] ?? null;
+			if ( !$session || !$session['user_id'] ) {
+				return $result->add_data([
+					'static_ready' => [
+						'deny' => true,
+						'reason' => 'unauthorized'
+					]
+				] );
+			}
+		*/
+		return $result;
+	}
+	
+	/**
+	 *  Generate static file metadata
+	 */
+	#[Hook( name : 'static.meta', priority : 40 )]
+	public function metadata( string $event, HookResult $result, array $args ) : HookResult {
+		$probe = $result->data['request_static'] ?? null;
+		if ( !$probe ) { return $result; }
+		
+		$path = $result->data['static_resolved'] ?? null;
+		if ( !$path ) { return $result; }
+		
+		$is_cached	= $this->config->setting( 'cache_file_meta', true );
+		
+		// File cache?
+		if ( $is_cached && \is_array( $fcache = $this->get_meta_cache( $path ) ) ) {
+			$meta = $fcache;
+		} else {
+			$fsize	= Storage::file_size( $path );
+			$mtime	= Storage::file_time( $path );
+			$mime	= Storage::file_mime( $path );
+			
+			$etag	= $this->generate_etag( $fsize, $mtime );
+			$lmod	= \gmdate( 'D, d M Y H:i:s', $mtime ) . ' GMT';
+			
+			$meta	= [
+				'etag'			=> $etag,
+				'last_modified'		=> $lmod,
+				'content_type'		=> $mime,
+				'content_length'	=> $fsize,
+				'mtime'			=> $mtime
+			];
+		}
+		
+		if ( $is_cached ) {
+			$this->save_meta_cache( $path, $meta );
+		}
+		
+		return $result->add_data( [ 'static_meta' => $meta ] );
+	}
+	
+	/**
+	 *  TODO: Cached static web
+	 */
+	#[Hook( name : 'static.cache', priority : 50 )]
+	public function cache( string $event, HookResult $result, array $args ) : HookResult {
+		$probe	= $result->data['request_static'] ?? null;
+		if ( !$probe ) { return $result; }
+		
+		$path	= $result->data['static_resolved'] ?? null;
+		if ( !$path ) { return $result; }
+		
+		$meta	= $probe['static_meta'];
+		
+		// Force no caching for web content
+		// TODO: Make this runtime editable via hooks/plugins
+		$webdir	= $this->config->setting( 'webcache', 'webcache' );
+		if ( \str_starts_with( $path, ASSET_DIR . $webdir ) ) { 
+			$meta['etag']		= 'W/' . $meta['etag'];
+			$meta['cache_control']	= 'no-store';
+		}
+		
+		return $result->add_data( [
+			'request_static' => [
+				'is_static'	=> true,
+				'static_meta'	=> $meta
+			]
+		]);
+	}
+	
+	/**
+	 *  Intercept on not-modified
+	 */
+	#[Hook( name : 'static.not_modified', priority : 60 )]
+	public function not_modified(string $event, HookResult $result, array $args): HookResult {
+		$meta		= $result->data['static_meta']		?? null;
+		if ( !$meta ) { return $result; }
+		
+		$headers	= $result->data['request_headers']	?? [];
+		
+		$client_etag	= $headers['none_match_raw']		?? null;
+		$client_mtime	= $headers['modified_since']		?? null;
+		
+		$etag  = $meta['etag'];
+		$mtime = $meta['mtime'];
+		
+		if ( $this->check_not_modified( $etag, $mtime, $client_etag, $client_mtime ) ) {
+			return $result->add_data( [ 'static_ready' => [
+				'status'	=> 304,
+				'path'		=> null,
+				'meta'		=> $meta,
+				'ranges'	=> null,
+				'download'	=> false
+			] ] );
+		}
+		
+		return $result;
+	}
+	
+	/**
+	 *  Ranged request
+	 */
+	#[Hook( name : 'static.range', priority : 70 )]
+	public function range( string $event, HookResult $result, array $args ) : HookResult {
+		// Check for not-modified
+		$ready = $result->data['static_ready']			?? null;
+		if ( $ready && 305 === $ready['status'] ) { return $result; }
+		
+		$probe		= $result->data['request_static']	?? null;
+		if ( !$probe ) { return $result; }
+		
+		$path		= $result->data['static_resolved']	?? null;
+		if ( !$path ) { return $result; }
+		
+		$headers	= $result->data['request_headers']	?? [];
+		$meta		= $probe['static_meta'] ?? [];
+		$range_raw	= $headers['range_raw'] ?? null;
+		
+		if ( !$range_raw ) {
+			return $result->add_data( [ 'static_ranges' => null ] );
+		}
+		
+		$ranges		= $this->range_header( ( int ) $meta['content_length'], $range_raw );
+		$is_ranged	= $headers['is_ranged'] ?? false;
+		
+		// Ranged request, but invalid ranges?
+		if ( $is_ranged && empty( $range ) ) {
+			return $result->add_data( [
+				'static_ready' => [
+					'status'	=> 416,
+					
+					// TODO: Get this to do something useful
+					'error'		=> 'invalid_range',
+					
+					'meta'		=> $meta,
+					'path'		=> $path,
+					'ranges'	=> null,
+					'download'	=> false
+			] );
+		}
+		
+		return $result->add_data( [ 'static_ranges' => $ranges ] );
+	}
+	
+	/**
+	 *  File-specific headers
+	 */
+	#[Hook( name : 'static.headers', priority : 80 )]
+	public function headers( string $event, HookResult $result, array $args ) : HookResult {
+		$probe		= $result->data['request_static']	?? null;
+		if ( !$probe ) { return $result; }
+		
+		$meta		= $result->data['static_meta']		?? null;
+		if ( !$meta ) { return $result; }
+		
+		$headers	= [
+			"ETag"		=> "{$meta['etag']}",
+			"Last-Modified"	=> $meta['last_modified']
+		];
+		
+		$headers["Content-Length"]	= $meta['content_length'];
+		$headers["Content-Type"]	= $meta['content_type'];
+		
+		$result->add_data( [ 'static_headers' => $headers ] );
+	}
+	
+	/**
+	 *  Combine parameters from Request to appropriate Response
+	 */
+	#[Hook( name : 'static.serve', priority : 90 )]
+	public function serve( string $event, HookResult $result, array $args ) : HookResult {
+		$path		= $result->data['static_resolved']	?? null;
+		$meta		= $result->data['static_meta']		?? null;
+		
+		if ( !$path || !$meta ) { return $result; }
+		$headers	= $result->data['request_headers']	?? [];
+		
+		$client_etag 	= $headers['none_match_raw']		?? null;
+		$client_mtime	= $headers['modified_since']		?? null;
+		
+		return $result->add_data([
+			'static_ready' => [
+				'path'		=> $path,
+				'meta'		=> $meta,
+				'ranges'	=> $result->data['static_ranges'] ?? null,
+				'client_etag'	=> $client_etag,
+				'client_mtime'	=> $client_mtime,
+				'download'	=> false
+			]
+		] );
+	}
+	
+	/**
+	 *  Finish and serve static content, if found
+	 */
+	#[Hook( name : 'static.finalize', priority : 100 )]
+	public function finalize( string $event, HookResult $result, array $args ) : HookResult {
+		
+		$ready = $result->data['static_ready'] ?? null;
+		if ( !$data ) { return $result; }
+
+		$path	= $ready['path'] ?? null;
+		if ( !$path ) { return $result; }
+		
+		$response		= $this->container->get( FileResponse::class );
+		$response->headers	= $ready['headers'];
+		
+		if ( 304 === $ready['status'] ) {
+			$response->code		= 304;
+			$response->send_finish();
+			return $result;
+		}
+		
+		if ( 416 === $ready['status'] ) {
+			$response->code		= 416;
+			$response->send_finish();
+			return $result;
+		}
+		
+		$response->stream_file(
+			path		: $path,
+			meta		: $ready['meta']	?? [],
+			headers		: $ready['headers']	?? [],
+			download	: $ready['download']	?? false,
+			ranges		: $ready['ranges']	?? null
+		);
+		return $result;
 	}
 }
 
