@@ -4912,198 +4912,6 @@ class PageResponse extends Response {
 			'max-age=31536000; includeSubDomains; preload'
 		];
 	}
-	
-	/**
-	 *  Main content response handler
-	 *  
-	 *  @param int		$code		HTTP status code
-	 *  @param array	$headers	Content headers
-	 *  @param mixed	$body		Content body
-	 */
-	public function send( int $code, array $headers = [], $body = null ) : void {
-		if ( $code < 100 || $code > 599 ) {
-			throw new 
-			\InvalidArgumentException( "Invalid HTTP status code: {$code}" );
-		}
-		
-		$this->code	= $code;
-		$ct_sent	= false;
-		$lo_sent	= false;
-		$is_redir	= ( $code >= 300 && $code < 400 );
-		
-		// No body for these codes
-		if ( $code === 204 || $code === 304 ) {
-			$body = null;
-		}
-		
-		$this->build_headers( $headers, $ct_sent, $lo_sent );
-		if ( $is_redir ) {
-			if ( !$lo_sent ) {
-				throw new 
-				\RuntimeException( "Redirect requires a Location header" );
-			}
-		}
-		
-		$this->status();
-		$this->emit_headers();
-		if ( null !== $body && !$is_redir ) {
-			$this->body( $body, $ct_sent );
-		}
-		$this->flush_buffers( true );
-		exit();
-	}
-	
-	/**
-	 *  OPTIONS header response helper
-	 */
-	public function options( array $headers = [] ) : void {
-		$method	= $this->request->method;
-		if ( 0 === \strcasecmp( 'options', $method ) ) {
-			$this->send( 204, $headers );
-			exit();
-		}
-	}
-	
-	public function html( int $status = 200, array $headers = [], string $html ) : void {
-		$headers['Content-Type'] ??= 'text/html; charset=UTF-8';
-		$this->send( $status, $headers, $html );
-		exit();
-	}
-	
-	public function json( int $status = 200, array $headers = [], array $data ) : void {
-		$headers['Content-Type'] ??= 'application/json; charset=UTF-8';
-		$this->send( $status, $headers, $data );
-		exit();
-	}
-	
-	public function text( int $status = 200, array $headers = [], string $text ) : void {
-		$headers['Content-Type'] ??= 'text/plain; charset=UTF-8';
-		$this->send( $status, $headers, $text );
-		exit();
-	}
-	
-	/**
-	 *  XML Output response helper
-	 *  
-	 *  @param string	$xml		Raw XML content
-	 *  @param int		$status		HTTP status code
-	 *  @param string	$type		Content MIME type
-	 *  @param array	$headers	Additional headers 
-	 */
-	public function xml(
-		string	$xml,
-		int	$status		= 200,
-		string	$type		= 'application/xml',
-		array	$headers	= []
-	) : void {
-		$headers = \array_replace_recursive( $headers, $this->xmlrpc_headers() );
-		$headers['Content-Type'] ??= "{$type}; charset=UTF-8";
-		
-		// Handle CORS preflight request E.G. XML-RPC request
-		$this->options( $headers );
-		$this->send( $status, $headers, $xml );
-		exit();
-	}
-	
-	/**
-	 *  Page security policy shared header builder
-	 *  
-	 *  @param bool		$send_csp	Include content security policy, if true
-	 *  @param bool		$send_type	Include content mime type, if true
-	 *  @return array
-	 */
-	private function preamble( bool $send_csp = true, bool $send_type = true ) : array {
-		static $policy;
-		$policy	??= $this->config->setting( 'headers', [], 'json' );
-	
-		if ( empty( $policy ) ) { return []; }
-		
-		$headers = [];
-		
-		// Core policies
-		if ( $send_csp ) {
-			if ( !empty( $header = $this->security_policy( 'content', $policy ) ) ) {
-				$headers['Content-Security-Policy']	= $header;
-			}
-		}
-		
-		if ( $send_type ) {
-			if ( !empty( $header = $this->security_policy( 'content-type', $policy ) ) ) {
-				$headers['X-Content-Type-Options']	= $header;
-			}
-		}
-		
-		// Other headers
-		$params	= [ 
-			'permissions'	=> 'Permissions-Policy',
-			'transport'	=> 'Strict-Transport-Security',
-			'frames'	=> 'X-Frame-Options',
-			'xss'		=> 'X-XSS-Protection',
-			'referer'	=> 'Referrer-Policy'
-		];
-		
-		foreach ( $params as $k => $v ) {
-			if ( !empty( $header = $this->security_policy( $k, $policy ) ) ) {
-				$headers[$v] = $header;
-			}
-		}
-		
-		return $headers;
-	}
-	
-	/**
-	 *  Print headers, content, and end execution
-	 *  TODO: Cache output
-	 *  
-	 *  @param int		$code		HTTP Status code
-	 *  @param string	$content	Page data to send to client
-	 *  @param bool		$is_cached	Cache page data if true
-	 *  @param bool		$is_feed	Set content to be XML
-	 */
-	public function page(
-		int	$code,
-		?string	$content	= null,
-		bool	$is_cached	= false,
-		bool	$is_feed	= false
-	) : void {
-		static $zlib;
-		$zlib		??= \extension_loaded( 'zlib' );
-		
-		$is_error	= ( $code >= 400 );
-		$is_html	= ( $code >= 200 && $code < 204 );
-		$has_body	= ( null !== $content ) || $is_html;
-		$headers 	= [];
-		
-		if ( $is_error && !$has_body ) {
-			$headers = $this->preamble( false, false );
-			$headers['Content-Security-Policy'] = "default-src: 'self'";
-		} elseif ( $is_error && $has_body ) {
-			$headers = $this->preamble( false, true );
-		} else {
-			if ( $is_feed ) {
-				$headers	= $this->preamble( true, false );
-				$headers['Content-Disposition'] = 'inline';
-			} else {
-				$headers	= $this->preamble();
-			}
-		}
-		
-		// Finish and send here if there's no body
-		if ( !$has_body ) { $this->send( $code, $headers ); }
-		
-		// Check gzip prerequisites
-		if ( $code != 304 && $zlib ) { \ob_start( 'ob_gzhandler' ); }
-		if ( $is_feed ) {
-			$this->xml( 
-				xml	: $content ?? '', 
-				status	: $code, 
-				headers : $headers
-			);
-			
-			return;
-		}
-		$this->html( $content ?? '', $code, $headers );
-	}
 }
 
 
@@ -9056,7 +8864,42 @@ final class Router extends Instance {
 		$registry->run( 'static.not_modified' );
 		$registry->run( 'static.headers' );
 		$registry->run( 'static.serve' );
-		$registry->run( 'static.finalize' );
+		$registry->run( 'static.finalize', true );
+	}
+
+	public function response_dispatch( HookRegistry $registry ) : void {
+		$registry->run( 'response.preamble' );
+		$registry->run( 'response.options' );
+		$registry->run( 'response.page' );
+		$registry->run( 'response.finalize' );
+	}
+	
+	public function session_dispatch( HookRegistry $registry ) : void {
+		// Configure sesion and cookie settings
+		$registry->run( 'session.cookie.config' );
+		
+		$registry->run( 'session.init' );
+		$registry->run( 'session.cookie.init' );
+		$registry->run( 'session.lifecycle' );
+		$registry->run( 'session.cookie.set' );
+		
+		$registry->run( 'request.authorize' );
+	} 
+	
+	/**
+	 *  Full page
+	 */
+	public function cache_dispatch( HookRegistry $registry ) : void {
+		$request = $registry->values( 'request' );
+		if ( !$request instanceof Request ) {
+			return;
+		}
+		
+		$registry->run( 'cache.lookup', true, [ 
+			'method'	=> $request->effective_method,
+			'realm'		=> $request->host,
+			'uri'		=> $request->uri
+		] );
 	}
 	
 	public function dispatch( string $method, string $uri ) : void {
@@ -9064,29 +8907,42 @@ final class Router extends Instance {
 		
 		// Request lifecycle
 		$this->request_dispatch( $registry );
-
+		
 		// Static file check
 		$this->static_dispatch( $registry );
+		if ( !empty( $registry->values( 'response_ready' ) ) ) {
+			$this->response_dispatch( $registry );
+			return;
+		}
 		
 		// Other responses
 		$registry->run( 'request.context' );
 		
 		// Request class
-		$registry->run( 'request.finalize' );
+		$registry->run( 'request.finalize', true );
 		
-		// Configure sesion and cookie settings
-		$registry->run( 'session.cookie.config' );
+		// Sessions
+		$this->session_dispatch( $registry );
+		if ( !empty( $registry->values( 'response_ready' ) ) ) {
+			$this->response_dispatch( $registry );
+			return;
+		}
 		
-		$this->container->get( Sessions::class )->init();
+		// Caching
+		$this->cache_dispatch( $registry );
 		
-		$registry->run( 'session.cookie.init' );
-		$registry->run( 'session.lifecycle' );
-		$registry->run( 'session.cookie.set' );
+		$uri	= \parse_url( $uri, \PHP_URL_PATH );
+		$uri	= \rtrim( $uri, '/' ) ?: '/';
 		
-		$path	= \parse_url( $uri, \PHP_URL_PATH );
-		$path	= \rtrim( $path, '/' ) ?: '/';
+		$this->scan( $method, $uri );
 		
-		$this->scan( $method, $path );
+		// Ful or partial as requested by routes
+		if ( !$registry->values( 'response_ready' ) ) {
+			$registry->run( 'cache.insert_full' );
+			$registry->run( 'cache.insert_partial' );
+		}
+		
+		$this->response_dispatch( $registry );
 	}
 }
 
@@ -11747,7 +11603,7 @@ class PageAssets {
 		
 		return $result->with_data( [
 			'page'	=> 
-			\array_merge($result->data['page'] ?? [], [
+			\array_merge( $result->data['page'] ?? [], [
 				'meta_tags' => $meta
 			] )
 		] );
@@ -13496,12 +13352,9 @@ class PostImporting {
  *  @class Session cookie base settings
  */
 #[HookHandler]
-class SessionCookieConfig {
+class SessionConfig {
 	
-	public function __construct(
-		private readonly Config  $config,
-		private readonly Request $request
-	) {}
+	public function __construct( private readonly Config  $config ) {}
 	
 	#[Hook( name : 'session.cookie.config', priority : 1 )]
 	public function config( string $event, HookResult $result, array $args ) : HookResult {
@@ -13512,25 +13365,27 @@ class SessionCookieConfig {
 			$this->config->setting( 'cookie_path', '/' )
 		);
 		
+		// This shouldn't be changed unless there's a very good reason
+		$is_same	=
+		$args['cookie_samesite'] ?? (
+			$result->data['cookie_samesite'] ?? 
+			$this->config->setting( 'cookie_samesite', 'Strict' )
+		);
+		
+		$request	= $result->data['request'] ?? null;
+		
 		// Custom realm or default to request domain
 		$domain		=
 		$args['cookie_domain'] ?? (
 			$result->data['cookie_domain'] ?? 
-			$this->request->host
+			( $request ? $request->host_effective : '' )
 		);
 		
 		// Always set secure when over TLS
 		$is_secure 	=
 		$args['cookie_secure'] ?? (
 			$result->data['cookie_secure'] ?? 
-		 	$this->request->is_tls
-		);
-		
-		// This shouldn't be changed unless there's a very good reason
-		$is_same	=
-		$args['cookie_samesite'] ?? (
-			$result->data['cookie_samesite'] ?? 
-			$this->config->setting( 'cookie_samesite', 'Strict' )
+			( $request ? $request->is_tls : false )
 		);
 		
 		// Apply PHP cookie defaults
@@ -13543,25 +13398,21 @@ class SessionCookieConfig {
 		] );
 		
 		// Store resolved values for downstream hooks
-		return $result->add_data([
+		return $result->add_data( [
 			'cookie_path'		=> $path,
 			'cookie_domain'		=> $domain,
 			'cookie_secure'		=> $is_secure,
 			'cookie_samesite'	=> $is_same
-		]);
+		] );
 	}
-}
-
-
-/**
- *  @class Cookie and session handling
- */
-#[HookHandler]
-class SessionCookieInit {
-	public function __construct(
-		private readonly	Config		$config,
-		private readonly	Request	$request
-	) {}
+	
+	#[Hook( name : 'session.init', priority : 80 )]
+	public function init( string $event, HookResult $result, array $args ) : HookResult {
+		$sessions = $this->container->get( Sessions::class );
+		$sessions->init();
+		
+		return $result; 
+	}
 	
 	#[Hook( name : 'session.cookie.init', priority : 1 )]
 	public function init( string $event, HookResult $result, array $args ) : HookResult {
@@ -13570,13 +13421,6 @@ class SessionCookieInit {
 		$args['cookie_name'] ?? ( 
 			$result->data['cookie_name'] ?? 
 			$this->config->setting( 'cookie_name', 'SID' ) 
-		);
-		
-		// Resolve basename ( ASCII host )
-		$basename	=
-		$args['basename'] ?? ( 
-			$result->data['basename'] ?? 
-			$this->request->host_ascii
 		);
 		
 		// Read raw cookie value 
@@ -13590,6 +13434,15 @@ class SessionCookieInit {
 			}
 		}
 		
+		$request	= $result->data['request'] ?? null;
+		
+		// Resolve basename ( ASCII host )
+		$basename	=
+		$args['basename'] ?? ( 
+			$result->data['basename'] ?? 
+			( $request ? $request->host_ascii : '' )
+		);
+		
 		// Populate pipeline
 		return $result->add_data( [
 			'cookie_name'	=> $name,
@@ -13601,34 +13454,24 @@ class SessionCookieInit {
 			'cookie_valid'	=> ( null !== $session_id )
 		]);
 	}
-}
-
-
-/**
- *  @class Set custom cookie via lifcycle
- */
-#[HookHandler]
-class SessionCookieSet {
-	
-	public function __construct(
-		private readonly Config  $config,
-		private readonly Request $request
-	) {}
 	
 	#[Hook( name : 'session.cookie.set', priority : 50 )]
 	public function set( string $event, HookResult $result, array $args ) : HookResult {
 		// Resolve cookie name
-		$name	=
+		$name		=
 		$result->data['cookie_name'] ?? ( 
 			$args['cookie_name'] ?? 
 			$this->config->setting( 'cookie_name', 'SID' )
 		);
+		$request	= $result->data['request'] ?? null;
+		if ( !$request ) { return $result; }
 		
 		// Resolve cookie parameters ( from cookie.config )
 		$path		= $result->data['cookie_path']		?? '/';
-		$domain		= $result->data['cookie_domain']	?? $this->request->host;
-		$is_secure	= $result->data['cookie_secure']	?? $this->request->is_tls;
-		$is_same	= $result->data['cookie_samesite']	?? 'Strict';
+		$domain		= $result->data['cookie_domain']	?? $request->host_effective;
+		$is_secure	= $result->data['cookie_secure']	?? $request->is_tls;
+		$is_same	= $result->data['cookie_samesite']	?? 
+					$this->config->setting( 'cookie_samesite', 'Strict' );
 		
 		// Check session ID to write
 		$session_id	= $result->data['session_id'] ?? null;
@@ -14913,6 +14756,7 @@ class RequestPhase {
 				'method'		=> $method,
 				'uri'			=> $safe_uri,
 				'path_hint'		=> $safe_uri,
+				'is_range_allowed'	=> $range_allowed,
 				'is_candidate'		=> true
 			]
 		] );
@@ -15668,7 +15512,7 @@ class StaticFile {
 		
 		$headers	= $result->data['request_headers']	?? [];
 		
-		$client_etag	= $headers['none_match_raw']		?? null;
+		$client_etag	= $headers['none_match']		?? null;
 		$client_mtime	= $headers['modified_since']		?? null;
 		
 		$etag  = $meta['etag'];
@@ -15692,12 +15536,13 @@ class StaticFile {
 	 */
 	#[Hook( name : 'static.range', priority : 70 )]
 	public function range( string $event, HookResult $result, array $args ) : HookResult {
+		$probe		= $result->data['request_static']	?? null;
+		if ( !$probe ) { return $result; }
+		if ( !$probe['is_range_allowed'] ) { return $result; }
+		
 		// Check for not-modified
 		$ready = $result->data['static_ready']			?? null;
 		if ( $ready && 305 === $ready['status'] ) { return $result; }
-		
-		$probe		= $result->data['request_static']	?? null;
-		if ( !$probe ) { return $result; }
 		
 		$path		= $result->data['static_resolved']	?? null;
 		if ( !$path ) { return $result; }
@@ -15768,7 +15613,7 @@ class StaticFile {
 		$client_etag 	= $headers['none_match_raw']		?? null;
 		$client_mtime	= $headers['modified_since']		?? null;
 		
-		return $result->add_data([
+		return $result->add_data( [
 			'static_ready' => [
 				'path'		=> $path,
 				'meta'		=> $meta,
@@ -15788,7 +15633,7 @@ class StaticFile {
 		
 		$ready = $result->data['static_ready'] ?? null;
 		if ( !$data ) { return $result; }
-
+		
 		$path	= $ready['path'] ?? null;
 		if ( !$path ) { return $result; }
 		
@@ -15815,6 +15660,250 @@ class StaticFile {
 			ranges		: $ready['ranges']	?? null
 		);
 		return $result;
+	}
+}
+
+
+/**
+ *  @class Handle page output generation
+ */
+#[HookHandler]
+class ResponseConfig {
+	
+	/**
+	 *  Page security policy shared header builder
+	 */
+	#[Hook( name : 'response.preamble', priority : 50 )]
+	public function preamble( string $event, HookResult $result, array $args ) : HookResult {
+		$response	= $result->data['response'] ?? null;
+		if ( !$response instanceof PageResponse ) { return $result; }
+		
+		// Load Content Security Policy config
+		$policy	= $response->config->setting( 'headers', [], 'json' );
+		
+		if ( empty( $policy ) ) { // No policies?
+			return $result->add_data( [ 'preamble_headers' => [] ] );
+		}
+		
+		// Include content security policy, if true
+		$send_csp	= $args['send_csp']	?? true;
+		// Include content mime type, if true
+		$send_type	= $args['send_type']	?? true;
+		
+		$headers	= [];
+		
+		// Core policies
+		if ( $send_csp ) {
+			if ( !empty( $header = $response->security_policy( 'content', $policy ) ) ) {
+				$headers['Content-Security-Policy']	= $header;
+			}
+		}
+		
+		if ( $send_type ) {
+			if ( !empty( $header = $response->security_policy( 'content-type', $policy ) ) ) {
+				$headers['X-Content-Type-Options']	= $header;
+			}
+		}
+		
+		// Other policies
+		$map = [
+			'permissions'	=> 'Permissions-Policy',
+			'transport'	=> 'Strict-Transport-Security',
+			'frames'	=> 'X-Frame-Options',
+			'xss'		=> 'X-XSS-Protection',
+			'referer'	=> 'Referrer-Policy'
+		];
+		
+		foreach ( $map as $term => $name ) {
+			if ( !empty( $value = $response->security_policy( $term, $policy ) ) ) {
+				$headers[$name] = $value;
+			}
+		}
+		
+		return $result->add_data( [
+			'preamble_headers'	=> $headers,
+			'send_type'		=> $send_type
+		] );
+	}
+	
+	/**
+	 *  OPTIONS header response hook
+	 */
+	#[Hook( name : 'response.options', priority : 40 )]
+	public function options( string $event, HookResult $result, array $args ) : HookResult {
+		$request	= $result->data['request']	?? null;
+		$response	= $result->data['response']	?? null;
+		
+		if ( !$request || !$response) { return $result; }
+		
+		// Only handle OPTIONS requests
+		if ( 0 !== \strcasecmp( $request->method, 'options' ) ) { 
+			return $result; 
+		}
+		
+		// Merge preamble headers if present
+		$headers	= $result->data['preamble_headers'] ?? [];
+		
+		// Merge any additional headers passed in
+		$headers	= \array_merge( $headers, $args['headers'] ?? [] );
+		
+		// TODO: Log OPTIONS requests
+		// Build response_ready (no body)
+		return $result->add_data([
+			'response_ready' => [
+				'status'	=> 204,
+				'headers'	=> $headers,
+				'body'		=> '',
+				'source'	=> 'options'
+			]
+		] );
+	}
+	
+	/**
+	 *  Accumulate headers, content, and prepare for output
+	 */
+	#[Hook( name : 'response.page', priority : 100 )]
+	public function page( string $event, HookResult $result, array $args ) : HookResult {
+		$response	= $result->data['response'] ?? null;
+		if ( !$response instanceof PageResponse ) { return $result; }
+		
+		$status		= $result->data['response_status']	?? $args['status']	?? 200;
+		$content	= $result->data['response_content']	?? $args['content']	?? null;
+		$is_cached	= $result->data['response_is_cached']	?? $args['is_cached']	?? false;
+		
+		$is_feed 	= $args['is_feed']			?? false;
+		$is_xmlrpc	= $args['is_xmlrpc']			?? false;
+		$is_cached	= $args['is_cached']			?? false;
+		
+		// Basic flags
+		$is_error	= ( $status >= 400 );
+		$is_json	= \is_array( $content) || \is_object( $content );
+		$is_html	= 
+		( ( $status >= 200 && $status < 204 )	&&
+			!$is_feed 			&& 
+			!$is_xmlrpc			&&
+			\is_string( $content )		&&
+			\preg_match( 
+				'/<[^>]+>/', 
+				( string ) $content
+			)
+		);
+		
+		$has_body	= ( $content !== null) || $is_html;
+		
+		// Start with preamble headers
+		$headers	= $result->data['preamble_headers'] ?? [];
+		
+		// Error page logic
+		if ( $is_error && !$has_body ) {
+			$headers['Content-Security-Policy'] = "default-src 'self'";
+		} elseif ( $is_feed || $is_xmlrpc ) {
+			$headers['Content-Disposition'] = 'inline';
+			$headers = \array_merge( $headers, $response->xmlrpc_headers() );
+		}
+		
+		$send_type	= $result->data['send_type'] ?? $args['send_type'] ?? true;
+		if ( $send_type ) {
+			// Content type
+			$headers['Content-Type'] = match( true ) {
+				$is_json			=> 'application/json; charset=UTF-8',
+				( $is_feed || $is_xmlrpc )	=> 'application/xml; charset=UTF-8',
+				$is_html			=> 'text/html; charset=UTF-8',
+				default				=> 'text/plain; charset=UTF-8'
+			};
+		}
+		
+		/// Finish and return here, if there's no body
+		if ( !$has_body || ( 204 === $status || 304 === $status ) ) {
+			return $result->add_data([
+				'response_ready' => [
+					'status'	=> $status,
+					'headers'	=> $headers,
+					'is_error'	=> $is_error,
+					'is_html'	=> $is_html,
+					'has_body'	=> $has_body,
+					'use_gzip'	=> false,
+					'body'		=> null,
+					'source'	=> 'page'
+				]
+			] );
+		}
+		
+		// Check gzip prerequisites
+		$zlib		= extension_loaded('zlib');
+		$use_gzip	= ( 304 != $status && $zlib );
+		
+		// Build body
+		$body		= 
+		$has_body 
+			? $response->body( $content, false )
+			: '';
+		
+		return $result->add_data( [
+			'response_ready'	=> [
+				'status'	=> $status,
+				'headers'	=> $headers,
+				'is_error'	=> $is_error,
+				'is_html'	=> $is_html,
+				'has_body'	=> $has_body,
+				'use_gzip'	=> $use_gzip,
+				'body'		=> $body,
+				'source'	=> 
+				$is_feed 
+					? 'feed'
+					: ( $is_xmlrpc ? 'xmlrpc' : 'page' )
+			]
+		] );
+	}
+	
+	#[Hook( name : 'response.finalize', priority : 999 )]
+	public function finalize( string $event, HookResult $result, array $args ) : HookResult {
+		$ready		= $result->data['response_ready']	?? null;
+		$response	= $result->data['response']		?? null;
+		
+		if ( !$ready || !$response instanceof Response ) { return $result; }
+		
+		$status		= $ready['status']	?? 200;
+		
+		// Validate status code
+		if ( $status < 100 || $status > 599 ) {
+			throw new 
+			\InvalidArgumentException( "Invalid HTTP status code: {$status}" );
+		}
+		
+		// Extract response_ready fields
+		$headers	= $ready['headers']	?? [];
+		$body		= $ready['body']	?? '';
+		$source		= $ready['source']	?? 'unknown';
+		
+		// Handle redirect rules
+		$is_redir	= ( $status >= 300 && $status < 400 );
+		if ( $is_redir && empty( $headers['Location'] ) ) {
+			throw new 
+			\RuntimeException("Redirect requires a Location header");
+		}
+		
+		// No body for these codes
+		if ( 204 === $status || 304 === $status ) { $body = ''; }
+		
+		// Use gzip, if enabled
+		$use_gzip = $ready['use_gzip'] ?? false;
+		if ( $use_gzip ) { \ob_start('ob_gzhandler'); }
+		
+		// Set status and headers
+		$response->code		= $status;
+		$response->headers	= $headers;
+		
+		// Emit
+		$response->status();
+		$response->emit_headers();
+		
+		// Emit body, if present and not redirect 
+		if ( !$is_redir && '' !== $body ) { echo $body; }
+		
+		// Flush buffers and exit
+		$response->flush_buffers( true );
+		exit();
 	}
 }
 
