@@ -4387,7 +4387,7 @@ class Response extends Instance {
 	 *  
 	 *  @param Config	$config		Configuration settings
 	 *  @param Request	$request	Original client request
-	 *  @param Logger		$logger		Event logger
+	 *  @param Logger	$logger		Event logger
 	 *  @param int		$code		HTTP Status code
 	 *  @param array	$headers	New response headers
 	 *  @param mixed	$body		Output response body
@@ -4396,9 +4396,9 @@ class Response extends Instance {
 		public readonly Config	$config, 
 		public readonly Request $request, 
 		public readonly Logger	$logger,
-		public int		$code		= 200,
-		public array		$headers	= [],
-		public mixed		$body		= null
+		public		int	$code		= 200,
+		public		array	$headers	= [],
+		public		mixed	$body		= null
 	) {}
 	
 	public static function create(
@@ -4589,6 +4589,9 @@ class Response extends Instance {
 	public function send_finish() : never {
 		$this->status();
 		$this->emit_headers();
+		
+		// Emit body, if present
+		if ( null !== $this->body || '' !== $this->body ) { echo $this->body; }
 		$this->flush_buffers( true );
 		exit(); 
 	}
@@ -4702,7 +4705,7 @@ final class FileResponse extends Response {
 		$this->code	= 500;
 		$this->status();
 		$this->emit_headers();
-		$this->flush_buffers(true);
+		$this->flush_buffers( true );
 		echo $msg;
 	}
 	
@@ -4749,7 +4752,7 @@ final class FileResponse extends Response {
 			$this->handle_stream_error( $e );
 		} finally {
 			if ( \is_resource( \$handle ) ) {
-				\fclose($handle);
+				\fclose( $handle );
 			}
 		}
 
@@ -11069,10 +11072,11 @@ final class Main {
 		$router->dispatch( $request->method, $request->uri );
 		
 		// Fallback run not found
-		$registry->run( 'error_not_found', false, [
-			'uri'		=> $request->uri,
-			'method'	=> $request->method
+		$registry->run( 'error.not_found', false, [
+			'uri' => $request->uri
 		] );
+		
+		$registry->run( 'error.render', false );
 	}
 	
 	/**
@@ -11146,173 +11150,115 @@ class ErrorHooks {
 			]
 		] );
 		
-		$response	= 
-		PageResponse::create(
-			code		: $code,
-			headers		: $args['headers'] ?? [],
-			body		: $html
-		);
-		
-		$response->html(
-			status		: $code,
-			headers		: $args['headers'] ?? [],
-			html		: $html
-		);
+		return $result->add_data( [
+			'error_code'	=> $code,
+			'error_title'	=> $title,
+			'error_html'	=> $html,
+			'error_code'	=> $code
+		] );
 	}
 	
-	/**
-	 *  Output wraper
-	 *  
-	 *  @param array	$args		Passed hook event arguments
-	 *  @param int		$code		HTTP Response code
-	 *  @param string	$title		Error page main title
-	 *  @param string	$message	Content body or other useful info
-	 *  @param array	$headers	Additional response headers
-	 */
-	private function response( 
-		array	$args, 
-		int	$code, 
-		string	$title, 
-		string	$message	= 'An unexpected error occurred.',
-		array	$headers	= []
-	) : never {
-		$method		= \strtolower( $args['method'] ?? 'unsupported' );
-		$body		= \in_array( $method, [ 'get', 'post' ] ) ? $message : null;
-		
-		// Sending body?
-		if ( null !== $body ) {
-			$args	= 
-			\array_merge( $args, [
-				'code'		=> $code,
-				'title'		=> $title,
-				'message'	=> $message,
-				'headers'	=> $headers,
-				'uri'		=> $args['uri']		?? '',
-				'back'		=> $args['back']	?? '/',
-				'search'	=> $args['search']	?? '/search'
-			] );
-			
-			$result = $this->hooks->run( 'error.render', false, $args ); // Should exit via response
-		}
-		
-		// HEAD, OPTIONS etc... responses
-		$response	= 
-		PageResponse::create( code : $code, headers : $headers, body : $body );
-		
-		$response->page( code : $code, content : $body );
+	#[Hook( name : 'error.bad_request', priority : 1 )]
+	public function bad_request( string $event, HookResult $result, array $args ) : HookResult {
+		return $result->add_data( [
+			'error_code'	=> 400,
+			'error_title'	=> $result->data['title']	?? 'Bad Request',
+			'error_message'	=> $result->data['message']	?? 'Invalid request.',
+			'error_headers'	=> $result->data['headers']	?? []
+		] );
 	}
 	
-	#[Hook( name : 'error_bad_request', priority : 1 )]
-	public function bad_request( string $event, HookResult $result, array $args ) : never {
-		$this->response( 
-			args	: $args, 
-			code	: 400, 
-			title	: $result->data['title']	?? 'Bad Request', 
-			message	: $result->data['message']	?? 'Invalid request.',
-			headers	: $result->data['headers']	?? []
-		);
-	}
-	
-	#[Hook( name : 'error_not_authorized', priority : 1 )]
-	public function not_authorized( string $event, HookResult $result, array $args ) : never {
-		$this->response( 
-			args	: $args, 
-			code	: 401, 
-			title	: $result->data['title']	?? 'Not Authorized', 
-			message	: $result->data['message']	?? 
+	#[Hook( name : 'error.not_authorized', priority : 1 )]
+	public function not_authorized( string $event, HookResult $result, array $args ) : HookResult {
+		return $result->add_data( [
+			'error_code'	=> 401,
+			'error_title'	=> $result->data['title']	?? 'Not Authorized',
+			'error_message'	=> $result->data['message']	?? 
 				'Insufficient permissions to access resource.',
-			headers	: $result->data['headers']	?? []
-		);
+			'error_headers'	=> $result->data['headers']	?? []
+		] );
 	}
 	
-	#[Hook( name : 'error_forbidden', priority : 1 )]
-	public function forbidden( string $event, HookResult $result, array $args ) : never {
-		$this->response( 
-			args	: $args, 
-			code	: 403, 
-			title	: $result->data['title']	?? 'Forbidden', 
-			message	: $result->data['message']	?? 'Access to resource is restricted.',
-			headers	: $result->data['headers']	?? []
-		);
+	#[Hook( name : 'error.forbidden', priority : 1 )]
+	public function forbidden( string $event, HookResult $result, array $args ) : HookResult {
+		return $result->add_data( [
+			'error_code'	=> 403,
+			'error_title'	=> $result->data['title']	?? 'Forbidden',
+			'error_message'	=> $result->data['message']	?? 'Access to resource is restricted.',
+			'error_headers'	=> $result->data['headers']	?? []
+		] );
 	}
 	
-	#[Hook( name : 'error_not_found', priority : 1 )]
-	public function not_found( string $event, HookResult $result, array $args ) : never {
-		$this->response( 
-			args	: $args, 
-			code	: 404, 
-			title	: $result->data['title']	?? 'Not Found', 
-			message	: $result->data['message']	?? 'Requested resource not found.',
-			headers	: $result->data['headers']	?? []
-		);
+	#[Hook( name : 'error.not_found', priority : 1 )]
+	public function not_found( string $event, HookResult $result, array $args ) : HookResult {
+		return $result->add_data( [
+			'error_code'	=> 404,
+			'error_title'	=> $result->data['title']	?? 'Not Found',
+			'error_message'	=> $result->data['message']	?? 'Requested resource not found.',
+			'error_headers'	=> $result->data['headers']	?? []
+		] );
 	}
 	
-	#[Hook( name : 'error_not_allowed', priority : 1 )]
-	public function not_allowed( string $event, HookResult $result, array $args ) : never {
+	#[Hook( name : 'error.not_allowed', priority : 1 )]
+	public function not_allowed( string $event, HookResult $result, array $args ) : HookResult {
 		// TODO: Extract allowed from arguments, including per-uri allowed methods
-		$this->response( 
-			args	: $args, 
-			code	: 405, 
-			title	: $result->data['titlte']	?? 'Not Allowed', 
-			message	: $result->data['message']	?? 'Request method not allowed.',
-			headers	: $result->data['headers']	?? [ 'Allow' => 'GET, POST, HEAD, OPTIONS' ]
-		);
+		return $result->add_data( [
+			'error_code'	=> 405,
+			'error_title'	=> $result->data['title']	?? 'Not Allowed',
+			'error_message'	=> $result->data['message']	?? 'Request method not allowed.',
+			'error_headers'	=> $result->data['headers']	?? [ 'Allow' => 'GET, POST, HEAD, OPTIONS' ]
+		] );
 	}
 	
-	#[Hook( name : 'error_bad_uri', priority : 1 )]
-	public function bad_uri( string $event, HookResult $result, array $args ) : never {
-		$this->response( 
-			args	: $args, 
-			code	: 414, 
-			title	: $result->data['title']	?? 'Invalid URI', 
-			message	: $result->data['message']	?? 'The request path cannot be processed',
-			headers	: $result->data['headers']	?? []
-		);
+	#[Hook( name : 'error.bad_uri', priority : 1 )]
+	public function bad_uri( string $event, HookResult $result, array $args ) : HookResult {
+		return $result->add_data( [
+			'error_code'	=> 414,
+			'error_title'	=> $result->data['title']	?? 'Invalid URI',
+			'error_message'	=> $result->data['message']	?? 'The request path cannot be processed',
+			'error_headers'	=> $result->data['headers']	?? []
+		] );
 	}
 	
-	#[Hook( name : 'error_bad_range', priority : 1 )]
-	public function bad_range( string $event, HookResult $result, array $args ) : never {
-		$this->response( 
-			args	: $args, 
-			code	: 416, 
-			title	: $result->data['title']	?? 'Range Not Satisfiable', 
-			message	: $result->data['message']	?? 'Invalid file range requested',
-			headers	: $result->data['headers']	?? []
-		);
+	#[Hook( name : 'error.bad_range', priority : 1 )]
+	public function bad_range( string $event, HookResult $result, array $args ) : HookResult {
+		return $result->add_data( [
+			'error_code'	=> 416,
+			'error_title'	=> $result->data['title']	?? 'Range Not Satisfiable',
+			'error_message'	=> $result->data['message']	?? 'Invalid file range requested',
+			'error_headers'	=> $result->data['headers']	?? []
+		] );
 	}
 	
-	#[Hook( name : 'error_form_expired', priority : 1 )]
-	public function form_expired( string $event, HookResult $result, array $args ) : never {
-		$this->response( 
-			args	: $args, 
-			code	: 419, 
-			title	: $result->data['title']	?? 'Expired', 
-			message	: $result->data['message']	?? 'This form has expired',
-			headers	: $result->data['headers']	?? []
-		);
+	#[Hook( name : 'error.form_expired', priority : 1 )]
+	public function form_expired( string $event, HookResult $result, array $args ) : HookResult {
+		return $result->add_data( [
+			'error_code'	=> 419,
+			'error_title'	=> $result->data['title']	?? 'Expired',
+			'error_message'	=> $result->data['message']	?? 'This form has expired',
+			'error_headers'	=> $result->data['headers']	?? []
+		] );
 	}
 	
-	#[Hook( name : 'error_many_requests', priority : 1 )]
-	public function request_limit( string $event, HookResult $result, array $args ) : never {
-		$this->response( 
-			args	: $args, 
-			code	: 429, 
-			title	: $result->data['title']	?? 'Too many requests', 
-			message	: $result->data['message']	?? 
+	#[Hook( name : 'error.many_requests', priority : 1 )]
+	public function request_limit( string $event, HookResult $result, array $args ) : HookResult {
+		return $result->add_data( [
+			'error_code'	=> 429,
+			'error_title'	=> $result->data['title']	?? 'Too many requests',
+			'error_message'	=> $result->data['message']	?? 
 				'Cannot process this many requests at this time',
-			headers	: $result->data['headers']	?? []
-		);
+			'error_headers'	=> $result->data['headers']	?? []
+		] );
 	}
 	
-	#[Hook( name : 'error_generic', priority : 1 )]
+	#[Hook( name : 'error.generic', priority : 1 )]
 	public function server_error( string $event, HookResult $result, array $args ) : never {
-		$this->response( 
-			args	: $args, 
-			code	: 500, 
-			title	: $result->data['title']	?? 'Server Error', 
-			message	: $result->data['message']	?? 'An unexpected error occurred.',
-			headers	: $result->data['headers']	?? []
-		);
+		return $result->add_data( [
+			'error_code'	=> 500,
+			'error_title'	=> $result->data['title']	?? 'Server Error',
+			'error_message'	=> $result->data['message']	?? 'An unexpected error occurred.',
+			'error_headers'	=> $result->data['headers']	?? []
+		] );
 	}
 }
 
@@ -11692,9 +11638,8 @@ class PageAssets {
  */
 #[HookContainer]
 class PageRendering {
-	public function __construct(
-		private readonly Config $config
-	) {}
+	
+	public function __construct( private readonly Config $config ) {}
 	
 	/**
 	 *  @example
@@ -11702,23 +11647,22 @@ class PageRendering {
 	 */
 	#[Hook( name : 'page.render', priority : 100 )]
 	public function render( string $event, HookResult $result, array $args ) : HookResult {
-		$body		= $result->data['html']		?? '';
-		$head_js	= $result->data['head_js']	?? [];
-		$body_js	= $result->data['body_js']	?? [];
+		$title		= $result->data['title']	?? $args['title']	?? 
+					$result->data['post']['title']	?? '';
 		
-		$title		= 
-		$result->data['title']		?? 
-		$args['title']			?? 
-		$result->data['post']['title']	?? '';
+		$lang		= $result->data['lang']		?? $args['lang']	?? 
+					$this->config->setting( 'lang', 'en-US' );
 		
-		$lang = 
-		$result->data['lang']		?? 
-		$args['lang']			?? 
-		$this->config->setting( 'lang', 'en-US' );
+		$body_classes	= $result->data['body_classes']	?? 
+					$args['body_classes'] ?? '';
 		
-		$body_classes = 
-		$result->data['body_classes']	?? 
-		$args['body_classes']		?? '';
+		$body		= $result->data['html']		?? $args['html']	?? '';
+		$head_js	= $result->data['head_js']	?? $args['head_js']	?? [];
+		$body_js	= $result->data['body_js']	?? $args['body_js']	?? [];
+		$meta_tags	= $result->data['meta_tags']	?? $args['meta_tags']	?? [];
+		$head_links	= $result->data['head_links']	?? $args['head_links']	?? [];
+		$feeds		= $result->data['feeds']	?? $args['feeds']	?? [];
+		$extra		= $result->data['extra']	?? $args['extra']	?? '';
 		
 		return $result
 			->with_data( [
@@ -11726,6 +11670,12 @@ class PageRendering {
 					'title'		=> $title,
 					'lang'		=> $lang,
 					'body_classes'	=> $body_classes,
+					'meta_tags'	=> $meta_tags,
+					'head_links'	=> $head_links,
+					'feeds'		=> $feeds,
+					'head_js'	=> $head_js,
+					'body_js'	=> $body_js,
+					'extra'		=> $extra,
 					'body'		=> $body
 				]
 			] )
@@ -12217,15 +12167,13 @@ class PostRendering {
 		$post['read_time']	= \strtr( $prhase, [ '{time}' => $read ] );
 		
 		// Merge CSS classes
-		$classes		= 
-		$post['classes'] ?? $result->data['post']['classes'] ?? ( $args['classes'] ?? [] );
+		$post['classes']	??= $result->data['post']['classes'] ?? ( $args['classes'] ?? [] );
 		
 		return $result
 			->with_data( [
 				'post_rendered'	=> true,
 				'post'		=> $post,
 				'tags'		=> $tags,
-				'html'		=> $html,
 				'classes'	=> Template::extract_classes( $classes, static::CSS_CLASSES )
 			] )
 			->with_template( 'tpl_post' );
@@ -12539,8 +12487,8 @@ class PostTags {
 	
 	#[Hook( name : 'tag.parse', priority : 1 )]
 	public function parse( string $event, HookResult $result, array $args ) : HookResult {
-		$slugs = $args['tag_slugs'] ?? $result->data['tag_slugs'] ?? '';
-		$terms = $args['tag_terms'] ?? $result->data['tag_terms'] ?? '';
+		$slugs = \trim( $args['tag_slugs'] ?? $result->data['tag_slugs'] ?? '' );
+		$terms = \trim( $args['tag_terms'] ?? $result->data['tag_terms'] ?? '' );
 		
 		if ( !$slugs || !$terms ) { return $result->with_data( [ 'tags' => [] ] ); }
 		
@@ -12551,13 +12499,13 @@ class PostTags {
 	#[Hook( name : 'tag.parse_archive', priority : 1 )]
 	public function parse_archive( string $event, HookResult $result, array $args ) : HookResult {
 		$posts	= $result->data['archive_posts'] ?? [];
-		if ( !$posts) { return $result; }
+		if ( !$posts ) { return $result; }
 		
 		foreach ( $posts as &$post ) {
-			$slugs = $post['tag_slugs'] ?? '';
-			$terms = $post['tag_terms'] ?? '';
+			$slugs = \trim( $post['tag_slugs'] ?? '' );
+			$terms = \trim( $post['tag_terms'] ?? '' );
 			
-			if ( !$slugs ) {
+			if ( '' === $slugs ) {
 				$post['tags'] = [];
 				continue;
 			}
@@ -15506,7 +15454,7 @@ class StaticFile {
 	 *  Intercept on not-modified
 	 */
 	#[Hook( name : 'static.not_modified', priority : 60 )]
-	public function not_modified(string $event, HookResult $result, array $args): HookResult {
+	public function not_modified( string $event, HookResult $result, array $args ) : HookResult {
 		$meta		= $result->data['static_meta']		?? null;
 		if ( !$meta ) { return $result; }
 		
@@ -15630,14 +15578,18 @@ class StaticFile {
 	 */
 	#[Hook( name : 'static.finalize', priority : 100 )]
 	public function finalize( string $event, HookResult $result, array $args ) : HookResult {
-		
 		$ready = $result->data['static_ready'] ?? null;
 		if ( !$data ) { return $result; }
 		
 		$path	= $ready['path'] ?? null;
 		if ( !$path ) { return $result; }
 		
-		$response		= $this->container->get( FileResponse::class );
+		$request		= $result->data['request'] ?? null;
+		if ( !$request instanceof Request ) { return $result; }
+		
+		$logger			= $this->container->get( Logger::class );
+		
+		$response		= new FileResponse( $this->config, $request, $logger );
 		$response->headers	= $ready['headers'];
 		
 		if ( 304 === $ready['status'] ) {
@@ -15659,6 +15611,7 @@ class StaticFile {
 			download	: $ready['download']	?? false,
 			ranges		: $ready['ranges']	?? null
 		);
+		
 		return $result;
 	}
 }
@@ -15669,6 +15622,40 @@ class StaticFile {
  */
 #[HookHandler]
 class ResponseConfig {
+	
+	private function intercept_error( HookResult $result ) : HookResult {
+		$status		= $result->data['error_code'];
+		$content	= $result->data['error_html'];
+		
+		// Start with preamble headers
+		$headers	= $result->data['preamble_headers'] ?? [];
+		
+		// Merge any error-specific headers
+		$headers	= 
+		\array_merge(
+			$headers,
+			$result->data['error_headers'] ?? []
+		);
+		
+		// Default HTML
+		$headers['Content-Type'] ??= 'text/html; charset=utf-8';
+		
+		// Build body using PageResponse helpers
+		$body		= $response->body( $content, false );
+		
+		// Gzip flag (finalize will apply)
+		$use_gzip	= \extension_loaded( 'zlib' ) && 304 != $status;
+		
+		return $result->add_data([
+			'response_ready' => [
+				'status'	=> $status,
+				'headers'	=> $headers,
+				'body'		=> $body,
+				'gzip'		=> $use_gzip,
+				'source'	=> 'error'
+			]
+		]);
+	}
 	
 	/**
 	 *  Page security policy shared header builder
@@ -15766,6 +15753,9 @@ class ResponseConfig {
 	public function page( string $event, HookResult $result, array $args ) : HookResult {
 		$response	= $result->data['response'] ?? null;
 		if ( !$response instanceof PageResponse ) { return $result; }
+		if ( isset( $result->data['error_html'] ) ) {
+			return $this->intercept_error( $result );
+		}
 		
 		$status		= $result->data['response_status']	?? $args['status']	?? 200;
 		$content	= $result->data['response_content']	?? $args['content']	?? null;
@@ -15880,7 +15870,7 @@ class ResponseConfig {
 		$is_redir	= ( $status >= 300 && $status < 400 );
 		if ( $is_redir && empty( $headers['Location'] ) ) {
 			throw new 
-			\RuntimeException("Redirect requires a Location header");
+			\RuntimeException( "Redirect requires a Location header" );
 		}
 		
 		// No body for these codes
@@ -15894,16 +15884,10 @@ class ResponseConfig {
 		$response->code		= $status;
 		$response->headers	= $headers;
 		
-		// Emit
-		$response->status();
-		$response->emit_headers();
-		
-		// Emit body, if present and not redirect 
-		if ( !$is_redir && '' !== $body ) { echo $body; }
-		
 		// Flush buffers and exit
-		$response->flush_buffers( true );
-		exit();
+		$response->send_finish();
+		
+		return $result;	// This wouldn't execute
 	}
 }
 
@@ -15954,7 +15938,7 @@ class Bare {
 		$dir			= \rtrim( $dir, '/\\' ) . \DIRECTORY_SEPARATOR;
 		
 		// Register plugin directories for auto-discovery
-		$this->registry->run( 'register_directories', true, [
+		$this->hooks->run( 'register_directories', true, [
 			'asset_dir'	=> $dir,
 			'data_dir'	=> $data_dir
 		] );
@@ -15973,17 +15957,24 @@ class Bare {
 			is_cached	: $is_cached
 		);
 	}
-
-	private function render_404( string $details ) {
-		$result		= 
-		$this->registry->run( 'error.render', false, [
-			'code'		=> 404,
+	
+	private function run_404( string $uri, string $details ) {
+		$this->hooks->run( 'error.not_found', false, [
+			'uri'		=> $uri,
 			
 			// TODO: Make this language based
-			'message'	=> 'The requested page could not be found.',
-			'details'	=> $details
+			'message'	=> 'The requested page could not be found: ' . $details
 		] );
-		return $result->html; // Should exit
+		$this->hooks->run( 'error.render', false );
+	}
+	
+	private function meta_links() : array {
+		$meta	= [];
+		$links	= $this->config->setting( 'meta_links', [], 'json' );
+		foreach (  $links as $link ) {
+			$meta[] = $link;
+		}
+		return $meta;
 	}
 	
 	#[Route( pattern : '/{year:int}/{month:int}/{day:int}/page{page:int}?', method : 'get' )]
@@ -16003,9 +15994,67 @@ class Bare {
 	
 	#[Route( pattern : '/{year:int}/{month:int}/{day:int}/{slug:str}', method : 'get' )]
 	public function post( array $params ) {
-		// TODO: Read post
+		$path	= "{$params['year']}/{$params['month']}{$params['day']}/{$params['slug']}";
+		$result = $this->hooks->run( 'post.lookup', true, [ 'path' => $path ] );
+		$found	= $result->data['post_found'] ?: false;
 		
-		die( 'Bare post' );
+		if ( !$found ) { 
+			$this->run_404( $path, 'No post by that URL' ); 
+		}
+		
+		$post	= $result->data['post'];
+		$single	= $this->hooks->run( 'post.render_single', [ 'post' => $post ] );
+		
+		// From config
+		$meta	= $this->meta_links();
+		
+		// Populate page metadata
+		$meta[] = [
+			'name'		=> 'title',
+			'content'	=> $post['title'] ?? ''
+		];
+		
+		// OpenGraph
+		$meta[]	= [ 
+			'property'	=> 'og:title',
+			'content'	=> $post['title'] ?? ''
+		];
+		
+		$meta[]	= [
+			'property'	=> 'og:url',
+			'content'	=> $post['permalink'] ?? '/'
+		];
+		
+		/* TODO:
+		// Stylesheets
+		$this->hooks->trigger( 'page.add_head_link', [
+			'rel'		=> 'stylesheet',
+			'href'		=> '/style.css'
+		] );
+		
+		// JS
+		$this->hooks->trigger('page.add_body_js', [
+			'src'		=> '/theme/post.js',
+			'defer'		=> true
+		] ); */
+		
+		// Render full page
+		$this->hooks->run( 'page.render', false, [
+			'html'		=> $single->data['html'],
+			'title'		=> $post['title'],
+			'meta_tags'	=> $meta,
+			'head_links'	=> [],
+			'feeds'		=> [],
+			'head_js'	=> [],
+			'body_js'	=> [],
+			'body_classes'	=> 'page-post post-' . $post['slug']
+		] );
+		
+		// Response ready
+		$this->hooks->run( 'response.page', true, [
+			'status'	=> 200,
+			'content'	=> $single->data['html']
+		] );
 	}
 	
 	#[Route( pattern : '/tags/{tag:str}/page{page:int}?', method : 'get' )]
