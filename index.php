@@ -11164,6 +11164,7 @@ class ErrorHooks {
 			'error_code'	=> 400,
 			'error_title'	=> $result->data['title']	?? 'Bad Request',
 			'error_message'	=> $result->data['message']	?? 'Invalid request.',
+			'error_details'	=> $result->data['details']	?? '',
 			'error_headers'	=> $result->data['headers']	?? []
 		] );
 	}
@@ -11175,6 +11176,7 @@ class ErrorHooks {
 			'error_title'	=> $result->data['title']	?? 'Not Authorized',
 			'error_message'	=> $result->data['message']	?? 
 				'Insufficient permissions to access resource.',
+			'error_details'	=> $result->data['details']	?? '',
 			'error_headers'	=> $result->data['headers']	?? []
 		] );
 	}
@@ -11185,6 +11187,7 @@ class ErrorHooks {
 			'error_code'	=> 403,
 			'error_title'	=> $result->data['title']	?? 'Forbidden',
 			'error_message'	=> $result->data['message']	?? 'Access to resource is restricted.',
+			'error_details'	=> $result->data['details']	?? '',
 			'error_headers'	=> $result->data['headers']	?? []
 		] );
 	}
@@ -11195,6 +11198,7 @@ class ErrorHooks {
 			'error_code'	=> 404,
 			'error_title'	=> $result->data['title']	?? 'Not Found',
 			'error_message'	=> $result->data['message']	?? 'Requested resource not found.',
+			'error_details'	=> $result->data['details']	?? '',
 			'error_headers'	=> $result->data['headers']	?? []
 		] );
 	}
@@ -11206,6 +11210,7 @@ class ErrorHooks {
 			'error_code'	=> 405,
 			'error_title'	=> $result->data['title']	?? 'Not Allowed',
 			'error_message'	=> $result->data['message']	?? 'Request method not allowed.',
+			'error_details'	=> $result->data['details']	?? '',
 			'error_headers'	=> $result->data['headers']	?? [ 'Allow' => 'GET, POST, HEAD, OPTIONS' ]
 		] );
 	}
@@ -11216,6 +11221,7 @@ class ErrorHooks {
 			'error_code'	=> 414,
 			'error_title'	=> $result->data['title']	?? 'Invalid URI',
 			'error_message'	=> $result->data['message']	?? 'The request path cannot be processed',
+			'error_details'	=> $result->data['details']	?? '',
 			'error_headers'	=> $result->data['headers']	?? []
 		] );
 	}
@@ -11226,6 +11232,7 @@ class ErrorHooks {
 			'error_code'	=> 416,
 			'error_title'	=> $result->data['title']	?? 'Range Not Satisfiable',
 			'error_message'	=> $result->data['message']	?? 'Invalid file range requested',
+			'error_details'	=> $result->data['details']	?? '',
 			'error_headers'	=> $result->data['headers']	?? []
 		] );
 	}
@@ -11236,6 +11243,7 @@ class ErrorHooks {
 			'error_code'	=> 419,
 			'error_title'	=> $result->data['title']	?? 'Expired',
 			'error_message'	=> $result->data['message']	?? 'This form has expired',
+			'error_details'	=> $result->data['details']	?? '',
 			'error_headers'	=> $result->data['headers']	?? []
 		] );
 	}
@@ -11247,6 +11255,7 @@ class ErrorHooks {
 			'error_title'	=> $result->data['title']	?? 'Too many requests',
 			'error_message'	=> $result->data['message']	?? 
 				'Cannot process this many requests at this time',
+			'error_details'	=> $result->data['details']	?? '',
 			'error_headers'	=> $result->data['headers']	?? []
 		] );
 	}
@@ -11257,6 +11266,7 @@ class ErrorHooks {
 			'error_code'	=> 500,
 			'error_title'	=> $result->data['title']	?? 'Server Error',
 			'error_message'	=> $result->data['message']	?? 'An unexpected error occurred.',
+			'error_details'	=> $result->data['details']	?? '',
 			'error_headers'	=> $result->data['headers']	?? []
 		] );
 	}
@@ -12141,9 +12151,8 @@ class PostRendering {
 		$this->db_profile = 'bare';
 	}
 	
-	#[Hook( name : 'post.render_single', priority : 1 )]
-	public function render_single( string $event, HookResult $result, array $args ) : HookResult {
-		
+	#[Hook( name : 'post.format', priority : 1 )]
+	public function render( string $event, HookResult $result, array $args ) : HookResult {
 		$post = $result->data['post'] ?? null;
 		if ( !$post ) { return $result; }
 		
@@ -12152,8 +12161,7 @@ class PostRendering {
 			'tag_slugs'	=> $result->data['tag_slugs'] ?? '',
 			'tag_terms'	=> $result->data['tag_terms'] ?? ''
 		] )->data['tags'] ?? [];
-
-		$tags			= $tag_result->data['tags'] ?? [];
+		
 		$post['permalink'] 	??= $post['path'];
 		
 		// TODO: Timezone offset
@@ -12175,8 +12183,7 @@ class PostRendering {
 				'post'		=> $post,
 				'tags'		=> $tags,
 				'classes'	=> Template::extract_classes( $classes, static::CSS_CLASSES )
-			] )
-			->with_template( 'tpl_post' );
+			] );
 	}
 	
 	#[Hook( name : 'post.render_index', priority : 1 )]
@@ -12184,7 +12191,8 @@ class PostRendering {
 		$posts	= 
 		$result->data['posts_recent']		?? 
 			$result->data['posts_by_tag']	?? 
-			$result->data['archive_posts']	?? [];
+			$result->data['archive_posts']	?? 
+			( $args['posts'] ?? [] );
 		
 		if ( !$posts ) { return $result; }
 		
@@ -12498,7 +12506,7 @@ class PostTags {
 	
 	#[Hook( name : 'tag.parse_archive', priority : 1 )]
 	public function parse_archive( string $event, HookResult $result, array $args ) : HookResult {
-		$posts	= $result->data['archive_posts'] ?? [];
+		$posts	= $result->data['archive_posts'] ?? ( $args['posts'] ?? [] );
 		if ( !$posts ) { return $result; }
 		
 		foreach ( $posts as &$post ) {
@@ -12512,7 +12520,7 @@ class PostTags {
 			$post['tags'] = $this->process( $slugs, $terms );
 		}
 		
-		return $result->with_data( [ 'archive_posts' => $posts ] );
+		return $result->with_data( [ 'posts' => $posts ] );
 	}
 	
 	#[Hook( name : [ 'tag.apply', 'tags.apply' ], priority : 1 )]
@@ -12643,8 +12651,8 @@ class Posts {
 		
 	'archive'		=> 
 		"SELECT p.*,
-			GROUP_CONCAT(t.slug) AS tag_slugs,
-			GROUP_CONCAT(t.term) AS tag_terms 
+			GROUP_CONCAT( t.slug ) AS tag_slugs,
+			GROUP_CONCAT( t.term ) AS tag_terms 
 			FROM posts p
 			LEFT JOIN post_tags pt ON p.id = pt.post_id
 			LEFT JOIN tags t ON pt.tag_slug = t.slug
@@ -12735,7 +12743,7 @@ class Posts {
 			rtype	: 'results'
 		);
 		
-		return $result->with_data( [ 'archive_posts' => $rows ] );
+		return $result->with_data( [ 'posts' => $rows ] );
 	}
 	
 	/**
@@ -15895,7 +15903,7 @@ class ResponseConfig {
 /**
  *  Main Bare plugin
  */
-#[Plugin( name: 'Bare', priority : 1000 ) ]
+#[Plugin( name : 'Bare', priority : 1000 ) ]
 #[Info( 
 	name	: 'Bare', 
 	version	: '2.0' 
@@ -15963,18 +15971,73 @@ class Bare {
 			'uri'		=> $uri,
 			
 			// TODO: Make this language based
-			'message'	=> 'The requested page could not be found: ' . $details
+			'message'	=> 'The requested page could not be found',
+			'details'	=> $details
 		] );
 		$this->hooks->run( 'error.render', false );
 	}
 	
-	private function meta_links() : array {
-		$meta	= [];
+	/**
+	 *  Populate page metadata
+	 *  
+	 *  @param string	$title		Overall page title
+	 *  @param string	$url		Current page URL
+	 */
+	private function meta_links( string $title, string $url ) : array {
+		// From config
 		$links	= $this->config->setting( 'meta_links', [], 'json' );
 		foreach (  $links as $link ) {
 			$meta[] = $link;
 		}
+		
+		// Base title
+		$meta[] = [ 'name' => 'title', 'content' => $title ];
+		
+		// OpenGraph
+		$meta[]	= [ 'property'	=> 'og:title', 'content' => $title ];
+		$meta[]	= [ 'property'	=> 'og:url', 'content' => $url ];
+		
 		return $meta;
+	}
+	
+	/**
+	 *  Links including css
+	 */
+	private function head_links() : array {
+		$links	= [];
+		$hooks	= [
+			'page.stylesheets'	=> 'stylesheets'
+		];
+		foreach ( $hooks as $name => $value ) {
+			$data	= $this->hooks->run( $name, true )->data[$value] ?? [];
+			$links	= \array_merge( $links, $data );
+		}
+		
+		return $links;
+	}
+
+	/**
+	 *  Year/Month/Day path string with each segment component
+	 */
+	private function path_string( array $params ) : string {
+		$path	= '';
+		$keys	= [ 'year', 'month', 'day' ];
+		foreach ( $keys as $key ) {
+			if ( !$params[$key] ) { break; }
+			$path .= $params[$key] . '/';
+		}
+		return \rtrim( $path, '/' );
+	}
+
+	/**
+	 *  Format archive title based on starting and ending range
+	 */
+	private function archive_title( $start, $end ) : string {
+		$fmt	= $this->config->setting( 'nice_date', 'F j, Y' );
+		return $start->format( $fmt ) . ( $start != $end 
+			? ' - ' . $end->format( $fmt ) 
+			: '' 
+		);
 	}
 	
 	#[Route( pattern : '/{year:int}/{month:int}/{day:int}/page{page:int}?', method : 'get' )]
@@ -15988,8 +16051,46 @@ class Bare {
 		
 		$dir	= $this->config->setting( 'post_dir', Storage::base() );
 		$limit	= $this->config->setting( 'post_limit', 10 );
-		// TODO: Bare archive hooks
-		die( 'Bare archive' );
+		$path	= $this->path_string( $params );
+		
+		// Lookup archive posts
+		$result = $this->hooks->run( 'post.archive_lookup', true, [
+			'year'	=> $params['year']	?? null,
+			'month'	=> $params['month']	?? null,
+			'day'	=> $params['day']	?? null,
+			'page'	=> $page
+		] );
+		
+		$posts = $result->data['posts'] ?? [];
+		if ( !$posts ) {
+			// TODO: Make this language based
+			return $this->run_404( $path, "No archive entries found for {$path}" );
+		}
+		
+		foreach ( $posts as &$post ) {
+			$post = $this->hooks->run( 'post.format', [ 'post' => $post ] )->data['post'] ?? [];
+		}
+		
+		// Render archive index 
+		$result = $this->hooks->run( 'post.render_index', true, [ 'posts' => $result->data['posts'] ] );
+		
+		// Build page wrapper 
+		$this->hooks->run( 'page.render', false, [
+			'html'		=> $result->data['html'] ?? '',
+			'title'		=> $this->archive_title( $start, $end ),
+			'meta_tags'	=> $this->meta_links( $title, $path ),
+			'head_links'	=> $this->head_links(),
+			'feeds'		=> [],
+			'head_js'	=> [],
+			'body_js'	=> [],
+			'body_classes'	=> 'page-archive page-' . \strtr( $path, [ '/' => '-' ] )
+		] );
+		
+		// Build final response 
+		$this->hooks->run( 'response.page', false, [ 
+			'status'	=> 200, 
+			'content'	=> $result->data['html'] ?? '' 
+		] );
 	}
 	
 	#[Route( pattern : '/{year:int}/{month:int}/{day:int}/{slug:str}', method : 'get' )]
@@ -15999,55 +16100,24 @@ class Bare {
 		$found	= $result->data['post_found'] ?: false;
 		
 		if ( !$found ) { 
-			$this->run_404( $path, 'No post by that URL' ); 
+			$this->run_404( $path, "No post found for {$path}" ); 
 		}
 		
 		$post	= $result->data['post'];
-		$single	= $this->hooks->run( 'post.render_single', [ 'post' => $post ] );
+		$single	= $this->hooks->run( 'post.format', [ 'post' => $post ] )->with_template( 'tpl_post' );
 		
-		// From config
-		$meta	= $this->meta_links();
-		
-		// Populate page metadata
-		$meta[] = [
-			'name'		=> 'title',
-			'content'	=> $post['title'] ?? ''
-		];
-		
-		// OpenGraph
-		$meta[]	= [ 
-			'property'	=> 'og:title',
-			'content'	=> $post['title'] ?? ''
-		];
-		
-		$meta[]	= [
-			'property'	=> 'og:url',
-			'content'	=> $post['permalink'] ?? '/'
-		];
-		
-		/* TODO:
-		// Stylesheets
-		$this->hooks->trigger( 'page.add_head_link', [
-			'rel'		=> 'stylesheet',
-			'href'		=> '/style.css'
-		] );
-		
-		// JS
-		$this->hooks->trigger('page.add_body_js', [
-			'src'		=> '/theme/post.js',
-			'defer'		=> true
-		] ); */
+		$meta	= $this->get_meta( $post['title'] ?? '', $post['permalink'] ?? '/' );
 		
 		// Render full page
 		$this->hooks->run( 'page.render', false, [
 			'html'		=> $single->data['html'],
-			'title'		=> $post['title'],
+			'title'		=> $poat['title'],
 			'meta_tags'	=> $meta,
-			'head_links'	=> [],
+			'head_links'	=> $this->head_links(),
 			'feeds'		=> [],
 			'head_js'	=> [],
 			'body_js'	=> [],
-			'body_classes'	=> 'page-post post-' . $post['slug']
+			'body_classes'	=> 'page-post page-' . $post['slug']
 		] );
 		
 		// Response ready
@@ -16060,9 +16130,42 @@ class Bare {
 	#[Route( pattern : '/tags/{tag:str}/page{page:int}?', method : 'get' )]
 	#[Route( pattern : '/tags/{tag:str}', method : 'get' )]
 	public function tags( array $params ) {
-		// TODO: Tag search
-	
-		die( 'Bare tags' );
+		$tag	= $params['tag'] ?? '';
+		if ( empty( $tag ) ) {
+			$this->run_404( '/tags', 'No tags found' ); 
+		}
+		
+		$page	= ( int ) ( $params['page'] ?? 1 );
+		$result = $this->hooks->run( 'post.lookup', true, [ 'tag' => $tag, 'page' => $page ] );
+		
+		$posts = $result->data['posts'] ?? [];
+		
+		if ( !$posts ) {
+			return $this->run_404( 
+				"/tags/{$tag}", 
+				"No posts found for tag {$tag} on page {$page}" 
+			);
+		}
+
+		$title	= "Tag {$tag}";
+		$path	= $page > 1 ? "/tags/{$tag}/page{$page}" : "/tags/{$tag}";
+		$result = $this->hooks->run( 'post.render_index', true, [ 'posts' => $result->data['posts'] ] );
+		
+		$this->hooks->run( 'page.render', false, [
+			'html'		=> $result->data['html'] ?? '',
+			'title'		=> $title,
+			'meta_tags'	=> $this->meta_links( $title, $path ),
+			'head_links'	=> $this->head_links(),
+			'feeds'		=> [],
+			'head_js'	=> [],
+			'body_js'	=> [],
+			'body_classes'	=> 'page-archive page-' . \strtr( $path, [ '/' => '-' ] )
+		] );
+		
+		$this->hooks->run( 'response.page', false, [ 
+			'status'	=> 200, 
+			'content'	=> $result->data['html'] ?? '' 
+		] );
 	}
 	
 	#[Route( pattern : '/feed', method : 'get')]
@@ -16094,42 +16197,6 @@ class Bare {
 		
 		die( 'Bare index' );
 	}
-}
-
-
-/**
- *  HTTP Response
- */
-
-/**
- *  Site root
- *  
- *  @param bool		$err		Error root if given
- *  @return string
- */
-function getRoot( bool $err = false ) : string {
-	static $root;
-	static $errors;
-	
-	if ( $err ) { 
-		if ( isset( $errors ) ) {
-			return $errors;
-		}
-	} else {
-		if ( isset( $root ) ) {
-			return $root;
-		}
-	}
-	
-	if ( $err ) {
-		$errors	 = Text::slash_path( \ERROR_ROOT, true );
-		return $errors;
-	}
-	
-	// Shortest root directory for this host
-	$hp		= getHostPaths( getHost() );
-	$root		= Text::slash_path( $hp[0], true );
-	return $root;
 }
 
 
@@ -16168,85 +16235,6 @@ function timeZoneOffset() : int {
 	
 	$ot = ( false === $ot ) ? 0 : $ot;
 	return $ot;
-}
-
-/**
- *  Check if publication time is before current time
- *  This function relies on date_default_timezone_set being 'UTC'
- *  
- *  @return bool
- */
-function checkPub( $pub ) : bool {
-	static $t;
-	if ( !isset( $t ) ) {
-		$t = time() + timeZoneOffset();
-	}
-	
-	if ( \strtotime( $pub ) <= $t ) {
-		return true;
-	}
-	
-	return false;
-}
-
-/**
- *  Browsing tags
- */
-function showTag( string $event, array $hook, array $params ) {
-	if ( internalState( 'prepareIndex' ) ) {
-		loadIndex();
-	}
-	
-	// Tag empty?
-	if ( empty( $params['tag'] ) ) {
-		sendNotFound();
-	}
-	
-	$tag	= Sanitize::slug( $params['tag'] );
-	$page	= ( int ) ( $params['page'] ?? 1 );
-	$prefix	= 
-	Text::slash_path( pageRoutePath( 'tagview', 'tags' ), true ) . $tag . '/';
-	
-	// Pagination prep
-	$plimit	= setting( 'page_limit', \PAGE_LIMIT, 'int' );
-	$start	= ( $page - 1 ) * $plimit;
-	
-	// Get cached tags
-	$res	= 
-	db_result_exec( 
-		"SELECT DISTINCT 
-			posts.post_path AS post_path, 
-			posts.post_view AS post_view, 
-			posts.post_summary AS post_summary, 
-			posts.post_type AS post_type FROM posts 
-			JOIN post_tags ON posts.id = post_tags.post_id 
-			WHERE post_tags.tag_slug = :tag 
-			ORDER BY posts.published DESC 
-			LIMIT :limit OFFSET :offset;", 
-		'bare',
-		[
-			':tag'		=> $tag, 
-			':limit'	=> $plimit, 
-			':offset'	=> $start
-		]
-	);
-	
-	// Send to render hook
-	hook( [ 'tagsearchrender', [ 
-		'prefix'	=> $prefix,
-		'date'		=> [],
-		'tag'		=> $tag,
-		'limit'		=> $plimit,
-		'start'		=> $start,
-		'page'		=> $page,
-		'results'	=> $res
-	] ] );
-	
-	// Send result if hook returned content
-	sendOverride( 'tagsearchrender' );
-	
-	// Display tag
-	formatIndex( $prefix, $page, collectBody( $res ) );
 }
 
 /**
