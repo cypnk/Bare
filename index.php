@@ -2571,7 +2571,7 @@ final class Sanitize {
 	 */
 	public static function uri( string $raw, ?string $base = null ) : string|null {
 		$path	= \preg_replace( '/\\\\/', '/', $raw ) ;
-		$path	= \trim( \parse_url( $path, \PHP_URL_PATH ) ?? '', '/' );
+		$check	= \trim( \parse_url( $path, \PHP_URL_PATH ) ?? '', '/' );
 		$depth	= 0;
 		$max_d	= 10;
 		
@@ -2580,17 +2580,24 @@ final class Sanitize {
 			$depth++;
 			if ( $depth > $max_d ) { return null; }
 			
-			$decoded	= static::filter( \rawurldecode( $path ) );	// Invalid chars
+			$decoded	= static::filter( \rawurldecode( $check ) );	// Invalid chars
 			$decoded	= \preg_replace( '#/{2,}#', '/', $decoded );	// Collapse
 			
-			$changed	= ( $decoded !== $path );
-			$path		= $decoded;
+			$changed	= ( $decoded !== $check );
+			$check		= $decoded;
 		} while( $changed );
 		
-		// Prevent directory traversal
-		$final	= static::path_traversal( $path );
+		// Prepend if original started with slash
+		if ( \str_starts_with( $path, '/' ) ) { $check = '/' . $check; }
 		
-		return ( $base && !\str_starts_with( $final, $base ) ) 
+		// Remaining duplicate slashes
+		$check	= \preg_replace( '#/{2,}#', '/', $check );
+		
+		// Prevent directory traversal
+		$final	= static::path_traversal( $check );
+		if ( null === $final ) { return null; }
+		
+		return ( null !== $base && !\str_starts_with( $final, $base ) ) 
 			? null
 			: $final;
 	}
@@ -4757,163 +4764,6 @@ final class FileResponse extends Response {
 		}
 
 		exit();
-	}
-}
-
-
-/**
- *  @class Page handling
- */
-class PageResponse extends Response {
-	
-	/**
-	 *  Response output content type header helper
-	 *  
-	 *  @param string	$body		Output content
-	 *  @param bool		$ct_sent	Send 'Content-Type' if false
-	 */
-	public function body( mixed $body, bool $ct_sent ) : void {
-		if ( null === $body ) { return; }
-		
-		$is_json	= ( \is_array( $body ) || \is_object( $body ) );
-		$is_html	= !$is_json && \preg_match( '/<[^>]+>/', ( string ) $body );
-		
-		if ( !$ct_sent ) {
-			// Try a basic content header
-			$header	= 
-			match( true ) {
-				$is_json	=> 'Content-Type: application/json; charset=utf-8',
-				$is_html	=> 'Content-Type: text/html; charset=utf-8',
-				default		=> 'Content-Type: text/plain; charset=utf-8'
-			};
-			
-			\header( $header, true );
-		}
-		
-		echo match( true ) {
-			$is_json	=> Util::json_uencode( $body ),
-			default		=> $body
-		};
-	}
-	
-	/** 
-	 *  Security policy term separator filter
-	 *  
-	 *  @param string	$frag		Fragment separator
-	 *  @return string
-	 */
-	private function security_policy_sep( string $frag = '' ) : string {
-		return empty( $frag ) 
-			? '' 
-			: ( \in_array( \trim( $frag ) , [ '', ',', ':', ';', '=' ] ) 
-				? $frag
-				: ''
-			);
-	}
-	
-	/**
-	 *  Security policy header value formatter
-	 *  
-	 *  @param array	$policy		Security policy items
-	 *  @return string
-	 */
-	private function security_policy_items( array $policy ) : string {
-		$separator	= $policy['separator']	?? ', ';
-		$joiner		= $policy['joiner']	?? '=';
-		$items		= $policy['items']	?? [];
-		$policy		= '';
-		
-		$separator	= $this->security_policy_sep( $separator );
-		$joiner		= $this->security_policy_sep( $joiner );
-		foreach( $items as $key => $value ) {
-			$key	= Sanitize::bland( $key, true );
-			$value	= Sanitize::bland( $value );
-			$policy	.= "{$key}{$joiner}{$value}{$separator}";
-		}
-		
-		return \trim( $policy, $separator );
-	}
-	
-	/**
-	 *  Security policy term formatter
-	 *  
-	 *  @param array	$items		Line-by-line items
-	 *  @return string
-	 */
-	public function security_policy_terms( array $items, string $separator = '' ) : string {
-		$policy		= '';
-		$separator	= $this->security_policy_sep( $separator );
-			
-		foreach ( $items as $item ) {
-			$item	= Sanitize::bland( $item );
-			$policy .= "{$item}{$separator}";
-		}
-	
-		return \trim( $policy, $separator );
-	}
-	
-	/**
-	 *  Page security configuration parser
-	 *  
-	 *  @param string	$term		Poliey key search
-	 *  @param array	$policy		Full security headers to search
-	 *  @return string
-	 */
-	public function security_policy( string $term, array $policy ) : string {
-		if ( empty( $policy ) ) { return ''; }
-		$term	= \strtolower( $term );
-		
-		return match( $term ) {
-			'permissions', 'permissions-policy'
-				=> $this->security_policy_items( $policy['Permissions-Policy'] ?? [] ),
-			
-			'content', 'content-security-policy'
-				=> $this->security_policy_items( $policy['Content-Security-Policy'] ?? [] ),
-			
-			'referer', 'referrer', 'referer-policy'
-				=> $this->security_policy_terms( $policy['Referrer-Policy'] ?? [], ',' ),
-			
-			'transport', 'strict-transport-security', 'transport-security'
-				=> $this->security_policy_terms( $policy['Strict-Transport-Security'] ?? [], '; ' ),
-			
-			'xss', 'x-xss', 'x-xss-protection'
-				=> $this->security_policy_terms( $policy['X-XSS-Protection'] ?? [], '; ' ),
-			
-			'content-type', 'x-content-type-options'
-				=> $this->security_policy_terms( $policy['X-Content-Type-Options'] ?? [] ),
-	
-			'frames', 'x-frame', 'x-frame-options', 
-				=> $this->security_policy_terms( $policy['X-Frame-Options'] ?? [] ),
-				
-			default	=> ''
-		};
-	}
-	
-	/**
-	 *  XML-RPC response-specific header list
-	 *  
-	 *  @param string	$origin		Request origin realm
-	 *  @return array
-	 */
-	private function xmlrpc_headers( ?string $origin = null ) : array {
-		$origin ??= $this->request->origin;
-		
-		return [
-			'Access-Control-Allow-Origin'		=> $origin,
-			'Access-Control-Allow-Methods'		=> 'POST',
-			'Access-Control-Allow-Headers'		=> 
-			'Content-Type, Authorization, X-Requested-With',
-			
-			'Access-Control-Allow-Credentials'	=> 'true',
-			'Content-Security-Policy'		=> 
-			"default-src 'self'; frame-ancestors 'none';",
-			
-			'X-Frame-Options'			=> 'DENY',
-			'X-Content-Type-Options'		=> 'nosniff',
-			'Referrer-Policy'			=> 'same-origin',
-			'Strict-Transport-Security'		=> 
-			'max-age=31536000; includeSubDomains; preload'
-		];
 	}
 }
 
@@ -8827,7 +8677,7 @@ final class Router extends Instance {
 	 *  @param string	$method		Current request method
 	 *  @param string	$path		Cleaned request path
 	 */
-	private function scan( string $method, string $path ) : void {
+	private function handle_request( string $method, string $path ) : mixed {
 		foreach ( $this->routes as $route ) {
 			if ( 0 !== \strcasecmp( $route['method'], $method ) ) { continue; }
 			
@@ -8846,13 +8696,13 @@ final class Router extends Instance {
 				$this->middleware( $mw );
 			}
 			
-			$this->handle( $route['handler'], $pattern, $params );
-			return;
+			return $this->handle( $route['handler'], $pattern, $params ) ?? null;
 		}
 	}
 	
 	public function request_dispatch( HookRegistry $registry ) : void {
 		$registry->run( 'request.init' );
+		$registry->run( 'request.validate' );
 		$registry->run( 'request.normalize' );
 		$registry->run( 'request.forwarded' );
 		$registry->run( 'request.headers' );
@@ -8869,7 +8719,7 @@ final class Router extends Instance {
 		$registry->run( 'static.serve' );
 		$registry->run( 'static.finalize', true );
 	}
-
+	
 	public function response_dispatch( HookRegistry $registry ) : void {
 		$registry->run( 'response.preamble' );
 		$registry->run( 'response.options' );
@@ -8890,13 +8740,11 @@ final class Router extends Instance {
 	} 
 	
 	/**
-	 *  Full page
+	 *  Full page caching
 	 */
 	public function cache_dispatch( HookRegistry $registry ) : void {
 		$request = $registry->values( 'request' );
-		if ( !$request instanceof Request ) {
-			return;
-		}
+		if ( !$request instanceof Request ) { return; }
 		
 		$registry->run( 'cache.lookup', true, [ 
 			'method'	=> $request->effective_method,
@@ -8905,7 +8753,24 @@ final class Router extends Instance {
 		] );
 	}
 	
-	public function dispatch( string $method, string $uri ) : void {
+	/**
+	 *  Send to routes
+	 */
+	public function route_dispatch( HookRegistry $registry ) : void {
+		$request = $registry->values( 'request' );
+		if ( !$request instanceof Request ) { return; }
+		
+		$method	= $request->effective_method ?? 'get';
+		$uri	= \rtrim( $request->uri, '/' ) ?: '/';
+		
+		$result	= $this->handle_request( $method, $uri ) ?? null;
+		// TODO: Do something with hook result, if present
+		
+		// Fallback run not found
+		$registry->run( 'error.not_found', false, [ 'uri' => $uri ] );
+	}
+	
+	public function dispatch() : void {
 		$registry	= $this->container->get( HookRegistry::class );
 		
 		// Request lifecycle
@@ -8934,10 +8799,8 @@ final class Router extends Instance {
 		// Caching
 		$this->cache_dispatch( $registry );
 		
-		$uri	= \parse_url( $uri, \PHP_URL_PATH );
-		$uri	= \rtrim( $uri, '/' ) ?: '/';
-		
-		$this->scan( $method, $uri );
+		// Dispatch route
+		$this->route_dispatch( $registry );
 		
 		// Ful or partial as requested by routes
 		if ( !$registry->values( 'response_ready' ) ) {
@@ -10876,235 +10739,6 @@ class ViewLoader extends Instance {
 
 
 /**
- *  @class Core functionality
- */
-final class Main {
-	/**
-	 *  @var string Startup log file
-	 */
-	private	readonly	string	$log_file;
-	
-	/**
-	 *  @var bool Run startup sequence in debug mode if true
-	 */
-	private readonly	bool	$debug;
-	
-	/**
-	 *  @var Errors Common error handler
-	 */
-	public readonly		Errors	$errors;
-	
-	/**
-	 *  @var bool Runtime sanity check
-	 */
-	private			bool	$sanity		= false;
-	
-	/**
-	 *  @var string Startup log data, if any
-	 */
-	private			string	$log_data;
-	
-	/**
-	 *  List of required and optional libraries
-	 */
-	const LIBS	= [
-		'required' => [
-			'libxml_clear_errors'	=> 'libxml',
-			'mime_content_type'	=> 'fileinfo',
-			'mb_strlen'		=> 'mbstring'
-		],
-		'optional' => [ 
-			'normalizer_normalize'	=> 'intl',
-			'imagecreatetruecolor'	=> 'GD',
-			'mail'			=> 'mail'
-		]
-	];
-	
-	/**
-	 *  Startup constructor
-	 */
-	public function __construct() {
-		// Prepare startup log file location
-		$this->log_file = Storage::base() . 
-		\defined( 'STARTUP' ) 
-			? ( string ) \constant( 'STARTUP' )
-			: 'startup.log';
-		
-		$this->debug	= \defined( 'DEBUG_MODE' ) ? true : false;
-		
-		$this->errors	= new Errors();
-	}
-	
-	/**
-	 *  Write to log file any saved messages
-	 */
-	public function write_startup_log() : void {
-		// No data to log or startup log ran already?
-		if ( 
-			empty( $this->log_data ) || 
-			\file_exists( $this->log_file ) 
-		) { return; }
-		
-		\error_log( $this->log_data, 3, $this->log_file );
-	}
-	
-	/**
-	 *  Application initizlization and prerequisite log
-	 */
-	private function sanity_log() : void {
-		
-		// Missing storage
-		$miss	= [ 'required' => [], 'optional' => [] ];
-		
-		// Log any missing required libraries
-		foreach ( static::LIBS['required'] as $f => $name ) {
-			if ( !\function_exists( $f ) ) {
-				$miss['required'][] = $name;
-			}
-		}
-		
-		// Optional libraries
-		foreach ( static::LIBS['optional'] as $f => $name ) {
-			if ( !\function_exists( $f ) ) {
-				$miss['optional'][] = $name;
-			}
-		}
-		
-		// Check PDO too
-		if ( !\defined( 'PDO::ATTR_DEFAULT_FETCH_MODE' ) ) {
-			$miss['required'][] = 'pdo-sqlite';
-		}
-		
-		if ( !empty( $miss['required'] ) ) {
-			$msg		= 
-			'These required library(ies) may be missing or disabled: ' . 
-				\implode( ', ', $miss['required'] );
-			
-			$this->log_data .= 
-			Text::truncate( Sanitize::spaces( $msg ), 0, 2048 ) . "\n";
-		}
-		
-		if ( !empty( $miss['optional'] ) ) {
-			$msg		= 
-			'These recommended function(s) or library(ies) may be missing or disabled: ' . 
-				\implode( ', ', $miss['optional'] );
-			$this->log_data	.= 
-			Text::truncate( Sanitize::spaces( $msg ), 0, 2048 ) . "\n";
-		}
-		
-		// Check sanity with required libraries
-		$this->sanity = empty( $miss['required' ] );
-	}
-	
-	/**
-	 *  Prepare background environment and exception handling
-	 */
-	private function environment() : void {
-		// Core runs on UTC
-		\date_default_timezone_set( 'UTC' );
-		// Errors class handles exceptions
-		\set_exception_handler( [ $this->errors, 'handler' ] );
-		
-		if ( $this->debug ) {
-			// Start trace in debug mode
-			$this->errors->trace( 'Request started', [
-				'method'	=> $_SERVER['REQUEST_METHOD'],
-				'uri'		=> $_SERVER['REQUEST_URI']
-			] );
-		}
-	}
-	
-	/**
-	 *  Main component actions
-	 */
-	private function actions() : void {
-		// Base classes
-		$container	= Container::instance();
-		// Current initial request
-		$request	= $container->get( Request::class );
-		
-		// Foundation classes
-		$logger		= $container->get( Logger::class );
-		$config		= $container->get( Config::class );
-		
-		// Core hooks
-		$registry	= $container->get( HookRegistry::class );
-		$hooks		= $container->get( HookLoader::class );
-		
-		// Enable shutdown actions
-		$shutdown	= new HookShutdown( $registry );
-		\register_shutdown_function( [ $shutdown, 'run' ] );
-		
-		// URL routing and redirection
-		$router		= $container->get( Router::class );
-		
-		// Extra functionality
-		$plugins	= $container->get( PluginDiscovery::class );
-		
-		// Disable exploring and don't initialize plugins in debug mode
-		$disable	= !$this->debug;
-		$hooks->autoload( $disable );
-		$plugins->autoload( $disable );
-		$plugins->init( $disable );
-		
-		// Test for supported method
-		if ( 'unsupported' === $request->method ) {
-			$registry->run( 'error_bad_request', false, [
-				'uri'		=> $request->uri,
-				'method'	=> $request->method
-			] );
-			return;
-		}
-
-		// Break path to count folders
-		$segs		= \explode( '/', $request->uri );
-		
-		// Check folder limits ( nested path abuse prevention )
-		$climit	= config->setting( 'folder_limit', 15, 'int' );
-		if ( count( $segs ) > $climit ) {
-			$registry->run( 'error_bad_uri', false, [ 
-				'method'	=> $request->method, 
-				'uri'		=> $request->uri 
-			] );
-		}
-		
-		// Setup complete, call current route
-		$router->dispatch( $request->method, $request->uri );
-		
-		// Fallback run not found
-		$registry->run( 'error.not_found', false, [
-			'uri' => $request->uri
-		] );
-		
-		$registry->run( 'error.render', false );
-	}
-	
-	/**
-	 *  Main startup sequence
-	 */
-	public function sequence() : void {
-		// Start error capture scope
-		$scope = $this->errors->start_scope();
-		try {
-			\register_shutdown_function( [ $this, 'write_startup_log' ] );
-			
-			$this->environment();
-			$this->sanity_log();
-			
-			// Sanity check (AKA required libraries) failed?
-			if( !$this->sanity ) { return; }
-			
-			// Run actions 
-			$this->actions();
-		} finally {
-			// End scope
-			$this->errors->end_scope( $scope );
-		}
-	}
-}
-
-
-/**
  *  @class Core request error hooks ( can be overriden in plugins )
  */
 #[HookContainer]
@@ -11417,7 +11051,7 @@ class CacheHooks {
 		
 		// No hit?
 		if ( empty( $row ) ) {
-			return $result->with_data([ 'cache_hit' => false ]);
+			return $result->with_data( [ 'cache_hit' => false ] );
 		}
 		
 		$cache	= $row[0];
@@ -11426,14 +11060,14 @@ class CacheHooks {
 		if ( !empty( $cache['expires_at'] ) ) {
 			$exp	= ( int ) $row['expires_at'];
 			if ( false !== $exp && $exp <= \time() ) {
-				return $result->with_data([ 'cache_hit' => false ]);
+				return $result->with_data( [ 'cache_hit' => false ] );
 			}
 		}
 		
 		$is_partial	= ( int ) $row['is_partial'] === 1;
 		$req_partial	= $args['partial'] ?? false;
 		if ( $is_partial && !$req_partial ) {
-			return $result->with_data([ 'cache_hit' => false ]);
+			return $result->with_data( [ 'cache_hit' => false ] );
 		}
 		
 		$page		= $is_partial ? 'partial_content' : 'page_content';
@@ -13474,7 +13108,7 @@ class SessionConfig {
 			]
 		);
 		
-		return $result->add_data([
+		return $result->add_data( [
 			'cookie_written'	=> true,
 			'cookie_value'		=> $session_id
 		] );
@@ -14063,7 +13697,7 @@ class SessionRefresh {
 			]
 		);
 		
-		return $result->add_data([
+		return $result->add_data( [
 			'session_expires'	=> time() + $this->session_ttl,
 			'session_updated'	=> true
 		]);
@@ -14535,7 +14169,7 @@ class RequestPhase {
 	private array $asset_dirs	= [];
 	private array $data_dirs	= [];
 	
-	public function __construct() {}
+	public function __construct( private readonly Config $config ) {}
 	
 	/**
 	 *  Guess if current request is secure
@@ -14684,41 +14318,6 @@ class RequestPhase {
 	}
 	
 	/**
-	 *  Try to resolve static file
-	 */
-	#[Hook( name : 'request.static_probe', priority : 10 )]
-	public function probe( string $event, HookResult $result, array $args ) : HookResult {
-		$norm = $result->data['request_norm'] ?? [];
-		if ( !$norm ) { return $result; }
-		$uri		= \ltrim( $norm['uri'], '/' );
-		
-		if ( '' === $uri ) { return $result; }
-		
-		// Prevent traversal
-		$safe_uri	= Sanitize::path_traversal( $uri );
-		if ( $safe_uri !== $uri ) { return $result; }
-		
-		$method		= $norm['effective_method'] ?? $norm['method'];
-		
-		// Only GET and HEAD should serve static files
-		if ( !\in_array( $method, [ 'get','head' ], true ) ) { return $result; }
-		
-		// Range allowed?
-		// TODO: Make this config based
-		$range_allowed = true;
-		
-		return $result->add_data( [
-			'request_static'	=> [
-				'method'		=> $method,
-				'uri'			=> $safe_uri,
-				'path_hint'		=> $safe_uri,
-				'is_range_allowed'	=> $range_allowed,
-				'is_candidate'		=> true
-			]
-		] );
-	}
-	
-	/**
 	 *  Build usable server data
 	 */
 	#[Hook( name : 'request.init', priority : 5 )]
@@ -14783,6 +14382,76 @@ class RequestPhase {
 		] );
 	}
 	
+	/** 
+	 *  Validate current request
+	 */
+	#[Hook( name: 'request.validate', priority : 100 )]
+	public function validate( string $event, HookResult $result, array $args ) : HookResult {
+		$raw	= $result->data['request_raw'] ?? null;
+		if ( !$raw ) { return $result; }
+		
+		// Unsupported method?
+		$method		= \strtolower( $raw['method'] ?? '' );
+		$supported	= [ 'get', 'post', 'put', 'delete', 'patch', 'options', 'head' ];
+		if ( !\in_array( $method, $supported, true ) ) {
+			return $result->with_data( [ 'error_code' => 405 ] ] );
+		}
+		
+		// Overly long request?
+		$uri		= $raw['uri'] ?? '/';
+		$max_url	= $this->config->setting( 'max_url_size', 512, 'int' );
+		if ( \strlen( $uri ) > $max_url ) {
+			return $result->with_data( [ 'error_code' => 414 ] );
+		}
+		
+		// Path traversal or malicious attempt?
+		if ( null === Sanitize::uri( $uri, '/' ) ) {
+			return $result->with_data( [ 'error_code' => 400 ] );
+		}
+		
+		// Folder nesting limits
+		$folder_limit	= $this->config->setting( 'folder_limit', 15, 'int' );
+		$segments	= \array_filter( \explode( '/', \trim( $uri, '/' ) ) );
+		if ( count( $segments ) > $folder_limit ) {
+			return $result->with_data( [ 'error_code' => 400 ] );
+		}
+		
+		return $result->with_data( [ 'request_valid' => true ] );
+	}
+	
+	/**
+	 *  Try to resolve static file
+	 */
+	#[Hook( name : 'request.static_probe', priority : 10 )]
+	public function probe( string $event, HookResult $result, array $args ) : HookResult {
+		$norm = $result->data['request_norm'] ?? [];
+		if ( !$norm ) { return $result; }
+		
+		if ( |$norm['request_valid'] ) { return $result; }
+		
+		$uri		= \ltrim( $norm['uri'], '/' );
+		if ( '' === $uri ) { return $result; }
+		
+		$method		= $norm['effective_method'] ?? $norm['method'];
+		
+		// Only GET and HEAD should serve static files
+		if ( !\in_array( $method, [ 'get','head' ], true ) ) { return $result; }
+		
+		// Range allowed?
+		// TODO: Make this config based
+		$range_allowed = true;
+		
+		return $result->add_data( [
+			'request_static'	=> [
+				'method'		=> $method,
+				'uri'			=> $safe_uri,
+				'path_hint'		=> $safe_uri,
+				'is_range_allowed'	=> $range_allowed,
+				'is_candidate'		=> true
+			]
+		] );
+	}
+	
 	/**
 	 *  Parse request data into usable form
 	 */
@@ -14790,13 +14459,6 @@ class RequestPhase {
 	public function normalize( string $event, HookResult $result, array $args ) : HookResult {
 		$raw	= $result->data['request_raw'] ?? [];
 		if ( empty( $raw ) ) { return $result; }
-		
-		// Normalize method
-		$method		= \strtolower( $raw['method'] ?? '' );
-		$supported	= [ 'get', 'post', 'put', 'delete', 'patch', 'options', 'head' ];
-		if ( !\in_array( $method, $supported, true ) ) {
-			$method = 'unsupported';
-		}
 		
 		// App-level override of request method 
 		$effective	= $method;
@@ -14819,8 +14481,9 @@ class RequestPhase {
 		$host		= Sanitize::host( $raw['host'] ?? '' );
 		
 		// Normalize URI
-		$uri		= '/' . \ltrim( Sanitize::uri( $raw['uri'] ?? '' ), '/' );
-		$uri		= \preg_replace( '#//+#', '/', $uri );	// Duplicate slashes
+		$uri		= Sanitize::uri( $raw['uri'] ?? '' ) ?? '';
+		$uri		= '/' . \ltrim( \trim( $uri ), '/' );
+		
 		if ( $uri !== '/') { $uri = \rtrim( $uri, '/' ); }	// Trailing slash
 		
 		// Normalize query + params
@@ -15630,8 +15293,136 @@ class StaticFile {
  */
 #[HookHandler]
 class ResponseConfig {
+
+	public function __construct( 
+		private readonly Config $config, 
+		private readonly Logger $logger 
+	) {}
+	
+	/**
+	 *  XML-RPC response-specific header list
+	 *  
+	 *  @param string	$origin		Request origin realm
+	 *  @return array
+	 */
+	private function xmlrpc_headers( string $origin = null ) : array {
+		return [
+			'Access-Control-Allow-Origin'		=> $origin,
+			'Access-Control-Allow-Methods'		=> 'POST',
+			'Access-Control-Allow-Headers'		=> 
+			'Content-Type, Authorization, X-Requested-With',
+			
+			'Access-Control-Allow-Credentials'	=> 'true',
+			'Content-Security-Policy'		=> 
+			"default-src 'self'; frame-ancestors 'none';",
+			
+			'X-Frame-Options'			=> 'DENY',
+			'X-Content-Type-Options'		=> 'nosniff',
+			'Referrer-Policy'			=> 'same-origin',
+			'Strict-Transport-Security'		=> 
+			'max-age=31536000; includeSubDomains; preload'
+		];
+	}
+	
+	/** 
+	 *  Security policy term separator filter
+	 *  
+	 *  @param string	$frag		Fragment separator
+	 *  @return string
+	 */
+	private function security_policy_sep( string $frag = '' ) : string {
+		return empty( $frag ) 
+			? '' 
+			: ( \in_array( \trim( $frag ) , [ '', ',', ':', ';', '=' ] ) 
+				? $frag
+				: ''
+			);
+	}
+	
+	/**
+	 *  Security policy header value formatter
+	 *  
+	 *  @param array	$policy		Security policy items
+	 *  @return string
+	 */
+	private function security_policy_items( array $policy ) : string {
+		$separator	= $policy['separator']	?? ', ';
+		$joiner		= $policy['joiner']	?? '=';
+		$items		= $policy['items']	?? [];
+		$policy		= '';
+		
+		$separator	= $this->security_policy_sep( $separator );
+		$joiner		= $this->security_policy_sep( $joiner );
+		foreach( $items as $key => $value ) {
+			$key	= Sanitize::bland( $key, true );
+			$value	= Sanitize::bland( $value );
+			$policy	.= "{$key}{$joiner}{$value}{$separator}";
+		}
+		
+		return \trim( $policy, $separator );
+	}
+	
+	/**
+	 *  Security policy term formatter
+	 *  
+	 *  @param array	$items		Line-by-line items
+	 *  @return string
+	 */
+	private function security_policy_terms( array $items, string $separator = '' ) : string {
+		$policy		= '';
+		$separator	= $this->security_policy_sep( $separator );
+			
+		foreach ( $items as $item ) {
+			$item	= Sanitize::bland( $item );
+			$policy .= "{$item}{$separator}";
+		}
+	
+		return \trim( $policy, $separator );
+	}
+	
+	/**
+	 *  Page security configuration parser
+	 *  
+	 *  @param string	$term		Poliey key search
+	 *  @param array	$policy		Full security headers to search
+	 *  @return string
+	 */
+	private function security_policy( string $term, array $policy ) : string {
+		if ( empty( $policy ) ) { return ''; }
+		$term	= \strtolower( $term );
+		
+		return match( $term ) {
+			'permissions', 'permissions-policy'
+				=> $this->security_policy_items( $policy['Permissions-Policy'] ?? [] ),
+			
+			'content', 'content-security-policy'
+				=> $this->security_policy_items( $policy['Content-Security-Policy'] ?? [] ),
+			
+			'referer', 'referrer', 'referer-policy'
+				=> $this->security_policy_terms( $policy['Referrer-Policy'] ?? [], ',' ),
+			
+			'transport', 'strict-transport-security', 'transport-security'
+				=> $this->security_policy_terms( $policy['Strict-Transport-Security'] ?? [], '; ' ),
+			
+			'xss', 'x-xss', 'x-xss-protection'
+				=> $this->security_policy_terms( $policy['X-XSS-Protection'] ?? [], '; ' ),
+			
+			'content-type', 'x-content-type-options'
+				=> $this->security_policy_terms( $policy['X-Content-Type-Options'] ?? [] ),
+	
+			'frames', 'x-frame', 'x-frame-options', 
+				=> $this->security_policy_terms( $policy['X-Frame-Options'] ?? [] ),
+				
+			default	=> ''
+		};
+	}
 	
 	private function intercept_error( HookResult $result ) : HookResult {
+		$response	= 
+		$result->data['response'] ?? 
+			new Response( $this->config, $request, $this->logger );
+		
+		$request	= $result->data['request'];
 		$status		= $result->data['error_code'];
 		$content	= $result->data['error_html'];
 		
@@ -15645,24 +15436,19 @@ class ResponseConfig {
 			$result->data['error_headers'] ?? []
 		);
 		
-		// Default HTML
-		$headers['Content-Type'] ??= 'text/html; charset=utf-8';
-		
-		// Build body using PageResponse helpers
-		$body		= $response->body( $content, false );
-		
-		// Gzip flag (finalize will apply)
+		// Gzip flag ( finalize will apply )
 		$use_gzip	= \extension_loaded( 'zlib' ) && 304 != $status;
 		
-		return $result->add_data([
-			'response_ready' => [
+		return $result->add_data( [
+			'response'		=> $response,
+			'response_ready'	=> [
 				'status'	=> $status,
 				'headers'	=> $headers,
-				'body'		=> $body,
+				'body'		=> $content,
 				'gzip'		=> $use_gzip,
 				'source'	=> 'error'
 			]
-		]);
+		] );
 	}
 	
 	/**
@@ -15670,11 +15456,9 @@ class ResponseConfig {
 	 */
 	#[Hook( name : 'response.preamble', priority : 50 )]
 	public function preamble( string $event, HookResult $result, array $args ) : HookResult {
-		$response	= $result->data['response'] ?? null;
-		if ( !$response instanceof PageResponse ) { return $result; }
 		
 		// Load Content Security Policy config
-		$policy	= $response->config->setting( 'headers', [], 'json' );
+		$policy	= $this->config->setting( 'headers', [], 'json' );
 		
 		if ( empty( $policy ) ) { // No policies?
 			return $result->add_data( [ 'preamble_headers' => [] ] );
@@ -15689,13 +15473,14 @@ class ResponseConfig {
 		
 		// Core policies
 		if ( $send_csp ) {
-			if ( !empty( $header = $response->security_policy( 'content', $policy ) ) ) {
+			if ( !empty( $header = $this->security_policy( 'content', $policy ) ) ) {
 				$headers['Content-Security-Policy']	= $header;
 			}
 		}
 		
+		// Send Content-Type?
 		if ( $send_type ) {
-			if ( !empty( $header = $response->security_policy( 'content-type', $policy ) ) ) {
+			if ( !empty( $header = $this->security_policy( 'content-type', $policy ) ) ) {
 				$headers['X-Content-Type-Options']	= $header;
 			}
 		}
@@ -15710,12 +15495,15 @@ class ResponseConfig {
 		];
 		
 		foreach ( $map as $term => $name ) {
-			if ( !empty( $value = $response->security_policy( $term, $policy ) ) ) {
+			if ( !empty( $value = $this->security_policy( $term, $policy ) ) ) {
 				$headers[$name] = $value;
 			}
 		}
 		
 		return $result->add_data( [
+			'response'		=> 
+			new Response( $this->config, $request, $this->logger ),
+			
 			'preamble_headers'	=> $headers,
 			'send_type'		=> $send_type
 		] );
@@ -15727,9 +15515,8 @@ class ResponseConfig {
 	#[Hook( name : 'response.options', priority : 40 )]
 	public function options( string $event, HookResult $result, array $args ) : HookResult {
 		$request	= $result->data['request']	?? null;
-		$response	= $result->data['response']	?? null;
 		
-		if ( !$request || !$response) { return $result; }
+		if ( !$request ) { return $result; }
 		
 		// Only handle OPTIONS requests
 		if ( 0 !== \strcasecmp( $request->method, 'options' ) ) { 
@@ -15744,7 +15531,7 @@ class ResponseConfig {
 		
 		// TODO: Log OPTIONS requests
 		// Build response_ready (no body)
-		return $result->add_data([
+		return $result->add_data( [
 			'response_ready' => [
 				'status'	=> 204,
 				'headers'	=> $headers,
@@ -15759,9 +15546,10 @@ class ResponseConfig {
 	 */
 	#[Hook( name : 'response.page', priority : 100 )]
 	public function page( string $event, HookResult $result, array $args ) : HookResult {
-		$response	= $result->data['response'] ?? null;
-		if ( !$response instanceof PageResponse ) { return $result; }
-		if ( isset( $result->data['error_html'] ) ) {
+		$request	= $result->data['request'] ?? null;
+		if ( !$request instanceof Request ) { return $result; }
+		
+		if ( isset( $result->data['error_code'] ) ) {
 			return $this->intercept_error( $result );
 		}
 		
@@ -15775,7 +15563,7 @@ class ResponseConfig {
 		
 		// Basic flags
 		$is_error	= ( $status >= 400 );
-		$is_json	= \is_array( $content) || \is_object( $content );
+		$is_json	= \is_array( $content ) || \is_object( $content );
 		$is_html	= 
 		( ( $status >= 200 && $status < 204 )	&&
 			!$is_feed 			&& 
@@ -15797,7 +15585,8 @@ class ResponseConfig {
 			$headers['Content-Security-Policy'] = "default-src 'self'";
 		} elseif ( $is_feed || $is_xmlrpc ) {
 			$headers['Content-Disposition'] = 'inline';
-			$headers = \array_merge( $headers, $response->xmlrpc_headers() );
+			$headers = 
+			\array_merge( $headers, $this->xmlrpc_headers( $request->origin ) );
 		}
 		
 		$send_type	= $result->data['send_type'] ?? $args['send_type'] ?? true;
@@ -15811,10 +15600,14 @@ class ResponseConfig {
 			};
 		}
 		
+		$response	= $result->data['response'] ?? 
+			new Response( $this->config, $request, $this->logger );
+		
 		/// Finish and return here, if there's no body
 		if ( !$has_body || ( 204 === $status || 304 === $status ) ) {
-			return $result->add_data([
-				'response_ready' => [
+			return $result->add_data( [
+				'response'		=> $response,
+				'response_ready'	=> [
 					'status'	=> $status,
 					'headers'	=> $headers,
 					'is_error'	=> $is_error,
@@ -15828,16 +15621,20 @@ class ResponseConfig {
 		}
 		
 		// Check gzip prerequisites
-		$zlib		= extension_loaded('zlib');
+		$zlib		= \extension_loaded('zlib');
 		$use_gzip	= ( 304 != $status && $zlib );
 		
 		// Build body
 		$body		= 
 		$has_body 
-			? $response->body( $content, false )
+			?  match( true ) {
+				$is_json	=> Util::json_uencode( $body ),
+				default		=> $body
+			}
 			: '';
 		
 		return $result->add_data( [
+			'response'		=> $response,
 			'response_ready'	=> [
 				'status'	=> $status,
 				'headers'	=> $headers,
@@ -15896,6 +15693,205 @@ class ResponseConfig {
 		$response->send_finish();
 		
 		return $result;	// This wouldn't execute
+	}
+}
+
+
+/**
+ *  @class Core functionality
+ */
+final class Main {
+	/**
+	 *  @var string Startup log file
+	 */
+	private	readonly	string	$log_file;
+	
+	/**
+	 *  @var bool Run startup sequence in debug mode if true
+	 */
+	private readonly	bool	$debug;
+	
+	/**
+	 *  @var Errors Common error handler
+	 */
+	public readonly		Errors	$errors;
+	
+	/**
+	 *  @var bool Runtime sanity check
+	 */
+	private			bool	$sanity		= false;
+	
+	/**
+	 *  @var string Startup log data, if any
+	 */
+	private			string	$log_data;
+	
+	/**
+	 *  List of required and optional libraries
+	 */
+	const LIBS	= [
+		'required' => [
+			'libxml_clear_errors'	=> 'libxml',
+			'mime_content_type'	=> 'fileinfo',
+			'mb_strlen'		=> 'mbstring'
+		],
+		'optional' => [ 
+			'normalizer_normalize'	=> 'intl',
+			'imagecreatetruecolor'	=> 'GD',
+			'mail'			=> 'mail'
+		]
+	];
+	
+	/**
+	 *  Startup constructor
+	 */
+	public function __construct() {
+		// Prepare startup log file location
+		$this->log_file = Storage::base() . 
+		\defined( 'STARTUP' ) 
+			? ( string ) \constant( 'STARTUP' )
+			: 'startup.log';
+		
+		$this->debug	= \defined( 'DEBUG_MODE' ) ? true : false;
+		
+		$this->errors	= new Errors();
+	}
+	
+	/**
+	 *  Write to log file any saved messages
+	 */
+	public function write_startup_log() : void {
+		// No data to log or startup log ran already?
+		if ( 
+			empty( $this->log_data ) || 
+			\file_exists( $this->log_file ) 
+		) { return; }
+		
+		\error_log( $this->log_data, 3, $this->log_file );
+	}
+	
+	/**
+	 *  Application initizlization and prerequisite log
+	 */
+	private function sanity_log() : void {
+		
+		// Missing storage
+		$miss	= [ 'required' => [], 'optional' => [] ];
+		
+		// Log any missing required libraries
+		foreach ( static::LIBS['required'] as $f => $name ) {
+			if ( !\function_exists( $f ) ) {
+				$miss['required'][] = $name;
+			}
+		}
+		
+		// Optional libraries
+		foreach ( static::LIBS['optional'] as $f => $name ) {
+			if ( !\function_exists( $f ) ) {
+				$miss['optional'][] = $name;
+			}
+		}
+		
+		// Check PDO too
+		if ( !\defined( 'PDO::ATTR_DEFAULT_FETCH_MODE' ) ) {
+			$miss['required'][] = 'pdo-sqlite';
+		}
+		
+		if ( !empty( $miss['required'] ) ) {
+			$msg		= 
+			'These required library(ies) may be missing or disabled: ' . 
+				\implode( ', ', $miss['required'] );
+			
+			$this->log_data .= 
+			Text::truncate( Sanitize::spaces( $msg ), 0, 2048 ) . "\n";
+		}
+		
+		if ( !empty( $miss['optional'] ) ) {
+			$msg		= 
+			'These recommended function(s) or library(ies) may be missing or disabled: ' . 
+				\implode( ', ', $miss['optional'] );
+			$this->log_data	.= 
+			Text::truncate( Sanitize::spaces( $msg ), 0, 2048 ) . "\n";
+		}
+		
+		// Check sanity with required libraries
+		$this->sanity = empty( $miss['required' ] );
+	}
+	
+	/**
+	 *  Prepare background environment and exception handling
+	 */
+	private function environment() : void {
+		// Core runs on UTC
+		\date_default_timezone_set( 'UTC' );
+		// Errors class handles exceptions
+		\set_exception_handler( [ $this->errors, 'handler' ] );
+		
+		if ( $this->debug ) {
+			// Start trace in debug mode
+			$this->errors->trace( 'Request started', [
+				'method'	=> $_SERVER['REQUEST_METHOD'],
+				'uri'		=> $_SERVER['REQUEST_URI']
+			] );
+		}
+	}
+	
+	/**
+	 *  Initialization
+	 */
+	private function boot() : Container {
+		\register_shutdown_function( [ $this, 'write_startup_log' ] );
+		
+		$this->environment();
+		$this->sanity_log();
+			
+		// Sanity check (AKA required libraries) failed?
+		if( !$this->sanity ) {
+			throw new 
+			\RuntimeException( 'Startup sanity checks failed.' );
+		}
+		
+		// Base classes
+		$container	= Container::instance();
+		
+		// Extra functionality
+		$hooks		= $container->get( HookLoader::class );
+		$plugins	= $container->get( PluginDiscovery::class );
+		
+		// Core hooks
+		$registry	= $container->get( HookRegistry::class );
+		
+		// Enable shutdown actions
+		$shutdown	= new HookShutdown( $registry );
+		\register_shutdown_function( [ $shutdown, 'run' ] );
+		
+		// Disable exploring and don't initialize plugins in debug mode
+		$disable	= !$this->debug;
+		$hooks->autoload( $disable );
+		$plugins->autoload( $disable );
+		$plugins->init( $disable );
+		
+		return $container;
+	}
+	
+	/**
+	 *  Main startup sequence
+	 */
+	public function sequence() : void {
+		// Start error capture scope
+		$scope = $this->errors->start_scope();
+		try {
+			$container	= $this->boot();
+			
+			// URL routing and redirection
+			$router		= $container->get( Router::class );
+			
+			// Call current route
+			$router->dispatch();
+		} finally {
+			// End scope
+			$this->errors->end_scope( $scope );
+		}
 	}
 }
 
@@ -15966,15 +15962,14 @@ class Bare {
 		);
 	}
 	
-	private function run_404( string $uri, string $details ) {
-		$this->hooks->run( 'error.not_found', false, [
+	private function run_404( string $uri, string $details ) : HookResult {
+		return $this->hooks->run( 'error.not_found', false, [
 			'uri'		=> $uri,
 			
 			// TODO: Make this language based
 			'message'	=> 'The requested page could not be found',
 			'details'	=> $details
 		] );
-		$this->hooks->run( 'error.render', false );
 	}
 	
 	/**
@@ -16100,7 +16095,7 @@ class Bare {
 		$found	= $result->data['post_found'] ?: false;
 		
 		if ( !$found ) { 
-			$this->run_404( $path, "No post found for {$path}" ); 
+			return $this->run_404( $path, "No post found for {$path}" ); 
 		}
 		
 		$post	= $result->data['post'];
@@ -16132,7 +16127,7 @@ class Bare {
 	public function tags( array $params ) {
 		$tag	= $params['tag'] ?? '';
 		if ( empty( $tag ) ) {
-			$this->run_404( '/tags', 'No tags found' ); 
+			return $this->run_404( '/tags', 'No tags found' ); 
 		}
 		
 		$page	= ( int ) ( $params['page'] ?? 1 );
@@ -16146,7 +16141,7 @@ class Bare {
 				"No posts found for tag {$tag} on page {$page}" 
 			);
 		}
-
+		
 		$title	= "Tag {$tag}";
 		$path	= $page > 1 ? "/tags/{$tag}/page{$page}" : "/tags/{$tag}";
 		$result = $this->hooks->run( 'post.render_index', true, [ 'posts' => $result->data['posts'] ] );
