@@ -4758,7 +4758,7 @@ final class FileResponse extends Response {
 		} catch ( \Throwable $e ) {
 			$this->handle_stream_error( $e );
 		} finally {
-			if ( \is_resource( \$handle ) ) {
+			if ( \is_resource( $handle ) ) {
 				\fclose( $handle );
 			}
 		}
@@ -8702,7 +8702,7 @@ final class Router extends Instance {
 	
 	public function request_dispatch( HookRegistry $registry ) : void {
 		$registry->run( 'request.init' );
-		$registry->run( 'request.validate' );
+		$registry->run( 'request.validate', true );
 		$registry->run( 'request.normalize' );
 		$registry->run( 'request.forwarded' );
 		$registry->run( 'request.headers' );
@@ -8724,7 +8724,7 @@ final class Router extends Instance {
 		$registry->run( 'response.preamble' );
 		$registry->run( 'response.options' );
 		$registry->run( 'response.page' );
-		$registry->run( 'response.finalize' );
+		$registry->run( 'response.finalize', true );
 	}
 	
 	public function session_dispatch( HookRegistry $registry ) : void {
@@ -8775,6 +8775,10 @@ final class Router extends Instance {
 		
 		// Request lifecycle
 		$this->request_dispatch( $registry );
+		if ( empty( $registry->values( 'request_valid' ) ) ) {
+			$this->response_dispatch( $registry );
+			return;
+		}
 		
 		// Static file check
 		$this->static_dispatch( $registry );
@@ -11437,7 +11441,7 @@ class PageComponents{
 		$classes	= $footer['classes'] ?? ( $args['classes'] ?? [] );
 		
 		$footer		= 
-		\array_merge( $footer, 
+		\array_merge( $footer, [
 			'classes'	=> 
 			Template::extract_classes( $classes, [ 'block', 'wrap' ] )
 	 	] );
@@ -11445,7 +11449,7 @@ class PageComponents{
 			->with_data( [ 'footer' => $footer ] )
 			->with_template( 'tpl_page_footer' );
 	}
-
+	
 	/**
 	 *  @example
 	 *  $result = $this->hooks->run( 'page.search_form', false, [
@@ -11492,7 +11496,7 @@ class FormComponents {
 		private readonly HookRegistry	$registry
 	) {}
 	
-	private function default_tpl( HookResult $result, string $tpl ) : string {
+	private function default_tpl( HookResult $result, array $args, string $tpl ) : string {
 		return $result->data[$tpl] ?? ( $args[$tpl] ?? $tpl );
 	}
 	
@@ -11595,7 +11599,9 @@ class FormComponents {
 	 */
 	#[Hook( name : 'form.fields', priority : 1 )]
 	public function fields( string $event, HookResult $result, array $args ) : HookResult {
-		return $result->with_template( $this->default_tpl( $result, 'tpl_form_fields' ) );
+		return $result->with_template( 
+			$this->default_tpl( $result, $args, 'tpl_form_fields' ) 
+		);
 	}
 	
 	/**
@@ -11606,7 +11612,9 @@ class FormComponents {
 		$errors = $result->data['form']['errors'] ?? [];
 		if ( !$errors ) { return $result; }
 		
-		return $result->with_template( $this->default_tpl( $result, 'tpl_form_errors' ) );
+		return $result->with_template( 
+			$this->default_tpl( $result, $args, 'tpl_form_errors' ) 
+		);
 	}
 	
 	/**
@@ -11618,7 +11626,9 @@ class FormComponents {
 			return $result; 
 		}
 		
-		return $result->with_template( $this->default_tpl( $result, 'tpl_form_success' );
+		return $result->with_template( 
+			$this->default_tpl( $result, $args, 'tpl_form_success' )
+	 	);
 	}
 	
 	/**
@@ -11664,7 +11674,9 @@ class FormComponents {
 	 */
 	#[Hook( name : 'form.render', priority : 1 )]
 	public function render( string $event, HookResult $result, array $args ) : HookResult { 
-		return $result->with_template( $this->default_tpl( $result, 'tpl_form' ) );
+		return $result->with_template( 
+			$this->default_tpl( $result, $args, 'tpl_form' ) 
+		);
 	}
 }
 
@@ -12852,7 +12864,7 @@ class PostImporting {
 		$parsed = [];
 		
 		foreach ( $files as $file ) {
-			$entry = $this->entry_import( $file['path'] );
+			$entry		= $this->entry_import( $file['path'] );
 			if ( !$entry ) { continue; }
 			
 			$core		= [ 'title' => '', 'slug' => '', 'tags' => '' ];
@@ -12884,7 +12896,7 @@ class PostImporting {
 		$entries = $result->data['import_entries'] ?? [];
 		if ( !$entries ) { return $result; }
 		$inserted = [];
-
+		
 		foreach ( $entries as $entry ) {
 			$post_path	= 
 			$entry['published']
@@ -14394,26 +14406,26 @@ class RequestPhase {
 		$method		= \strtolower( $raw['method'] ?? '' );
 		$supported	= [ 'get', 'post', 'put', 'delete', 'patch', 'options', 'head' ];
 		if ( !\in_array( $method, $supported, true ) ) {
-			return $result->with_data( [ 'error_code' => 405 ] ] );
+			return $result->with_data( [ 'error_code' => 405, 'request_valid' => false ] ] );
 		}
 		
 		// Overly long request?
 		$uri		= $raw['uri'] ?? '/';
 		$max_url	= $this->config->setting( 'max_url_size', 512, 'int' );
 		if ( \strlen( $uri ) > $max_url ) {
-			return $result->with_data( [ 'error_code' => 414 ] );
+			return $result->with_data( [ 'error_code' => 414, 'request_valid' => false ] );
 		}
 		
 		// Path traversal or malicious attempt?
 		if ( null === Sanitize::uri( $uri, '/' ) ) {
-			return $result->with_data( [ 'error_code' => 400 ] );
+			return $result->with_data( [ 'error_code' => 400, 'request_valid' => false ] );
 		}
 		
 		// Folder nesting limits
 		$folder_limit	= $this->config->setting( 'folder_limit', 15, 'int' );
 		$segments	= \array_filter( \explode( '/', \trim( $uri, '/' ) ) );
 		if ( count( $segments ) > $folder_limit ) {
-			return $result->with_data( [ 'error_code' => 400 ] );
+			return $result->with_data( [ 'error_code' => 400, 'request_valid' => true ] );
 		}
 		
 		return $result->with_data( [ 'request_valid' => true ] );
@@ -14758,7 +14770,7 @@ class RequestPhase {
  *  @class Static file request handling
  */
 #[HookHandler]
-class StaticFile {
+class StaticResponseConfig {
 	
 	public function __construct(
 		private readonly	Container	$container,
@@ -15283,7 +15295,7 @@ class StaticFile {
 			ranges		: $ready['ranges']	?? null
 		);
 		
-		return $result;
+		return $result; // This wouldn't execute
 	}
 }
 
@@ -15418,10 +15430,6 @@ class ResponseConfig {
 	}
 	
 	private function intercept_error( HookResult $result ) : HookResult {
-		$response	= 
-		$result->data['response'] ?? 
-			new Response( $this->config, $request, $this->logger );
-		
 		$request	= $result->data['request'];
 		$status		= $result->data['error_code'];
 		$content	= $result->data['error_html'];
@@ -15440,7 +15448,6 @@ class ResponseConfig {
 		$use_gzip	= \extension_loaded( 'zlib' ) && 304 != $status;
 		
 		return $result->add_data( [
-			'response'		=> $response,
 			'response_ready'	=> [
 				'status'	=> $status,
 				'headers'	=> $headers,
@@ -15465,9 +15472,9 @@ class ResponseConfig {
 		}
 		
 		// Include content security policy, if true
-		$send_csp	= $args['send_csp']	?? true;
+		$send_csp	= $result->data['send_csp'] ?? ( $args['send_csp'] ?? true );
 		// Include content mime type, if true
-		$send_type	= $args['send_type']	?? true;
+		$send_type	= $result->data['send_type'] ?? ( $args['send_type'] ?? true );
 		
 		$headers	= [];
 		
@@ -15501,9 +15508,6 @@ class ResponseConfig {
 		}
 		
 		return $result->add_data( [
-			'response'		=> 
-			new Response( $this->config, $request, $this->logger ),
-			
 			'preamble_headers'	=> $headers,
 			'send_type'		=> $send_type
 		] );
@@ -15600,13 +15604,9 @@ class ResponseConfig {
 			};
 		}
 		
-		$response	= $result->data['response'] ?? 
-			new Response( $this->config, $request, $this->logger );
-		
 		/// Finish and return here, if there's no body
 		if ( !$has_body || ( 204 === $status || 304 === $status ) ) {
 			return $result->add_data( [
-				'response'		=> $response,
 				'response_ready'	=> [
 					'status'	=> $status,
 					'headers'	=> $headers,
@@ -15634,7 +15634,6 @@ class ResponseConfig {
 			: '';
 		
 		return $result->add_data( [
-			'response'		=> $response,
 			'response_ready'	=> [
 				'status'	=> $status,
 				'headers'	=> $headers,
@@ -15654,9 +15653,7 @@ class ResponseConfig {
 	#[Hook( name : 'response.finalize', priority : 999 )]
 	public function finalize( string $event, HookResult $result, array $args ) : HookResult {
 		$ready		= $result->data['response_ready']	?? null;
-		$response	= $result->data['response']		?? null;
-		
-		if ( !$ready || !$response instanceof Response ) { return $result; }
+		if ( !$ready ) { return $result; }
 		
 		$status		= $ready['status']	?? 200;
 		
@@ -15685,9 +15682,21 @@ class ResponseConfig {
 		$use_gzip = $ready['use_gzip'] ?? false;
 		if ( $use_gzip ) { \ob_start('ob_gzhandler'); }
 		
-		// Set status and headers
-		$response->code		= $status;
-		$response->headers	= $headers;
+		// Set response with status and headers
+		$response	= 
+		$result->data['response'] ?? new Response( 
+			config	: $this->config, 
+			request	: $request, 
+			logger	: $this->logger, 
+			code	: $status, 
+			headers	: $headers, 
+			body	: $body
+		);
+		if ( !$response instanceof Response ) { return $result; }
+		
+		// Use gzip, if enabled
+		$use_gzip = $ready['use_gzip'] ?? false;
+		if ( $use_gzip ) { \ob_start( 'ob_gzhandler' ); }
 		
 		// Flush buffers and exit
 		$response->send_finish();
@@ -15900,10 +15909,7 @@ final class Main {
  *  Main Bare plugin
  */
 #[Plugin( name : 'Bare', priority : 1000 ) ]
-#[Info( 
-	name	: 'Bare', 
-	version	: '2.0' 
-) ]
+#[Info( name : 'Bare', version : '2.0' ) ]
 class Bare {
 	/**
 	 *  @var Config Configuration settings
@@ -15919,7 +15925,7 @@ class Bare {
 	 *  @var HookRegistry Event runner
 	 */
 	private readonly HookRegistry	$hooks;
-
+	
 	public function __construct( 
 		private readonly Info		$info,
 		private readonly Plugin		$meta, 
@@ -16010,7 +16016,7 @@ class Bare {
 		
 		return $links;
 	}
-
+	
 	/**
 	 *  Year/Month/Day path string with each segment component
 	 */
@@ -16023,7 +16029,7 @@ class Bare {
 		}
 		return \rtrim( $path, '/' );
 	}
-
+	
 	/**
 	 *  Format archive title based on starting and ending range
 	 */
