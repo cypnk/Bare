@@ -4320,7 +4320,8 @@ final class Logger extends Instance {
 		static $fields	= 
 		"date, time, sc-status, c-host, s-ip, cs-method, cs-useragent, cs-uri, sc-comment\n";
 		
-		static $store	= 
+		static $store;
+		$store	??= 
 		\defined( 'WEB_LOG_FILE' ) 
 			? ( string ) \constant( 'WEB_LOG_FILE' )
 			: 'visitors.log';
@@ -5902,17 +5903,13 @@ class HookResult {
 	 */
 	private array $blocks		= [];
 	
-	private Template	$template;
-	
 	public function __construct(
-		public ?string	$html		= null,
 		public ?string	$template	= null,
+		public ?string	$html		= null,
 		public array	$data		= [],
 		public array	$meta		= [],
 		public array	$errors		= []
-	) {
-		$this->template	= Container::instance()->get( Template::class );
-	}
+	) {}
 	
 	public function with_html( string $html ) : self {
 		$clone			= clone $this;
@@ -5924,7 +5921,10 @@ class HookResult {
 		$clone			= clone $this;
 		$clone->template	= $template;
 		$clone->html		= 
-			$this->template->render( $template, $this->data );
+		Container::instance()
+			->get( Template::class )
+			->render( $template, $this->data );
+		
 		return $clone;
 	}
 	
@@ -8728,44 +8728,16 @@ final class Router extends Instance {
 		}
 	}
 	
-	public function request_dispatch( HookRegistry $registry ) : void {
-		$registry->run( 'request.init' );
-		$registry->run( 'request.validate', true );
-		$registry->run( 'request.normalize' );
-		$registry->run( 'request.forwarded' );
-		$registry->run( 'request.headers' );
-	}
-	
-	public function static_dispatch( HookRegistry $registry ) : void {
-		$registry->run( 'request.static_probe' );
-		$registry->run( 'static.resolve' );
-		$registry->run( 'static.authorize' );
-		$registry->run( 'static.meta' );
-		$registry->run( 'static.cache' );
-		$registry->run( 'static.not_modified' );
-		$registry->run( 'static.headers' );
-		$registry->run( 'static.serve' );
-		$registry->run( 'static.finalize', true );
-	}
-	
-	public function response_dispatch( HookRegistry $registry ) : void {
-		$registry->run( 'response.preamble' );
-		$registry->run( 'response.options' );
-		$registry->run( 'response.page' );
-		$registry->run( 'response.finalize', true );
-	}
-	
+	/**
+	 *  Configure session and cookie settings
+	 */
 	public function session_dispatch( HookRegistry $registry ) : void {
-		// Configure sesion and cookie settings
-		$registry->run( 'session.cookie.config' );
-		
 		$registry->run( 'session.init' );
-		$registry->run( 'session.cookie.init' );
 		$registry->run( 'session.lifecycle' );
-		$registry->run( 'session.cookie.set' );
+		$registry->run( 'session.cookie' );
 		
 		$registry->run( 'request.authorize' );
-	} 
+	}
 	
 	/**
 	 *  Full page caching
@@ -8802,29 +8774,27 @@ final class Router extends Instance {
 		$registry	= $this->container->get( HookRegistry::class );
 		
 		// Request lifecycle
-		$this->request_dispatch( $registry );
+		$registry->run( 'request.init' );
 		if ( empty( $registry->values( 'request_valid' ) ) ) {
-			$this->response_dispatch( $registry );
+			$registry->run( 'response' );
 			return;
 		}
 		
 		// Static file check
-		$this->static_dispatch( $registry );
+		$registry->run( 'request.static' );
 		if ( !empty( $registry->values( 'response_ready' ) ) ) {
-			$this->response_dispatch( $registry );
+			$registry->run( 'response' );
 			return;
 		}
 		
-		// Other responses
+		// Other request stages
 		$registry->run( 'request.context' );
-		
-		// Request class
 		$registry->run( 'request.finalize', true );
 		
 		// Sessions
 		$this->session_dispatch( $registry );
 		if ( !empty( $registry->values( 'response_ready' ) ) ) {
-			$this->response_dispatch( $registry );
+			$registry->run( 'response' );
 			return;
 		}
 		
@@ -8836,11 +8806,10 @@ final class Router extends Instance {
 		
 		// Ful or partial as requested by routes
 		if ( !$registry->values( 'response_ready' ) ) {
-			$registry->run( 'cache.insert_full' );
-			$registry->run( 'cache.insert_partial' );
+			$registry->run( 'cache.insert' );
 		}
 		
-		$this->response_dispatch( $registry );
+		$registry->run( 'response' );
 	}
 }
 
@@ -10792,7 +10761,7 @@ class ErrorHooks {
 	 *  ] );
 	 */
 	#[Hook( name : 'error.render', priority : 1 )]
-	public function render( string $event, HookResult $result, array $args ) : never {
+	public function render( string $event, HookResult $result, array $args ) : HookResult {
 		// TODO: Make this language selection dependent
 		
 		$code		= $args['code']		?? 500;
@@ -10927,7 +10896,7 @@ class ErrorHooks {
 	}
 	
 	#[Hook( name : 'error.generic', priority : 1 )]
-	public function server_error( string $event, HookResult $result, array $args ) : never {
+	public function server_error( string $event, HookResult $result, array $args ) : HookResult {
 		return $result->add_data( [
 			'error_code'	=> 500,
 			'error_title'	=> $result->data['title']	?? 'Server Error',
@@ -11114,7 +11083,7 @@ class CacheHooks {
 		] );
 	}
 	
-	#[Hook( name : [ 'cache.insert_full', 'cache.insert_partial' ], priority : 1 )]
+	#[Hook( name : [ 'cache.insert.full', 'cache.insert.partial' ], priority : 1 )]
 	public function cache_insert( string $event, HookResult $result, array $args ) : HookResult {
 		$is_partial	= 'cache_insert_partial' === $event;
 		
@@ -11465,7 +11434,7 @@ class PageComponents{
 	
 	#[Hook( name : 'page.footer', priority : 1 )]
 	public function footer( string $event, HookResult $result, array $args ) : HookResult {
-		$footer		= $result->data['footer'] ?? ( $args['footer'] [] );
+		$footer		= $result->data['footer'] ?? ( $args['footer'] ?? [] );
 		$classes	= $footer['classes'] ?? ( $args['classes'] ?? [] );
 		
 		$footer		= 
@@ -12906,7 +12875,7 @@ class PostImporting {
 				'content'	=> $body,
 				'published'	=> $published,
 				'path'		=> $file['path'],
-				'meta'		=> \array_diff_key( $meta, $core );
+				'meta'		=> \array_diff_key( $meta, $core )
 			];
 		}
 		
@@ -12986,7 +12955,7 @@ class SessionConfig {
 	
 	public function __construct( private readonly Config  $config ) {}
 	
-	#[Hook( name : 'session.cookie.config', priority : 1 )]
+	#[Hook( name : 'session.cookie.config', priority : 100 )]
 	public function config( string $event, HookResult $result, array $args ) : HookResult {
 		// Resolve cookie parameters
 		$path		= 
@@ -13036,15 +13005,7 @@ class SessionConfig {
 		] );
 	}
 	
-	#[Hook( name : 'session.init', priority : 80 )]
-	public function init( string $event, HookResult $result, array $args ) : HookResult {
-		$sessions = $this->container->get( Sessions::class );
-		$sessions->init();
-		
-		return $result; 
-	}
-	
-	#[Hook( name : 'session.cookie.init', priority : 1 )]
+	#[Hook( name : 'session.cookie.init', priority : 80 )]
 	public function init( string $event, HookResult $result, array $args ) : HookResult {
 		// Resolve cookie name
 		$name	= 
@@ -13153,21 +13114,8 @@ class SessionConfig {
 			'cookie_value'		=> $session_id
 		] );
 	}
-}
-
-
-/**
- *  @class Remove session cookie data
- */
-#[HookHandler]
-class SessionCookieDelete {
 	
-	public function __construct(
-		private readonly	Config	$config,
-		private readonly	Request	$request
-	) {}
-	
-	#[Hook( name : 'session.cookie.delete', priority : 60 )]
+	#[Hook( name : 'session.delete.cookie', priority : 60 )]
 	public function remove( string $event, HookResult $result, array $args ) : HookResult {
 		// Resolve cookie name
 		$name =
@@ -13233,7 +13181,7 @@ class SessionValidate {
 	/**
 	 *  Session validation initialization
 	 */
-	#[Hook( name : 'session.validate.init', priority : 1 )]
+	#[Hook( name : 'session.validate.init', priority : 100 )]
 	public function init( string $event, HookResult $result, array $args ) : HookResult {
 		$session_id	= \session_id();
 		
@@ -13252,7 +13200,7 @@ class SessionValidate {
 	/**
 	 *  Load session data
 	 */
-	#[Hook( name : 'session.validate.load', priority : 10)]
+	#[Hook( name : 'session.validate.load', priority : 20)]
 	public function load( string $event, HookResult $result, array $args ) : HookResult {
 		$session_id	= $result->data['session_id'] ?? null;
 		if ( null === $session_id ) { return $result; }
@@ -13276,7 +13224,7 @@ class SessionValidate {
 	/**
 	 *  Check data validation
 	 */
-	#[Hook( name : 'session.validate.check', priority : 20 )]
+	#[Hook( name : 'session.validate.check', priority : 10 )]
 	public function check( string $event, HookResult $result, array $args ) : HookResult {
 		$row	= $result->data['db_session'] ?? null;
 		if ( null === $row || !\is_array( $row ) ) { return $result; }
@@ -13333,7 +13281,7 @@ class SessionValidate {
 			] ),
 			
 			// Must have privilege map, even if empty
-			( !isset( $_SESSION['user']['privileges'] ) 
+			( !isset( $_SESSION['user']['privileges'] ) )
 						=>
 			$result->add_data( [ 
 				'valid'		=> false , 
@@ -13352,7 +13300,7 @@ class SessionValidate {
 	/**
 	 *  Finish validation
 	 */
-	#[Hook( name : 'session.validate.finish', priority : 100 )]
+	#[Hook( name : 'session.validate.finish', priority : 1 )]
 	public function finish( string $event, HookResult $result, array $args ) : HookResult {
 		// Fill empty
 		return $result->add_data( [
@@ -13411,7 +13359,7 @@ class SessionTouch {
 	/**
 	 *  Initialize session touch
 	 */
-	#[Hook( name : 'session.touch.init', priority : 1 )]
+	#[Hook( name : 'session.touch.init', priority : 100 )]
 	public function init( string $event, HookResult $result, array $args ) : HookResult {
 		$session_id	= \session_id();
 		if ( !$session_id ) {
@@ -13448,7 +13396,7 @@ class SessionTouch {
 	/**
 	 *  Finalize session touch hook
 	 */
-	#[Hook( name : 'session.touch.finish', priority : 100 )]
+	#[Hook( name : 'session.touch.finish', priority : 1 )]
 	public function finish( string $event, HookResult $result, array $args ) : HookResult {
 		$session_id	= $result->data['session_id'] ?? null;
 		if ( null === $session_id ) { return $result; }
@@ -13500,7 +13448,7 @@ class SessionDestroy {
 	/**
 	 *  Initialize destroy stage
 	 */
-	#[Hook( name : 'session.destroy.init', priority : 1 )]
+	#[Hook( name : 'session.destroy.init', priority : 100 )]
 	public function init( string $event, HookResult $result, array $args ) : HookResult {
 		$session_id	= $args['session_id'] ?? session_id();
 		if ( null === $session_id ) { return $result; }
@@ -13514,7 +13462,7 @@ class SessionDestroy {
 	/**
 	 *  Validate session 
 	 */
-	#[Hook( name : 'session.destroy.validate', priority : 5 )]
+	#[Hook( name : 'session.destroy.validate', priority : 10 )]
 	public function validate( string $event, HookResult $result, array $args ) : HookResult {
 		$session_id	= $result->data['session_id'] ?? null;
 		if ( null === $session_id ) { return $result; }
@@ -13536,7 +13484,7 @@ class SessionDestroy {
 	/**
 	 *  Delete session by ID
 	 */
-	#[Hook( name : 'session.destroy.delete', priority : 10 )]
+	#[Hook( name : 'session.destroy.delete', priority : 5 )]
 	public function remove( string $event, HookResult $result, array $args ) : HookResult {
 		$session_id	= $result->data['session_id'] ?? null;
 		if ( null === $session_id ) { return $result; }
@@ -13556,7 +13504,7 @@ class SessionDestroy {
 	/**
 	 *  Finalize session ending
 	 */
-	#[Hook( name : 'session.destroy.finish', priority : 100 )]
+	#[Hook( name : 'session.destroy.finish', priority : 1 )]
 	public function finish( string $event, HookResult $result, array $args ) : HookResult {
 		return $result->add_data( [
 			'destroyed'	=> true,
@@ -13611,7 +13559,7 @@ class SessionRefresh {
 		$this->basename		= $this->request->host_ascii;
 	}
 	
-	#[Hook( name : 'session.refresh.init', priority : 1 )]
+	#[Hook( name : 'session.refresh.init', priority : 100 )]
 	public function init( string $event, HookResult $result, array $args ) : HookResult {
 		return $result->add_data( [
 			'old_session_id'	=> \session_id(),
@@ -13620,7 +13568,7 @@ class SessionRefresh {
 		] );
 	}
 	
-	#[Hook( name : 'session.refresh.validate', priority : 5 )]
+	#[Hook( name : 'session.refresh.validate', priority : 20 )]
 	public function validate( string $event, HookResult $result, array $args ) : HookResult {
 		$old_id		= $result->data['old_session_id'] ?? null;
 		if ( null === $old_id ) { return $result; }
@@ -13708,7 +13656,7 @@ class SessionRefresh {
 	/**
 	 *  Validate session row
 	 */
-	#[Hook( name : 'session.refresh.update', priority : 20 )]
+	#[Hook( name : 'session.refresh.update', priority : 5 )]
 	public function update( string $event, HookResult $result, array $args ) : HookResult {
 		if (
 			!empty( $result->data['session_regenerate'] )	||
@@ -13743,7 +13691,7 @@ class SessionRefresh {
 		]);
 	}
 	
-	#[Hook( name : 'session.refresh.finish', priority : 100 )]
+	#[Hook( name : 'session.refresh.finish', priority : 1 )]
 	public function finish( string $event, HookResult $result, array $args ) : HookResult {
 		if ( 
 			empty( $result->data['old_session_id'] ) &&
@@ -13812,7 +13760,7 @@ class SessionLifecycle {
 		}
 		
 		// Regenerate, if needed
-		$result = $this->hooks->run( 'session.refresh.regenerate', false, $result->data );
+		$result = $this->hooks->run( 'session.refresh', false, $result->data );
 		
 		// Touch to keep active, if needed
 		$result = $this->hooks->run( 'session.refresh.update', false, $result->data );
@@ -13867,7 +13815,7 @@ class SessionTerminateOther {
 	/**
 	 *  Initialize session terminate
 	 */
-	#[Hook( name : 'session.terminate_other.init', priority : 1 )]
+	#[Hook( name : 'session.terminate_other.init', priority : 100 )]
 	public function init( string $event, HookResult $result, array $args ) : HookResult {
 		$user_id	= $args['user_id']	?? null;
 		$session_id	= $args['session_id']	?? \session_id();
@@ -13886,7 +13834,7 @@ class SessionTerminateOther {
 	/**
 	 *  Load all active sessions for user
 	 */
-	#[Hook( name : 'session.terminate_other.load', priority : 10 )]
+	#[Hook( name : 'session.terminate_other.load', priority : 20 )]
 	public function load( string $event, HookResult $result, array $args ) : HookResult {
 		$user_id	= $result->data['user_id']	?? null;
 		$basename	= $result->data['basename']	?? null;
@@ -13926,7 +13874,7 @@ class SessionTerminateOther {
 	/**
 	 *  Terminate all sessions except currently active one
 	 */
-	#[Hook( name : 'session.terminate_other.delete', priority : 20 )]
+	#[Hook( name : 'session.terminate_other.delete', priority : 10 )]
 	public function delete( string $event, HookResult $result, array $args ) : HookResult {
 		$sessions	= $result->data['all_sessions'] ?? [];
 		$basename	= $result->data['basename']	?? null;
@@ -13955,7 +13903,7 @@ class SessionTerminateOther {
 	/**
 	 *  Finish exclusive session delete
 	 */
-	#[Hook( name : 'session.terminate_other.finish', priority : 100 )]
+	#[Hook( name : 'session.terminate_other.finish', priority : 1 )]
 	public function finish( string $event, HookResult $result, array $args ) : HookResult {
 		if ( empty( $result->data['user_id'] ) ) {
 			return $result;
@@ -14010,7 +13958,7 @@ class SessionForceLogout {
 	/**
 	 *  Initialize force logout
 	 */
-	#[Hook( name : 'session.force_logout.init', priority : 1 )]
+	#[Hook( name : 'session.force_logout.init', priority : 100 )]
 	public function init( string $event, HookResult $result, array $args ) : HookResult {
 		$user_id	= $args['user_id'] ?? null;
 		
@@ -14025,7 +13973,7 @@ class SessionForceLogout {
 	/**
 	 *  Load active sessions for this user
 	 */
-	#[Hook( name : 'session.force_logout.load', priority : 10 )]
+	#[Hook( name : 'session.force_logout.load', priority : 30 )]
 	public function load( string $event, HookResult $result, array $args ) : HookResult {
 		$user_id	= $result->data['user_id'] ?? null;
 		if( !$user_id ) { return $result; }
@@ -14077,7 +14025,7 @@ class SessionForceLogout {
 	/**
 	 *  Delete session
 	 */
-	#[Hook( name : 'session.force_logout.destroy_php', priority : 30 )]
+	#[Hook( name : 'session.force_logout.destroy_php', priority : 10 )]
 	public function destroy_php( string $event, HookResult $result, array $args ) : HookResult {
 		// Destroy PHP session entirely
 		$this->sessions->off();
@@ -14087,7 +14035,7 @@ class SessionForceLogout {
 	/**
 	 *  Finish logout
 	 */
-	#[Hook( name : 'session.force_logout.finish', priority : 100 )]
+	#[Hook( name : 'session.force_logout.finish', priority : 1 )]
 	public function finish( string $event, HookResult $result, array $args ) : HookResult {
 		return $result->add_data( [
 			'user_id'			=> $result->data['user_id']		?? null,
@@ -14140,7 +14088,7 @@ class SessionBindUser {
 	/**
 	 *  Initialize user binding
 	 */
-	#[Hook( name : 'session.bind_user.init', priority : 1 )]
+	#[Hook( name : 'session.bind_user.init', priority : 100 )]
 	public function init( string $event, HookResult $result, array $args ) : HookResult {
 		$user_id	= $args['user_id']	?? null;
 		$session_id	= $args['session_id']	?? session_id();
@@ -14154,7 +14102,7 @@ class SessionBindUser {
 		] );
 	}
 	
-	#[Hook( name : 'session.bind_user.validate', priority : 5 )]
+	#[Hook( name : 'session.bind_user.validate', priority : 10 )]
 	public function validate( string $event, HookResult $result, array $args ) : HookResult {
 		$flag		= $result->data['flag'] ?? '';
 		if ( $flag ) { return $result; }
@@ -14175,7 +14123,7 @@ class SessionBindUser {
 	}
 	
 	
-	#[Hook( name : 'session.bind_user.update', priority : 10 )]
+	#[Hook( name : 'session.bind_user.update', priority : 5 )]
 	public function update( string $event, HookResult $result, array $args ) : HookResult {
 		$this->dbh->result_exec(
 			sql	: static::SQL['update_session'],
@@ -14189,7 +14137,7 @@ class SessionBindUser {
 		return $result;
 	}
 	
-	#[Hook( name : 'session.bind_user.finish', priority : 100 )]
+	#[Hook( name : 'session.bind_user.finish', priority : 1 )]
 	public function finish( string $event, HookResult $result, array $args ) : HookResult {
 		return $result->add_data( [
 			'bound'		=> true,
@@ -14360,7 +14308,7 @@ class RequestPhase {
 	/**
 	 *  Build usable server data
 	 */
-	#[Hook( name : 'request.init', priority : 5 )]
+	#[Hook( name : 'request.init.raw', priority : 100 )]
 	public function init( string $event, HookResult $result, array $args ) : HookResult {
 		$server		= $_SERVER;
 		
@@ -14425,7 +14373,7 @@ class RequestPhase {
 	/** 
 	 *  Validate current request
 	 */
-	#[Hook( name: 'request.validate', priority : 100 )]
+	#[Hook( name: 'request.init.validate', priority : 90 )]
 	public function validate( string $event, HookResult $result, array $args ) : HookResult {
 		$raw	= $result->data['request_raw'] ?? null;
 		if ( !$raw ) { return $result; }
@@ -14434,7 +14382,7 @@ class RequestPhase {
 		$method		= \strtolower( $raw['method'] ?? '' );
 		$supported	= [ 'get', 'post', 'put', 'delete', 'patch', 'options', 'head' ];
 		if ( !\in_array( $method, $supported, true ) ) {
-			return $result->with_data( [ 'error_code' => 405, 'request_valid' => false ] ] );
+			return $result->with_data( [ 'error_code' => 405, 'request_valid' => false ] );
 		}
 		
 		// Overly long request?
@@ -14466,42 +14414,9 @@ class RequestPhase {
 	}
 	
 	/**
-	 *  Try to resolve static file
-	 */
-	#[Hook( name : 'request.static_probe', priority : 10 )]
-	public function probe( string $event, HookResult $result, array $args ) : HookResult {
-		$norm = $result->data['request_norm'] ?? [];
-		if ( !$norm ) { return $result; }
-		
-		if ( |$norm['request_valid'] ) { return $result; }
-		
-		$uri		= \ltrim( $norm['uri'], '/' );
-		if ( '' === $uri ) { return $result; }
-		
-		$method		= $norm['effective_method'] ?? $norm['method'];
-		
-		// Only GET and HEAD should serve static files
-		if ( !\in_array( $method, [ 'get','head' ], true ) ) { return $result; }
-		
-		// Range allowed?
-		// TODO: Make this config based
-		$range_allowed = true;
-		
-		return $result->add_data( [
-			'request_static'	=> [
-				'method'		=> $method,
-				'uri'			=> $safe_uri,
-				'path_hint'		=> $safe_uri,
-				'is_range_allowed'	=> $range_allowed,
-				'is_candidate'		=> true
-			]
-		] );
-	}
-	
-	/**
 	 *  Parse request data into usable form
 	 */
-	#[Hook(	name : 'request.normalize', priority : 10 )]
+	#[Hook(	name : 'request.init.normalize', priority : 80 )]
 	public function normalize( string $event, HookResult $result, array $args ) : HookResult {
 		$raw	= $result->data['request_raw'] ?? [];
 		if ( empty( $raw ) ) { return $result; }
@@ -14599,7 +14514,7 @@ class RequestPhase {
 	/**
 	 *  Handle forwarded data
 	 */
-	#[Hook( name : 'request.forwarded', priority : 20 )]
+	#[Hook( name : 'request.init.forwarded', priority : 70 )]
 	public function forwarded( string $event, HookResult $result, array $args ) : HookResult {
 		
 		$norm	= $result->data['request_norm'] ?? [];
@@ -14649,7 +14564,7 @@ class RequestPhase {
 	/**
 	 *  Parse sent headers
 	 */
-	#[Hook( name : 'request.headers', priority : 30 )]
+	#[Hook( name : 'request.init.headers', priority : 50 )]
 	public function headers( string $event, HookResult $result, array $args ) : HookResult {
 		
 		$norm = $result->data['request_norm'] ?? [];
@@ -14711,7 +14626,7 @@ class RequestPhase {
 	 *  @example 
 	 *  $flags = [ 'is_firefox' => \str_contains( $ua, 'Firefox' ) ];
 	 */
-	#[Hook( name : 'request.context', priority : 70 )]
+	#[Hook( name : 'request.context', priority : 20 )]
 	public function context( string $event, HookResult $result, array $args ) : HookResult {
 		$norm		= $result->data['request_norm'] ?? [];
 		$headers	= $result->data['request_headers'] ?? [];
@@ -14745,7 +14660,7 @@ class RequestPhase {
 	/**
 	 *  Compile request data to processed form
 	 */
-	#[Hook( name : 'request.finalize', priority : 100 )]
+	#[Hook( name : 'request.finalize', priority : 1 )]
 	public function finalize( string $event, HookResult $result, array $args ) : HookResult {
 		$raw		= $result->data['request_raw']		?? [];
 		$norm		= $result->data['request_norm']		?? [];
@@ -14797,7 +14712,7 @@ class RequestPhase {
 			
 			// Context
 			context			: $context
-		] );
+		);
 		
 		return $result->add_data( [ 'request' => $request ] );
 	}
@@ -15034,9 +14949,42 @@ class StaticResponseConfig {
 	}
 	
 	/**
+	 *  Try to resolve static file
+	 */
+	#[Hook( name : 'request.static.probe', priority : 100 )]
+	public function probe( string $event, HookResult $result, array $args ) : HookResult {
+		$norm = $result->data['request_norm'] ?? [];
+		if ( !$norm ) { return $result; }
+		
+		if ( !$norm['request_valid'] ) { return $result; }
+		
+		$uri		= \ltrim( $norm['uri'], '/' );
+		if ( '' === $uri ) { return $result; }
+		
+		$method		= $norm['effective_method'] ?? $norm['method'];
+		
+		// Only GET and HEAD should serve static files
+		if ( !\in_array( $method, [ 'get','head' ], true ) ) { return $result; }
+		
+		// Range allowed?
+		// TODO: Make this config based
+		$range_allowed = true;
+		
+		return $result->add_data( [
+			'request_static'	=> [
+				'method'		=> $method,
+				'uri'			=> $safe_uri,
+				'path_hint'		=> $safe_uri,
+				'is_range_allowed'	=> $range_allowed,
+				'is_candidate'		=> true
+			]
+		] );
+	}
+	
+	/**
 	 *  Check for file on disk
 	 */
-	#[Hook( name : 'static.resolve', priority : 20 )]
+	#[Hook( name : 'request.static.resolve', priority : 90 )]
 	public function resolve( string $event, HookResult $result, array $args ) : HookResult {
 		$probe = $result->data['request_static'] ?? null;
 		if ( !$probe ) { return $result; }
@@ -15082,7 +15030,7 @@ class StaticResponseConfig {
 	/**
 	 *  TODO: Permissions checks
 	 */
-	#[Hook( name : 'static.authorize', priority : 30 )]
+	#[Hook( name : 'request.authorize', priority : 80 )]
 	public function authorize( string $event, HookResult $result, array $args ) : HookResult {
 		
 		$probe = $result->data['request_static'] ?? null;
@@ -15105,7 +15053,7 @@ class StaticResponseConfig {
 	/**
 	 *  Generate static file metadata
 	 */
-	#[Hook( name : 'static.meta', priority : 40 )]
+	#[Hook( name : 'request.static.meta', priority : 70 )]
 	public function metadata( string $event, HookResult $result, array $args ) : HookResult {
 		$probe = $result->data['request_static'] ?? null;
 		if ( !$probe ) { return $result; }
@@ -15145,7 +15093,7 @@ class StaticResponseConfig {
 	/**
 	 *  TODO: Cached static web
 	 */
-	#[Hook( name : 'static.cache', priority : 50 )]
+	#[Hook( name : 'request.static.cache', priority : 60 )]
 	public function cache( string $event, HookResult $result, array $args ) : HookResult {
 		$probe	= $result->data['request_static'] ?? null;
 		if ( !$probe ) { return $result; }
@@ -15174,7 +15122,7 @@ class StaticResponseConfig {
 	/**
 	 *  Intercept on not-modified
 	 */
-	#[Hook( name : 'static.not_modified', priority : 60 )]
+	#[Hook( name : 'request.static.not_modified', priority : 50 )]
 	public function not_modified( string $event, HookResult $result, array $args ) : HookResult {
 		$meta		= $result->data['static_meta']		?? null;
 		if ( !$meta ) { return $result; }
@@ -15203,7 +15151,7 @@ class StaticResponseConfig {
 	/**
 	 *  Ranged request
 	 */
-	#[Hook( name : 'static.range', priority : 70 )]
+	#[Hook( name : 'request.static.range', priority : 40 )]
 	public function range( string $event, HookResult $result, array $args ) : HookResult {
 		$probe		= $result->data['request_static']	?? null;
 		if ( !$probe ) { return $result; }
@@ -15240,7 +15188,7 @@ class StaticResponseConfig {
 					'path'		=> $path,
 					'ranges'	=> null,
 					'download'	=> false
-			] );
+			] ] );
 		}
 		
 		return $result->add_data( [ 'static_ranges' => $ranges ] );
@@ -15249,7 +15197,7 @@ class StaticResponseConfig {
 	/**
 	 *  File-specific headers
 	 */
-	#[Hook( name : 'static.headers', priority : 80 )]
+	#[Hook( name : 'request.static.headers', priority : 30 )]
 	public function headers( string $event, HookResult $result, array $args ) : HookResult {
 		$probe		= $result->data['request_static']	?? null;
 		if ( !$probe ) { return $result; }
@@ -15271,7 +15219,7 @@ class StaticResponseConfig {
 	/**
 	 *  Combine parameters from Request to appropriate Response
 	 */
-	#[Hook( name : 'static.serve', priority : 90 )]
+	#[Hook( name : 'request.static.serve', priority : 20 )]
 	public function serve( string $event, HookResult $result, array $args ) : HookResult {
 		$path		= $result->data['static_resolved']	?? null;
 		$meta		= $result->data['static_meta']		?? null;
@@ -15297,7 +15245,7 @@ class StaticResponseConfig {
 	/**
 	 *  Finish and serve static content, if found
 	 */
-	#[Hook( name : 'static.finalize', priority : 100 )]
+	#[Hook( name : 'request.static.finalize', priority : 1 )]
 	public function finalize( string $event, HookResult $result, array $args ) : HookResult {
 		$ready = $result->data['static_ready'] ?? null;
 		if ( !$data ) { return $result; }
@@ -15475,12 +15423,27 @@ class ResponseConfig {
 		// Start with preamble headers
 		$headers	= $result->data['preamble_headers'] ?? [];
 		
-		// Merge any error-specific headers
+		// Override common page headers with more restrictive defaults
 		$headers	= 
-		\array_merge(
-			$headers,
-			$result->data['error_headers'] ?? []
-		);
+		\array_merge( $headers, [
+				'X-Frame-Options'		=> 'SAMEORIGIN',
+				'X-Content-Type-Options'	=> 'nosniff',
+				'Referrer-Policy'		=> 'strict-origin-when-cross-origin',
+				'X-XSS-Protection'		=> '1; mode=block',
+				
+				'Content-Security-Policy'	=> 
+				"default-src 'none';img-src 'self';base-uri 'self';style-src 'self';script-src 'self';" . 
+				"font-src 'self';form-action 'self';frame-ancestors 'self' ;frame-src 'self';media-src 'self';" . 
+				"connect-src 'self';worker-src 'self';child-src 'self';require-trusted-types-for 'script'",
+				
+				'Permissions-Policy'		=> 
+				'accelerometer=(none), camera=(none), fullscreen=(self), geolocation=(none), ' . 
+				'gyroscope=(none), interest-cohort=(), payment=(none), usb=(none), ' . 
+				'microphone=(none), magnetometer=(none)'
+		] );
+		
+		// Merge any error-specific headers
+		$headers	=  \array_merge(  $headers, $result->data['error_headers'] ?? [] );
 		
 		// Gzip flag ( finalize will apply )
 		$use_gzip	= \extension_loaded( 'zlib' ) && ( 304 != $status && 400 != status );
@@ -15499,7 +15462,7 @@ class ResponseConfig {
 	/**
 	 *  Page security policy shared header builder
 	 */
-	#[Hook( name : 'response.preamble', priority : 50 )]
+	#[Hook( name : 'response.preamble', priority : 100 )]
 	public function preamble( string $event, HookResult $result, array $args ) : HookResult {
 		
 		// Load Content Security Policy config
@@ -15554,7 +15517,7 @@ class ResponseConfig {
 	/**
 	 *  OPTIONS header response hook
 	 */
-	#[Hook( name : 'response.options', priority : 40 )]
+	#[Hook( name : 'response.options', priority : 80 )]
 	public function options( string $event, HookResult $result, array $args ) : HookResult {
 		$request	= $result->data['request']	?? null;
 		
@@ -15586,7 +15549,7 @@ class ResponseConfig {
 	/**
 	 *  Accumulate headers, content, and prepare for output
 	 */
-	#[Hook( name : 'response.page', priority : 100 )]
+	#[Hook( name : 'response.page', priority : 30 )]
 	public function page( string $event, HookResult $result, array $args ) : HookResult {
 		$request	= $result->data['request'] ?? null;
 		if ( !$request instanceof Request ) { return $result; }
@@ -15659,10 +15622,6 @@ class ResponseConfig {
 			] );
 		}
 		
-		// Check gzip prerequisites
-		$zlib		= \extension_loaded('zlib');
-		$use_gzip	= ( 304 != $status && $zlib );
-		
 		// Build body
 		$body		= 
 		$has_body 
@@ -15680,7 +15639,6 @@ class ResponseConfig {
 				'is_html'	=> $is_html,
 				'is_cached'	=> $is_cached,
 				'has_body'	=> $has_body,
-				'use_gzip'	=> $use_gzip,
 				'body'		=> $body,
 				'source'	=> 
 				$is_feed 
@@ -15690,7 +15648,7 @@ class ResponseConfig {
 		] );
 	}
 	
-	#[Hook( name : 'response.finalize', priority : 999 )]
+	#[Hook( name : 'response.finalize', priority : 1 )]
 	public function finalize( string $event, HookResult $result, array $args ) : HookResult {
 		$ready		= $result->data['response_ready'] ?? null;
 		if ( !$ready ) { return $result; }
