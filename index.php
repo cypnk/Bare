@@ -5279,6 +5279,34 @@ final class Config extends Instance {
 			default		=> null
 		};
 	}
+	
+	/**
+	 *  Get timezone offset from currently configured timezone 
+	 *  or default to 'America/New_York'
+	 *  
+	 *  @link https://www.php.net/manual/en/timezones.php
+	 *  
+	 *  @return int
+	 */
+	public function tz_offset() : int {
+		static $ot;
+		if ( isset( $ot ) ) { return $ot; }
+		
+		// Timezone from configuration
+		$tz = $this->setting( 'timezone', $this->defaults( 'default_tz' ), 'str' );
+		$dt = new \DateTime( 'now', new \DateTimeZone( 'UTC' ) );
+		try {
+			$dz = new \DateTimeZone( ( string ) $tz );
+			$ot = $dz->getOffset( $dt );
+			
+		} catch( \Exception $e ) { // Default fallback
+			$dz = new \DateTimeZone( $this->defaults( 'default_tz' ) );
+			$ot = $dz->getOffset( $dt );
+		}
+		
+		$ot = ( false === $ot ) ? 0 : $ot;
+		return $ot;
+	}
 }
 
 
@@ -8764,7 +8792,7 @@ final class Router extends Instance {
 		$uri	= \rtrim( $request->uri, '/' ) ?: '/';
 		
 		$result	= $this->handle_request( $method, $uri ) ?? null;
-		// TODO: Do something with hook result, if present
+		if ( null !== $result ) { return; }
 		
 		// Fallback run not found
 		$registry->run( 'error.not_found', false, [ 'uri' => $uri ] );
@@ -14421,11 +14449,17 @@ class RequestPhase {
 			return $result->with_data( [ 'error_code' => 400, 'request_valid' => false ] );
 		}
 		
+		// Invalid host?
+		$host	= $raw['host'] ?? '';
+		if ( '' === Sanitize::host( $host ) ) {
+			return $result->with_data( [ 'error_code' => 400, 'request_valid' => false ] );
+		}
+		
 		// Folder nesting limits
 		$folder_limit	= $this->config->setting( 'folder_limit', 15, 'int' );
 		$segments	= \array_filter( \explode( '/', \trim( $uri, '/' ) ) );
 		if ( count( $segments ) > $folder_limit ) {
-			return $result->with_data( [ 'error_code' => 400, 'request_valid' => true ] );
+			return $result->with_data( [ 'error_code' => 400, 'request_valid' => false ] );
 		}
 		
 		return $result->with_data( [ 'request_valid' => true ] );
@@ -14525,7 +14559,7 @@ class RequestPhase {
 		// Normalize URL
 		$qstring	= 
 		\is_array( $params )
-			? Util::array_to_query($params)
+			? Util::array_to_query( $params )
 			: ( string ) $query;
 		
 		$url		= $origin . $uri . ( $qstring ? "?{$qstring}" : '' );
@@ -14536,10 +14570,14 @@ class RequestPhase {
 		// Remote user
 		$user		= Sanitize::normalize( $raw['user'] ?? 'system' );
 		
+		// Validation result
+		$is_valid		= ( bool ) ( $result->data['request_valid'] ?? false );
+		
 		// Store normalized request data
 		return $result->add_data( [
 			'request_norm' => [
 				'server'		=> $raw['server'],
+				'request_valid'		=> $is_valid,
 				'method'		=> $method,
 				'effective_method'	=> $effective,
 				'host'			=> $host,
@@ -15432,7 +15470,7 @@ class ResponseConfig {
 	private function intercept_error( HookResult $result ) : HookResult {
 		$request	= $result->data['request'];
 		$status		= $result->data['error_code'];
-		$content	= $result->data['error_html'];
+		$content	= $result->data['error_html'] ?? null;
 		
 		// Start with preamble headers
 		$headers	= $result->data['preamble_headers'] ?? [];
@@ -15445,13 +15483,13 @@ class ResponseConfig {
 		);
 		
 		// Gzip flag ( finalize will apply )
-		$use_gzip	= \extension_loaded( 'zlib' ) && 304 != $status;
+		$use_gzip	= \extension_loaded( 'zlib' ) && ( 304 != $status && 400 != status );
 		
 		return $result->add_data( [
 			'response_ready'	=> [
 				'status'	=> $status,
 				'headers'	=> $headers,
-				'body'		=> $content,
+				'body'		=> ( 400 != $status ) ? $content : null,
 				'gzip'		=> $use_gzip,
 				'source'	=> 'error'
 			]
@@ -15557,19 +15595,19 @@ class ResponseConfig {
 			return $this->intercept_error( $result );
 		}
 		
+		// Prepare from hook data or on-demand args
 		$status		= $result->data['response_status']	?? $args['status']	?? 200;
 		$content	= $result->data['response_content']	?? $args['content']	?? null;
 		$is_cached	= $result->data['response_is_cached']	?? $args['is_cached']	?? false;
 		
-		$is_feed 	= $args['is_feed']			?? false;
-		$is_xmlrpc	= $args['is_xmlrpc']			?? false;
-		$is_cached	= $args['is_cached']			?? false;
+		$is_feed 	= $result->data['response_is_feed']	?? $args['is_feed']	?? false;
+		$is_xmlrpc	= $result->data['response_is_xmlrpc']	?? $args['is_xmlrpc']	?? false;
 		
 		// Basic flags
 		$is_error	= ( $status >= 400 );
 		$is_json	= \is_array( $content ) || \is_object( $content );
 		$is_html	= 
-		( ( $status >= 200 && $status < 204 )	&&
+		( ( $status >= 200 && $status < 204 && $status !== 400 ) &&
 			!$is_feed 			&& 
 			!$is_xmlrpc			&&
 			\is_string( $content )		&&
@@ -15605,13 +15643,14 @@ class ResponseConfig {
 		}
 		
 		/// Finish and return here, if there's no body
-		if ( !$has_body || ( 204 === $status || 304 === $status ) ) {
+		if ( !$has_body || ( 204 === $status || 304 === $status || 400 === $status ) ) {
 			return $result->add_data( [
 				'response_ready'	=> [
 					'status'	=> $status,
 					'headers'	=> $headers,
 					'is_error'	=> $is_error,
 					'is_html'	=> $is_html,
+					'is_cached'	=> $is_cached,
 					'has_body'	=> $has_body,
 					'use_gzip'	=> false,
 					'body'		=> null,
@@ -15628,7 +15667,7 @@ class ResponseConfig {
 		$body		= 
 		$has_body 
 			?  match( true ) {
-				$is_json	=> Util::json_uencode( $body ),
+				$is_json	=> Util::json_uencode( $body ?? '' ),
 				default		=> $body
 			}
 			: '';
@@ -15639,6 +15678,7 @@ class ResponseConfig {
 				'headers'	=> $headers,
 				'is_error'	=> $is_error,
 				'is_html'	=> $is_html,
+				'is_cached'	=> $is_cached,
 				'has_body'	=> $has_body,
 				'use_gzip'	=> $use_gzip,
 				'body'		=> $body,
@@ -15652,10 +15692,10 @@ class ResponseConfig {
 	
 	#[Hook( name : 'response.finalize', priority : 999 )]
 	public function finalize( string $event, HookResult $result, array $args ) : HookResult {
-		$ready		= $result->data['response_ready']	?? null;
+		$ready		= $result->data['response_ready'] ?? null;
 		if ( !$ready ) { return $result; }
 		
-		$status		= $ready['status']	?? 200;
+		$status		= $ready['status'] ?? 200;
 		
 		// Validate status code
 		if ( $status < 100 || $status > 599 ) {
@@ -15676,11 +15716,7 @@ class ResponseConfig {
 		}
 		
 		// No body for these codes
-		if ( 204 === $status || 304 === $status ) { $body = ''; }
-		
-		// Use gzip, if enabled
-		$use_gzip = $ready['use_gzip'] ?? false;
-		if ( $use_gzip ) { \ob_start('ob_gzhandler'); }
+		if ( 204 === $status || 304 === $status || 400 === $status ) { $body = null; }
 		
 		// Set response with status and headers
 		$response	= 
@@ -16047,7 +16083,7 @@ class Bare {
 	#[Route( pattern : '/{year:int}/{month:int}', method : 'get' )]
 	#[Route( pattern : '/{year:int}/page{page:int}?', method : 'get' )]
 	#[Route( pattern : '/{year:int}', method : 'get' )]
-	public function archive( array $params ) {
+	public function archive( array $params ) : HookResult {
 		[ $start, $end, $page ]	= Util::date_range( $params, true );
 		
 		$dir	= $this->config->setting( 'post_dir', Storage::base() );
@@ -16076,7 +16112,7 @@ class Bare {
 		$result = $this->hooks->run( 'post.render_index', true, [ 'posts' => $result->data['posts'] ] );
 		
 		// Build page wrapper 
-		$this->hooks->run( 'page.render', false, [
+		$wrap	= $this->hooks->run( 'page.render', false, [
 			'html'		=> $result->data['html'] ?? '',
 			'title'		=> $this->archive_title( $start, $end ),
 			'meta_tags'	=> $this->meta_links( $title, $path ),
@@ -16087,15 +16123,16 @@ class Bare {
 			'body_classes'	=> 'page-archive page-' . \strtr( $path, [ '/' => '-' ] )
 		] );
 		
-		// Build final response 
-		$this->hooks->run( 'response.page', false, [ 
-			'status'	=> 200, 
-			'content'	=> $result->data['html'] ?? '' 
+		// Build final response
+		return $this->hooks->run( 'route.handled', true, [ 
+			'response_status'	=> 200, 
+			'response_content'	=> $wrap->data['html'] ?? '',
+			'response_is_cached'	=> true
 		] );
 	}
 	
 	#[Route( pattern : '/{year:int}/{month:int}/{day:int}/{slug:str}', method : 'get' )]
-	public function post( array $params ) {
+	public function post( array $params ) : HookResult {
 		$path	= "{$params['year']}/{$params['month']}{$params['day']}/{$params['slug']}";
 		$result = $this->hooks->run( 'post.lookup', true, [ 'path' => $path ] );
 		$found	= $result->data['post_found'] ?: false;
@@ -16110,7 +16147,7 @@ class Bare {
 		$meta	= $this->get_meta( $post['title'] ?? '', $post['permalink'] ?? '/' );
 		
 		// Render full page
-		$this->hooks->run( 'page.render', false, [
+		$wrap	= $this->hooks->run( 'page.render', false, [
 			'html'		=> $single->data['html'],
 			'title'		=> $poat['title'],
 			'meta_tags'	=> $meta,
@@ -16122,15 +16159,16 @@ class Bare {
 		] );
 		
 		// Response ready
-		$this->hooks->run( 'response.page', true, [
-			'status'	=> 200,
-			'content'	=> $single->data['html']
+		return $this->hooks->run( 'route.handled', true, [ 
+			'response_status'	=> 200, 
+			'response_content'	=> $wrap->data['html'] ?? '',
+			'response_is_cached'	=> true
 		] );
 	}
 	
 	#[Route( pattern : '/tags/{tag:str}/page{page:int}?', method : 'get' )]
 	#[Route( pattern : '/tags/{tag:str}', method : 'get' )]
-	public function tags( array $params ) {
+	public function tags( array $params ) : HookResult {
 		$tag	= $params['tag'] ?? '';
 		if ( empty( $tag ) ) {
 			return $this->run_404( '/tags', 'No tags found' ); 
@@ -16150,10 +16188,9 @@ class Bare {
 		
 		$title	= "Tag {$tag}";
 		$path	= $page > 1 ? "/tags/{$tag}/page{$page}" : "/tags/{$tag}";
-		$result = $this->hooks->run( 'post.render_index', true, [ 'posts' => $result->data['posts'] ] );
-		
-		$this->hooks->run( 'page.render', false, [
-			'html'		=> $result->data['html'] ?? '',
+		$index	= $this->hooks->run( 'post.render_index', true, [ 'posts' => $result->data['posts'] ] );
+		$wrap	= $this->hooks->run( 'page.render', false, [
+			'html'		=> $index->data['html'] ?? '',
 			'title'		=> $title,
 			'meta_tags'	=> $this->meta_links( $title, $path ),
 			'head_links'	=> $this->head_links(),
@@ -16163,139 +16200,56 @@ class Bare {
 			'body_classes'	=> 'page-archive page-' . \strtr( $path, [ '/' => '-' ] )
 		] );
 		
-		$this->hooks->run( 'response.page', false, [ 
-			'status'	=> 200, 
-			'content'	=> $result->data['html'] ?? '' 
+		return $this->hooks->run( 'route.handled', true, [ 
+			'response_status'	=> 200, 
+			'response_content'	=> $wrap->data['html'] ?? '',
+			'response_is_cached'	=> true
 		] );
 	}
 	
 	#[Route( pattern : '/feed', method : 'get')]
-	public function feed( array $params ) {
+	public function feed( array $params ) : HookResult {
 		// TODO: Search archive
-		
-		die( 'Bare feed' );
+		return $this->hooks->run( 'route.handled', true, [ 
+			'response_status'	=> 200, 
+			'response_content'	=> 'Bare feed',
+			'response_is_cached'	=> true
+		] );
 	}
 	
 	#[Route( pattern : '/about/{tree:str}?', method : 'get' )]
-	public function about( array $params ) {
+	public function about( array $params ) : HookResult {
 		// TODO: About page etc...
-		
-		die( 'Bare about' );
+		return $this->hooks->run( 'route.handled', true, [ 
+			'response_status'	=> 200, 
+			'response_content'	=> 'Bare about',
+			'response_is_cached'	=> true
+		] );
 	}
 	
 	#[Route( pattern : '/?find={find:str}/page{page:int}?', method : 'get')]
 	#[Route( pattern : '/?find={find:str}', method : 'get')]
-	public function search( array $params ) {
+	public function search( array $params ) : HookResult {
 		// TODO: Search archive
+		return $this->hooks->run( 'route.handled', true, [ 
+			'response_status'	=> 200, 
+			'response_content'	=> 'Bare feed',
+			'response_is_cached'	=> true
+		] );
 		
 		die( 'Bare search' );
 	}
 	
 	#[Route( pattern : '/page{page:page}?', method : 'get' )]
 	#[Route( pattern : '/', method : 'get' )]
-	public function index( array $params ) {
-		// TODO: Index
-		
-		die( 'Bare index' );
+	public function index( array $params ) : HookResult {
+		// TODO: Homepage
+		return $this->hooks->run( 'route.handled', true, [ 
+			'response_status'	=> 200, 
+			'response_content'	=> 'Bare index',
+			'response_is_cached'	=> true
+		] );
 	}
-}
-
-
-/**
- *  Application
- */
-
-
-
-/**
- *  Get timezone offset from currently configured timezone 
- *  or default to 'America/New_York'
- *  
- *  @link https://www.php.net/manual/en/timezones.php
- *  
- *  @return int
- */
-function timeZoneOffset() : int {
-	static $ot;
-	if ( isset( $ot ) ) {
-		return $ot;
-	}
-	
-	// Timezone from configuration
-	$tz = config( 'timezone', config_default_tz() );
-	$dt = new \DateTime( 'now', new \DateTimeZone( 'UTC' ) );
-	try {
-		$dz = new \DateTimeZone( $tz );
-		$ot = $dz->getOffset( $dt );
-		
-	} catch( \Exception $e ) { // Default fallback
-		shutdown( 'logError', 'Invalid timezone set ' . $tz );
-		$dz = new \DateTimeZone( config_default_tz() );
-		$ot = $dz->getOffset( $dt );
-	}
-	
-	$ot = ( false === $ot ) ? 0 : $ot;
-	return $ot;
-}
-
-/**
- *  Show search results ( This page isn't cached )
- */
-function showSearch( string $event, array $hook, array $params ) {
-	if ( internalState( 'prepareIndex' ) ) {
-		loadIndex();
-	}
-	
-	$find	= Language::instance()->search_phrase( $params['find'] ?? '' );
-	if ( empty( $find ) ) {
-		sendNotFound();
-	}
-	
-	$prefix = searchPagePath( $params );
-	$page	= ( int ) ( $params['page'] ?? 1 );
-	
-	// Pagination prep
-	$plimit	= setting( 'page_limit', \PAGE_LIMIT, 'int' );
-	$start	= ( $page - 1 ) * $plimit;
-	
-	$res	= 
-	db_result_exec( 
-		"SELECT DISTINCT post_view FROM (
-			SELECT 
-			posts.post_view AS post_view, 
-			posts.post_summary AS post_summary, 
-			posts.post_type AS post_type, 
-			matchinfo(post_search) AS rel
-			FROM post_search 
-			LEFT JOIN posts ON post_search.docid = posts.id 
-			WHERE post_search MATCH :find
-			ORDER BY rel DESC
-			LIMIT :limit OFFSET :offset
-		) GROUP BY post_view;", 
-		'bare',
-		[ 
-			':find'		=> $find,
-			':limit'	=> $plimit,
-			':offset'	=> $start
-		]
-	);
-	
-	// Send to render hook
-	hook( [ 'searchrender', [ 
-		'prefix'	=> $prefix,
-		'find'		=> $find,
-		'limit'		=> $plimit,
-		'start'		=> $start,
-		'page'		=> $page,
-		'date'		=> [],
-		'results'	=> $res
-	] ] );
-	
-	// Send result if hook returned content
-	sendOverride( 'searchrender' );
-	
-	// Display search
-	formatIndex( $prefix, $page, collectBody( $res ) );
 }
 
 // Start application
