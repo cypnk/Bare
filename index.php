@@ -6219,7 +6219,7 @@ class HookLoader {
 		$this->classes[$class]	= true;
 		
 		// Scan for hooks
-		$this->from_ref_class( $ref  );
+		$this->from_ref_class( $ref );
 	}
 	
 	/**
@@ -8732,11 +8732,12 @@ final class Router extends Instance {
 	 *  Configure session and cookie settings
 	 */
 	public function session_dispatch( HookRegistry $registry ) : void {
-		$registry->run( 'session.init' );
-		$registry->run( 'session.lifecycle' );
-		$registry->run( 'session.cookie' );
-		
-		$registry->run( 'request.authorize' );
+		$registry->run( 'session.cookie.config' );
+		$registry->run( 'session.handler.register', true );
+		$registry->run( 'session.start', true );
+		$registry->run( 'session.validate', true );
+		$registry->run( 'request.authorize', true );
+		$registry->run( 'session.cookie_write', true );
 	}
 	
 	/**
@@ -8780,19 +8781,19 @@ final class Router extends Instance {
 			return;
 		}
 		
-		// Static file check
-		$registry->run( 'request.static' );
-		if ( !empty( $registry->values( 'response_ready' ) ) ) {
-			$registry->run( 'response' );
-			return;
-		}
-		
 		// Other request stages
 		$registry->run( 'request.context' );
 		$registry->run( 'request.finalize', true );
 		
 		// Sessions
 		$this->session_dispatch( $registry );
+		if ( !empty( $registry->values( 'response_ready' ) ) ) {
+			$registry->run( 'response' );
+			return;
+		}
+		
+		// Static file check
+		$registry->run( 'request.static' );
 		if ( !empty( $registry->values( 'response_ready' ) ) ) {
 			$registry->run( 'response' );
 			return;
@@ -9965,40 +9966,43 @@ final class Database extends Instance {
 
 
 /**
- *  @class Session management
+ *  @class Session management hook runner
  */
-class Sessions extends Instance {
+class Sessions {
 	
 	/**
 	 *  Session constructor
 	 *  
-	 *  @param Config	$config		Main configuration
-	 *  @param Log		$logger		Status logger
-	 *  @param Database	$dbh		Persistent storage
-	 *  @param Request	$request	Current client HTTP request
+	 *  @param HookRegistry		$hooks	Event runner
 	 */
-	public function __construct(
-		public readonly	Config		$config,
-		public readonly	Log		$logger,
-		public readonly	Database	$dbh,
-		public readonly	Request		$request
-	) {}
+	public function __construct( private readonly HookRegistry $hooks ) {}
 	
-	public static function create( ?Container $container = null ) : static {
-		$container	??= Container::instance();
-		$logger		= $container->get( Log::class );
-		$config		= $container->get( Config::class );
-		$request	= $container->get( Request::class );
-		$dbh		= $container->get( Database::class );
+	/**
+	 *  Run open hook
+	 *  
+	 *  @param string	$save_path 	Saving location
+	 *  @param string	$session_name	Current session label
+	 */
+	public function open( $save_path, $session_name ) { 
+		$result	= 
+		$this->hooks->run( 'session.open', true, [ 
+			'save_path'	=> $save_path, 
+			'session_name'	=> $session_name
+		] );
+		if ( !$result ) { return false; }
 		
-		return new static( $config, $logger, $data, $request );
+		return ( bool ) ( $result->data['session_opened'] ?? false ); 
 	}
 	
 	/**
-	 *  Does nothing
+	 *  Run close hook
 	 */
-	public function open( $save_path, $session_name ) { return true; }
-	public function close() { return true; }
+	public function close() {
+		$result	= $this->hooks->run( 'session.close', true );
+		if ( !$result ) { return false; }
+		
+		return ( bool ) ( $result->data['session_closed'] ?? false ); 
+	}
 	
 	/**
 	 *  Create session ID
@@ -10014,7 +10018,11 @@ class Sessions extends Instance {
 	 *  @return bool
 	 */
 	public function validate_id( $session_id ) {
-		return \preg_match( '/^[a-f0-9]{64}$/', $session_id ) === 1;
+		$result	= 
+		$this->hooks->run( 'session.id.validate', true, [ 'session_id' => $session_id ] );
+		if ( !$result ) { return false; }
+		
+		return ( bool ) ( $result->data['session_id_valid'] ?? false );
 	}
 	
 	/**
@@ -10024,19 +10032,11 @@ class Sessions extends Instance {
 	 *  @return string
 	 */
 	public function read( $session_id ) {
-		$db	= $this->dbh->get( 'sessions' );
-		$stmt	= 
-		$db->prepare(
-		"SELECT session_data FROM sessions
-			WHERE session_id = :id
-			AND ( expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP )
-			LIMIT 1"
-		);
+		$result	= 
+		$this->hooks->run( 'session.read', true, [ 'session_id' => $session_id ] );
+		if ( !$result ) { return ''; }
 		
-		$stmt->execute( [ ':id' => $session_id ] );
-		$row	= $stmt->fetch( \PDO::FETCH_ASSOC );
-		
-		return $row ? $row['session_data'] : '';
+		return ( string ) ( $result->data['session_data'] ?? '' );
 	}
 	
 	/**
@@ -10047,35 +10047,14 @@ class Sessions extends Instance {
 	 *  @return bool
 	 */
 	public function write( $session_id, $data ) {
-		$db	= $this->dbh->get( 'sessions' );
+		$result	= 
+		$this->hooks->run( 'session.write', true, [ 
+			'session_id' 	=> $session_id, 
+			'session_data'	=> $data
+		] );
+		if ( !$result ) { return false; }
 		
-		return $this->dbh->with_transaction( 
-				$db, function( \PDO $dbh ) 
-					use ( $session_id, $data ) {
-			$stmt	= 
-			$dbh->prepare(
-				"INSERT INTO sessions (
-					basename, session_id, user_id, session_ip,
-					session_data, expires_at
-				)
-				VALUES (
-					:basename, :id, :uid, :ip, :data,
-						DATETIME( 'now', '+1 hour' )
-				) ON CONFLICT( basename, session_id )
-				DO UPDATE SET
-					session_data	= excluded.session_data,
-					session_ip	= excluded.session_ip,
-					expires_at	= excluded.expires_at"
-			);
-			
-			return $stmt->execute( [
-				':basename'	=> $this->request->host_ascii,
-				':id'		=> $session_id,
-				':uid'		=> $_SESSION['user']['user_id'] ?? null,
-				':ip'		=> $this->request->ip( true ),
-				':data'		=> $data
-			] );
-		} );
+		return ( bool ) ( $result->data['session_write'] ?? false );
 	}
 	
 	/**
@@ -10085,15 +10064,11 @@ class Sessions extends Instance {
 	 *  @return bool
 	 */
 	public function destroy( $session_id ) {
-		$db	= $this->dbh->get( 'sessions' );
-		return $this->dbh->with_transaction( 
-				$db, function( \PDO $dbh ) 
-					use ( $session_id ) {
-			$stmt	=
-			$dbh->prepare( "DELETE FROM sessions WHERE session_id = :id" );
-			
-			return $stmt->execute( [ ':id' => $session_id ] );
-		} );
+		$result	= 
+		$this->hooks->run( 'session.destroy', true, [ 'session_id' => $session_id ] );
+		if ( !$result ) { return false; }
+		
+		return ( bool ) ( $result->data['session_destroyed'] ?? false );
 	}
 	
 	/**
@@ -10103,15 +10078,11 @@ class Sessions extends Instance {
 	 *  @return bool
 	 */
 	public function gc( $maxlifetime ) {
-		$db	= $this->dbh->get( 'sessions' );
+		$result	= 
+		$this->hooks->run( 'session.gc', true, [ 'maxlifetime' => $maxlifetime ] );
+		if ( !$result ) { return false; }
 		
-		return $this->dbh->with_transaction( $db, function( \PDO $dbh ) {
-			return $dbh->exec(
-				"DELETE FROM sessions
-					WHERE expires_at IS NOT NULL
-					AND expires_at <= CURRENT_TIMESTAMP"
-			);
-		} );
+		return ( bool ) ( $result->data['session_gc'] ?? false );
 	}
 	
 	/**
@@ -10121,87 +10092,14 @@ class Sessions extends Instance {
 	 *  @return bool
 	 */
 	public function update_timestamp( $session_id, $data ) {
-		$db	= $this->dbh->get( 'sessions' );
-		$exp	= $this->dbh->ttl_sql( $db, 3600 );
-		$sql	= 
-		"UPDATE sessions
-			SET expires_at = {expires}, 
-			data = :data
-			WHERE session_id = :id";
-			
-		return $this->dbh->with_transaction( 
-				$db, function( \PDO $dbh ) 
-					use ( $session_id, $data, $exp, $sql ) {
-			$stmt	=
-			$dbh->prepare( \strtr( $sql, [ '{expires}' => $exp ] ) );
-			
-			return $stmt->execute( [ 
-				':id'	=> $session_id, 
-				':data'	=> $data
-			] );
-		} );
-	}
-	
-	/**
-	 *  Turn off all session activity
-	 */
-	public function off() : void {
-		if ( \session_status() === \PHP_SESSION_ACTIVE ) {
-			\session_unset();
-			\session_destroy();
-			\session_write_close();
-		}
-	}
-	
-	/**
-	 *  Set session handler functions and initiate
-	 */
-	public function init() : void {
-		static $start;
-		
-		$start	??= 
-		\session_set_save_handler( 
-			[ $this, 'open' ], 
-			[ $this, 'close' ], 
-			[ $this, 'read' ], 
-			[ $this, 'write' ], 
-			[ $this, 'destroy' ], 
-			[ $this, 'gc' ], 
-			[ $this, 'create_id' ], 
-			[ $this, 'validate_id' ], 
-			[ $this, 'update_timestamp' ] 
-		);
-		
-		if ( \session_status() === \PHP_SESSION_NONE ) {
-			if ( \headers_sent( $file, $line ) ) {
-				$this->logger->error( 
-					"Cannot start session: headers already sent by {$file} on line {$line}"
-				);
-				
-				throw new 
-				\RuntimeException( "Session start failed due to headers already sent" );
-			}
-			
-			try {
-				if ( !\session_start() ) { // Something else went wrong
-					$this->logger->error( "Session failed to start" );
-					
-					throw new 
-					\RuntimeException( "Session start failed" );
-				}
-				
-				$this->logger->debug( "Session started: " . \session_id() );
-				
-			} catch ( \Throwable $e ) {
-				$this->logger->error( "Session error: {$e->getMessage()}" );
-				Errors::end_page( 500 );
-			}
-		}
-		
-		// Run refresh hook
-		$this->hooks->run( 'session.refresh', true, [
-			'basename'	=> $this->basename
+		$result	= 
+		$this->hooks->run( 'session.touch', true, [ 
+			'session_id'	=> $session_id, 
+			'session_data'	=> $data 
 		] );
+		if ( !$result ) { return false; }
+		
+		return ( bool ) ( $result->data['session_touched'] ?? false );
 	}
 }
 
@@ -10216,23 +10114,20 @@ class Forms extends Instance {
 	/**
 	 *  Form base constructor
 	 *  
-	 *  @param Sessions	Current user session
 	 *  @param Config	Configuration settings
 	 *  @param Log		Event logger
 	 */
 	public function __construct( 
 		public readonly Config		$config,
 		public readonly Logger		$logger,
-		public readonly Sessions	$session
 	) {}
 
 	public static function create( ?Container $container = null ) : static {
 		$container	??= Container::instance();
 		$logger		= $container->get( Logger::class );
 		$config		= $container->get( Config::class );
-		$sessions	= $container->get( Sessions::class );
 		
-		return new static( $config, $logger, $sessions );
+		return new static( $config, $logger );
 	}
 	
 	/**
@@ -10247,7 +10142,6 @@ class Forms extends Instance {
 			return $this->keys[$form_name]; 
 		}
 		
-		$this->session->init();
 		$phrase		= 
 		$use_id 
 			? $form_name . \session_id()
@@ -12948,12 +12842,133 @@ class PostImporting {
 
 
 /**
+ *  @class Register session activity with PHP handler
+ */
+#[HookHandler]
+class SessionRegister {
+	
+	public function __construct( private readonly Log $logger ) {}
+	
+	/**
+	 *  Set session handler functions
+	 */
+	#[Hook( name : 'session.handler.register', priority: 100 )]
+	public function register_handler( string $event, HookResult $result, array $args ): HookResult {
+		static $registered;
+		
+		if ( $registered ) {
+			return $result->with_data( [ 'session_handler_ready' => true ] );
+		}
+		
+		$handler	= Container::instance()->get( Sessions::class );
+		$registered	= 
+		\session_set_save_handler( 
+			[ $handler, 'open' ], 
+			[ $handler, 'close' ], 
+			[ $handler, 'read' ], 
+			[ $handler, 'write' ], 
+			[ $handler, 'destroy' ], 
+			[ $handler, 'gc' ], 
+			[ $handler, 'create_id' ], 
+			[ $handler, 'validate_id' ], 
+			[ $handler, 'update_timestamp' ] 
+		);
+		if ( $registered ) {
+			return $result->with_data( [ 'session_handler_ready' => true ] );
+		}
+		
+		return $result
+			->add_error( 'Failed to register session handler from Sessions class' )
+			->with_data( [ 'session_handler_ready' => false ] );
+	}
+	
+	#[Hook( name : 'session.open', priority : 1 )]
+	public function session_open( string $event, HookResult $result, array $args ) : HookResult {
+		return $result->with_data( [ 'session_opened' => true ] );
+	}
+	
+	#[Hook( name : 'session.close', priority : 1 )]
+	public function session_close( string $event, HookResult $result, array $args ) : HookResult {
+		return $result->with_data( [ 'session_closed' => true ] );
+	}
+	
+	#[Hook( name : 'session.id.validate', priority : 1 )]
+	public function session_id_validate( string $event, HookResult $result, array $args ) : HookResult {
+		$session_id = $result->data['session_id'] ?? ( $args['session_id'] ?? '' );
+		if ( empty( $session_id ) || \is_array( $session_id ) ) {
+			return $result->with_data( [ 'session_id_valid' => false ] );
+		}
+		
+		$valid = \preg_match( '/^[a-f0-9]{64}$/', ( string ) $session_id ) === 1;
+		return $result->with_data( [ 'session_id_valid' => $valid ] );
+	}
+	
+	#[Hook( name : 'session.start', priority : 90 )]
+	public function init( string $event, HookResult $result, array $args ) : HookResult {
+		$name	= $result->data['cookie_name'] ?? ( $args['cookie_name'] ?? null );
+		if ( null === $name ) { return $result->add_error( 'Session initialization called without cookie name' ); }
+		
+		if ( \session_status() === \PHP_SESSION_NONE ) {
+			if ( \headers_sent( $file, $line ) ) {
+				$msg	= 
+				"Cannot start session: headers already sent by {$file} on line {$line}";
+				
+				$this->logger->error( $msg );
+				return $result
+					->add_error( $msg )
+					->with_data( [ 'session_ready' => false ] );
+			}
+			
+			try {
+				if ( !\session_start( [ 
+					'name'		=> $name,
+					'lazy_write'	=> 1
+				] ) ) { // Something else went wrong
+					$msg	= "Session failed to start";
+					$this->logger->error( $msg );
+					return $result->add_error( $msg );
+				}
+				
+				$this->logger->debug( "Session started: " . \session_id() );
+				
+			} catch ( \Throwable $e ) {
+				$msg	= 
+				"Session error: {$e->getMessage()}";
+				
+				$this->logger->error( $msg );
+				return $result
+					->add_error( $msg )
+					->with_data( [ 'session_ready' => false ] );
+			}
+		}
+		
+		return $result->with_data( [ 'session_ready' => true ] );
+	}
+}
+
+
+/**
  *  @class Session cookie base settings
  */
 #[HookHandler]
-class SessionConfig {
+class SessionCookie {
 	
-	public function __construct( private readonly Config  $config ) {}
+	public function __construct( 
+		private readonly	Config		$config,
+		private readonly	Database	$dbh,
+		private readonly	HookRegistry	$registry
+	) {}
+	
+	private function get_request( HookResult $result ) : Request {
+		$request	= 
+		$result->data['request']		?? 
+			$this->registry->values( 'request' );
+		
+		if ( !$request instanceof Request ) {
+			$request = Container::instance()->get( Request::class );
+		}
+		return $request;
+	}
 	
 	#[Hook( name : 'session.cookie.config', priority : 100 )]
 	public function config( string $event, HookResult $result, array $args ) : HookResult {
@@ -13005,8 +13020,8 @@ class SessionConfig {
 		] );
 	}
 	
-	#[Hook( name : 'session.cookie.init', priority : 80 )]
-	public function init( string $event, HookResult $result, array $args ) : HookResult {
+	#[Hook( name : 'session.cookie_read', priority : 1 )]
+	public function cookie_init( string $event, HookResult $result, array $args ) : HookResult {
 		// Resolve cookie name
 		$name	= 
 		$args['cookie_name'] ?? ( 
@@ -13020,18 +13035,14 @@ class SessionConfig {
 		// Normalize session ID
 		$session_id = null;
 		if ( $raw && \is_string( $raw ) ) {
-			if ( \preg_match( '/^[A-Za-z0-9,-]{16,}$/', $raw ) ) {
-				$session_id = $raw;
-			}
+			$session_id = $raw;
 		}
-		
-		$request	= $result->data['request'] ?? null;
 		
 		// Resolve basename ( ASCII host )
 		$basename	=
 		$args['basename'] ?? ( 
 			$result->data['basename'] ?? 
-			( $request ? $request->host_ascii : '' )
+			$this->get_request( $result )->host_ascii
 		);
 		
 		// Populate pipeline
@@ -13041,12 +13052,11 @@ class SessionConfig {
 			'cookie_domain'	=> $domain,
 			'basename'	=> $basename,
 			'cookie_raw'	=> $raw,
-			'session_id'	=> $session_id,
-			'cookie_valid'	=> ( null !== $session_id )
+			'session_id'	=> $session_id
 		]);
 	}
 	
-	#[Hook( name : 'session.cookie.set', priority : 50 )]
+	#[Hook( name : 'session.cookie_write', priority : 1 )]
 	public function set( string $event, HookResult $result, array $args ) : HookResult {
 		// Resolve cookie name
 		$name		=
@@ -13054,8 +13064,8 @@ class SessionConfig {
 			$args['cookie_name'] ?? 
 			$this->config->setting( 'cookie_name', 'SID' )
 		);
-		$request	= $result->data['request'] ?? null;
-		if ( !$request ) { return $result; }
+		
+		$request	= $this->get_request( $result );
 		
 		// Resolve cookie parameters ( from cookie.config )
 		$path		= $result->data['cookie_path']		?? '/';
@@ -13066,10 +13076,10 @@ class SessionConfig {
 		
 		// Check session ID to write
 		$session_id	= $result->data['session_id'] ?? null;
-
+		
 		// Check if lifecycle marked session invalid
 		$invalid	= $result->data['session_invalid'] ?? false;
-
+		
 		// If invalid, delete cookie
 		if ( $invalid ) {
 			\setcookie( $name, '', [
@@ -13098,7 +13108,7 @@ class SessionConfig {
 		// Write the custom session cookie 
 		\setcookie(
 			$name,
-			$session_d,
+			$session_id,
 			[
 				'expires'	=> $result->data['expires_at'] ?? 0,
 				'path'		=> $path,
@@ -13115,7 +13125,7 @@ class SessionConfig {
 		] );
 	}
 	
-	#[Hook( name : 'session.delete.cookie', priority : 60 )]
+	#[Hook( name : 'session.cookie_delete', priority : 1 )]
 	public function remove( string $event, HookResult $result, array $args ) : HookResult {
 		// Resolve cookie name
 		$name =
@@ -13124,10 +13134,12 @@ class SessionConfig {
 			$this->config->setting( 'cookie_name', 'SID' )
 		);
 		
+		$request	= $this->get_request( $result );
+		
 		// Resolve cookie parameters (from cookie.config)
 		$path		= $result->data['cookie_path']		?? '/';
-		$domain		= $result->data['cookie_domain']	?? $this->request->host_ascii;
-		$is_secure	= $result->data['cookie_secure']	?? $this->request->is_tls;
+		$domain		= $result->data['cookie_domain']	?? $request->host_ascii;
+		$is_secure	= $result->data['cookie_secure']	?? $request->is_tls;
 		$is_same	= $result->data['cookie_samesite']	?? 'Strict';
 		
 		// Delete the cookie
@@ -13183,10 +13195,14 @@ class SessionValidate {
 	 */
 	#[Hook( name : 'session.validate.init', priority : 100 )]
 	public function init( string $event, HookResult $result, array $args ) : HookResult {
-		$session_id	= \session_id();
+		$session_id	= 
+		$result->data['session_id'] ?? ( $args['session_id'] ?? \session_id() );
 		
 		// No active session to validate
 		if ( !$session_id ) { return $result; }
+		if ( \preg_match( '/^[a-f0-9]{64}$/i', $session_id ) !== 1 ) {
+			return $result;
+		}
 		
 		$basename	= 
 		$result->data['basename'] ?? ( $args['basename'] ?? $this->basename );
@@ -13200,7 +13216,7 @@ class SessionValidate {
 	/**
 	 *  Load session data
 	 */
-	#[Hook( name : 'session.validate.load', priority : 20)]
+	#[Hook( name : 'session.validate.load', priority : 50 )]
 	public function load( string $event, HookResult $result, array $args ) : HookResult {
 		$session_id	= $result->data['session_id'] ?? null;
 		if ( null === $session_id ) { return $result; }
@@ -13224,7 +13240,7 @@ class SessionValidate {
 	/**
 	 *  Check data validation
 	 */
-	#[Hook( name : 'session.validate.check', priority : 10 )]
+	#[Hook( name : 'session.validate.check', priority : 30 )]
 	public function check( string $event, HookResult $result, array $args ) : HookResult {
 		$row	= $result->data['db_session'] ?? null;
 		if ( null === $row || !\is_array( $row ) ) { return $result; }
@@ -13300,7 +13316,7 @@ class SessionValidate {
 	/**
 	 *  Finish validation
 	 */
-	#[Hook( name : 'session.validate.finish', priority : 1 )]
+	#[Hook( name : 'session.validate.finish', priority : 10 )]
 	public function finish( string $event, HookResult $result, array $args ) : HookResult {
 		// Fill empty
 		return $result->add_data( [
@@ -13361,7 +13377,7 @@ class SessionTouch {
 	 */
 	#[Hook( name : 'session.touch.init', priority : 100 )]
 	public function init( string $event, HookResult $result, array $args ) : HookResult {
-		$session_id	= \session_id();
+		$session_id	= $result->data['session_id'] ?? ( $args['session_id'] ?? \session_id() );
 		if ( !$session_id ) {
 			return $result->add_error( 'session.touch.init Called with no active session' );
 		}
@@ -13402,120 +13418,16 @@ class SessionTouch {
 		if ( null === $session_id ) { return $result; }
 		
 		return $result->add_data( [
-			'session_id'	=> $session_id,
-			'touched'	=> true,
-			'ttl'		=> $this->ession_ttl
+			'session_id'		=> $session_id,
+			'session_touched'	=> true,
+			'ttl'			=> $this->session_ttl
 		]);
 	}
 }
 
 
 /**
- *  @class End session and delete session data
- */
-#[HookHandler]
-class SessionDestroy {
-	
-	/**
-	 *  @var string Session database name
-	 */
-	private readonly string $sess_db_profile;
-	
-	public const SQL = [
-		
-		// Check if session exists
-		'select_session' =>
-		"SELECT 1 FROM sessions WHERE session_id = :id;",
-		
-		// Delete session
-		'delete_session' =>
-		"DELETE FROM sessions WHERE session_id = :id;",
-	];
-	
-	/**
-	 *  @example
-	 *  $registry->run( 'session.destroy', false, [] );
-	 */
-	public function __construct(
-		private readonly	Config		$config,
-		private readonly	Database	$dbh,
-		private readonly	Sessions	$sessions
-	) {
-		$this->sess_db_profile	= 
-			$this->config->setting( 'sess_db_profile', 'sessions' );
-	}
-	
-	/**
-	 *  Initialize destroy stage
-	 */
-	#[Hook( name : 'session.destroy.init', priority : 100 )]
-	public function init( string $event, HookResult $result, array $args ) : HookResult {
-		$session_id	= $args['session_id'] ?? session_id();
-		if ( null === $session_id ) { return $result; }
-		
-		return $result->add_data( [
-			'session_id' 		=> $session_id,
-			'session_destroyed'	=> true
-		] );
-	}
-	
-	/**
-	 *  Validate session 
-	 */
-	#[Hook( name : 'session.destroy.validate', priority : 10 )]
-	public function validate( string $event, HookResult $result, array $args ) : HookResult {
-		$session_id	= $result->data['session_id'] ?? null;
-		if ( null === $session_id ) { return $result; }
-		
-		$exists = 
-		$this->dbh->result_exec(
-			sql	: static::SQL['select_session'],
-			profile	: $this->sess_db_profile,
-			params	: [ 'id' => $session_id ],
-			rtype	: 'column'
-		);
-		
-		// Already deleted?
-		if ( !$exists ) { return $result->add_error( 'Session not found' ); }
-		
-		return $result;
-	}
-	
-	/**
-	 *  Delete session by ID
-	 */
-	#[Hook( name : 'session.destroy.delete', priority : 5 )]
-	public function remove( string $event, HookResult $result, array $args ) : HookResult {
-		$session_id	= $result->data['session_id'] ?? null;
-		if ( null === $session_id ) { return $result; }
-		
-		$this->dbh->result_exec(
-			sql	: static::SQL['delete_session'],
-			profile	: $this->sess_db_profile,
-			params	: [ 'id' => $session_id ]
-		);
-		
-		// Destroy PHP session
-		$this->sessions->off();
-		
-		return $result;
-	}
-	
-	/**
-	 *  Finalize session ending
-	 */
-	#[Hook( name : 'session.destroy.finish', priority : 1 )]
-	public function finish( string $event, HookResult $result, array $args ) : HookResult {
-		return $result->add_data( [
-			'destroyed'	=> true,
-			'session_id'	=> $result->data['session_id']
-		] );
-	}
-}
-
-
-/**
- *  @class Reinitialize or start session with fresh ID
+ *  @class Update session expiration on activity
  */
 #[HookHandler]
 class SessionRefresh {
@@ -13526,16 +13438,11 @@ class SessionRefresh {
 	private readonly string $sess_db_profile;
 	
 	/**
-	 *  @var string Current host
+	 *  @var int Session expiration
 	 */
-	private readonly string $basename;
-	
-	public const SQL = [
-		
-		// Check if session exists
-		'select_session' =>
-		"SELECT * FROM sessions WHERE basename = :basename AND session_id = :id;",
-		
+	private readonly int $session_ttl;
+
+	public const SQL	= [
 		// Update session expiration
 		'update_session'	=> 
 		"UPDATE sessions SET expires_at = {expires}, updated_at = {updated}
@@ -13552,28 +13459,36 @@ class SessionRefresh {
 	public function __construct(
 		private readonly	Config		$config,
 		private readonly	Database	$dbh,
-		private readonly	Sessions	$sessions,
 		private readonly	Request		$request
 	) {
-		$this->sess_db_profile	= $this->config->setting( 'sess_db_profile', 'sessions' );
-		$this->basename		= $this->request->host_ascii;
+		$this->sess_db_profile	= 
+			$this->config->setting( 'sess_db_profile', 'sessions' );
+		
+		$this->session_ttl	= 
+			$this->config-setting( 'session_ttl', 3600, 'int' );
 	}
 	
 	#[Hook( name : 'session.refresh.init', priority : 100 )]
 	public function init( string $event, HookResult $result, array $args ) : HookResult {
+		$basename	= $result->data['basename'] ?? ( $args['basename'] ?? null );
+		$old_id		= \session_id() ?? null;
+		
+		// Nothing to validate?
+		if ( null === $old_id || null === $basename ) { return $result; }
+		
 		return $result->add_data( [
 			'old_session_id'	=> \session_id(),
-			'basename'		=> 
-			$args['basename'] ?? $this->basename
+			'basename'		=> $basename
 		] );
 	}
 	
 	#[Hook( name : 'session.refresh.validate', priority : 20 )]
 	public function validate( string $event, HookResult $result, array $args ) : HookResult {
 		$old_id		= $result->data['old_session_id'] ?? null;
-		if ( null === $old_id ) { return $result; }
+		$basename	= $result->data['basename'] ?? ( $args['basename'] ?? null );
 		
-		$basename	= $result->data['basename'] ?? ( $args['basename'] ?? $this->basename );
+		if ( null === $old_id || null === $basename ) { return $result; }
+		
 		$row		= 
 		$this->dbh->result_exec(
 			sql	: static::SQL['select_session'],
@@ -13621,12 +13536,13 @@ class SessionRefresh {
 			return $result;
 		}
 		
-		$old_id	= $result->data['old_session_id'] ?? null;
-		if ( null === $old_id ) { return $result; }
+		$old_id		= $result->data['old_session_id'] ?? null;
+		$basename	= $result->data['basename'] ?? ( $args['basename'] ?? null );
+		
+		if ( null === $old_id || null === $basename ) { return $result; }
 		
 		\session_regenerate_id( true );
 		
-		$basename	= $result->data['basename'] ?? ( $args['basename'] ?? $this->basename );
 		$new_id 	= \session_id();
 		$db		= $this->dbh->get( $this->sess_db_profile );
 		
@@ -13666,8 +13582,9 @@ class SessionRefresh {
 			return $result;
 		}
 		
+		$basename	= $result->data['basename'] ?? ( $args['basename'] ?? null );
 		$old_id	= $result->data['old_session_id'] ?? null;
-	 	if ( null === $old_id ) { return $result; }
+	 	if ( null === $old_id || null === $basename ) { return $result; }
 		
 		$db	= $this->dbh->get( $this->sess_db_profile );
 		$sql	= 
@@ -13680,7 +13597,7 @@ class SessionRefresh {
 			sql	: $sql,
 			profile	: $this->sess_db_profile,
 			params	: [
-				'basename'	=> $this->basename,
+				'basename'	=> $basename,
 				'id'		=> $old_id
 			]
 		);
@@ -13709,70 +13626,265 @@ class SessionRefresh {
 	}
 }
 
-
 /**
- *  @class Unified basic session lifecycle
+ *  @class Session data handling
  */
 #[HookHandler]
-class SessionLifecycle {
+class SessionData {
 	
+	/**
+	 *  @var string Session database name
+	 */
+	private readonly string $sess_db_profile;
+	
+	/**
+	 *  @var int Session expiration
+	 */
+	private readonly int $session_ttl;
+	
+	public const SQL = [
+		
+		// Check if session exists
+		'select_session' =>
+		"SELECT 1 FROM sessions WHERE session_id = :id 
+			AND basename = :basename;",
+		
+		// Read session data
+		'read_data' =>
+		"SELECT session_data FROM sessions
+			WHERE session_id = :id AND basename = :basename
+			AND ( expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP )
+			LIMIT 1",
+		
+		'write_data'	=> 
+		"INSERT INTO sessions (
+			basename, session_id, user_id, session_ip,
+			session_data, expires_at
+		)
+		VALUES (
+			:basename, :id, :uid, :ip, :data,
+			DATETIME( 'now', '+1 hour' )
+		) ON CONFLICT( basename, session_id )
+			DO UPDATE SET
+				session_data	= excluded.session_data,
+				session_ip	= excluded.session_ip,
+				expires_at	= excluded.expires_at",
+		
+		'gc_session'	=>
+		"DELETE FROM sessions
+			WHERE expires_at IS NOT NULL
+				AND expires_at <= CURRENT_TIMESTAMP 
+				AND basename = :basename;"
+	];
+	
+	/**
+	 *  @example
+	 *  $registry->run( 'session.destroy', false, [] );
+	 */
 	public function __construct(
-		private readonly	HookRegistry	$hooks,
+		private readonly	Config		$config,
+		private readonly	Database	$dbh,
 		private readonly	Request		$request
-	) {}
+	) {
+		$this->sess_db_profile	= 
+			$this->config->setting( 'sess_db_profile', 'sessions' );
+		
+		$this->session_ttl	= 
+			$this->config-setting( 'session_ttl', 3600, 'int' );
+	}
 	
-	#[Hook( name : 'session.lifecycle', priority : 1 )]
-	public function lifecycle( string $event, HookResult $result, array $args ) : HookResult {
-		$basename	= $args['basename'] ?? ( $result->data['basename'] ?? $this->basename );
-		$result		= $result->add_data( [ 'basename' => $basename ] );
+	/**
+	 *  Get data from ID
+	 */
+	#[Hook( name : 'session.read', priority : 1 )]
+	public function read( string $event, HookResult $result, array $args ) : HookResult {
+		$session_id	= $result->data['session_id'] ?? ( $args['session_id'] ?? \session_id() );
+		$basename	= $result->data['basename'] ?? ( $args['basename'] ?? null );
 		
-		// Initialize and refresh, if needed
-		$result = $this->hooks->run( 'session.validate.init', false, $result->data );
-		$result = $this->hooks->run( 'session.refresh.init', false, $result->data );
+		if ( null === $session_id || null === $basename ) { return $result; }
 		
-		// If no session_id, nothing else to do
-		if ( empty( $result->data['session_id'] ) ) {
-			return $result->add_data( [
-				'lifecycle' => 'NOSESSION'
+		$row = 
+		$this->dbh->result_exec(
+			sql	: static::SQL['read_data'],
+			profile	: $this->sess_db_profile,
+			params	: [ 'id' => $session_id, 'basename' => $basename ],
+			rtype	: 'column'
+		);
+		
+		if ( !$row ) { return $result->add_error( 'Session not found' ); }
+		
+		return $result->with_data( [ 
+			'session_id'	=> $session_id,
+			'session_data'	=> $row
+		] );
+	}
+	
+	/**
+	 *  Write data to database
+	 */
+	#[Hook( name : 'session.write', priority : 1 )]
+	public function write( string $event, HookResult $result, array $args ) : HookResult {
+		$session_id	= $result->data['session_id'] ?? ( $args['session_id'] ?? \session_id() );
+		$basename	= $result->data['basename'] ?? ( $args['basename'] ?? null );
+		
+		if ( null === $session_id || null === $basename ) { 
+			return $result->add_error( 'Session write called with no valid ID or basename' ); 
+		}
+		
+		$data		= 
+		$result->data['session_data'] ?? ( $args['session_data'] ?? null );
+		if ( null === $data ) { return $result->add_error( 'Empty session data' ); }
+		
+		$user_id	= 
+		$result->data['user_id'] ?? ( $args['user_id'] ?? ( $_SESSION['user']['user_id'] ?? null ) );
+		
+		$ip		= 
+		$result->data['session_ip'] ?? ( $args['session_ip'] ?? ( $this->request->ip ?? null ) );
+		
+		$sql		= static::SQL['write_data'];
+		$db		= $this->dbh->get( 'sessions' );
+		$ok		= 
+		$this->dbh->with_transaction( 
+				$db, function( \PDO $dbh ) 
+					use ( $basename, $session_id, $user_id, $sql, $data ) {
+			$stmt	= $dbh->prepare( $sql );
+			
+			return $stmt->execute( [
+				':basename'	=> $basename,
+				':id'		=> $session_id,
+				':uid'		=> $user_id,
+				':ip'		=> $ip,
+				':data'		=> $data
 			] );
+		} );
+		
+		return $result->add_data( [ 'session_write' => ( bool ) $ok ] );
+	}
+	
+	#[Hook( name : 'session.gc', priority : 1 )]
+	public function gc() {
+		$basename	= $result->data['basename'] ?? ( $args['basename'] ?? null );
+		
+		if ( null === $session_id || null === $basename ) { 
+			return $result->add_error( 'Session gc called with no valid basename' ); 
 		}
 		
-		// Load and validate session
-		$result = $this->hooks->run( 'session.validate.load', false, $result->data );
-		$result = $this->hooks->run( 'session.validate.check', false, $result->data );
+		$sql		= static::SQL['gc_session'];
+		$db		= $this->dbh->get( $this->sess_db_profile );
+		$ok	=
+		$this->dbh->with_transaction( $db, function( \PDO $dbh ) 
+				use ( $basename, $sql ) {
+			
+			$stmt	= $dbh->prepare( $sql );
+			return $stmt->execute( [ ':basename' => $basename ] );
+		} );
 		
-		// If invalid or expired, stop
-		if ( empty( $result->data['valid'] ) ) {
-			return $this->hooks->run( 'session.validate.finish', false, $result->data )
-				->add_data( [ 'lifecycle' => 'INVALID' ] );
-		}
-		
-		// Refresh, if needed
-		$result = $this->hooks->run( 'session.refresh.validate', false, $result->data );
-		
-		// If expired or invalid during refresh, stop here
-		if (
-			!empty( $result->data['session_expired'] ) ||
-			!empty( $result->data['session_invalid'] )
-		) {
-			return $this->hooks->run( 'session.refresh.finish', false, $result->data )
-				->add_data( [ 'lifecycle' => 'EXPIRED' ] );
-		}
-		
-		// Regenerate, if needed
-		$result = $this->hooks->run( 'session.refresh', false, $result->data );
-		
-		// Touch to keep active, if needed
-		$result = $this->hooks->run( 'session.refresh.update', false, $result->data );
-		
-		// Cleanup
-		$result = $this->hooks->run( 'session.refresh.finish', false, $result->data );
-		$result = $this->hooks->run( 'session.validate.finish', false, $result->data );
-		
-		return $result->add_data( [ 'lifecycle' => 'OK' ] );
+		return $result->add_data( [ 'session_gc' => ( bool ) $ok ] );
 	}
 }
 
+
+/**
+ *  @class Delete active session
+ */
+#[HookHandler]
+class SessionDestroy {	
+	
+	/**
+	 *  @var string Session database name
+	 */
+	private readonly string $sess_db_profile;
+	
+	public const SQL	= [
+		// Delete session
+		'delete_session' =>
+		"DELETE FROM sessions WHERE session_id = :id 
+			AND basename = :basename;",
+	];
+	
+	public function __construct(
+		private readonly	Config		$config,
+		private readonly	Database	$dbh,
+		private readonly	Request		$request
+	) {
+		$this->sess_db_profile	= 
+			$this->config->setting( 'sess_db_profile', 'sessions' );
+	}
+	
+	/**
+	 *  Initialize destroy stage
+	 */
+	#[Hook( name : 'session.destroy.init', priority : 100 )]
+	public function init( string $event, HookResult $result, array $args ) : HookResult {
+		$session_id	= 
+		$result->data['session_id'] ?? ( $args['session_id'] ?? \session_id() );
+		
+		$basename	= $result->data['basename'] ?? ( $args['basename'] ?? null );
+		
+		if ( null === $session_id || null === $basename ) { 
+			return $result->add_error( 'Session destroy called with no valid ID or basename' ); 
+		}
+		
+		return $result->add_data( [
+			'session_id' 		=> $session_id,
+			'basename'		=> $basename,
+			'session_destroyed'	=> true
+		] );
+	}
+	
+	/**
+	 *  Validate session 
+	 */
+	#[Hook( name : 'session.destroy.validate', priority : 10 )]
+	public function validate( string $event, HookResult $result, array $args ) : HookResult {
+		$session_id	= $result->data['session_id'] ?? null;
+		$basename	= $result->data['basename'] ?? null;
+		if ( null === $session_id || null === $basename ) { return $result; }
+		
+		$exists = 
+		$this->dbh->result_exec(
+			sql	: SessionValidate::SQL['select_session'],
+			profile	: $this->sess_db_profile,
+			params	: [ 'id' => $session_id, 'basename' => $basename ],
+			rtype	: 'column'
+		);
+		
+		// Already deleted?
+		if ( !$exists ) { return $result->add_error( 'Session not found' ); }
+		
+		return $result;
+	}
+	
+	/**
+	 *  Delete session by ID
+	 */
+	#[Hook( name : 'session.destroy.delete', priority : 5 )]
+	public function remove( string $event, HookResult $result, array $args ) : HookResult {
+		$session_id	= $result->data['session_id'] ?? null;
+		$basename	= $result->data['basename'] ?? null;
+		if ( null === $session_id || null === $basename ) { return $result; }
+		
+		$this->dbh->result_exec(
+			sql	: static::SQL['delete_session'],
+			profile	: $this->sess_db_profile,
+			params	: [ 'id' => $session_id, 'basename' => $basename ]
+		);
+		
+		return $result;
+	}
+	
+	/**
+	 *  Finalize session ending
+	 */
+	#[Hook( name : 'session.destroy.finish', priority : 1 )]
+	public function finish( string $event, HookResult $result, array $args ) : HookResult {
+		
+		return $result->add_data( [
+			'session_destroyed'	=> true,
+			'session_id'		=> $result->data['session_id']
+		] );
+	}
+}
 
 /**
  *  @class Clear sessions of a user except current session
@@ -13808,7 +13920,7 @@ class SessionTerminateOther {
 		private readonly Database	$dbh,
 		private readonly Request	$request
 	) {
-		$this->sess_db_profile = $this->config->setting( 'sess_db_profile', 'sessions' );
+		$this->sess_db_profile	= $this->config->setting( 'sess_db_profile', 'sessions' );
 		$this->basename		= $this->request->host_ascii;
 	}
 	
@@ -13817,7 +13929,7 @@ class SessionTerminateOther {
 	 */
 	#[Hook( name : 'session.terminate_other.init', priority : 100 )]
 	public function init( string $event, HookResult $result, array $args ) : HookResult {
-		$user_id	= $args['user_id']	?? null;
+		$user_id	= $result->data['user_id'] ?? ( $args['user_id'] ?? null );
 		$session_id	= $args['session_id']	?? \session_id();
 		if ( null === $user_id || !$session_id ) { return $result; }
 		
@@ -13881,14 +13993,15 @@ class SessionTerminateOther {
 		
 		if ( empty( $sessions ) || null === $basename ) { return $result; }
 		
+		$sql		= static::SQL['delete_session'];
 		$db		= $this->dbh->get( $this->sess_db_profile );
 		$this->dbh->with_transaction( 
 				$db, function( \PDO $dbh ) 
-					use ( $sessions, $basename ) {
+					use ( $sessions, $sql, $basename ) {
 			
 			$params	= [];
 			$psql	= Database::params_in( $params, $sessions );
-			$sql	= \strtr( static::SQL['delete_session'], [ '{ids}' => $psql ] );
+			$sql	= \strtr( $sql, [ '{ids}' => $psql ] );
 			$stmt	= $dbh->prepare( $sql );
 			
 			$params[':basename'] = $basename;
@@ -13936,13 +14049,13 @@ class SessionForceLogout {
 	
 	public const SQL = [
 		// Load all sessions for a user (active or expired)
-		'select_sessions' =>
+		'select_session' =>
 		"SELECT session_id FROM sessions
 			WHERE basename = :basename AND user_id = :uid;",
 		
 		// Delete a session
 		'delete_session' =>
-		"DELETE FROM sessions WHERE basename = :basename AND session_id = :id;",
+		"DELETE FROM sessions WHERE basename = :basename AND session_id :id;",
 	];
 	
 	public function __construct(
@@ -13978,12 +14091,12 @@ class SessionForceLogout {
 		$user_id	= $result->data['user_id'] ?? null;
 		if( !$user_id ) { return $result; }
 		
-		$basename	= 
-		$result->data['basename'] ?? ( $args['basename'] ?? $this->basename );
+		$basename	= $result->data['basename'] ?? ( $args['basename'] ?? null );
+		if ( null === $basename ) { return $result; }
 		
 		$sessions	= 
 		$this->dbh->result_exec(
-			sql	: static::SQL['select_sessions'],
+			sql	: static::SQL['select_session'],
 			profile	: $this->sess_db_profile,
 			params	: [ 'basename' => $basename, 'uid' => $user_id ],
 			rtype	: 'results'
@@ -14000,26 +14113,31 @@ class SessionForceLogout {
 	 *  Remove all active sessions
 	 */
 	#[Hook( name : 'session.force_logout.delete', priority : 20 )]
-	public function logout(string $event, HookResult $result, array $args): HookResult {
+	public function logout( string $event, HookResult $result, array $args ) : HookResult {
 		$user_id	= $result->data['user_id'] ?? null;
 		if( !$user_id ) { return $result; }
 		
-		$basename	= 
-		$result->data['basename'] ?? ( $args['basename'] ?? $this->basename );
+		$basename	= $result->data['basename'] ?? ( $args['basename'] ?? null );
+		$sessions	= $result->data['sessions'] ?? [];
+		if ( null === $basename || empty( $sessions ) ) { return $result; }
 		
 		$terminated	= [];
-		
-		foreach ( $result->data['sessions'] as $sid ) {
-			$this->dbh->result_exec(
-				sql	: static::SQL['delete_session'],
-				profile	: $this->sess_db_profile,
-				params	: [ 'basename' => $basename, 'id' => $sid ]
-			);
+		$sql		= static::SQL['delete_session'];
+
+		$db		= $this->dbh->get( $this->sess_db_profile );
+		$this->dbh->with_transaction( 
+				$db, function( \PDO $dbh ) 
+					use ( $sessions, $sql, $basename, &$terminated ) {
 			
-			$terminated[]	= $sid;
-		}
+			$stmt	= $dbh->prepare( $sql );
+			foreach ( $sessions as $id ) {
+				if ( $stmt->execute( [ 'basename' => $basename, 'id' => $id ] ) ) {
+					$terminated[] = $id;
+				}
+			}
+		} );
 		
-		return $result->add_data( [ 'terminated_sessions' => $terminated ] );
+		return $result->add_data( [ 'term_sessions' => $terminated ] );
 	}
 	
 	/**
@@ -14027,9 +14145,19 @@ class SessionForceLogout {
 	 */
 	#[Hook( name : 'session.force_logout.destroy_php', priority : 10 )]
 	public function destroy_php( string $event, HookResult $result, array $args ) : HookResult {
+		$session_id	= \session_id() ?: '';
 		// Destroy PHP session entirely
-		$this->sessions->off();
-		return $result;
+		if ( \session_status() === \PHP_SESSION_ACTIVE ) {
+			\session_unset();
+			\session_destroy();
+			\session_write_close();
+		}
+		
+		return $result->with_data( [
+			'session_closed'	=> true,
+			'session_invalid'	=> true,
+			'session_old_id'	=> $session_id
+		] );
 	}
 	
 	/**
@@ -14038,9 +14166,9 @@ class SessionForceLogout {
 	#[Hook( name : 'session.force_logout.finish', priority : 1 )]
 	public function finish( string $event, HookResult $result, array $args ) : HookResult {
 		return $result->add_data( [
-			'user_id'			=> $result->data['user_id']		?? null,
-			'terminated_sessions'		=> $result->data['terminated_sessions']	?? [],
-			'forced'			=> true
+			'user_id'		=> $result->data['user_id']		?? null,
+			'term_sessions'		=> $result->data['term_sessions']	?? [],
+			'forced'		=> true
 		] );
 	}
 }
@@ -14677,7 +14805,8 @@ class RequestPhase {
 		$host_effective	= $host_forwarded ?: $host_raw;
 		$host_intended	= Sanitize::host( $host_effective );
 		
-		$request = new Request(
+		$request	= 
+		new Request(
 			id			: $rtime . '_' . \bin2hex( \random_bytes( 32 ) ),
 			timestamp		: date( 'c' ),
 			
@@ -14714,6 +14843,9 @@ class RequestPhase {
 			context			: $context
 		);
 		
+		// Global request
+		Container::instance()->set( Request::class, $request );
+		
 		return $result->add_data( [ 'request' => $request ] );
 	}
 }
@@ -14728,6 +14860,7 @@ class StaticResponseConfig {
 	public function __construct(
 		private readonly	Container	$container,
 		private readonly	Config		$config,
+		private readonly	Logger		$logger,
 		private readonly	HookRegistry	$registry
 	) {}
 	
@@ -15256,19 +15389,16 @@ class StaticResponseConfig {
 		$request		= $result->data['request'] ?? null;
 		if ( !$request instanceof Request ) { return $result; }
 		
-		$logger			= $this->container->get( Logger::class );
+		$response		= 
+		new FileResponse( 
+			config		: $this->config, 
+			request		: $request, 
+			logger		: $this->logger,
+			code		: $ready['status'],
+			headers		: $ready['headers']	?? []
+		);
 		
-		$response		= new FileResponse( $this->config, $request, $logger );
-		$response->headers	= $ready['headers'];
-		
-		if ( 304 === $ready['status'] ) {
-			$response->code		= 304;
-			$response->send_finish();
-			return $result;
-		}
-		
-		if ( 416 === $ready['status'] ) {
-			$response->code		= 416;
+		if ( 304 === $ready['status'] || 416 === $ready['status'] ) {
 			$response->send_finish();
 			return $result;
 		}
@@ -15276,7 +15406,6 @@ class StaticResponseConfig {
 		$response->stream_file(
 			path		: $path,
 			meta		: $ready['meta']	?? [],
-			headers		: $ready['headers']	?? [],
 			download	: $ready['download']	?? false,
 			ranges		: $ready['ranges']	?? null
 		);
