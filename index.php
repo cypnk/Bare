@@ -9966,6 +9966,44 @@ final class Database extends Instance {
 
 
 /**
+ *  Session state flag
+ *  @enum
+ */
+enum SessionState {
+	case Ready;
+	case Opened;
+	case Valid;
+	case Expired;
+	case NoUser;
+	case NoSession;
+	case NoData;
+	case NoPrivilege;
+	case Updated;
+	case Refreshed;
+	case Regenerated;
+	case Destroyed;
+	case Error;
+	case None;
+	case Other;
+	
+	/**
+	 *  States to continue operations
+	 */
+	public function go() : bool {
+		return match( $this ) {
+			SessionState::Ready,
+			SessionState::Opened,
+			SessionState::Valid,
+			SessionState::Updated,
+			SessionState::Refreshed,
+			SessionState::Regenerated	=> true,
+			default				=> false
+		};
+	}
+}
+
+
+/**
  *  @class Session management hook runner
  */
 class Sessions {
@@ -9991,7 +10029,8 @@ class Sessions {
 		] );
 		if ( !$result ) { return false; }
 		
-		return ( bool ) ( $result->data['session_opened'] ?? false ); 
+		$state	= $result->data['session_state'] ?? SessionState::None;
+		return SessionState::Opened === $state; 
 	}
 	
 	/**
@@ -10001,7 +10040,8 @@ class Sessions {
 		$result	= $this->hooks->run( 'session.close', true );
 		if ( !$result ) { return false; }
 		
-		return ( bool ) ( $result->data['session_closed'] ?? false ); 
+		$state	= $result->data['session_state'] ?? SessionState::None;
+		return SessionState::Closed === $state; 
 	}
 	
 	/**
@@ -10068,7 +10108,8 @@ class Sessions {
 		$this->hooks->run( 'session.destroy', true, [ 'session_id' => $session_id ] );
 		if ( !$result ) { return false; }
 		
-		return ( bool ) ( $result->data['session_destroyed'] ?? false );
+		$state	= $result->data['session_state'] ?? SessionState::None;
+		return SessionState::Destroyed === $state;
 	}
 	
 	/**
@@ -12884,12 +12925,12 @@ class SessionRegister {
 	
 	#[Hook( name : 'session.open', priority : 1 )]
 	public function session_open( string $event, HookResult $result, array $args ) : HookResult {
-		return $result->with_data( [ 'session_opened' => true ] );
+		return $result->with_data( [ 'session_state' => SessionState::Opened ] );
 	}
 	
 	#[Hook( name : 'session.close', priority : 1 )]
 	public function session_close( string $event, HookResult $result, array $args ) : HookResult {
-		return $result->with_data( [ 'session_closed' => true ] );
+		return $result->with_data( [ 'session_state' => SessionState::Closed ] );
 	}
 	
 	#[Hook( name : 'session.id.validate', priority : 1 )]
@@ -12916,7 +12957,7 @@ class SessionRegister {
 				$this->logger->error( $msg );
 				return $result
 					->add_error( $msg )
-					->with_data( [ 'session_ready' => false ] );
+					->with_data( [ 'session_state' => SessionState::Error ] );
 			}
 			
 			try {
@@ -12938,11 +12979,11 @@ class SessionRegister {
 				$this->logger->error( $msg );
 				return $result
 					->add_error( $msg )
-					->with_data( [ 'session_ready' => false ] );
+					->with_data( [ 'session_state' => SessionState::Error ] );
 			}
 		}
 		
-		return $result->with_data( [ 'session_ready' => true ] );
+		return $result->with_data( [ 'session_state' => SessionState::Ready ] );
 	}
 }
 
@@ -13251,8 +13292,8 @@ class SessionValidate {
 			( int ) $row['expires_at'] <= time() 
 		) { 
 			return $result->add_data( [
-				'valid'	=> false,
-				'flag'	=> 'EXPIRED'
+				'valid'		=> false,
+				'session_state'	=> SessionState::Expired
 			] ); 
 		}
 		
@@ -13282,7 +13323,7 @@ class SessionValidate {
 			$result->add_data( [
 				'valid'		=> false,
 				'user_id'	=> null,
-				'flag'		=> 'NOUSER'
+				'session_state'	=> SessionState::NoUser
 			] ),
 			
 			// Must have user payload
@@ -13293,7 +13334,7 @@ class SessionValidate {
 			$result->add_data( [
 				'valid'		=> false,
 				'user_id'	=> null,
-				'flag'		=> 'NODATA'
+				'session_state'	=> SessionState::NoData
 			] ),
 			
 			// Must have privilege map, even if empty
@@ -13302,13 +13343,14 @@ class SessionValidate {
 			$result->add_data( [ 
 				'valid'		=> false , 
 				'user_id'	=> $user_id,
-				'flag'		=> 'NOPRIV'
+				'session_state'	=> SessionState::NoPrivilege
 			] ),
 			
 			default		=> 
 			$result->add_data( [ 
-				'valid' => true , 
-				'user_id' => $user_id 
+				'valid'		=> true, 
+				'user_id'	=> $user_id,
+				'session_state'	=> SessionState::Valid
 			] )
 		};
 	}
@@ -13321,14 +13363,16 @@ class SessionValidate {
 		// Fill empty
 		return $result->add_data( [
 			'session_id'	=> $result->data['session_id'],
-			'flag'		=> $result->data['flag']	?? 'NONE',
+			'session_state'	=> 
+			$result->data['session_state']?? SessionState::None,
+			
 			'valid'		=> $result->data['valid']	?? false,
 			'user_id'	=> $result->data['user_id']	?? null,
 			'expires_at'	=> $result->data['expires_at']	?? null,
 			'updated_at'	=> $result->data['updated_at']	?? null,
 			'basename'	=> $result->data['basename']	?? null,
 			'session_ip'	=> $result->data['session_ip']	?? null
-		]);
+		] );
 	}
 }
 
@@ -13509,7 +13553,7 @@ class SessionRefresh {
 		if( $now >= $expires ) {
 			return $result->add_data( [ 
 				'session_invalid'	=> true,
-				'session_expired'	=> true 
+				'session_state'		=> SessionState::Expired
 			] );
 		}
 		
@@ -13565,7 +13609,7 @@ class SessionRefresh {
 		return $result->add_data( [
 			'new_session_id'	=> $new_id,
 			'session_expires'	=> time() + $this->session_ttl,
-			'session_regenerated'	=> true
+			'session_state'		=> SessionState::Regenerated
 		] );
 	}
 	
@@ -13574,10 +13618,13 @@ class SessionRefresh {
 	 */
 	#[Hook( name : 'session.refresh.update', priority : 5 )]
 	public function update( string $event, HookResult $result, array $args ) : HookResult {
+		$state		= 
+		$result->data['session_state'] ?? ( $args['session_state'] ?? SessionState::None );
+		
 		if (
 			!empty( $result->data['session_regenerate'] )	||
-			!empty( $result->data['session_expired'] )	|| 
-			!empty( $result->data['session_invalid'] )
+			!empty( $result->data['session_invalid'] )	|| 
+			!$state->go()
 		) {
 			return $result;
 		}
@@ -13604,7 +13651,7 @@ class SessionRefresh {
 		
 		return $result->add_data( [
 			'session_expires'	=> time() + $this->session_ttl,
-			'session_updated'	=> true
+			'session_state'		=> SessionState::Updated
 		]);
 	}
 	
@@ -13618,7 +13665,7 @@ class SessionRefresh {
 		}
 		
 		return $result->add_data( [
-			'refreshed'		=> true,
+			'session_state'		=> SessionState::Refreshed,
 			'old_session_id'	=> $result->data['old_session_id'],
 			'new_session_id'	=> 
 			$result->data['new_session_id'] ?? $result->data['old_session_id']
@@ -13822,13 +13869,14 @@ class SessionDestroy {
 		$basename	= $result->data['basename'] ?? ( $args['basename'] ?? null );
 		
 		if ( null === $session_id || null === $basename ) { 
-			return $result->add_error( 'Session destroy called with no valid ID or basename' ); 
+			return $result
+				->with_data( [ 'session_state' => SessionState::Error ] )
+				->add_error( 'Session destroy called with no valid ID or basename' ); 
 		}
 		
 		return $result->add_data( [
 			'session_id' 		=> $session_id,
-			'basename'		=> $basename,
-			'session_destroyed'	=> true
+			'basename'		=> $basename
 		] );
 	}
 	
@@ -13850,7 +13898,11 @@ class SessionDestroy {
 		);
 		
 		// Already deleted?
-		if ( !$exists ) { return $result->add_error( 'Session not found' ); }
+		if ( !$exists ) { 
+			return $result
+				->with_data( [ 'session_state' => SessionState::Error ] )
+				->add_error( 'Session not found' ); 
+		}
 		
 		return $result;
 	}
@@ -13863,6 +13915,11 @@ class SessionDestroy {
 		$session_id	= $result->data['session_id'] ?? null;
 		$basename	= $result->data['basename'] ?? null;
 		if ( null === $session_id || null === $basename ) { return $result; }
+		
+		$state		= 
+		$result->data['session_state'] ?? ( $args['session_state'] ?? SessionState::None );
+		
+		if ( $state === SessionState::Error ) { return $result; }
 		
 		$this->dbh->result_exec(
 			sql	: static::SQL['delete_session'],
@@ -13878,9 +13935,13 @@ class SessionDestroy {
 	 */
 	#[Hook( name : 'session.destroy.finish', priority : 1 )]
 	public function finish( string $event, HookResult $result, array $args ) : HookResult {
+		$state		= 
+		$result->data['session_state'] ?? ( $args['session_state'] ?? SessionState::None );
+		
+		if ( $state === SessionState::Error ) { return $result; }
 		
 		return $result->add_data( [
-			'session_destroyed'	=> true,
+			'session_state'		=> SessionState::Destroyed,
 			'session_id'		=> $result->data['session_id']
 		] );
 	}
@@ -14154,7 +14215,7 @@ class SessionForceLogout {
 		}
 		
 		return $result->with_data( [
-			'session_closed'	=> true,
+			'session_state'		=> SessionState::Destroyed,
 			'session_invalid'	=> true,
 			'session_old_id'	=> $session_id
 		] );
@@ -14219,24 +14280,29 @@ class SessionBindUser {
 	#[Hook( name : 'session.bind_user.init', priority : 100 )]
 	public function init( string $event, HookResult $result, array $args ) : HookResult {
 		$user_id	= $args['user_id']	?? null;
-		$session_id	= $args['session_id']	?? session_id();
+		$session_id	= $args['session_id']	?? \session_id();
 		
-		if ( !$user_id ) { return $result->add_data( [ 'flag'		=> 'UIDFAIL' ] ); }
-		if ( !$session_id ) { return $result->add_data( [ 'flag'	=> 'SIDFAIL' ] ); }
+		if ( !$user_id ) { return $result->add_data( [ 'session_state'		=> SessionState::NoUser ] ); }
+		if ( !$session_id ) { return $result->add_data( [ 'session_state'	=> SessionState::NoSession ] ); }
 		
 		return $result->add_data( [
 			'user_id'	=> $user_id,
-			'session_id'	=> $session_id
+			'session_id'	=> $session_id,
+			'session_state'	=> SessionState::Ready
 		] );
 	}
 	
 	#[Hook( name : 'session.bind_user.validate', priority : 10 )]
 	public function validate( string $event, HookResult $result, array $args ) : HookResult {
-		$flag		= $result->data['flag'] ?? '';
-		if ( $flag ) { return $result; }
+		$state		= 
+		$result->data['session_state'] ?? ( $args['session_state'] ?? SessionState::None );
+		
+		if ( !$state->go() ) { return $result; }
 		
 		$session_id	= $result->data['session_id'] ?? null;
-		if ( !$session_id ) { return $result->add_data( [ 'flag' => 'SIDFAIL' ] ); }
+		if ( !$session_id ) { 
+			return $result->add_data( [ 'session_state' => SessionState::NoSession ] ); 
+		}
 		
 		$exists		= 
 		$this->dbh->result_exec(
@@ -14246,13 +14312,20 @@ class SessionBindUser {
 			rtype	: 'column'
 		);
 		
-		if ( !$exists ) { return $result->add_data( [ 'flag' => 'SIDFAIL' ] ); }
+		if ( !$exists ) { 
+			return $result->add_data( [ 'session_state' => SessionState::NoSession ] ); 
+		}
 		return $result;
 	}
 	
 	
 	#[Hook( name : 'session.bind_user.update', priority : 5 )]
 	public function update( string $event, HookResult $result, array $args ) : HookResult {
+		state		= 
+		$result->data['session_state'] ?? ( $args['session_state'] ?? SessionState::None );
+		
+		if ( !$state->go() ) { return $result; }
+		
 		$this->dbh->result_exec(
 			sql	: static::SQL['update_session'],
 			profile	: $this->sess_db_profile,
@@ -14267,6 +14340,11 @@ class SessionBindUser {
 	
 	#[Hook( name : 'session.bind_user.finish', priority : 1 )]
 	public function finish( string $event, HookResult $result, array $args ) : HookResult {
+		state		= 
+		$result->data['session_state'] ?? ( $args['session_state'] ?? SessionState::None );
+		
+		if ( !$state->go() ) { return $result; }
+		
 		return $result->add_data( [
 			'bound'		=> true,
 			'user_id'	=> $result->data['user_id'],
