@@ -6793,7 +6793,7 @@ class Template extends Instance {
 			$flag = \strtolower( \trim( $flag ) );
 			
 			if ( !$coerced && \in_array( $flag, $conv ) ) {
-				match ( $flag ) {
+				match( $flag ) {
 					'int'	=> $val = ( int ) $val,
 					'float'	=> $val = ( float ) $val,
 					'bool'	=> $val = \filter_var( 
@@ -6809,7 +6809,7 @@ class Template extends Instance {
 				continue;
 			}
 			
-			match ( $flag ) {
+			match( $flag ) {
 				'ci'	=> $case_flag = true,
 				'cs'	=> $case_flag = false,
 				default	=> null
@@ -6840,7 +6840,7 @@ class Template extends Instance {
 		
 		[ $val, $case_flag ] = $this->extract_flags( $raw, $case_flag );
 		
-		return match ( $operator ) {
+		return match( $operator ) {
 			'==='		=> $var === $val,
 			'!=='		=> $var !== $val,
 			'=='		=> $this->compare_var( $var, $val, $case_flag ),
@@ -9075,6 +9075,287 @@ final class PluginDiscovery {
 				);
 			}
 		}
+	}
+}
+
+
+/**
+ *  @enum Basic SQL Data types
+ */
+enum SchemaType {
+	case INTEGER;
+	case FLOAT;
+	case BOOLEAN;
+	case DATETIME;
+	case UUID;
+	case STRING;
+	case JSON;
+	case TEXT;
+}
+
+/**
+ *  @enum Generated SQL field types
+ */
+enum SchemaFunction {
+	// Time
+	case CURRENT_TIMESTAMP;
+	case CURRENT_DATE;
+	case CURRENT_TIME;
+	case NOW;
+	
+	// Unique
+	case UUID;
+	case RANDOM;
+}
+
+/**
+ *  @enum Column sort collation
+ */
+enum SchemaCollate {
+	case CASE_SENSITIVE;
+	case CASE_INSENSITIVE;
+	case SORT_NATURAL;
+}
+
+/**
+ *  @enum Trigger response action
+ */
+enum SchemaRefAction {
+	case SET_DEFAULT;
+	case SET_NULL;
+	case NO_ACTION;
+	case RESTRICT;
+	case CASCADE;
+}
+
+/**
+ *  @class SQL query index
+ */
+#[Attribute( Attribute::TARGET_CLASS | Attribute::IS_REPEATABLE )]
+final class SchemaIndex {
+	
+	/**
+	 *  Index constructor
+	 *  
+	 *  @param string	$name		Index label ( must be unique )
+	 *  @param array	$columns	Column name for single index or list for compound indexes
+	 *  @param bool		$is_unique	Declare non-repeating values ( in the same columns ),
+	 *  @param string	$where		Conditional or partial index 
+	 */
+	public function __construct(
+		public readonly string	$name,
+		public readonly array	$columns,
+		public readonly bool	$is_unique	= false,
+		public readonly ?string $where		= null
+	) {}
+}
+
+/**
+ *  @class Object table
+ */
+#[Attribute( Attribute::TARGET_CLASS | Attribute::IS_REPEATABLE )]
+final class SchemaObject {
+	public function __construct( 
+		public readonly string	$name,
+		public readonly bool	$without_rowid	= false
+	) {}
+}
+
+/**
+ *  @class Object field collation
+ */
+#[Attribute( Attribute::TARGET_PROPERTY | Attribute::IS_REPEATABLE )]
+final class SchemaCollation {
+	public function __construct( public readonly SchemaCollate $collate ) {}
+}
+
+/**
+ *  @class Table object property type
+ *  @example 
+ *  #[SchemaProperty( type: SchemaType::INTEGER, is_primary: true, auto_inc: true )]
+ *  public int $post_id;
+ */
+#[Attribute( Attribute::TARGET_PROPERTY | Attribute::IS_REPEATABLE )]
+class SchemaProperty {
+	public function __construct(
+		public readonly SchemaType	$type,
+		public readonly bool		$is_primary	= false,
+		public readonly bool		$auto_inc	= false,
+		public readonly bool		$is_nullable	= true,
+		public readonly bool		$is_unique	= false,
+		public readonly ?string		$check		= null,
+		public readonly mixed		$default_value	= null,
+		public readonly ?SchemaCollate	$collate	= null
+	) {}
+}
+
+/**
+ *  @class Composite capable table primary key
+ */
+#[Attribute( Attribute::TARGET_PROPERTY | Attribute::IS_REPEATABLE )]
+final class SchemaPrimaryKey extends SchemaProperty {
+	public function __construct( public readonly SchemaType $type ) {
+		parent::__construct(
+			type 		: $type,
+			is_primary	: true,
+			is_nullable	: false
+		);
+	}
+}
+
+/**
+ *  @class Composite capable table primary key
+ */
+#[Attribute( Attribute::TARGET_PROPERTY | Attribute::IS_REPEATABLE )]
+final class SchemaUnique extends SchemaProperty {
+	public function __construct( public readonly SchemaType $type ) {
+		parent::__construct(
+			type 		: $type,
+			is_primary	: false,
+			is_nullable	: false,
+			is_unique	: true
+		);
+	}
+}
+
+/**
+ *  @class Auto-incrementing integer special case (non-composite)
+ */
+#[Attribute( Attribute::TARGET_PROPERTY )]
+final class SchemaAutoIncPrimaryKey extends SchemaProperty {
+	public function __construct() {
+		parent::__construct(
+			type 		: SchemaType::INTEGER,
+			is_primary	: true,
+			auto_inc	: true,
+			is_nullable	: false
+		);
+	}
+}
+
+/**
+ *  @class Foreign key field
+ *  @example
+ *  #[SchemaProperty( type: SchemaType::INTEGER )] 
+ *  #[SchemaForeignKeyProperty( table: 'posts', column: 'post_id', on_delete: SchemaForeignAction::CASCADE )]
+ *  public int $parent_id;
+ */
+#[Attribute( Attribute::TARGET_PROPERTY | Attribute::IS_REPEATABLE )]
+final class SchemaForeignKeyProperty {
+	public function __construct(
+		public readonly string $table,
+		public readonly string $column,
+		
+		public readonly ?SchemaRefAction	$on_update = null,
+		public readonly ?SchemaRefAction	$on_delete = null
+	) {}
+}
+
+/**
+ *  @class Table field foreign key configuration
+ */
+final class SchemaForeignKey {
+	/**
+	 *  Foreign key constructor
+	 *  
+	 *  @param string|SchemaColumn	$column		Target column in the designated table
+	 *  @param SchemaTable		$ref_table	Referenced foreign table name
+	 *  @param string|SchemaColumn	$ref_column	Referenced foreign column name	
+	 *  @param SchemaRefAction	$on_update	Update trigger action
+	 *  @param SchemaRefAction	$on_delete	Delete trigger action
+	 */
+	public function __construct(
+		public readonly string|SchemaColumn	$column,
+		public readonly SchemaTable		$ref_table,
+		public readonly string|SchemaColumn	$ref_column,
+		public readonly ?SchemaRefAction	$on_update	= null,
+		public readonly ?SchemaRefAction	$on_delete	= null
+	) {}
+}
+
+/**
+ *  @interface Trigger baseline type
+ */
+interface SchemaTrigger {}
+
+/**
+ *  @class Meta field last updated helper
+ */
+final class TouchTrigger implements SchemaTrigger {
+	public function __construct( 
+		public readonly SchemaForeignKey	$foreign_key,
+		public readonly string			$target_column	= 'updated_at' 
+	) {}
+}
+
+/**
+ *  @class Nested content counter increment/decrement helper
+ */
+final class CounterTrigger implements SchemaTrigger {
+	public function __construct(
+		public readonly SchemaForeignKey	$foreign_key,
+		public readonly string			$target_column	= 'child_count'
+	) {}
+}
+
+/**
+ *  @class Everything else not fitting into counters or updated triggers
+ */
+final class CustomTrigger implements SchemaTrigger {
+	/**
+	 *  Custom trigger constructor
+	 *  
+	 *  @param array<string, string> $sql	Array of SQL in driver name as key and SQL in string value format
+	 */
+	public function __construct( public readonly array $sql ) {}
+}
+
+/**
+ *  @class Auto-set default values on row creation or modification
+ */
+final class SchemaExpression {
+	
+	public function __construct( public readonly SchemaFunction $function ) {}
+	
+	/**
+	 *  Common type helpers
+	 */
+	
+	/**
+	 *  @return self With current timestamp, usually int(eger) type
+	 */
+	public static function current_timestamp() : self {
+		return new self( SchemaFunction::CURRENT_TIMESTAMP );
+	}
+	
+	/**
+	 *  @return self Same as timestamp, but with UTC string
+	 */
+	public static function now() : self {
+		return new self( SchemaFunction::NOW );
+	}
+	
+	/**
+	 *  @return self With randomly generated alphanumeric string
+	 */
+	public static function random() : self {
+		return new self( SchemaFunction::RANDOM );
+	}
+	
+	/**
+	 *  @return self Formatted random UUID V4 (non-incremental)
+	 */
+	public static function uuid() : self {
+		return new self( SchemaFunction::UUID );
+	}
+	
+	/**
+	 *  Everything else
+	 *  
+	 *  @return self
+	 */
+	public static function from( SchemaFunction $function ) : self {
+		return new self( $function );
 	}
 }
 
@@ -14321,7 +14602,7 @@ class SessionBindUser {
 	
 	#[Hook( name : 'session.bind_user.update', priority : 5 )]
 	public function update( string $event, HookResult $result, array $args ) : HookResult {
-		state		= 
+		$state		= 
 		$result->data['session_state'] ?? ( $args['session_state'] ?? SessionState::None );
 		
 		if ( !$state->go() ) { return $result; }
@@ -14340,7 +14621,7 @@ class SessionBindUser {
 	
 	#[Hook( name : 'session.bind_user.finish', priority : 1 )]
 	public function finish( string $event, HookResult $result, array $args ) : HookResult {
-		state		= 
+		$state		= 
 		$result->data['session_state'] ?? ( $args['session_state'] ?? SessionState::None );
 		
 		if ( !$state->go() ) { return $result; }
@@ -14659,7 +14940,7 @@ class RequestPhase {
 		
 		// Normalize protocol
 		$protocol	= 
-		match ( $raw['protocol'] ?? '') {
+		match( $raw['protocol'] ?? '') {
 			'HTTP/1.0'	=> '1.0',
 			'HTTP/1.1'	=> '1.1',
 			'HTTP/2.0'	=> '2.0',
