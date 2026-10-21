@@ -9114,7 +9114,7 @@ enum SchemaFunction {
 enum SchemaCollate {
 	case CASE_SENSITIVE;
 	case CASE_INSENSITIVE;
-	case SORT_NATURAL;
+	case NATURAL;
 }
 
 /**
@@ -9742,6 +9742,156 @@ final class SchemaTable {
 	public function set_comment( string $comment ) : self {
 		$this->comment		= $comment;
 		return $this;
+	}
+}
+
+/**
+ *  @class Validate schema for collisions and type conflicts (this won't catch logic errors)
+ */
+final class SchemaValidator {
+	
+	/**
+	 *  @var array<string> Error storage
+	 */
+	private array $errors	= [];
+	
+	public function __construct( public readonly string $driver ) {}
+	
+	private function error( string $message ) : void {
+		$this->errors[]	= $message;
+	}
+	
+	public function validate( Schema $schema ) : void {
+		$this->errors	= [];
+		
+		foreach ( $schema->get_tables() as $table ) {
+			$this->validate_table( $table );
+		}
+		
+		if ( $this->errors ) {
+			throw new 
+			\RuntimeException( implode( "\n", $this->errors ) );
+		}
+	}
+	
+	private function validate_table( SchemaTable $table ) : void {
+		$columns = $table->get_columns();
+		if ( empty( $columns ) ) {
+			$this->error( "Table {$table->name} has no columns" );
+			return;
+		}
+		
+		foreach ( $columns as $column ) {
+			$this->validate_column( $table, $column );
+		}
+		
+		$this->validate_indexes( $table );
+		$this->validate_foreign_keys( $table );
+	}
+	
+	private function validate_column( SchemaTable $table, SchemaColumn $column ) : void {
+		if ( null === $column->data_type ) {
+			$this->error( 
+				"Table {$table->name}, column {$column->name}: " . 
+				"missing type" 
+			);
+			return;
+		}
+		
+		if ( $column->is_autoinc && SchemaType::INTEGER !== $column->data_type ) {
+			$this->error( 
+				"Table {$table->name}, column {$column->name}: " . 
+				"autoincrement requires integer type" 
+			);
+		}
+		
+		if ( $column->is_autoinc && !$column->is_primary ) {
+			$this->error(
+				"Table {$table->name}, column {$column->name}: " . 
+				"autoincrement column must be primary key"
+			);
+		}
+		
+		if ( 
+			null !== $column->enumerate	&& 
+			[] === $column->enumerate 
+		) {
+			$this->error( 
+				"Table {$table->name}, column {$column->name}: " . 
+				"enum requires at least one value" );
+		}
+		
+		if (
+			null !== $column->enumerate	&& 
+			count( $column->enumerate ) !== 
+				count( \array_unique( $column->enumerate ) )
+		) {
+			$this->error(
+				"Table {$table->name}, column {$column->name}: " . 
+				"enum contains duplicate values"
+			);
+		}
+		
+		if (
+			null !== $column->enumerate 	&& 
+			SchemaType::STRING !== $column->data_type
+		) {
+			$this->error( 
+				"Table {$table->name}, column {$column->name}: " . 
+				"enum values require SchemaType::STRING" 
+			);
+		}
+		
+		if (
+			null		!== $column->enumerate	&& 
+			null		!== $column->check	&& 
+			'sqlite'	=== $this->driver
+		) {
+			$this->error(
+				"Table {$table->name}, column {$column->name}: " . 
+				"SQLite requires CHECK constraint for enumerate, overlap detected"
+			);
+		}
+	}
+	
+	private function validate_indexes( SchemaTable $table ) : void {
+		$columns = $table->get_columns();
+		
+		foreach ( $table->get_indexes() as $index_name => $index ) {
+			if ( !$index->columns ) {
+				$this->error( 
+					"Table {$table->name}, index {$index_name}: " . 
+					"contains no columns" 
+				);
+				continue;
+			}
+			
+			foreach ( $index->columns as $column ) {
+				if ( !isset( $columns[$column] ) ) {
+					$this->error( 
+						"Table {$table->name}, index {$index_name}: " . 
+						"column {$column} does not exist" 
+					);
+				}
+			}
+		}
+	}
+	
+	private function validate_foreign_keys( SchemaTable $table ) : void {
+		$columns = $table->get_columns();
+		foreach ( $table->get_foreign_keys() as $fk ) {
+			$column = 
+			$fk->column instanceof SchemaColumn 
+				? $fk->column->name
+				: ( string ) $fk->column;
+			
+			if ( !isset( $columns[$column] ) ) {
+				$this->error( 
+					"Table {$table->name}: foreign key column " . 
+					"{$column} does not exist" 
+				);
+			}
+		}
 	}
 }
 
