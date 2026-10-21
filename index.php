@@ -9120,12 +9120,12 @@ enum SchemaCollate {
 /**
  *  @enum Trigger response action
  */
-enum SchemaRefAction {
-	case SET_DEFAULT;
-	case SET_NULL;
-	case NO_ACTION;
-	case RESTRICT;
-	case CASCADE;
+enum SchemaRefAction : string {
+	case SET_DEFAULT	= 'SET DEFAULT';
+	case SET_NULL		= 'SET NULL';
+	case NO_ACTION		= 'NO ACTION';
+	case RESTRICT		= 'RESTRICT';
+	case CASCADE		= 'CASCADE';
 }
 
 /**
@@ -9172,11 +9172,18 @@ final class SchemaCollation {
 /**
  *  @class Table object property type
  *  @example 
- *  #[SchemaProperty( type: SchemaType::INTEGER, is_primary: true, auto_inc: true )]
+ *  #[SchemaField( type: SchemaType::INTEGER, is_primary: true, auto_inc: true )]
  *  public int $post_id;
+ *  
+ *  #[SchemaField( 
+ *  	type		: SchemaType::STRING,
+ *  	is_nullable	: false,
+ *  	collate		: SchemaCollate::CASE_INSENSITIVE
+ *  )]
+ *  public string $title;
  */
 #[Attribute( Attribute::TARGET_PROPERTY | Attribute::IS_REPEATABLE )]
-class SchemaProperty {
+class SchemaField {
 	public function __construct(
 		public readonly SchemaType	$type,
 		public readonly bool		$is_primary	= false,
@@ -9193,7 +9200,7 @@ class SchemaProperty {
  *  @class Composite capable table primary key
  */
 #[Attribute( Attribute::TARGET_PROPERTY | Attribute::IS_REPEATABLE )]
-final class SchemaPrimaryKey extends SchemaProperty {
+final class SchemaPrimaryField extends SchemaField {
 	public function __construct( public readonly SchemaType $type ) {
 		parent::__construct(
 			type 		: $type,
@@ -9204,10 +9211,10 @@ final class SchemaPrimaryKey extends SchemaProperty {
 }
 
 /**
- *  @class Composite capable table primary key
+ *  @class Unique field value per table
  */
-#[Attribute( Attribute::TARGET_PROPERTY | Attribute::IS_REPEATABLE )]
-final class SchemaUnique extends SchemaProperty {
+#[Attribute( Attribute::TARGET_PROPERTY )]
+final class SchemaUniqueField extends SchemaField {
 	public function __construct( public readonly SchemaType $type ) {
 		parent::__construct(
 			type 		: $type,
@@ -9220,9 +9227,12 @@ final class SchemaUnique extends SchemaProperty {
 
 /**
  *  @class Auto-incrementing integer special case (non-composite)
+ *  @example 
+ *  #[SchemaAutoPrimaryField]
+ *  public int $post_id;
  */
 #[Attribute( Attribute::TARGET_PROPERTY )]
-final class SchemaAutoIncPrimaryKey extends SchemaProperty {
+final class SchemaAutoPrimaryField extends SchemaField {
 	public function __construct() {
 		parent::__construct(
 			type 		: SchemaType::INTEGER,
@@ -9234,18 +9244,101 @@ final class SchemaAutoIncPrimaryKey extends SchemaProperty {
 }
 
 /**
+ *  @class Row created stamp field
+ *  @example 
+ *  #[SchemaCreatedAtField]
+ *  public string $created_at;
+ */
+#[Attribute( Attribute::TARGET_PROPERTY )]
+final class SchemaCreatedAtField extends SchemaField {
+	public function __construct() {
+		parent::__construct(
+			type		: SchemaType::DATETIME,
+			is_nullable	: false,
+			default_value	: SchemaExpression::current_timestamp()
+		);
+	}
+}
+
+/**
+ *  @class Last updated stamp field
+ *  @example 
+ *  #[SchemaUpdatedAtField]
+ *  public string $updated_at;
+ */
+#[Attribute( Attribute::TARGET_PROPERTY )]
+final class SchemaUpdatedAtField extends SchemaField {
+	public function __construct() {
+		parent::__construct(
+			type		: SchemaType::DATETIME,
+			is_nullable	: false,
+			default_value	: SchemaExpression::current_timestamp()
+		);
+	}
+}
+
+/**
+ *  @class Nested content counter property
+ *  @example 
+ *  #[SchemaCounterField]
+ *  public int $reply_count;
+ */
+#[Attribute( Attribute::TARGET_PROPERTY | Attribute::IS_REPEATABLE )]
+final class SchemaCounterField extends SchemaField {
+	public function __construct() {
+		parent::__construct(
+			type		: SchemaType::INTEGER,
+			is_nullable	: false,
+			default_value	: 0
+		);
+	}
+}
+
+/**
+ *  @class JSON encoded text
+ *  @example 
+ *  #[SchemaJsonField]
+ *  public string $settings;
+ */
+#[Attribute( Attribute::TARGET_PROPERTY | Attribute::IS_REPEATABLE  )]
+final class SchemaJsonField extends SchemaField {
+	public function __construct( string $default = '{}' ) {
+		parent::__construct(
+			type		: SchemaType::JSON,
+			is_nullable	: false,
+			default_value	: $default
+		);
+	}
+}
+
+/**
+ *  @example 
+ *  #[SchemaUuidPrimaryField]
+ *  public string $uuid;
+ */
+#[Attribute( Attribute::TARGET_PROPERTY )]
+final class SchemaUuidPrimaryField extends SchemaField {
+	public function __construct() {
+		parent::__construct(
+			type		: SchemaType::UUID,
+			is_primary	: true,
+			is_nullable	: false,
+			default_value	: SchemaExpression::uuid()
+		);
+	}
+}
+
+/**
  *  @class Foreign key field
  *  @example
- *  #[SchemaProperty( type: SchemaType::INTEGER )] 
- *  #[SchemaForeignKeyProperty( table: 'posts', column: 'post_id', on_delete: SchemaForeignAction::CASCADE )]
+ *  #[SchemaForeignField( table: 'posts', column: 'post_id', on_delete: SchemaRefAction::CASCADE )]
  *  public int $parent_id;
  */
 #[Attribute( Attribute::TARGET_PROPERTY | Attribute::IS_REPEATABLE )]
-final class SchemaForeignKeyProperty {
+final class SchemaForeignField {
 	public function __construct(
-		public readonly string $table,
-		public readonly string $column,
-		
+		public readonly string			$table,
+		public readonly string			$column,
 		public readonly ?SchemaRefAction	$on_update = null,
 		public readonly ?SchemaRefAction	$on_delete = null
 	) {}
@@ -9356,6 +9449,299 @@ final class SchemaExpression {
 	 */
 	public static function from( SchemaFunction $function ) : self {
 		return new self( $function );
+	}
+}
+
+/**
+ *  @class Database field
+ */
+final class SchemaColumn {
+	
+	/**
+	 *  @var SchemaType Column data type
+	 */
+	public ?SchemaType	$data_type	= null;
+	
+	/**
+	 *  @var bool Is a primary key/identity
+	 */
+	public bool		$is_primary	= false;
+	
+	/**
+	 *  @var bool Can be an empty/null value
+	 */
+	public bool		$is_nullable	= true;
+	
+	/**
+	 *  @var string Default literal value
+	 */
+	public mixed		$default_value	= null;
+	
+	/**
+	 *  @var bool Auto-increment (must be integer type)
+	 */
+	public bool		$is_autoinc	= false;
+	
+	/**
+	 *  @var bool Unique constraint
+	 */
+	public bool		$is_unique	= false;
+	
+	/**
+	 *  @var string Column index collation
+	 */
+	public ?SchemaCollate	$collate	= null;
+	
+	/**
+	 *  @var string Column annotations
+	 */
+	public ?string		$comment	= null;
+	
+	/**
+	 *  @var string Check value constraint
+	 */
+	public ?string		$check		= null;
+	
+	/**
+	 *  @var array Allowed values
+	 */
+	public ?array		$enumerate	= null;
+	
+	public function __construct( public readonly string $name ) {}
+	
+	/**
+	 *  Set column as primary key
+	 */
+	public function primary() : self { 
+		$this->is_primary	= true; 
+		$this->is_nullable	= false; 
+		return $this; 
+	}
+	
+	/**
+	 *  Can no longer be null
+	 */
+	public function required() : self {
+		$this->is_nullable	= false; 
+		return $this;
+	}
+	
+	/**
+	 *  Enable auto-increment and turn off null default
+	 */
+	public function autoincrement() : self {
+		$this->is_autoinc	= true;
+		$this->is_nullable	= false;
+		return $this;
+	}
+	
+	/**
+	 *  Unique column value per table
+	 */
+	public function unique() : self {
+		$this->is_unique	= true;
+		return $this;
+	}
+	
+	/**
+	 *  Get currently set data type or null
+	 *  
+	 *  @return string|null
+	 */
+	public function get_type() : ?string { return $this->data_type; }
+	
+	public function set_type( SchemaType $data_type ) : self {
+		if ( null !== $this->data_type ) { 
+			throw new 
+			\RuntimeException( "Redefinition of column type" );
+		}
+		
+		$this->data_type	= $data_type;
+		return $this; 
+	}
+	
+	public function set_default( mixed $value ) : self {
+		$this->default_value	= $value;
+		return $this;
+	}
+	
+	public function set_collate( SchemaCollate $collate ) : self {
+		$this->collate		= $collate;
+		return $this;
+	}
+	
+	public function set_check( string $expr ) : self {
+		$this->check		= $expr;
+		return $this;
+	}
+	
+	public function set_enum( array $values ) : self {
+		$this->enumerate	= $values;
+		return $this;
+	}
+	
+	public function set_comment( string $comment ) : self {
+		$this->comment		= $comment;
+		return $this;
+	}
+}
+
+/**
+ *  @class Database table
+ */
+final class SchemaTable {
+	/**
+	 *  @var array<SchemaColumn> List of columns on creation
+	 */
+	private array	$columns		= [];
+	
+	/**
+	 *  @var array<SchemaIndex> Query optimization
+	 */
+	private array	$indexes		= [];
+	
+	/**
+	 *  @var array<SchemaTrigger> On insert/update/delete actions
+	 */
+	private array $triggers			= [];
+
+	/**
+	 *  @var array<SchemaForeignKey> Inter table/column relationships
+	 */
+	private array	$foreign_keys		= [];
+	
+	/**
+	 *  @var bool This only applies to SQLite
+	 */
+	private bool	$without_rowid		= false;
+	
+	/**
+	 *  @var string Table annotations
+	 */
+	public ?string		$comment	= null;
+	
+	public function __construct( public readonly string $name ) {}
+	
+	public function add_column( string $name ) : SchemaColumn {
+		if ( isset( $this->columns[$name] ) ) {
+			throw new
+			\RuntimeException( "Column add: Column {$name} already exists" );
+		}
+		
+		return $this->columns[$name] = new SchemaColumn( $name );
+	}
+	
+	/**
+	 *  Get snapshot of all registered columns
+	 *  
+	 *  @return array
+	 */
+	public function get_columns() : array { return $this->columns; }
+	
+	/**
+	 *  Get specific column by name, if set
+	 *  
+	 *  @param string	$name	Case-sensitive column label
+	 */
+	public function get_column( string $name ) : ?SchemaColumn { 
+		return $this->columns[$name] ?? null;
+	}
+	
+	/**
+	 *  Get list of columns designated as primary keys (composite helper)
+	 *  
+	 *  @return array<SchemaColumn>
+	 */
+	public function get_primary_columns() : array {
+		return \array_filter(
+			$this->columns,
+			fn( SchemaColumn $c ) => $c->is_primary
+		);
+	}
+	
+	/**
+	 *  Add query index
+	 */
+	public function add_index( 
+		string		$name, 
+		string|array	$columns, 
+		bool		$is_unique	= false,
+		?string		$where		= null 
+	) : SchemaIndex {
+		if ( isset( $this->indexes[$name] ) ) {
+			throw new
+			\RuntimeException( "Index add: Index {$name} already exists" );
+		}
+		
+		return $this->indexes[$name]	= 
+			new SchemaIndex( $name, ( array ) $columns, $is_unique );
+	}
+	
+	/**
+	 *  ON UPDATE/DELETE triggers for individual tables
+	 *  
+	 *  @param SchemaTrigger	$trigger	Field modifier
+	 */
+	public function add_trigger( SchemaTrigger $trigger ) : SchemaTrigger {
+		// TODO: Multi-level triggers for views etc...
+		return $this->triggers[]	= $trigger;
+	}
+	
+	public function get_indexes() : array { return $this->indexes; }
+	
+	public function get_triggers() : array { return $this->triggers; }
+	
+	/**
+	 *  Add table reference
+	 *  
+	 *  @param SchemaForeignKey	$key		Other table reference (table must already exist)
+	 */
+	public function add_foreign_key( SchemaForeignKey $key ) : self {
+		$column			= 
+		$key->column instanceof SchemaColumn 
+			? $key->column->name
+			: $key->column;
+		
+		if ( !isset( $this->columns[$column] ) ) {
+			throw new
+			\RuntimeException( 
+				"Foreign key add: Column {$column} does not exist" 
+			);
+		}
+		
+		$this->foreign_keys[]	= $key;
+		return $this;
+	}
+	
+	public function get_foreign_keys() : array { return $this->foreign_keys; }
+	
+	public function get_foreign_key( string $column ) : ?SchemaForeignKey {
+		$check	= false;
+		
+		foreach ( $this->foreign_keys as $fk ) {
+			$check = 
+			$fk->ref_column instanceof SchemaColumn  
+				? $fk->ref_column->name === $column
+				: $fk->ref_column === $column;
+			
+			if ( $check ) { return $fk; }
+		}
+		
+		return null;
+	}
+	
+	public function is_without_rowid() : bool {
+		return $this->without_rowid;
+	}
+	
+	public function without_rowid() : self {
+		$this->without_rowid	= true;
+		return $this;
+	}
+	
+	public function set_comment( string $comment ) : self {
+		$this->comment		= $comment;
+		return $this;
 	}
 }
 
