@@ -9895,6 +9895,644 @@ final class SchemaValidator {
 	}
 }
 
+/**
+ *  @class Compiles SQL schema with database driver-appropriate syntax
+ */
+final class SchemaCompiler {
+	
+	/**
+	 *  @var bool True of schema driver supports WHERE clause partial indexes
+	 */
+	private bool $partial_idx;
+	
+	public function __construct( public readonly string $driver ) {}
+	
+	/**
+	 *  Quote table names, columns etc... when neded
+	 */
+	private function q_ident( string $name ) : string {
+		return match( $this->driver ) {
+			'mysql'		=> "`{$name}`",
+			'sqlite',
+			'pgsql'		=> "\"{$name}\"",
+			default		=>
+			throw new 
+			\RuntimeException( "Unsupported driver {$this->driver}" )
+		};
+	}
+	
+	/**
+	 *  Translate to SQLite-specific column data type when given schema type
+	 */
+	private function sqlite_type( SchemaType $type ) : string {
+		return match( $type ) {
+			SchemaType::INTEGER	=> 'INTEGER',
+			SchemaType::FLOAT	=> 'REAL',
+			SchemaType::BOOLEAN	=> 'INTEGER',
+			SchemaType::DATETIME,
+			SchemaType::STRING,
+			SchemaType::UUID,
+			SchemaType::JSON,
+			SchemaType::TEXT	=> 'TEXT'
+		};
+	}
+	
+	private function mysql_type( SchemaType $type ) : string {
+		return match( $type ) {
+			SchemaType::INTEGER	=> 'INT',
+			SchemaType::FLOAT	=> 'FLOAT',
+			SchemaType::BOOLEAN	=> 'BOOLEAN',
+			SchemaType::DATETIME	=> 'DATETIME',
+			SchemaType::UUID	=> 'CHAR( 36 )',
+			SchemaType::STRING	=> 'VARCHAR( 255 )',
+			SchemaType::JSON	=> 'JSON',
+			SchemaType::TEXT	=> 'TEXT'
+		};
+	}
+	
+	private function pgsql_type( SchemaType $type ) : string {
+		return match( $type ) {
+			SchemaType::INTEGER	=> 'INTEGER',
+			SchemaType::FLOAT	=> 'DOUBLE PRECISION',
+			SchemaType::BOOLEAN	=> 'BOOLEAN',
+			SchemaType::DATETIME	=> 'TIMESTAMP',
+			SchemaType::UUID	=> 'UUID',
+			SchemaType::STRING	=> 'VARCHAR( 255 )',
+			SchemaType::JSON	=> 'JSONB',
+			SchemaType::TEXT	=> 'TEXT'
+		};
+	}
+	
+	/**
+	 *  Set primary key in-field if this is auto-increment
+	 *  
+	 *  @param array<SchemaColumn>	$columns	List of fields
+	 */
+	private function has_inline_pk( array $columns ) : bool {
+		foreach ( $columns as $column ) {
+			if ( $column->is_autoinc && 'sqlite' === $this->driver ) { 
+				return true; 
+			}
+		}
+		
+		return false;
+	}
+	
+	/**
+	 *  Check if the set driver supports partial indexes
+	 */
+	private function supports_partial_idx() : bool {
+		$this->partial_idx ??= \in_array( $this->driver, [ 'sqlite', 'pgsql' ], true );
+		return $this->partial_idx;
+	}
+	
+	private function compile_expression( SchemaExpression $expr ) : string {
+		
+		return match( $expr->function ) {
+			SchemaFunction::CURRENT_TIMESTAMP	=> 'CURRENT_TIMESTAMP',
+			SchemaFunction::CURRENT_DATE		=>
+			match( $this->driver ) {
+				'pgsql',
+				'mysql'		=> 'CURRENT_DATE()',
+				'sqlite'	=> "date()"
+			},
+			
+			SchemaFunction::CURRENT_TIME		=>
+			match( $this->driver ) {
+				'pgsql',
+				'mysql'		=> 'CURRENT_TIME()',
+				'sqlite'	=> 'current_time',
+				
+				default =>
+				throw new \RuntimeException( "Unsupported driver {$this->driver}" )
+			},
+			
+			SchemaFunction::NOW			=> 
+			match( $this->driver ) {
+				'pgsql'			=> 'EXTRACT( EPOCH FROM NOW() )::BIGINT',
+				'mysql'			=> "UNIX_TIMESTAMP()",
+				'sqlite'		=> "strftime( '%s','now' )",
+				default			=> 
+				throw new 
+				\RuntimeException( "Unsupported DB driver: {$this->driver}" )
+			},
+			
+			SchemaFunction::UUID			=>
+			match( $this->driver ) {
+				'pgsql'  => 'uuidv4()',
+				'mysql'  => '( UUID() )',
+				'sqlite' => 
+				"lower(
+					hex( randomblob( 4 ) ) || '-' || 
+					hex( randomblob( 2 ) ) || '-' || 
+					'4' || substr( hex( randomblob( 2 ) ), 2 ) || '-' || 
+					substr( 'AB89', 1 + ( abs( random() ) % 4 ) , 1 )  ||
+					substr( hex( randomblob( 2 ) ), 2 ) || '-' || 
+					hex( randomblob( 6 ) )
+				)",
+				
+				default =>
+				throw new \RuntimeException( "Unsupported driver {$this->driver}" )
+			},
+			
+			SchemaFunction::RANDOM			=> 
+			match( $this->driver ) {
+				'pgsql'			=> 'substr( md5( random()::text ), 1, 16 )',
+				'mysql'			=> 'SUBSTR( MD5( RAND() ), 1, 16 )',
+				'sqlite'		=> 'lower( hex( randomblob( 16 ) ) )',
+				default			=> 
+				throw new 
+				\RuntimeException( "Unsupported DB driver: {$this->driver}" )
+			},
+			
+			default					=> 
+			throw new 
+			\RuntimeException( 'Unknown schema expression' )
+		};
+	}
+	
+	private function compile_type( SchemaColumn $column ) : string {
+		return match( $this->driver ) {
+			'sqlite'	=> $this->sqlite_type( $column->data_type ),
+			'mysql'		=> $this->mysql_type( $column->data_type ),
+			'pgsql'		=> $this->pgsql_type( $column->data_type ),
+			default		=> 
+			throw new 
+			\RuntimeException( "Unsupported DB driver: {$this->driver}" )
+		};
+	}
+	
+	private function compile_inline_pk( SchemaColumn $column ) : ?string {
+		// Not autoincrement? Not an inline primary key
+		if ( !$column->is_autoinc ) { return null; }
+		
+		return match( $this->driver ) {
+			'sqlite'	=> 'PRIMARY KEY AUTOINCREMENT',
+			'mysql'		=> 'PRIMARY KEY AUTO_INCREMENT',
+			'pgsql'		=> 'GENERATED BY DEFAULT AS IDENTITY',
+			
+			default		=> 
+			throw new 
+			\RuntimeException( "Unsupported DB driver: {$this->driver}" )
+		};
+	}
+	
+	private function compile_nullable( SchemaColumn $column ) : ?string {
+		return !$column->is_nullable ? 'NOT NULL' : null;
+	}
+	
+	private function compile_unique( SchemaColumn $column ) : ?string {
+		return $column->is_unique ? 'UNIQUE' : null;
+	}
+	
+	private function compile_value( mixed $value ) : mixed {
+		return match( true ) {
+			( $value instanceof SchemaExpression )	=> 
+				$this->compile_expression( $value ),
+			
+			\is_string( $value )			=> 
+				"'" . \str_replace( "'", "''", $value ) . "'",
+			
+			\is_bool( $value )			=> 
+				$value ? '1' : '0',
+			
+			default					=> ( string ) $value
+		};
+	}
+	
+	/**
+	 *  Set a default value on field creation
+	 *  
+	 *  @param SchemaColumn	$column		Database field
+	 *  @return mixed
+	 */
+	private function compile_default( SchemaColumn $column ) : mixed {
+		return !\in_array( $column->default_value, [ null, '' ] )
+			? 'DEFAULT ' . $this->compile_value( $column->default_value )
+			: null;
+	}
+	
+	private function compile_trg_target( string|SchemaColumn $trigger ) : string {
+		return $trigger->target_column instanceof SchemaColumn
+			? $trigger->target_column->name
+			: ( string ) $trigger->target_column;
+	}
+	
+	private function compile_check( SchemaColumn $column ) : ?string {
+		if ( null === $column->check ) { return null; }
+		
+		$expr	= 
+		\str_replace( 'value', $this->q_ident( $column->name ), $column->check );
+		return "CHECK ( {$expr} )";
+	}
+	
+	private function compile_collate( SchemaColumn $column ) : ?string {
+		if ( null === $column->collate ) { return null; }
+		
+		return match( $column->collate ) {
+			SchemaCollate::CASE_INSENSITIVE	=> 
+			match( $this->driver ) {
+				'pgsql'		=> '',
+				'mysql'		=> 'COLLATE utf8mb4_0900_ai_ci',
+				'sqlite'	=> 'COLLATE NOCASE'
+			},
+			
+			SchemaCollate::CASE_SENSITIVE	=>
+			match( $this->driver ) {
+				'pgsql'		=> 'COLLATE "C"',
+				'mysql'		=> 'COLLATE utf8mb4_0900_bin',
+				'sqlite'	=> 'COLLATE BINARY'
+			},
+			
+			SchemaCollate::NATURAL	=>
+			match( $this->driver ) {
+				'pgsql', 'sqlite'
+						=> '',
+				'mysql'		=> 'COLLATE utf8mb4_0900_ai_ci'
+			},
+			
+			default		=> 
+			throw new 
+			\RuntimeException( "Unsupported collation" )
+		};
+	}
+	
+	private function compile_index( SchemaTable $table, SchemaIndex $index ) : string {
+		$columns	= implode( ', ', $index->columns );
+		$unique		= $index->is_unique ? 'UNIQUE ' : '';
+		$sql		= 
+		"CREATE {$unique}INDEX {$index->name} " .
+			"ON {$table->name} ({$columns})";
+		
+		// Add partial where supported
+		if ( null !== $index->where && $this->supports_partial_idx() ) {
+			$sql .= " WHERE {$index->where}";
+		}
+		
+		return "{$sql};";
+	}
+	
+	private function compile_indexes( SchemaTable $table ) : array {
+		$sql = [];
+		foreach ( $table->get_indexes() as $name => $index ) {
+			$sql[]	= $this->compile_index( $table, $index );
+		}
+		
+		return $sql;
+	}
+	
+	private function compile_column( SchemaColumn $column ) : string {
+		// Name and type
+		$parts		= 
+		[ $this->q_ident( $column->name ), $this->compile_type( $column ) ];
+		
+		$parts[]	= $this->compile_inline_pk( $column );
+		$parts[]	= $this->compile_nullable( $column );
+		$parts[]	= $this->compile_unique( $column );
+		$parts[]	= $this->compile_default( $column );
+		$parts[]	= $this->compile_check( $column );
+		$parts[]	= $this->compile_collate( $column );
+		
+		$parts	= \array_filter( $parts, fn( $p ) => $p !== null );
+		
+		return implode( ' ', $parts );
+	}
+	
+	private function compile_where( array $columns ) : string {
+		return implode( 
+			' AND ', 
+			\array_map(
+				fn( SchemaColumn $column ) => "{$column->name} = NEW.{$column->name}", 
+				$columns
+			)
+		);
+	}
+	
+	private function compile_fk_column( SchemaForeignKey $fk ) : string {
+		$column			= 
+		$fk->column instanceof SchemaColumn
+			? $fk->column->name
+			: $fk->column;
+		
+		$ref_column		= 
+		$fk->ref_column instanceof SchemaColumn
+			? $fk->ref_column->name
+			: $fk->ref_column;
+		
+		$sql		=
+		"FOREIGN KEY ({$column}) " .
+			"REFERENCES {$fk->ref_table->name} ({$ref_column})";
+		
+		if ( null !== $fk->on_delete ) { $sql .= "\n\tON DELETE {$fk->on_delete->value}"; }
+		if ( null !== $fk->on_update ) { $sql .= "\n\tON UPDATE {$fk->on_update->value}"; }
+		return $sql;
+	}
+	
+	private function compile_touch_trigger_sqlite( 
+		SchemaTable	$table, 
+		TouchTrigger	$trigger 
+	) : string {
+		$fk		= $trigger->foreign_key;
+		$name		= $fk->ref_table->name;
+		$target		= $this->compile_trg_target( $trigger );
+		
+		return "
+	CREATE TRIGGER trg_{$table->name}_{$name}_{$target}
+	AFTER UPDATE ON {$this->q_ident( $table->name )}
+	FOR EACH ROW
+	BEGIN
+		UPDATE {$this->q_ident( $name )}
+			SET {$this->q_ident( $target )} = CURRENT_TIMESTAMP
+			WHERE {$this->q_ident( $fk->column )} = 
+				NEW.{$this->q_ident( $fk->ref_column )};
+	END;";
+	}
+	
+	private function compile_touch_trigger_mysql( 
+		SchemaTable	$table, 
+		TouchTrigger	$trigger 
+	) : string {
+		$fk		= $trigger->foreign_key;
+		$name		= $fk->ref_table->name;
+		$target		= $this->compile_trg_target( $trigger );
+		
+		return "
+	DELIMITER $$
+	CREATE TRIGGER trg_{$table->name}_{$name}_{$target}
+	AFTER UPDATE ON {$this->q_ident( $table->name )}
+	FOR EACH ROW
+	BEGIN
+		UPDATE {$this->q_ident( $name )}
+			SET {$this->q_ident( $target )} = CURRENT_TIMESTAMP
+			WHERE {$this->q_ident( $fk->column )} = 
+				NEW.{$this->q_ident( $fk->ref_column )};
+	END;$$
+	DELIMITER ;";
+	}
+	
+	private function compile_touch_trigger_pgsql( 
+		SchemaTable	$table, 
+		TouchTrigger	$trigger 
+	) : string {
+		$fk		= $trigger->foreign_key;
+		$name		= $fk->ref_table->name;
+		$target		= $this->compile_trg_target( $trigger );
+		
+		$function	= "fn_touch_{$table->name}_{$name}_{$target}";
+		
+		return "
+	CREATE OR REPLACE FUNCTION {$function}()
+	RETURNS TRIGGER
+	LANGUAGE plpgsql
+	AS \$\$
+	BEGIN
+		UPDATE {$this->q_ident( $name )}
+			SET {$this->q_ident( $target )} = CURRENT_TIMESTAMP
+			WHERE {$this->q_ident( $fk->column )} = 
+				NEW.{$this->q_ident( $fk->ref_column )};
+	RETURN NEW;
+	END;
+	\$\$;
+	
+	CREATE TRIGGER trg_{$table->name}_{$name}_{$target}
+	AFTER UPDATE ON {$this->q_ident( $table->name )}
+	FOR EACH ROW
+	EXECUTE FUNCTION {$function}();";
+	}
+	
+	private function compile_touch_trigger( 
+		SchemaTable	$table, 
+		TouchTrigger	$trigger 
+	) : string {
+		return match( $this->driver ) {
+			'sqlite'	=> $this->compile_touch_trigger_sqlite( $table, $trigger ),
+			'mysql'		=> $this->compile_touch_trigger_mysql( $table, $trigger ),
+			'pgsql'		=> $this->compile_touch_trigger_pgsql( $table, $trigger ),
+		};
+	}
+	
+	private function compile_counter_trigger_sqlite( 
+		SchemaTable	$table, 
+		CounterTrigger	$trigger 
+	) : string {
+		$fk		= $table->get_foreign_key( $trigger->foreign_key );
+		$parent		= $fk->ref_table->name;
+		$child		= $table->name;
+		$target		= $this->compile_trg_target( $trigger );
+		
+		$parent_key	= $fk->ref_column;
+		$child_key	= $fk->column;
+		
+		return "
+	CREATE TRIGGER trg_inc_{$child}_{$target}
+	AFTER INSERT ON {$child}
+	FOR EACH ROW
+	BEGIN
+		UPDATE {$parent} SET {$target} = {$target} + 1
+			WHERE {$parent_key} = NEW.{$child_key};
+	END;
+	
+	CREATE TRIGGER trg_dec_{$child}_{$target}
+	AFTER DELETE ON {$child}
+	FOR EACH ROW
+	BEGIN
+		UPDATE {$parent} SET {$target} = {$target} - 1
+			WHERE {$parent_key} = OLD.{$child_key};
+	END;";
+	}
+	
+	private function compile_counter_trigger_mysql(
+		SchemaTable	$table, 
+		CounterTrigger	$trigger 
+	) : string {
+		$fk		= $table->get_foreign_key( $trigger->foreign_key );
+		$parent		= $fk->ref_table->name;
+		$child		= $table->name;
+		$target		= $this->compile_trg_target( $trigger );
+		
+		$parent_key	= $fk->ref_column;
+		$child_key	= $fk->column;
+		
+		return "
+	DELIMITER $$
+	CREATE TRIGGER trg_inc_{$child}_{$parent}_{$target}
+	AFTER INSERT ON {$this->q_ident( $child )}
+	FOR EACH ROW
+	BEGIN
+		UPDATE {$this->q_ident( $parent )} 
+			SET {$this->q_ident( $target )} = {$target} + 1
+			WHERE {$this->q_ident( $parent_key )} = 
+				NEW.{$this->q_ident( $child_key )};
+	END;$$
+	DELIMITER ;
+	
+	DELIMITER $$
+	CREATE TRIGGER trg_dec_{$child}_{$parent}_{$target}
+	AFTER DELETE ON {$this->q_ident( $child )}
+	FOR EACH ROW
+	BEGIN
+		UPDATE {$this->q_ident( $parent )} 
+			SET {$this->q_ident( $target )} = {$target} - 1
+			WHERE {$this->q_ident( $parent_key )} = 
+				NEW.{$this->q_ident( $child_key )};
+	END;$$
+	DELIMITER ;";
+	}
+	
+	private function compile_counter_trigger_pgsql( 
+		SchemaTable	$table, 
+		CounterTrigger	$trigger 
+	) : string {
+		$fk		= $table->get_foreign_key( $trigger->foreign_key );
+		$parent		= $fk->ref_table->name;
+		$child		= $table->name;
+		$target		= $this->compile_trg_target( $trigger );
+		
+		$parent_key	= $fk->ref_column;
+		$child_key	= $fk->column;
+		
+		$fn_inc		= "fn_inc_{$table->name}_{$child}_{$target}";
+		$fn_dec		= "fn_dec_{$table->name}_{$child}_{$target}";
+		
+		return "
+	CREATE OR REPLACE FUNCTION {$fn_inc}()
+	RETURNS TRIGGER
+	LANGUAGE plpgsql
+	AS \$\$
+	BEGIN
+		UPDATE {$this->q_ident( $parent )}
+			SET {$this->q_ident( $target )} = {$target} + 1
+			WHERE {$this->q_ident( $parent_key )} = 
+				NEW.{$this->q_ident( $child_key )};
+	RETURN NEW;
+	END;
+	\$\$;
+	
+	CREATE OR REPLACE FUNCTION {$fn_dec}()
+	RETURNS TRIGGER
+	LANGUAGE plpgsql
+	AS \$\$
+	BEGIN
+		UPDATE {$this->q_ident( $parent )}
+			SET {$this->q_ident( $target )} = {$target} - 1
+			WHERE {$this->q_ident( $parent_key )} = 
+				OLD.{$this->q_ident( $child_key )};
+	RETURN NEW;
+	END;
+	\$\$;
+	
+	CREATE TRIGGER trg_inc_{$child}_{$target}
+	AFTER INSERT ON {$this->q_ident( $child )}
+	FOR EACH ROW
+	EXECUTE FUNCTION {$fn_inc}();
+	
+	CREATE TRIGGER trg_dec_{$child}_{$target}
+	AFTER DELETE ON {$this->q_ident( $child )}
+	FOR EACH ROW
+	EXECUTE FUNCTION {$fn_dec}();";
+	}
+	
+	private function compile_counter_trigger( 
+		SchemaTable	$table, 
+		TouchTrigger	$trigger 
+	) : string {
+		return match( $this->driver ) {
+			'sqlite'	=> $this->compile_counter_trigger_sqlite( $table, $trigger ),
+			'mysql'		=> $this->compile_counter_trigger_mysql( $table, $trigger ),
+			'pgsql'		=> $this->compile_counter_trigger_pgsql( $table, $trigger ),
+		};
+	}
+	
+	private function compile_custom_trigger( 
+		SchemaTable	$table, 
+		CustomTrigger	$trigger 
+	) : string {
+		return $trigger->sql[ $this->driver ] ?? 
+			throw new 
+			\RuntimeException( "Custom trigger not defined for {$this->driver}" );
+	}
+	
+	private function compile_triggers( SchemaTable $table ) : string {
+		$sql	= [];
+		foreach ( $table->get_triggers() as $trigger ) {
+			$stmt	= 
+			match( true ) {
+				$trigger instanceof TouchTrigger =>
+					$this->compile_touch_trigger( $table, $trigger ),
+				
+				$trigger instanceof CounterTrigger =>
+					$this->compile_counter_trigger( $table,	$trigger ),
+				
+				$trigger instanceof CustomTrigger =>
+					$this->compile_custom_trigger( $table, $trigger ),
+			};
+			$sql	= [ ...$sql, ( array ) $stmt ];
+		}
+		return \implode( "\n\n", $sql );
+	}
+	
+	private function compile_table( SchemaTable $table ) : string {
+		$parts		= [];
+		$columns	= $table->get_columns();
+		foreach ( $columns as $column ) {
+			$parts[] = $this->compile_column( $column );
+		}
+		
+		$pk = \array_filter( $columns, fn( SchemaColumn $c ) => $c->is_primary );
+		
+		// Avoid table-level PK when auto-increment already emitted PRIMARY KEY
+		if ( $pk && !$this->has_inline_pk( $pk ) ) {
+			$names = \array_map( fn( SchemaColumn $c ) => $c->name, $pk );
+			$parts[] = 'PRIMARY KEY ( ' . implode( ', ', $names ) . ' )';
+		}
+		
+		foreach ( $table->get_foreign_keys() as $fk ) {
+			$parts[] = $this->compile_fk_column( $fk );
+		}
+		
+		$name	= 
+		\in_array( $this->driver, [ 'sqlite', 'pgsql' ], true )
+			? $this->q_ident( $table->name )
+			: $table->name;
+		
+		$sql	= null === $table->comment ? "\n" : "\n-- {$table->comment}\n";
+		$sql	.= 
+		"CREATE TABLE IF NOT EXISTS {$name} (\n" .
+			"\t" . implode( ",\n\t", $parts ) . "\n)";
+		
+		// Unique to SQLite
+		if ( 'sqlite' === $this->driver && $table->is_without_rowid() ) {
+			$sql .= ' WITHOUT ROWID';
+		}
+		
+		if ( 'mysql' === $this->driver ) {
+			$sql .= ' ENGINE=InnoDB DEFAULT CHARSET=utf8';
+		}
+		
+		$sql .= ";\n";
+		$sql .= $this->compile_triggers( $table );
+		
+		return  $sql;
+	}
+	
+	/**
+	 *  Build schema into SQL string
+	 *  
+	 *  @return array
+	 */
+	public function compile( Schema $schema ) : array {
+		$check	= new SchemaValidator( $this->driver );
+		$check->validate( $schema );
+		
+		$sql	= [];
+		foreach ( $schema->get_tables() as $table ) {
+			$sql[]	= $this->compile_table( $table );
+		}
+		
+		return $sql;
+	}
+}
+
 
 /**
  *  @class Database access
