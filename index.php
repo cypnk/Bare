@@ -2994,7 +2994,7 @@ final class Sanitize {
 			}
 		}
 		
-		return implode( ', ', $clean );
+		return \implode( ', ', $clean );
 	}
 
 	public static function srcset( string $srcset ) : string {
@@ -5632,7 +5632,7 @@ class Language extends Instance {
 		
 		$words	= \array_unique( \array_keys( $fr ) );
 		
-		return $as_array ? $words : implode( ' ', $words );
+		return $as_array ? $words : \implode( ' ', $words );
 	}
 }
 
@@ -9155,9 +9155,15 @@ final class SchemaIndex {
  */
 #[Attribute( Attribute::TARGET_CLASS | Attribute::IS_REPEATABLE )]
 final class SchemaObject {
+	/**
+	 *  Schema object constructor
+	 *  
+	 *  @param string	$name		Database table name
+	 *  @param string	$without_rowid	Special case
+	 */
 	public function __construct( 
 		public readonly string	$name,
-		public readonly bool	$without_rowid	= false
+		public readonly ?bool	$without_rowid	= null
 	) {}
 }
 
@@ -9192,7 +9198,8 @@ class SchemaField {
 		public readonly bool		$is_unique	= false,
 		public readonly ?string		$check		= null,
 		public readonly mixed		$default_value	= null,
-		public readonly ?SchemaCollate	$collate	= null
+		public readonly ?SchemaCollate	$collate	= null,
+		public readonly ?string		$comment	= null
 	) {}
 }
 
@@ -9687,8 +9694,18 @@ final class SchemaTable {
 		return $this->triggers[]	= $trigger;
 	}
 	
+	/**
+	 *  Get stored indexes in array format
+	 *  
+	 *  @return array<SchemaIndex>
+	 */
 	public function get_indexes() : array { return $this->indexes; }
 	
+	/**
+	 *  Get stored triggers in array format
+	 *  
+	 *  @return array<SchemaTrigger>
+	 */
 	public function get_triggers() : array { return $this->triggers; }
 	
 	/**
@@ -9734,6 +9751,9 @@ final class SchemaTable {
 		return $this->without_rowid;
 	}
 	
+	/**
+	 *  This has no effect on databases other than SQLite
+	 */
 	public function without_rowid() : self {
 		$this->without_rowid	= true;
 		return $this;
@@ -9743,6 +9763,46 @@ final class SchemaTable {
 		$this->comment		= $comment;
 		return $this;
 	}
+}
+
+/**
+ *  @class Database object to SQL construct
+ */
+final class Schema {
+	
+	/**
+	 *  List of tables in this database
+	 *  
+	 *  @var array<SchemaTable>
+	 */
+	private array	$tables		= [];
+	
+	/**
+	 *  Storage relative SQL file path
+	 */
+	private ?string	$sql_file	= null;
+	
+	public function __construct() {}
+	
+	public function add_table( string $name ) : SchemaTable {
+		if ( isset( $this->tables[$name] ) ) {
+			throw new
+			\RuntimeException( "Table {$name} already exists" );
+		}
+		
+		return $this->tables[$name] = new SchemaTable( $name );
+	}
+	
+	public function get_tables() : array {
+		return $this->tables;
+	}
+	
+	public function set_file( string $sql_file ) : void {
+		$this->sql_file	= $sql_file;
+	}
+	
+	// TODO: Save to $sql_file path in storage
+	public function save() : void {}
 }
 
 /**
@@ -9770,7 +9830,7 @@ final class SchemaValidator {
 		
 		if ( $this->errors ) {
 			throw new 
-			\RuntimeException( implode( "\n", $this->errors ) );
+			\RuntimeException( \implode( "\n", $this->errors ) );
 		}
 	}
 	
@@ -10158,7 +10218,7 @@ final class SchemaCompiler {
 	}
 	
 	private function compile_index( SchemaTable $table, SchemaIndex $index ) : string {
-		$columns	= implode( ', ', $index->columns );
+		$columns	= \implode( ', ', $index->columns );
 		$unique		= $index->is_unique ? 'UNIQUE ' : '';
 		$sql		= 
 		"CREATE {$unique}INDEX {$index->name} " .
@@ -10193,13 +10253,17 @@ final class SchemaCompiler {
 		$parts[]	= $this->compile_check( $column );
 		$parts[]	= $this->compile_collate( $column );
 		
-		$parts	= \array_filter( $parts, fn( $p ) => $p !== null );
-		
-		return implode( ' ', $parts );
+		$parts		= \array_filter( $parts, fn( $p ) => $p !== null );
+		$sql		= \implode( ' ', $parts );
+
+		// Prefix any comments
+		return null === $column->comment
+			? $sql
+			: "\n-- {$column->comment}\n" . $sql;
 	}
 	
 	private function compile_where( array $columns ) : string {
-		return implode( 
+		return \implode( 
 			' AND ', 
 			\array_map(
 				fn( SchemaColumn $column ) => "{$column->name} = NEW.{$column->name}", 
@@ -10483,7 +10547,7 @@ final class SchemaCompiler {
 		// Avoid table-level PK when auto-increment already emitted PRIMARY KEY
 		if ( $pk && !$this->has_inline_pk( $pk ) ) {
 			$names = \array_map( fn( SchemaColumn $c ) => $c->name, $pk );
-			$parts[] = 'PRIMARY KEY ( ' . implode( ', ', $names ) . ' )';
+			$parts[] = 'PRIMARY KEY ( ' . \implode( ', ', $names ) . ' )';
 		}
 		
 		foreach ( $table->get_foreign_keys() as $fk ) {
@@ -10498,7 +10562,7 @@ final class SchemaCompiler {
 		$sql	= null === $table->comment ? "\n" : "\n-- {$table->comment}\n";
 		$sql	.= 
 		"CREATE TABLE IF NOT EXISTS {$name} (\n" .
-			"\t" . implode( ",\n\t", $parts ) . "\n)";
+			"\t" . \implode( ",\n\t", $parts ) . "\n)";
 		
 		// Unique to SQLite
 		if ( 'sqlite' === $this->driver && $table->is_without_rowid() ) {
@@ -10530,6 +10594,127 @@ final class SchemaCompiler {
 		}
 		
 		return $sql;
+	}
+}
+
+/**
+ *  @class Class object to schema format helper
+ */
+class SchemaDiscovery {
+	
+	public function __construct( private readonly Container $container ) {}
+	
+	/**
+	 *  Set core column properties with matching instance attributes
+	 *  
+	 *  TODO: Attribute filter
+	 */
+	private function prepare_column( 
+		SchemaField	$instance, 
+		SchemaColumn	$column 
+	) : void {
+		
+		if ( $instance->is_primary ) { $column->primary(); }
+		if ( $instance->auto_inc ) { $column->autoincrement(); }
+		if ( !$instance->is_nullable ) { $column->required(); }
+		if ( $instance->is_unique ) { $column->unique(); }
+		if ( null !== $instance->default_value ) {
+			$column->set_default( $instance->default_value );
+		}
+		
+		if ( null !== $instance->collate ) {
+			$column->set_collate( $instance->collate );
+		}
+		
+		if ( null !== $instance->check ) {
+			$column->set_check( $instance->check );
+		}
+		
+		if ( null !== $instance->comment ) {
+			$column->set_comment( $instance->comment );
+		}
+	}
+	
+	/**
+	 *  Class property to table column discovery
+	 */
+	private function discover_fields( 
+		SchemaTable		$table, 
+		\ReflectionClass	$ref 
+	) : void {
+		
+		foreach ( $ref->getProperties() as $property ) {
+			$properties	= 
+			$property->getAttributes(
+				SchemaField::class,
+				\ReflectionAttribute::IS_INSTANCEOF
+			);
+			
+			if ( !$properties ) { continue; }
+			
+			$name		= $property->getName();
+			$attribute	= $properties[0];
+
+			$instance	= $attribute->newInstance();
+			$column		= 
+			$table
+				->add_column( $name )
+				->set_type( $instance->type );
+			
+			$this->prepare_column( $table, $property );
+			
+			// Special case updated_at needs a trigger
+			if ( $instance instanceof SchemaUpdatedAtField ) {
+				$table->add_trigger( new TouchTrigger( $name ) );
+			}
+		}
+	}
+	
+	/**
+	 *  Class attribute to table index discovery
+	 */
+	private function discover_indexes( 
+		SchemaTable		$table, 
+		\ReflectionClass	$ref 
+	) : void {
+		
+		foreach ( $ref->getAttributes( SchemaIndex::class ) as $attribute ) {
+			$index = $attribute->newInstance();
+			$table->add_index(
+				name		: $index->name,
+				columns		: ( array ) $index->columns,
+				is_unique	: $index->is_unique,
+				where		: $index->where ?? null
+			);
+		}
+	}
+	
+	/**
+	 *  Class to table discovery
+	 */
+	public function discover( Schema $schema, mixed $class ) {
+		
+		$ref	= new \ReflectionClass( $class );
+		
+		$attrs	= 
+		$ref->getAttributes( 
+			SchemaObject::class, 
+			ReflectionAttribute::IS_INSTANCEOF 
+		);
+		
+		if ( !$attrs ) {
+			throw new 
+			\RuntimeException( "Class {$ref->getName()} is missing #[SchemaObject]" );
+		}
+		
+		$attr	= $attrs[0]->newInstance();
+		$table	= $schema->add_table( $attr->name );
+		
+		// Apply columns
+		$this->discover_fields( $table, $ref );
+		
+		// Apply table indexes
+		$this->discover_indexes( $table, $ref );
 	}
 }
 
