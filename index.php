@@ -8785,6 +8785,9 @@ final class Router extends Instance {
 		$registry->run( 'request.context' );
 		$registry->run( 'request.finalize', true );
 		
+		// Optional intercept entry for E.G. firewall plugins
+		$registry->run( 'request.finalize.filter' );
+		
 		// Sessions
 		$this->session_dispatch( $registry );
 		if ( !empty( $registry->values( 'response_ready' ) ) ) {
@@ -13947,14 +13950,35 @@ class Posts {
 		
 		$offset	= ( $page - 1 ) * $limit;
 		$sql	= $this->select_for_archive( $year, $month, $day );
+		$params	= [
+			'year'		=> $year,
+			'day'		=> $day,
+			'limit'		=> $limit,
+			'offset'	=> $offset
+		];
+		$params = \array_filter( $params, fn( $v ) => null !== $v );
 		$rows	= 
 		$this->dbh->result_exec(
 			sql	: $sql,
 			profile	: $this->db_profile,
+			params	: $params,
+			rtype	: 'results'
+		);
+		
+		return $result->with_data( [ 'posts' => $rows ] );
+	}
+	
+	#[Hook( name : 'post.index_lookup', priority : 1 )]
+	public function index_lookup( string $event, HookResult $result, array $args ) : HookResult {
+		$limit	= $args['limit']	?? 10;
+		$page	= $args['page'] 	?? 1;
+		
+		$offset	= ( $page - 1 ) * $limit;
+		$rows	= 
+		$this->dbh->result_exec(
+			sql	: static::SQL['select'],
+			profile	: $this->db_profile,
 			params	: [
-				'year'		=> $year,
-				'month'		=> $month,
-				'day'		=> $day,
 				'limit'		=> $limit,
 				'offset'	=> $offset
 			],
@@ -14387,6 +14411,7 @@ class PostImporting {
 		$month		= $parts[$count - 3] ?? null;
 		$day		= $parts[$count - 2] ?? null;
 		
+		// We have all path components?
 		return ( $year && $month && $day ) 
 			? "{$year}-{$month}-{$day} 00:00:00" // Midnight on the same day
 			: null;
@@ -14409,7 +14434,7 @@ class PostImporting {
 	/**
 	 *  Scan directory and collect files
 	 */
-	#[Hook( name : 'post.import_scan', priority : 1 )]
+	#[Hook( name : 'post.import.scan', priority : 90 )]
 	public function import_scan( string $event, HookResult $result, array $args ) : HookResult {
 		$base		= $args['base'] ?? null;
 		if ( !$base ) {
@@ -14427,7 +14452,7 @@ class PostImporting {
 	/**
 	 *  Parse metadata + body for each file
 	 */
-	#[Hook( name : 'post.import_parse', priority : 1 )]
+	#[Hook( name : 'post.import.parse', priority : 50 )]
 	public function parse_imported( string $event, HookResult $result, array $args ) : HookResult {
 		
 		$files = $result->data['import_files'] ?? [];
@@ -14463,7 +14488,7 @@ class PostImporting {
 	/**
 	 *  Bulk insert posts to database
 	 */
-	#[Hook( name : 'post.import_insert_posts', priority : 1 )]
+	#[Hook( name : 'post.import.insert_posts', priority : 30 )]
 	public function insert_posts( string $event, HookResult $result, array $args ) : HookResult {
 		$entries = $result->data['import_entries'] ?? [];
 		if ( !$entries ) { return $result; }
@@ -14504,7 +14529,7 @@ class PostImporting {
 	/**
 	 *  Insert new tags + apply tags to posts
 	 */
-	#[Hook( name : 'post.import_tags', priority : 1 )]
+	#[Hook( name : 'post.import.tags', priority : 10 )]
 	public function import_tags( string $event, HookResult $result, array $args ) : HookResult {
 		$posts = $result->data['import_post_ids'] ?? [];
 		if ( !$posts ) { return $result; }
@@ -17824,8 +17849,9 @@ class Bare {
 	 *  
 	 *  @param string	$title		Overall page title
 	 *  @param string	$url		Current page URL
+	 *  @param ?string	$desc		Page description
 	 */
-	private function meta_links( string $title, string $url ) : array {
+	private function meta_links( string $title, string $url, ?string $desc ) : array {
 		// From config
 		$links	= $this->config->setting( 'meta_links', [], 'json' );
 		foreach (  $links as $link ) {
@@ -17838,6 +17864,9 @@ class Bare {
 		// OpenGraph
 		$meta[]	= [ 'property'	=> 'og:title', 'content' => $title ];
 		$meta[]	= [ 'property'	=> 'og:url', 'content' => $url ];
+		if ( null !== $desc ) { 
+			$meta[]	= [ 'property'	=> 'og:description', 'content' => $desc ]; 
+		}
 		
 		return $meta;
 	}
@@ -17847,9 +17876,7 @@ class Bare {
 	 */
 	private function head_links() : array {
 		$links	= [];
-		$hooks	= [
-			'page.stylesheets'	=> 'stylesheets'
-		];
+		$hooks	= [ 'page.stylesheets'	=> 'stylesheets' ];
 		foreach ( $hooks as $name => $value ) {
 			$data	= $this->hooks->run( $name, true )->data[$value] ?? [];
 			$links	= \array_merge( $links, $data );
@@ -17916,11 +17943,13 @@ class Bare {
 		// Render archive index 
 		$result = $this->hooks->run( 'post.render_index', true, [ 'posts' => $result->data['posts'] ] );
 		
+		$desc	= $this->config->setting( 'name', 'My Page' );
+		
 		// Build page wrapper 
 		$wrap	= $this->hooks->run( 'page.render', false, [
 			'html'		=> $result->data['html'] ?? '',
 			'title'		=> $this->archive_title( $start, $end ),
-			'meta_tags'	=> $this->meta_links( $title, $path ),
+			'meta_tags'	=> $this->meta_links( $title, $path, $desc ),
 			'head_links'	=> $this->head_links(),
 			'feeds'		=> [],
 			'head_js'	=> [],
@@ -17948,13 +17977,13 @@ class Bare {
 		
 		$post	= $result->data['post'];
 		$single	= $this->hooks->run( 'post.format', [ 'post' => $post ] )->with_template( 'tpl_post' );
-		
-		$meta	= $this->get_meta( $post['title'] ?? '', $post['permalink'] ?? '/' );
+		$meta	= $this->meta_links( $post['title'] ?? '', $post['permalink'] ?? '/' );
+		$desc	= $this->config->setting( 'name', 'My Page' );
 		
 		// Render full page
 		$wrap	= $this->hooks->run( 'page.render', false, [
 			'html'		=> $single->data['html'],
-			'title'		=> $poat['title'],
+			'title'		=> $poat['title'] . ' - ' . $desc,
 			'meta_tags'	=> $meta,
 			'head_links'	=> $this->head_links(),
 			'feeds'		=> [],
@@ -17992,12 +18021,14 @@ class Bare {
 		}
 		
 		$title	= "Tag {$tag}";
+		$desc	= $this->config->setting( 'name', 'My Page' );
 		$path	= $page > 1 ? "/tags/{$tag}/page{$page}" : "/tags/{$tag}";
+		
 		$index	= $this->hooks->run( 'post.render_index', true, [ 'posts' => $result->data['posts'] ] );
 		$wrap	= $this->hooks->run( 'page.render', false, [
 			'html'		=> $index->data['html'] ?? '',
-			'title'		=> $title,
-			'meta_tags'	=> $this->meta_links( $title, $path ),
+			'title'		=> $title . ' - ' . $desc,
+			'meta_tags'	=> $this->meta_links( $title, $path, $desc ),
 			'head_links'	=> $this->head_links(),
 			'feeds'		=> [],
 			'head_js'	=> [],
@@ -18048,10 +18079,45 @@ class Bare {
 	#[Route( pattern : '/page{page:page}?', method : 'get' )]
 	#[Route( pattern : '/', method : 'get' )]
 	public function index( array $params ) : HookResult {
-		// TODO: Homepage
+		$dir	= $this->config->setting( 'post_dir', Storage::base() );
+		$limit	= $this->config->setting( 'post_limit', 10 );
+		$page	= ( int ) ( $params['page'] ?? 1 );
+		
+		// Lookup archive posts
+		$result = $this->hooks->run( 'post.archive_lookup', true, [ 
+			'page' => $page
+		] );
+		
+		$posts = $result->data['posts'] ?? [];
+		if ( !$posts ) {
+			// TODO: Run import
+			// $result	= $this->hooks->run( 'post.import' );
+			return $this->run_404( $path, "No archive entries found for {$path}" );
+		}
+		
+		foreach ( $posts as &$post ) {
+			$post = $this->hooks->run( 'post.format', [ 'post' => $post ] )->data['post'] ?? [];
+		}
+		
+		$title	= $this->config->setting( 'name', 'My Page' );
+		$desc	= $this->config->setting( 'description', 'A Nice Place' );
+		$path	= $page > 1 ? "/page{$page}" : "/";
+		
+		$wrap	= $this->hooks->run( 'page.render', false, [
+			'html'		=> $result->data['html'] ?? '',
+			'title'		=> $title,
+			'meta_tags'	=> $this->meta_links( $title, $path, $desc ),
+			'head_links'	=> $this->head_links(),
+			'feeds'		=> [],
+			'head_js'	=> [],
+			'body_js'	=> [],
+			'body_classes'	=> 'page-home page-' . \strtr( $path, [ '/' => '-' ] )
+		] );
+		
+		// Build final response
 		return $this->hooks->run( 'route.handled', true, [ 
 			'response_status'	=> 200, 
-			'response_content'	=> 'Bare index',
+			'response_content'	=> $wrap->data['html'] ?? '',
 			'response_is_cached'	=> true
 		] );
 	}
