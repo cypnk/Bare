@@ -5903,6 +5903,15 @@ class HookResult {
 	 */
 	private array $blocks		= [];
 	
+	/**
+	 *  Hook output result
+	 *  
+	 *  @param string	$template	Optional template data with data formatting
+	 *  @param string	$html		Optional direct HTML output content
+	 *  @param array	$data		Processed field data to feed template
+	 *  @param array	$meta		Information about the output result
+	 *  @param array	$errors		Running compilation of hook execution errors
+	 */
 	public function __construct(
 		public ?string	$template	= null,
 		public ?string	$html		= null,
@@ -5911,12 +5920,24 @@ class HookResult {
 		public array	$errors		= []
 	) {}
 	
+	/**
+	 *  Replace HTML with direct values
+	 *  
+	 *  @param string	$html		Replacement
+	 *  @return self
+	 */
 	public function with_html( string $html ) : self {
 		$clone			= clone $this;
 		$clone->html		= $html;
 		return $clone;
 	}
 	
+	/**
+	 *  Replace HTML with template parsed output
+	 *  
+	 *  @param string	$template	Block template data with placeholders
+	 *  @return self
+	 */
 	public function with_template( string $template ) : self {
 		$clone			= clone $this;
 		$clone->template	= $template;
@@ -5928,24 +5949,47 @@ class HookResult {
 		return $clone;
 	}
 	
+	/**
+	 *  Add to processed cumulative hook data for subsequent calls
+	 *  
+	 *  @param array	$data		Hook information
+	 *  @return self
+	 */
 	public function with_data( array $data ) : self {
 		$clone			= clone $this;
 		$clone->data		= $data;
 		return $clone;
 	}
 	
+	/**
+	 *  Add new direct HTML values before current HTML
+	 *  
+	 *  @param string	$html		Prepend values
+	 *  @return self
+	 */
 	public function prepend_html( string $html ) : self {
 		$clone			= clone $this;
 		$clone->html		= $html . ( $this->html ?? '' );
 		return $clone;
 	}
 	
+	/**
+	 *  Add new direct HTML values after current HTML
+	 *  
+	 *  @param string	$html		Suffix values
+	 *  @return self
+	 */
 	public function append_html( string $html ) : self {
 		$clone			= clone $this;
 		$clone->html		= ( $this->html ?? '' ) . $html;
 		return $clone;
 	}
 	
+	/**
+	 *  Get current cumulative HTML
+	 *  
+	 *  @return string
+	 */
 	public function get_html() : string {
 		return $this->html ?? '';
 	}
@@ -6328,7 +6372,7 @@ class HookPipeline {
 		
 		// Merge before, current, and after
 		$out		= $bout->merge( $result )->merge( $aout );
-		$out_html	= $out->html ?? '';
+		$out_html	= $out->get_html();
 		
 		foreach( $out->fragments() as $frag ) {
 			$out_html .= $frag;
@@ -12879,7 +12923,7 @@ class PageRendering {
 		$body_classes	= $result->data['body_classes']	?? 
 					$args['body_classes'] ?? '';
 		
-		$body		= $result->data['html']		?? $args['html']	?? '';
+		$body		= $result->data['body']		?? $args['body']	?? '';
 		$head_js	= $result->data['head_js']	?? $args['head_js']	?? [];
 		$body_js	= $result->data['body_js']	?? $args['body_js']	?? [];
 		$meta_tags	= $result->data['meta_tags']	?? $args['meta_tags']	?? [];
@@ -14255,10 +14299,11 @@ class PostImporting {
 	/**
 	 *  Load file information, including metadata
 	 *  
-	 *  @param string	$path	Full file location
+	 *  @param string	$path		Full file location
+	 *  @param string	$meta_lines	Maximum number of lines to scan for metadata
 	 *  @return array
 	 */
-	private function entry_import( string $path ) : ?array {
+	private function entry_import( string $path, int $meta_lines ) : ?array {
 		if ( @!\is_readable( $path ) ) { return null; }
 		
 		$raw	= @\file( $path, \FILE_IGNORE_NEW_LINES );
@@ -14270,9 +14315,9 @@ class PostImporting {
 		$meta	= [];
 		$start	= 0;	// Body start
 		
-		$lines	= ( int ) $this->config->setting( 'entry_meta_lines', 6 );
+		// Limit meta search to maximum number of lines in the entry
 		$rcount	= count( $raw );
-		$mcount	= \min( $lines, $rcount );
+		$mcount	= \min( $meta_lines, $rcount );
 		
 		// Top metadata
 		for ( $i = 1; $i < $mcount; $i++ ) {
@@ -14320,6 +14365,7 @@ class PostImporting {
 		// Path as slug
 		$meta['slug']	= \pathinfo( $path, \PATHINFO_FILENAME );
 		
+		// Extract between starting and ending metadata
 		$text		= \array_slice( $raw, $start, $cut - $start );
 		$text		= Text::trim_lines( $text );
 		$body		= \implode( "\n", $text );
@@ -14378,6 +14424,7 @@ class PostImporting {
 		$page	= \min( 1, $page );
 		$total	= count( $files );
 		$pcount	= \max( 1, ( int ) \ceil( $total / $limit ) );
+		$lines	= ( int ) $this->config->setting( 'entry_meta_lines', 6 );
 		
 		// Paginate
 		$offset	= ( $page - 1 ) * $limit;
@@ -14386,7 +14433,7 @@ class PostImporting {
 		// Load only the entries needed for this page
 		$entries = 
 		\array_values( \array_filter(
-			\array_map( fn( $f ) => $this->entry_import( $f['path'] ), $slice ),
+			\array_map( fn( $f ) => $this->entry_import( $f['path'] ), $slice, $lines ),
 			fn( $e ) => $e !== null
 		) );
 		
@@ -14432,16 +14479,42 @@ class PostImporting {
 	}
 	
 	/**
+	 *  Scan by dated limited range
+	 */
+	#[Hook( name : 'post.file_index', priority : 1 )]
+	public function scan_index( string $event, HookResult $result, array $args ) : HookResult {
+		$base	= $args['base']		?? null;
+		$start	= $args['start']	?? null;
+		
+		if ( $base && $start ) {
+			$end	= $args['end']		?? new DateTime( 'now' );
+			$limit	= $args['limit']	?? 10;
+			$page	= ( int ) ( $args['page'] ?? 1 );
+
+			$files	= $this->entry_index( $base, $start, $end, $page, $limit );
+			return $result->with_data( [
+				'import_index'	=> true,
+				'import_files'	=> $files
+			] );
+		}
+		return $result;
+	}
+	
+	/**
 	 *  Scan directory and collect files
 	 */
 	#[Hook( name : 'post.import.scan', priority : 90 )]
 	public function import_scan( string $event, HookResult $result, array $args ) : HookResult {
-		$base		= $args['base'] ?? null;
+		// Prior run?
+		$files = $result->data['import_files'] ?? [];
+		if ( $files ) { return $result; }
+		
+		$base	= $args['base'] ?? null;
 		if ( !$base ) {
 			return $result->with_data( [ 'import_scan' => false ] );
 		}
 		
-		$files = $this->entry_files( $base );
+		$files	= $this->entry_files( $base );
 		
 		return $result->with_data( [
 			'import_scan'	=> true,
@@ -14459,9 +14532,9 @@ class PostImporting {
 		if ( !$files ) { return $result; }
 		
 		$parsed = [];
-		
+		$lines	= ( int ) $this->config->setting( 'entry_meta_lines', 6 );
 		foreach ( $files as $file ) {
-			$entry		= $this->entry_import( $file['path'] );
+			$entry		= $this->entry_import( $file['path'], $lines );
 			if ( !$entry ) { continue; }
 			
 			$core		= [ 'title' => '', 'slug' => '', 'tags' => '' ];
@@ -17909,6 +17982,29 @@ class Bare {
 		);
 	}
 	
+	private function file_lookup( \DateTime $start, int $page ) : array {
+		$dir	= $this->config->setting( 'post_dir', Storage::base() );
+		$limit	= $this->config->setting( 'post_limit', 10 );
+		$test	= 
+		$this->hooks->run( 'post.file_index', true, [ 
+			'base'	=> $dir, 
+			'start'	=> $start, 
+			'limit'	=> $limit,
+			'page'	=> $page
+		] );
+		
+		return $test->data['import_files'] ?? [];
+	}
+	
+	private function archive_lookup( array $params, int $page ) : HookResult {
+		return $this->hooks->run( 'post.archive_lookup', true, [
+			'year'	=> $params['year']	?? null,
+			'month'	=> $params['month']	?? null,
+			'day'	=> $params['day']	?? null,
+			'page'	=> $page
+		] );
+	}
+	
 	#[Route( pattern : '/{year:int}/{month:int}/{day:int}/page{page:int}?', method : 'get' )]
 	#[Route( pattern : '/{year:int}/{month:int}/{day:int}', method : 'get' )]
 	#[Route( pattern : '/{year:int}/{month:int}/page{page:int}?', method : 'get' )]
@@ -17918,22 +18014,32 @@ class Bare {
 	public function archive( array $params ) : HookResult {
 		[ $start, $end, $page ]	= Util::date_range( $params, true );
 		
-		$dir	= $this->config->setting( 'post_dir', Storage::base() );
-		$limit	= $this->config->setting( 'post_limit', 10 );
 		$path	= $this->path_string( $params );
+		if ( !$start ) {
+			return $this->run_404( $path, "No archive entries found for {$path}" );
+		}
 		
 		// Lookup archive posts
-		$result = $this->hooks->run( 'post.archive_lookup', true, [
-			'year'	=> $params['year']	?? null,
-			'month'	=> $params['month']	?? null,
-			'day'	=> $params['day']	?? null,
-			'page'	=> $page
-		] );
-		
+		$result	= $this->archive_lookup( $params, $page );
 		$posts = $result->data['posts'] ?? [];
+		
 		if ( !$posts ) {
-			// TODO: Make this language based
-			return $this->run_404( $path, "No archive entries found for {$path}" );
+			// Try files instead
+			$files	= $this->file_lookup( $start, $page );
+			if ( !$files ) {	
+				// TODO: Make this language based
+				return $this->run_404( $path, "No archive entries found for {$path}" );
+			}
+			
+			// Files found? Import them
+			$this->hooks->run( 'post.import', true, [ 'import_files' => $files ] );
+			
+			// Try again
+			$result	= $this->archive_lookup( $params, $page );
+			$posts	= $result->data['posts'] ?? [];
+			if ( !$posts ) {
+				return $this->run_404( $path, "No archive entries found for {$path}" );
+			}
 		}
 		
 		foreach ( $posts as &$post ) {
@@ -17946,8 +18052,9 @@ class Bare {
 		$desc	= $this->config->setting( 'name', 'My Page' );
 		
 		// Build page wrapper 
-		$wrap	= $this->hooks->run( 'page.render', false, [
-			'html'		=> $result->data['html'] ?? '',
+		$wrap	= 
+		$this->hooks->run( 'page.render', false, [
+			'body'		=> $result->get_html(),
 			'title'		=> $this->archive_title( $start, $end ),
 			'meta_tags'	=> $this->meta_links( $title, $path, $desc ),
 			'head_links'	=> $this->head_links(),
@@ -17960,19 +18067,34 @@ class Bare {
 		// Build final response
 		return $this->hooks->run( 'route.handled', true, [ 
 			'response_status'	=> 200, 
-			'response_content'	=> $wrap->data['html'] ?? '',
+			'response_content'	=> $wrap->get_html(),
 			'response_is_cached'	=> true
 		] );
 	}
 	
 	#[Route( pattern : '/{year:int}/{month:int}/{day:int}/{slug:str}', method : 'get' )]
 	public function post( array $params ) : HookResult {
-		$path	= "{$params['year']}/{$params['month']}{$params['day']}/{$params['slug']}";
+		[ $start, $end, $page ]	= Util::date_range( $params, true );
+
+		$path	= $this->path_string( $params ) . "/{$params['slug']}";
 		$result = $this->hooks->run( 'post.lookup', true, [ 'path' => $path ] );
 		$found	= $result->data['post_found'] ?: false;
 		
-		if ( !$found ) { 
-			return $this->run_404( $path, "No post found for {$path}" ); 
+		if ( !$found ) {
+			// Start with request time frame
+			$files	= $this->file_lookup( $start, $page );
+			if ( !$files ) {
+				// Still nothing?
+				return $this->run_404( $path, "No post found for {$path}" ); 
+			}
+			
+			$this->hooks->run( 'post.import', true, [ 'import_files' => $files ] );
+			$result = $this->hooks->run( 'post.lookup', true, [ 'path' => $path ] );
+			$found	= $result->data['post_found'] ?: false;
+			
+			if ( !$found ) {
+				return $this->run_404( $path, "No post found for {$path}" );
+			}
 		}
 		
 		$post	= $result->data['post'];
@@ -17981,8 +18103,9 @@ class Bare {
 		$desc	= $this->config->setting( 'name', 'My Page' );
 		
 		// Render full page
-		$wrap	= $this->hooks->run( 'page.render', false, [
-			'html'		=> $single->data['html'],
+		$wrap	= 
+		$this->hooks->run( 'page.render', false, [
+			'body'		=> $single->get_html(),
 			'title'		=> $poat['title'] . ' - ' . $desc,
 			'meta_tags'	=> $meta,
 			'head_links'	=> $this->head_links(),
@@ -17995,7 +18118,7 @@ class Bare {
 		// Response ready
 		return $this->hooks->run( 'route.handled', true, [ 
 			'response_status'	=> 200, 
-			'response_content'	=> $wrap->data['html'] ?? '',
+			'response_content'	=> $wrap->get_html(),
 			'response_is_cached'	=> true
 		] );
 	}
@@ -18026,7 +18149,7 @@ class Bare {
 		
 		$index	= $this->hooks->run( 'post.render_index', true, [ 'posts' => $result->data['posts'] ] );
 		$wrap	= $this->hooks->run( 'page.render', false, [
-			'html'		=> $index->data['html'] ?? '',
+			'body'		=> $index->get_html(),
 			'title'		=> $title . ' - ' . $desc,
 			'meta_tags'	=> $this->meta_links( $title, $path, $desc ),
 			'head_links'	=> $this->head_links(),
@@ -18038,7 +18161,7 @@ class Bare {
 		
 		return $this->hooks->run( 'route.handled', true, [ 
 			'response_status'	=> 200, 
-			'response_content'	=> $wrap->data['html'] ?? '',
+			'response_content'	=> $wrap->get_html(),
 			'response_is_cached'	=> true
 		] );
 	}
@@ -18084,7 +18207,7 @@ class Bare {
 		$page	= ( int ) ( $params['page'] ?? 1 );
 		
 		// Lookup archive posts
-		$result = $this->hooks->run( 'post.archive_lookup', true, [ 
+		$result = $this->hooks->run( 'post.index_lookup', true, [ 
 			'page' => $page
 		] );
 		
@@ -18103,8 +18226,9 @@ class Bare {
 		$desc	= $this->config->setting( 'description', 'A Nice Place' );
 		$path	= $page > 1 ? "/page{$page}" : "/";
 		
-		$wrap	= $this->hooks->run( 'page.render', false, [
-			'html'		=> $result->data['html'] ?? '',
+		$wrap	= 
+		$this->hooks->run( 'page.render', false, [
+			'body'		=> $result->get_html(),
 			'title'		=> $title,
 			'meta_tags'	=> $this->meta_links( $title, $path, $desc ),
 			'head_links'	=> $this->head_links(),
@@ -18117,7 +18241,7 @@ class Bare {
 		// Build final response
 		return $this->hooks->run( 'route.handled', true, [ 
 			'response_status'	=> 200, 
-			'response_content'	=> $wrap->data['html'] ?? '',
+			'response_content'	=> $wrap->get_html(),
 			'response_is_cached'	=> true
 		] );
 	}
