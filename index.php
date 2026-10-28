@@ -14506,7 +14506,7 @@ class PostImporting {
 	#[Hook( name : 'post.import.scan', priority : 90 )]
 	public function import_scan( string $event, HookResult $result, array $args ) : HookResult {
 		// Prior run?
-		$files = $result->data['import_files'] ?? [];
+		$files	= $result->data['import_files'] ?? ( $args['import_files'] ?? [] );
 		if ( $files ) { return $result; }
 		
 		$base	= $args['base'] ?? null;
@@ -18032,7 +18032,7 @@ class Bare {
 			}
 			
 			// Files found? Import them
-			$this->hooks->run( 'post.import', true, [ 'import_files' => $files ] );
+			$this->hooks->run( 'post.import', false, [ 'import_files' => $files ] );
 			
 			// Try again
 			$result	= $this->archive_lookup( $params, $page );
